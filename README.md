@@ -48,3 +48,50 @@ Then open http://localhost:8000
 Apache 2.0 - See [LICENSE](LICENSE)
 
 Copyright 2026 Pigs Can Fly Labs LLC
+
+## Reverse-Engineering Workspace (Clean-Room)
+
+This repository now includes an optional reverse-engineering coordination workspace focused on
+**derived protocol specifications** and local-first replacement app planning.
+
+### Quick start
+
+```bash
+./scripts/fetch_apks_apkeep.sh
+./scripts/pull_apks_adb.sh
+./scripts/run_static_target.sh pax-vape
+# or run every APK at once:
+./scripts/run_static_all.sh
+./scripts/detect_devices.sh
+./scripts/launch_agents_tmux.sh
+```
+
+### New planning and guardrail docs
+
+- `docs/EXEC_SUMMARY.md`
+- `docs/CLEANROOM_RULES.md`
+- `docs/AUTODETECTION.md`
+- `targets/targets.csv` + per-target starter templates
+- `prompts/AGENT_META_PROMPT.md`
+
+All heavy artifacts are kept under `workspace/` and gitignored by default.
+
+
+## One-target-at-a-time workflow (APK decompile first)
+
+When hardware is not available, work target-by-target using APK static analysis first:
+
+```bash
+# 1) pick one target
+TARGET=pax-vape
+
+# 2) fetch/pull APKs
+./scripts/fetch_apks_apkeep.sh
+# or
+./scripts/pull_apks_adb.sh
+
+# 3) decompile only that target
+./scripts/run_static_target.sh "$TARGET"
+```
+
+Outputs are written to `workspace/static/<target_id>/...` and include logs plus protocol-hint greps.
