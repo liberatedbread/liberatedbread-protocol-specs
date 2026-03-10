@@ -1,7 +1,7 @@
 # AdMore Light Bar Pro
 
-> **Status**: Research
-> **Protocol**: BLE
+> **Status**: In Progress (APK static analysis complete; HCI capture pending)
+> **Protocol**: BLE (Nordic UART Service + Protobuf)
 > **Manufacturer**: AdMore Lighting Inc.
 > **Manufacturer Status**: Active (app-dependent — settings require AdMore Connect app)
 
@@ -12,9 +12,9 @@ tail light, brake light, progressive amber turn signals, hazard flasher, and lic
 illumination. The PRO model includes an accelerometer for deceleration-triggered brake light
 activation and a BLE interface for configuring settings via the free AdMore Connect app.
 
-This device is being reverse engineered so the community can build an open replacement for
-the proprietary AdMore Connect app, ensuring long-term configurability of owned hardware
-independent of the vendor's app availability.
+The app communicates with the light bar over a **Nordic UART Service (NUS)** BLE profile,
+sending **Protocol Buffer (protobuf)** encoded messages. The device runs an nRF-based
+chipset with Nordic DFU support for firmware updates.
 
 ## Hardware
 
@@ -27,80 +27,199 @@ independent of the vendor's app availability.
 | Housing | Weatherproof aluminum, powder-coated bracket |
 | Voltage | 12V DC (motorcycle electrical system) |
 | Wiring | 5-wire: brake, taillight, left signal, right signal, ground |
-| Radio | BLE (chipset TBD) |
+| Radio | BLE (Nordic nRF-based chipset — exact part TBD via FCC filing) |
 | FCC ID | TBD |
 | Compatibility | All 12V motorcycles/scooters; CANBUS compatible |
 | Origin | Calgary, Alberta, Canada |
 
+## BLE Discovery
+
+| Property | Value |
+|----------|-------|
+| Advertised Name | `AdMore Light Bar` |
+| DFU Mode Name | `AdMore Light Bar DFU` |
+
+Related devices (same app):
+
+| Device | Advertised Name |
+|--------|----------------|
+| Armband (unprovisioned) | `AdMore Armband` |
+| Armband (left) | `AdMore Armband Left` |
+| Armband (right) | `AdMore Armband Right` |
+
 ## Protocol Summary
 
-### BLE Services
+### BLE Services — Nordic UART Service (NUS) Variants
 
-!!! note "Research in progress"
-    UUIDs below are placeholders. Actual values to be discovered via GATT enumeration
-    and APK static analysis.
+The device uses customized variants of the Nordic UART Service. The base UUID follows
+the NUS pattern (`6E4000xx-B5A3-F393-E0A9-E50E24DCCAxx`) with different suffixes for
+different device types.
+
+#### Light Bar NUS Service
 
 | UUID | Name | Properties | Description |
 |------|------|------------|-------------|
-| `TBD` | Control Service | — | Primary custom service for settings |
-| `TBD` | Command Characteristic | write | Write setting commands to device |
-| `TBD` | Status Characteristic | read, notify | Read current settings / acknowledgments |
-| `TBD` | Firmware Characteristic | read | Read firmware version |
+| `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` | NUS Service | — | Primary UART service |
+| `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | NUS RX | write, write-no-response | App writes commands here |
+| `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | NUS TX | notify | Device sends responses here |
+| `00002902-0000-1000-8000-00805f9b34fb` | CCCD | read, write | Enable/disable TX notifications |
 
-### Known App-Controllable Settings
+#### Additional NUS Services (other device types)
 
-| Setting | Type | Range (hypothesized) | Description |
-|---------|------|---------------------|-------------|
-| Brake light brightness | uint8 | 0–100 or 0–255 | Intensity of brake light LEDs |
-| Brake light flash count | uint8 | 0–N | Number of flashes before going solid |
-| Brake light flash speed | uint8 | enum or 0–N | Speed of brake light flashing |
-| License plate LED | bool | on/off | Toggle white license plate illumination |
-| Accelerometer sensitivity | uint8 | 0–100 or enum | Deceleration threshold for auto-brake activation |
-| Running light brightness | uint8 | 0–100 or 0–255 | Intensity of always-on running lights |
-| Taillight brightness | uint8 | 0–100 or 0–255 | Intensity of taillight LEDs |
+| UUID Suffix | Likely Device |
+|-------------|---------------|
+| `...DCCAAE` | Armband |
+| `...DCCABE` | Unknown (possibly signals accessory) |
+| `...DCCACE` | Unknown (possibly diagnostic) |
 
-### Commands
+### Message Encoding
 
-!!! warning "Hypothesized format"
-    Command structure is not yet confirmed. The format below is a hypothesis based on
-    common BLE device patterns documented in [Common BLE Patterns](../protocols/ble-common.md).
+Messages are serialized using **Protocol Buffers** (protobuf), defined in
+`package:messaging_common/build_dart/lightbar.pb.dart`. The protobuf bytes are sent
+as a byte stream over the NUS RX characteristic.
 
-#### Command: Set Setting
+The internal message bus uses **KMsg** (`package:messaging_common/kmessaging.dart`) for
+source/destination routing between components (app, device, backend, diagnostics).
 
-Hypothesized request format (single write to command characteristic):
+!!! note "Protobuf field numbers unknown"
+    The exact protobuf field numbers and message structure require either Dart snapshot
+    disassembly or HCI capture analysis to reconstruct. The setting IDs and values below
+    are confirmed; the wire encoding wrapping them is not yet fully mapped.
 
-| Offset | Length | Description |
-|--------|--------|-------------|
-| 0 | 1 | Command ID (one per setting — TBD) |
-| 1 | 1 | Value |
+### Settings Commands
 
-Alternatively, a framed format:
+All settings are defined in `lb_config.xml` (Flutter asset). Each setting has an ID string
+and discrete allowed values. Settings are sent to the device as protobuf messages over NUS.
 
-| Offset | Length | Description |
-|--------|--------|-------------|
-| 0 | 1 | Header / start byte |
-| 1 | 1 | Command ID |
-| 2 | 1 | Payload length |
-| 3 | N | Payload (setting value) |
-| 3+N | 1 | Checksum (XOR or sum mod 256) |
+#### Light Output Settings (LOS)
 
-#### Command: Read Settings
+| Setting ID | Label | Type | Values |
+|-----------|-------|------|--------|
+| `LOS_TAIL_LIGHT_BRIGHTNESS` | Tail Light Brightness | discrete | OFF=0, 1=200, 2=400, 3=1000, 4=1500, 5=2000 |
+| `LOS_BRAKE_LIGHT_BRIGHTNESS` | Brake Light Brightness | discrete | 6=5000, 7=5500, 8=6000, 9=6500, 10=7000 |
+| `LOS_BRAKE_FLASH_COUNT` | Brake Flash (Count) | discrete | OFF=0, 2, 4, 6, 8, 10 |
+| `LOS_BRAKE_FLASH_TIME_MS` | Brake Flash (Speed) | discrete | 1=50ms, 2=40ms, 3=30ms, 4=20ms, 5=10ms |
+| `LOS_BRAKE_STROBE_DURATION_MS` | Amber Strobe (Brake) | discrete | OFF=0, 5s=5000, 10s=10000, 15s=15000, 20s=20000, ON=-1 |
+| `LOS_PLATE_LIGHT_BRIGHTNESS` | Plate Light | toggle | ON=8000, OFF=0 |
+| `LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS` | Sequential Turn Signal | toggle | ON=30, OFF=0 |
+| `LOS_TURN_LIGHT_BRIGHTNESS` | Turn Light Brightness | discrete | (values TBD) |
+| `LOS_SET_LIGHT` | Set Light (direct) | — | (diagnostic/test use) |
+| `LOS_DEALER_DEMO_MODE` | Demo Mode | toggle | ON=1, OFF=0 (firmware version ^1+) |
 
-Hypothesized: read from status characteristic returns all current setting values in a
-fixed-length byte array, or individual reads per setting.
+#### Motion Management Settings (MMS)
 
-#### Command: Firmware Version
+| Setting ID | Label | Type | Values |
+|-----------|-------|------|--------|
+| `MMS_DECEL_TOGGLE` | Accelerometer Sensor | toggle (native) | ON=1, OFF=0 |
+| `MMS_DECEL_THRESHOLD` | Deceleration Sensitivity | discrete | OFF=0, 1=4000, 2=3920, ..., 50=80 (51 levels, step -80) |
+| `MMS_DECEL_OFF_DELAY_MS` | Deceleration Light Delay | discrete | 1s=1000, 1.5s=1500, 2s=2000, 2.5s=2500, 3s=3000 |
+| `MMS_DECEL_COUNT` | Deceleration Duration | discrete | 5–40 (integer) |
+| `MMS_ENABLE_BRAKE_WHITE_STROBE` | Amber Strobe on Deceleration | toggle | ON=1, OFF=0 |
+| `MMS_ENABLE_TIPOVER` | Tip Over Flash | toggle | ON=1, OFF=0 |
 
-Hypothesized: read from firmware characteristic returns a version string or structured
-version bytes.
+#### Light Input Settings (LIS)
+
+| Setting ID | Label | Type | Values | Notes |
+|-----------|-------|------|--------|-------|
+| `LIS_ENABLE_BRAKE_INVERT` | Input Brake Invert | toggle | ON=1, OFF=0 | Firmware ^1+. For bikes where brake signal is inverted. |
+| `LIS_ENABLE_TWO_WIRE` | Two Lamp Mode | toggle | ON=1, OFF=0 | Firmware ^1+. For bikes without dedicated brake signal. |
+
+### Override / Special Modes
+
+| Command | Description |
+|---------|-------------|
+| `OVERRIDE_HAZARD` | Activate hazard flasher |
+| `OVERRIDE_PROCESSION` | Activate procession mode (amber wig-wag for group riding) |
+| `OVERRIDE_DEMO` | Activate demo mode |
+| `OVERRIDE_TILTOVER` | Activate tilt-over mode |
+
+### System Commands
+
+| Command | Description |
+|---------|-------------|
+| `APP_QUERY` | Query current device state |
+| `APP_VERSIONS` | Query app version info |
+| `APP_NOP` | No-op / keepalive |
+| `HW_VERSIONS` | Query hardware version |
+| `SYS_VERSIONS` | Query system/firmware version |
+| `MMS_QUERY_INFO` | Query motion sensor info |
+| `DATA_FACTORY_DEFAULT` | Reset all settings to factory defaults |
+| `DATA_COMMIT` | Save/commit current settings |
+| `DATA_RELOAD` | Reload settings from storage |
+| `DATA_MAINTAIN` | Enter maintenance mode |
+| `DATA_ABANDON_RESTORE` | Cancel restore operation |
+| `SOFT_RESET` | Soft reset device |
+| `ENTER_DFU` | Enter firmware update (DFU) mode |
+| `ENTER_SLEEP` | Enter sleep mode |
+| `RESET_LIGHTS` | Reset all light outputs |
+
+### Test Commands
+
+| Command | Description |
+|---------|-------------|
+| `TEST_BRAKE_LIGHT_LEFT` | Test left brake LEDs |
+| `TEST_BRAKE_LIGHT_RIGHT` | Test right brake LEDs |
+| `TEST_BRAKE_LIGHT_CENTER` | Test center brake LEDs |
+| `TEST_BRAKE_WHITE` | Test white (plate) LEDs |
+| `TEST_LEFT_TURN` | Test left turn signal |
+| `TEST_RIGHT_TURN` | Test right turn signal |
+| `TEST_PLATE_LIGHT` | Test plate light |
+| `TEST_BLUE_LIGHT` | Test blue diagnostic light |
+| `TEST_RESET_LIGHTS` | Reset all test lights |
+
+### State Events (device → app)
+
+These are reported by the device via the NUS TX characteristic:
+
+| Event | Description |
+|-------|-------------|
+| `LIS_BRAKE_ON` / `LIS_BRAKE_OFF` | Physical brake switch state |
+| `LIS_LEFT_ON` / `LIS_LEFT_OFF` | Left turn signal state |
+| `LIS_RIGHT_ON` / `LIS_RIGHT_OFF` | Right turn signal state |
+| `LIS_PWM_ON` / `LIS_PWM_OFF` | PWM output state |
+| `MMS_DECEL_ON` / `MMS_DECEL_OFF` | Deceleration detected / cleared |
+| `MMS_MOTION_ON` / `MMS_MOTION_OFF` / `MMS_MOTION_STOP` | Motion state |
+| `MMS_TILT_DOWN` / `MMS_TILT_UPD` | Tilt detection |
+
+### Version Reporting
+
+The device reports multiple version strings via query commands:
+
+| Version | Query |
+|---------|-------|
+| Firmware Version | `SYS_VERSIONS` |
+| Bootloader Version | `SYS_VERSIONS` |
+| System Version | `SYS_VERSIONS` |
+| Database Version | `SYS_VERSIONS` |
+
+### Firmware Update (DFU)
+
+| Property | Value |
+|----------|-------|
+| DFU Library | Nordic DFU (`dev.steenbakker.nordic_dfu`) |
+| DFU Trigger | Send `ENTER_DFU` command |
+| DFU Device Name | `AdMore Light Bar DFU` |
+| Firmware Source | Firebase Storage (`admore-light-bar-with-ble.firebaseio.com`, path: `lightbar-firmware/`) |
+| DFU Modes | Legacy and Secure DFU |
+
+### Firebase Backend
+
+| Property | Value |
+|----------|-------|
+| Project ID | `admore-light-bar-with-ble` |
+| Database URL | `https://admore-light-bar-with-ble.firebaseio.com` |
+| Uses | Firmware distribution, user accounts, device registration |
+| Required for control? | No — device control is fully local over BLE |
 
 ## Tools Used
 
-- [ ] nRF Connect — GATT enumeration and characteristic discovery
-- [ ] Android HCI snoop log — capture BLE traffic during app usage
+- [x] apkeep — APK download (v0.18.0, source: APKPure)
+- [x] jadx — Java/Android decompilation (v1.5.1)
+- [x] `strings` — Dart snapshot (libapp.so) string extraction
+- [ ] nRF Connect — GATT enumeration and characteristic discovery (requires device)
+- [ ] Android HCI snoop log — capture BLE traffic during app usage (requires device)
 - [ ] Wireshark — analyze HCI snoop / PCAP captures
 - [ ] tools/pcap_parser.py — parse ATT PDUs from captures
-- [ ] apkeep / jadx — static APK analysis for UUIDs and command constants
 
 ## References
 
@@ -112,4 +231,4 @@ version bytes.
 
 ## Contributors
 
-- OpenGreenIoT community — initial research
+- OpenGreenIoT community — APK static analysis and protocol documentation

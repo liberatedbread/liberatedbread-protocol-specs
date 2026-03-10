@@ -1,176 +1,288 @@
-# AdMore Light Bar Pro — Device Spec (skeleton)
-# Status: Research — UUIDs and command bytes are TBD placeholders.
+# AdMore Light Bar Pro — Device Spec
+# Status: In Progress — UUIDs confirmed from APK analysis; protobuf wire
+#   format and exact field numbers require HCI capture to finalize.
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
+#
+# Protocol: Protobuf messages sent over Nordic UART Service (NUS) BLE profile.
+# Setting IDs and value ranges extracted from lb_config.xml (Flutter asset)
+# and libapp.so string analysis. App version analyzed: 2.1.0 (code 44).
 
 device:
   name: "AdMore Light Bar Pro"
   manufacturer: "AdMore Lighting Inc."
-  manufacturer_status: "active"  # active but app-dependent
+  manufacturer_status: "active"
   protocol: "ble"
   notes: >
     Bluetooth-enabled motorcycle brake light bar with accelerometer-based smart
-    braking. Settings are configured via the AdMore Connect app. UUIDs and command
-    bytes in this spec are placeholders awaiting reverse engineering.
+    braking. Uses Nordic UART Service (NUS) with protobuf-encoded messages.
+    Settings confirmed from APK static analysis of AdMore Connect v2.1.0.
   identification:
-    local_name_prefix: "AdMore"  # hypothesized — confirm via BLE scan
-    service_uuids: []            # TBD — discover via GATT enumeration
+    local_name_prefix: "AdMore Light Bar"
+    local_name_dfu: "AdMore Light Bar DFU"
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 
 services:
-  - uuid: "TBD-control-service-uuid"
-    name: "Control Service"
+  # Nordic UART Service — Light Bar
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service (Light Bar)"
     characteristics:
-      - uuid: "TBD-command-characteristic-uuid"
-        name: "Command"
-        properties: ["write"]
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "NUS RX (App → Device)"
+        properties: ["write", "write-without-response"]
+        notes: >
+          App writes protobuf-encoded commands here. Each write contains a
+          serialized protobuf message with the setting ID and value.
         commands:
+          # Light Output Settings (LOS)
+          set_tail_brightness:
+            description: "Set tail light brightness"
+            setting_id: "LOS_TAIL_LIGHT_BRIGHTNESS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 200, 400, 1000, 1500, 2000]
+                labels: ["OFF", "1", "2", "3", "4", "5"]
           set_brake_brightness:
             description: "Set brake light brightness"
-            template: ["TBD_CMD_ID", "{brightness}"]
+            setting_id: "LOS_BRAKE_LIGHT_BRIGHTNESS"
             parameters:
-              brightness:
-                type: "uint8"
-                min: 0
-                max: 255  # TBD — may be 0-100
+              value:
+                type: "int32"
+                allowed: [5000, 5500, 6000, 6500, 7000]
+                labels: ["6", "7", "8", "9", "10"]
           set_flash_count:
             description: "Set number of brake light flashes before solid"
-            template: ["TBD_CMD_ID", "{count}"]
+            setting_id: "LOS_BRAKE_FLASH_COUNT"
             parameters:
-              count:
-                type: "uint8"
-                min: 0
-                max: 255  # TBD — likely a small range
+              value:
+                type: "int32"
+                allowed: [0, 2, 4, 6, 8, 10]
+                labels: ["OFF", "2", "4", "6", "8", "10"]
           set_flash_speed:
-            description: "Set brake light flash speed"
-            template: ["TBD_CMD_ID", "{speed}"]
+            description: "Set brake light flash speed (lower = faster)"
+            setting_id: "LOS_BRAKE_FLASH_TIME_MS"
             parameters:
-              speed:
-                type: "uint8"
-                min: 0
-                max: 255  # TBD — may be enum or small range
-          toggle_plate_led:
-            description: "Turn license plate LED on or off"
-            template: ["TBD_CMD_ID", "{state}"]
+              value:
+                type: "int32"
+                allowed: [50, 40, 30, 20, 10]
+                labels: ["1", "2", "3", "4", "5"]
+          set_strobe_duration:
+            description: "Set amber strobe duration on braking"
+            setting_id: "LOS_BRAKE_STROBE_DURATION_MS"
             parameters:
-              state:
-                type: "uint8"
-                min: 0
-                max: 1  # 0=off, 1=on
-          set_accel_sensitivity:
-            description: "Set accelerometer sensitivity for deceleration-triggered braking"
-            template: ["TBD_CMD_ID", "{sensitivity}"]
+              value:
+                type: "int32"
+                allowed: [0, 5000, 10000, 15000, 20000, -1]
+                labels: ["OFF", "5s", "10s", "15s", "20s", "ON"]
+          set_plate_light:
+            description: "Toggle license plate light"
+            setting_id: "LOS_PLATE_LIGHT_BRIGHTNESS"
             parameters:
-              sensitivity:
-                type: "uint8"
-                min: 0
-                max: 255  # TBD — may be 0-100 or enum
-          set_running_brightness:
-            description: "Set running light brightness"
-            template: ["TBD_CMD_ID", "{brightness}"]
+              value:
+                type: "int32"
+                allowed: [0, 8000]
+                labels: ["OFF", "ON"]
+          set_sequential_turn:
+            description: "Toggle sequential turn signals"
+            setting_id: "LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS"
             parameters:
-              brightness:
-                type: "uint8"
-                min: 0
-                max: 255  # TBD — may be 0-100
-          set_taillight_brightness:
-            description: "Set taillight brightness"
-            template: ["TBD_CMD_ID", "{brightness}"]
+              value:
+                type: "int32"
+                allowed: [0, 30]
+                labels: ["OFF", "ON"]
+          set_demo_mode:
+            description: "Toggle dealer demo mode (firmware ^1+)"
+            setting_id: "LOS_DEALER_DEMO_MODE"
             parameters:
-              brightness:
-                type: "uint8"
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # Motion Management Settings (MMS)
+          set_accel_toggle:
+            description: "Enable/disable accelerometer sensor"
+            setting_id: "MMS_DECEL_TOGGLE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          set_decel_sensitivity:
+            description: "Set deceleration sensitivity (50 = maximum)"
+            setting_id: "MMS_DECEL_THRESHOLD"
+            parameters:
+              value:
+                type: "int32"
                 min: 0
-                max: 255  # TBD — may be 0-100
+                max: 4000
+                notes: "OFF=0, level 1=4000, level 2=3920, ..., level 50=80 (step -80)"
+          set_decel_delay:
+            description: "Set deceleration light delay (how long brake stays on after decel)"
+            setting_id: "MMS_DECEL_OFF_DELAY_MS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [1000, 1500, 2000, 2500, 3000]
+                labels: ["1s", "1.5s", "2s", "2.5s", "3s"]
+          set_decel_duration:
+            description: "Set deceleration duration (how long decel must be detected)"
+            setting_id: "MMS_DECEL_COUNT"
+            parameters:
+              value:
+                type: "int32"
+                min: 5
+                max: 40
+          set_decel_strobe:
+            description: "Enable amber strobe on deceleration"
+            setting_id: "MMS_ENABLE_BRAKE_WHITE_STROBE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          set_tipover:
+            description: "Enable tip-over flash"
+            setting_id: "MMS_ENABLE_TIPOVER"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # Light Input Settings (LIS)
+          set_brake_invert:
+            description: "Enable inverted brake input logic (firmware ^1+)"
+            setting_id: "LIS_ENABLE_BRAKE_INVERT"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          set_two_wire:
+            description: "Enable two lamp mode (firmware ^1+)"
+            setting_id: "LIS_ENABLE_TWO_WIRE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # System commands
+          query_state:
+            description: "Query current device state"
+            setting_id: "APP_QUERY"
+          query_versions:
+            description: "Query firmware/hardware versions"
+            setting_id: "SYS_VERSIONS"
+          factory_reset:
+            description: "Reset to factory defaults"
+            setting_id: "DATA_FACTORY_DEFAULT"
+          commit_settings:
+            description: "Save settings to device"
+            setting_id: "DATA_COMMIT"
+          enter_dfu:
+            description: "Enter firmware update mode"
+            setting_id: "ENTER_DFU"
+          override_hazard:
+            description: "Activate hazard flasher"
+            setting_id: "OVERRIDE_HAZARD"
+          override_procession:
+            description: "Activate procession mode (amber wig-wag)"
+            setting_id: "OVERRIDE_PROCESSION"
 
-      - uuid: "TBD-status-characteristic-uuid"
-        name: "Status"
-        properties: ["read", "notify"]
-        format:
-          - offset: 0
-            length: 1
-            name: "brake_brightness"
-            type: "uint8"
-          - offset: 1
-            length: 1
-            name: "flash_count"
-            type: "uint8"
-          - offset: 2
-            length: 1
-            name: "flash_speed"
-            type: "uint8"
-          - offset: 3
-            length: 1
-            name: "plate_led"
-            type: "bool"
-          - offset: 4
-            length: 1
-            name: "accel_sensitivity"
-            type: "uint8"
-          - offset: 5
-            length: 1
-            name: "running_brightness"
-            type: "uint8"
-          - offset: 6
-            length: 1
-            name: "taillight_brightness"
-            type: "uint8"
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "NUS TX (Device → App)"
+        properties: ["notify"]
+        notes: >
+          Device sends protobuf-encoded responses and state events here.
+          Subscribe to notifications via CCCD (0x2902) to receive events.
+
+  # Nordic UART Service — Armband
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dccaae"
+    name: "Nordic UART Service (Armband)"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dccaae"
+        name: "NUS RX (Armband)"
+        properties: ["write", "write-without-response"]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dccaae"
+        name: "NUS TX (Armband)"
+        properties: ["notify"]
 
 entities:
   - platform: "light"
+    name: "Tail Light"
+    features: ["brightness"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_brightness: "set_tail_brightness"
+
+  - platform: "light"
     name: "Brake Light"
     features: ["brightness"]
-    state_characteristic: "TBD-status-characteristic-uuid"
-    state_mapping:
-      brightness: "brake_brightness"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
       set_brightness: "set_brake_brightness"
 
-  - platform: "light"
-    name: "Running Light"
-    features: ["brightness"]
-    state_characteristic: "TBD-status-characteristic-uuid"
-    state_mapping:
-      brightness: "running_brightness"
+  - platform: "switch"
+    name: "License Plate Light"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
-      set_brightness: "set_running_brightness"
-
-  - platform: "light"
-    name: "Taillight"
-    features: ["brightness"]
-    state_characteristic: "TBD-status-characteristic-uuid"
-    state_mapping:
-      brightness: "taillight_brightness"
-    commands:
-      set_brightness: "set_taillight_brightness"
+      turn_on: "set_plate_light"
+      turn_off: "set_plate_light"
 
   - platform: "switch"
-    name: "License Plate LED"
-    state_characteristic: "TBD-status-characteristic-uuid"
-    state_mapping:
-      is_on: "plate_led"
+    name: "Sequential Turn Signals"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
-      turn_on: "toggle_plate_led"
-      turn_off: "toggle_plate_led"
+      turn_on: "set_sequential_turn"
+      turn_off: "set_sequential_turn"
 
   - platform: "number"
-    name: "Flash Count"
-    state_characteristic: "TBD-status-characteristic-uuid"
-    state_mapping:
-      value: "flash_count"
+    name: "Brake Flash Count"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
       set_value: "set_flash_count"
 
   - platform: "number"
-    name: "Flash Speed"
-    state_characteristic: "TBD-status-characteristic-uuid"
-    state_mapping:
-      value: "flash_speed"
+    name: "Brake Flash Speed"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
       set_value: "set_flash_speed"
 
-  - platform: "number"
-    name: "Accelerometer Sensitivity"
-    state_characteristic: "TBD-status-characteristic-uuid"
-    state_mapping:
-      value: "accel_sensitivity"
+  - platform: "select"
+    name: "Amber Strobe Duration"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
-      set_value: "set_accel_sensitivity"
+      select_option: "set_strobe_duration"
+
+  - platform: "switch"
+    name: "Accelerometer Sensor"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "set_accel_toggle"
+      turn_off: "set_accel_toggle"
+
+  - platform: "number"
+    name: "Deceleration Sensitivity"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_value: "set_decel_sensitivity"
+
+  - platform: "select"
+    name: "Deceleration Light Delay"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      select_option: "set_decel_delay"
+
+  - platform: "number"
+    name: "Deceleration Duration"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_value: "set_decel_duration"
+
+  - platform: "switch"
+    name: "Tip Over Flash"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "set_tipover"
+      turn_off: "set_tipover"
