@@ -7,13 +7,11 @@ any that are new.
 """
 
 import csv
-import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
-import sys
-import tempfile
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone
@@ -61,9 +59,13 @@ def load_seen_packages(state_file: Path) -> set[str]:
     """Load the set of packages we've already inspected (even if rejected)."""
     if not state_file.exists():
         return set()
-    with open(state_file) as f:
-        data = json.load(f)
-    return set(data.get("seen", []))
+    try:
+        with open(state_file) as f:
+            data = json.load(f)
+        return set(data.get("seen", []))
+    except (json.JSONDecodeError, KeyError, ValueError):
+        log.warning("Corrupt seen-packages file %s — starting fresh", state_file)
+        return set()
 
 
 def save_seen_packages(state_file: Path, seen: set[str]) -> None:
@@ -91,8 +93,6 @@ def search_apkpure(query: str, limit: int = 20) -> list[str]:
 
     # APKPure embeds package IDs in data-package or href patterns like
     # /app-name/com.example.pkg  — extract with a simple regex.
-    import re
-    # Look for Android package names in hrefs
     pkg_pattern = re.compile(r'/([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,})"', re.IGNORECASE)
     found = pkg_pattern.findall(html)
     # De-dup while preserving order
