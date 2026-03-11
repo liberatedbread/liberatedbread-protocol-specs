@@ -63,6 +63,29 @@
 - Destinations (DST): `DST_CMD_APP`, `DST_CMD_BLE_ENGINE`, `DST_CMD_KMSG`, `DST_CMD_APP_DIAG`, `DST_CMD_APP_ARML`, `DST_CMD_APP_ARMR`, `DST_CMD_APP_DIAG_ARML`, `DST_CMD_APP_DIAG_ARMR`
 - Events: `SRC_EVT_*` / `DST_EVT_*` for async notifications
 
+### Protobuf command types (from libapp.so symbol analysis)
+
+The app uses these protobuf message types for communication:
+
+| Protobuf Type | Purpose |
+|---|---|
+| `t_cmdAppQuery` / `t_cmdAppQuery_Reply` | Query device state (request/response) |
+| `t_cmdAppNop` | No-op / keepalive |
+| `t_cmdAppWriteString` | Write string data (`APP_WRITE_STRING`) |
+| `t_cmdAppInjectEvent` | Inject event (`APP_INJECT_EVENT`) |
+| `t_cmdAppSetDstEvt` / `t_cmdAppSetDstEvtDiag` | Set event routing destinations |
+| `t_cmdDssSetData` | Set a device setting (setting ID + value) |
+| `t_cmdDssGetData` / `t_cmdDssGetData_Reply` | Get a device setting (request/response) |
+| `t_cmdDssOperation` | System operations (commit, factory reset, reload, etc.) |
+| `t_cmdLosSetLight` | Direct light output control (used by `sendLightOutput()`, `sendBarTest()`) |
+| `t_evtAppEvent` | Generic app event (device → app) |
+| `t_evtDiagMmsDecelData` | Diagnostic deceleration data (device → app) |
+
+The DSS (Data Storage Subsystem) is the main mechanism for reading/writing settings:
+- **`DSS_SET_DATA`**: Write a setting — takes a setting ID string (e.g., `LOS_TAIL_LIGHT_BRIGHTNESS`) and integer value
+- **`DSS_GET_DATA`**: Read a setting — takes a setting ID, reply contains current value
+- **`DSS_OPERATION`**: System-level operations — `DATA_COMMIT`, `DATA_FACTORY_DEFAULT`, `DATA_RELOAD`, `DATA_MAINTAIN`, `DATA_ABANDON_RESTORE`
+
 ### App commands (sent via protobuf over NUS)
 
 #### Settings commands (LOS = Light Output Setting)
@@ -75,8 +98,8 @@
 | `LOS_BRAKE_STROBE_DURATION_MS` | Amber Strobe (Brake) | OFF=0, 5s=5000, 10s=10000, 15s=15000, 20s=20000, ON=-1 |
 | `LOS_PLATE_LIGHT_BRIGHTNESS` | Plate Light | ON=8000, OFF=0 |
 | `LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS` | Sequential Turn Signal | ON=30, OFF=0 |
-| `LOS_TURN_LIGHT_BRIGHTNESS` | Turn Light Brightness | (values TBD from HCI capture) |
-| `LOS_SET_LIGHT` | Set Light (direct control) | (values TBD) |
+| `LOS_TURN_LIGHT_BRIGHTNESS` | Turn Light Brightness | (not in lb_config.xml; internal/runtime use only) |
+| `LOS_SET_LIGHT` | Set Light (direct control) | (used by `sendLightOutput()` and `sendBarTest()` for direct LED control) |
 | `LOS_DEALER_DEMO_MODE` | Demo Mode | ON=1, OFF=0 (version ^1+) |
 
 #### Accelerometer / motion commands (MMS = Motion Management System)
