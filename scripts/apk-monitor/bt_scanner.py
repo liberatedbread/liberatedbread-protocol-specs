@@ -19,6 +19,10 @@ from typing import Optional
 
 log = logging.getLogger("bt_scanner")
 
+# Canonical UUID regex — used in pattern matching and extraction
+_UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_UUID_COMPILED = re.compile(_UUID_RE)
+
 # ── Patterns that indicate Bluetooth / BLE usage ─────────
 BT_PATTERNS = {
     "bluetooth_permission": re.compile(
@@ -34,8 +38,7 @@ BT_PATTERNS = {
         re.IGNORECASE,
     ),
     "ble_uuid": re.compile(
-        r"0000[0-9a-fA-F]{4}-0000-1000-8000-00805f9b34fb"
-        r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        r"0000[0-9a-fA-F]{4}-0000-1000-8000-00805f9b34fb|" + _UUID_RE,
     ),
     "ble_scan": re.compile(
         r"BluetoothLeScanner|startLeScan|startScan|ScanFilter|ScanSettings|ScanCallback",
@@ -48,10 +51,6 @@ BT_PATTERNS = {
     "ble_advertising_name": re.compile(
         r"setDeviceName|getLocalName|scanRecord|advertisedServiceUuids|localName",
         re.IGNORECASE,
-    ),
-    "custom_service_uuid": re.compile(
-        # Non-SIG UUIDs (not the standard base UUID)
-        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
     ),
 }
 
@@ -145,10 +144,9 @@ def _grep_dir(directory: Path, pattern: re.Pattern, max_matches: int = 500) -> l
 
 def _extract_uuids(matches: list[str]) -> list[str]:
     """Extract unique UUIDs from match lines."""
-    uuid_re = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
     uuids: set[str] = set()
     for line in matches:
-        for m in uuid_re.finditer(line):
+        for m in _UUID_COMPILED.finditer(line):
             u = m.group(0).lower()
             if u not in SIG_BASE_UUIDS:
                 uuids.add(u)
@@ -183,7 +181,7 @@ def scan_apk(package_id: str, apk_path: Path, work_dir: Optional[Path] = None) -
         hits = _grep_dir(decompile_root, pattern, max_matches=200)
         result.pattern_hits[name] = len(hits)
 
-        if name == "ble_uuid" or name == "custom_service_uuid":
+        if name == "ble_uuid":
             uuids = _extract_uuids(hits)
             result.uuids_found.extend(uuids)
 

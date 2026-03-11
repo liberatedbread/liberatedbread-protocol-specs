@@ -221,6 +221,9 @@ def cross_check_and_vote(
             best_avg = avg
             best_candidate = candidate
 
+    if not best_candidate and candidate_scores:
+        log.warning("No candidate scored above 0 for %s", target_id)
+
     return MergeDecision(
         target_id=target_id,
         winner=best_candidate,

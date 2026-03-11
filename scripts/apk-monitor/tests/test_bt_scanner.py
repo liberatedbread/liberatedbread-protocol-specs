@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 
 from bt_scanner import (
+    BT_PATTERNS,
     ScanResult,
     SIG_BASE_UUIDS,
+    _UUID_RE,
     _extract_uuids,
     _grep_dir,
     is_interesting,
@@ -160,3 +162,16 @@ class TestIsInteresting:
         r = ScanResult(package_id="x", apk_path="/x.apk", confidence=0.2, has_bluetooth=True)
         assert is_interesting(r, threshold=0.1)
         assert not is_interesting(r, threshold=0.3)
+
+
+class TestUuidConstant:
+    def test_uuid_re_is_valid_regex(self):
+        compiled = re.compile(_UUID_RE)
+        assert compiled.match("12345678-1234-5678-9abc-def012345678")
+
+    def test_uuid_re_rejects_garbage(self):
+        compiled = re.compile(_UUID_RE)
+        assert not compiled.match("not-a-uuid")
+
+    def test_custom_service_uuid_not_in_patterns(self):
+        assert "custom_service_uuid" not in BT_PATTERNS

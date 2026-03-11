@@ -26,6 +26,12 @@ class TestSeenPackages:
         seen = load_seen_packages(tmp_path / "no_such.json")
         assert seen == set()
 
+    def test_corrupt_json_returns_empty(self, tmp_path):
+        state_file = tmp_path / "corrupt.json"
+        state_file.write_text("{{not valid json at all!!")
+        seen = load_seen_packages(state_file)
+        assert seen == set()
+
     def test_save_and_load_roundtrip(self, tmp_path):
         state_file = tmp_path / "state" / "seen.json"
         original = {"com.foo.bar", "com.baz.qux"}
