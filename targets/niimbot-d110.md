@@ -5,20 +5,21 @@
 - app package_id(s): com.niim.label
 - device class: thermal label printer
 - transport(s): BLE
-- local-only viability: high — BLE protocol RE'd, Web Bluetooth client exists
+- local-only viability: TBD — BLE protocol reportedly RE'd via NiimBlue, but could not verify
 
-## Known facts (public + observed)
+## Known facts (verified from RE sources)
 - NIIMBOT D110/B21 thermal label printer
 - Price: $15-30
 - Popular cheap label printer with closed ecosystem
-- Web Bluetooth client "NiimBlue" reverse-engineered
-- Allows direct browser-based printing without manufacturer app
-- Multiple models share same protocol
-- Existing RE: NiimBlue project on GitHub
+- Web Bluetooth client "NiimBlue" reportedly exists — TBD: could not access repo to verify (MultiMote/niimern returned 404)
+- TBD — needs verification: All BLE protocol details unconfirmed
+- TBD — needs verification: Advertised name patterns ("D110", "B21", "NIIMBOT" are speculative)
+- TBD — needs verification: Service/characteristic UUIDs
+- NOTE: This target has the weakest verification of all entries — needs hands-on RE or verified repo access
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "D110", "B21", "NIIMBOT"
+  - advertised name patterns: TBD — "D110", "B21", "NIIMBOT" are speculative
   - service UUIDs: TBD
   - address behavior: TBD
 
@@ -34,13 +35,13 @@
 
 ## Protocol hypotheses (to validate)
 - Pairing/bonding steps: TBD
-- Session state machine: connect → set parameters → send image → disconnect
-- Commands: print label, set label size, set density
-- Payload encoding: TBD from NiimBlue RE work
+- Session state machine: TBD
+- Commands: TBD
+- Payload encoding: TBD
 - Timing constraints: TBD
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for D110/B21/NIIMBOT name
+- Onboarding/pairing UX: TBD
 - Core controls (MVP): print label, set label size
 - Power / brightness / modes / uploads: print density
 - Error handling and recovery: reconnect
@@ -55,4 +56,4 @@ Write a derived spec in:
 - docs/specs/niimbot-d110.md
 
 ## References (URLs only)
-- https://github.com/MultiMote/niimern
+- https://github.com/MultiMote/niimern (NOTE: returned 404 during verification — URL may be incorrect)

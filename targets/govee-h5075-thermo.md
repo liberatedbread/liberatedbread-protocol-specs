@@ -5,22 +5,26 @@
 - app package_id(s): com.govee.home
 - device class: BLE thermometer/hygrometer
 - transport(s): BLE (advertisement broadcast)
-- local-only viability: high — broadcasts temp/humidity via BLE advertisements every 2 seconds
+- local-only viability: high — broadcasts temp/humidity via BLE advertisements
 
-## Known facts (public + observed)
-- Govee H5075/H5074 temperature and humidity sensor
+## Known facts (verified from RE sources)
+- Govee H5074/H5075 temperature and humidity sensor (source: wcbonner/GoveeBTTempLogger)
+- Also supported: H5072, H5100, H5101, H5104, H5105, H5110, H5174, H5177, H5179 (VERIFIED)
+- H5181-H5183 are meat thermometers — different protocol (UUIDs 5182/5183)
 - Price: $10-15
-- Broadcasts data via BLE advertisements using custom manufacturer data
-- UUID identifier: "INTELLI_ROCKS_HW"
-- Govee intentionally disables local API on many products, forcing cloud dependency
-- Multiple RE projects exist but no unified spec
+- VERIFIED: Broadcasts data via BLE manufacturer-specific advertisement data
+- VERIFIED: 128-bit custom service UUID: `494e5445-4c4c-495f-524f-434b535f4857` (ASCII for "INTELLI_ROCKS_HW")
+- VERIFIED: Standard advertisement UUID: 0x88EC / 0xEC88
+- VERIFIED: Historical data download (20 days; H5177 stores 1 month)
+- VERIFIED: History download write char: `494e5445-4c4c-495f-524f-434b535f2012`, notify response: `...2013`
+- NOTE: H5100/H5105 need LE_RANDOM_ADDRESS — address behavior varies by model
 - Existing RE: github.com/wcbonner/GoveeBTTempLogger, github.com/Thrilleratplay/GoveeWatcher
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "GVH5075_XXXX", "GVH5074_XXXX", "Govee_H5075_XXXX"
-  - service UUIDs: manufacturer-specific data in advertisement
-  - address behavior: public
+  - advertised name patterns: "GVH5075_XXXX", "GVH5074_XXXX", "Govee_H5074_XXXX", "GVH5174_XXXX" (VERIFIED)
+  - service UUIDs: 0x88EC in advertisement; custom `494e5445-4c4c-495f-524f-434b535f4857` (VERIFIED)
+  - address behavior: public for most; H5100/H5105 need LE_RANDOM_ADDRESS (VERIFIED)
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
@@ -33,16 +37,16 @@
 4) Dynamic: capture BLE advertisements with btmon or nRF Connect.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: none — passive advertisement broadcast
-- Session state machine: no connection needed, read advertisements
-- Commands: N/A (read-only sensor)
-- Payload encoding: manufacturer data in BLE advertisement, temp/humidity encoded in specific byte positions
-- Timing constraints: advertisement interval ~2 seconds
+- Pairing/bonding steps: none — passive advertisement broadcast (VERIFIED)
+- Session state machine: no connection needed for live; connection needed for history download
+- Commands: N/A for live; history requires write to `...2012` char (VERIFIED)
+- Payload encoding: TBD — exact byte layout of temp/humidity in manufacturer data needs mapping
+- Timing constraints: TBD — advertisement interval not confirmed
 
 ## Control surface inventory (what the replacement app must support)
 - Onboarding/pairing UX: BLE scan for GVH5075 name pattern
 - Core controls (MVP): read temperature, read humidity
-- Power / brightness / modes / uploads: N/A
+- Power / brightness / modes / uploads: historical data download (20 days)
 - Error handling and recovery: handle missed advertisements
 - Settings persistence: N/A
 

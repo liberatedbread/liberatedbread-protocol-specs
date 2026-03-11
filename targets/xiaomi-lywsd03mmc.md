@@ -7,21 +7,25 @@
 - transport(s): BLE
 - local-only viability: high — custom firmware enables direct BLE advertisement of data; OTA flashable from browser
 
-## Known facts (public + observed)
-- Xiaomi Mijia LYWSD03MMC temperature and humidity sensor
-- Price: $4-6 (one of the cheapest BLE sensors available)
-- Uses Telink TLSR8251 SoC
-- Custom firmware (ATC_MiThermometer by pvvx) available, OTA flashable from a web browser
-- Can be converted to Zigbee device via z03mmc firmware
-- E-ink display shows temperature and humidity
-- CR2032 battery, lasts 6-12 months
+## Known facts (verified from RE sources)
+- Xiaomi Mijia LYWSD03MMC (source: pvvx/ATC_MiThermometer)
+- Price: $4-6
+- VERIFIED: Telink TLSR8251 SoC, 6 hardware versions: B1.4, B1.5, B1.6, B1.7, B1.9, B2.0
+- VERIFIED: Custom firmware OTA flashable from web browser
+- VERIFIED: 5 advertisement formats: Xiaomi (MiBeacon), ATC, Custom, BTHome v2, HA BLE
+- VERIFIED: MiBeacon UUID 0xFE95 (stock firmware, encrypted)
+- VERIFIED: Custom firmware broadcasts unencrypted temp/humidity/battery in 0.01 unit precision
+- VERIFIED: Can be converted to Zigbee via z03mmc firmware
+- VERIFIED: BLE 5.0+ with LE Long Range (Coded PHY S=8)
+- VERIFIED: Also supports: MHO-C401/C401N, MJWSD05MMC, Qingping CGG1-M/CGDK2, Tuya TH03/ZTH01/02/05
+- E-ink display, CR2032 battery, lasts 6-12 months
 - Existing RE: github.com/pvvx/ATC_MiThermometer, github.com/devbis/z03mmc
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "LYWSD03MMC", "ATC_XXXXXX" (custom firmware)
-  - service UUIDs: standard + Xiaomi MiBeacon (UUID 0xFE95)
-  - address behavior: public (custom firmware), random (stock firmware)
+  - advertised name patterns: "LYWSD03MMC" (stock), "ATC_XXXXXX" (custom firmware) — VERIFIED
+  - service UUIDs: Xiaomi MiBeacon 0xFE95 (stock) — VERIFIED
+  - address behavior: public (custom firmware), random (stock) — VERIFIED
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
@@ -35,11 +39,11 @@
 4) Dynamic: capture BLE advertisements with stock and custom firmware.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: stock firmware may require Xiaomi cloud pairing; custom firmware: none
-- Session state machine: passive advertisement broadcast (no connection needed for custom firmware)
+- Pairing/bonding steps: stock requires Xiaomi cloud; custom: none (VERIFIED)
+- Session state machine: passive advertisement broadcast (VERIFIED)
 - Commands: N/A (read-only sensor)
-- Payload encoding: stock: MiBeacon encrypted advertisement; custom: plain advertisement with temp/humidity/battery
-- Timing constraints: advertisement interval configurable (2-10 seconds)
+- Payload encoding: stock: MiBeacon encrypted; custom: plain temp/humidity/battery (VERIFIED)
+- Timing constraints: advertisement interval configurable in custom firmware
 
 ## Control surface inventory (what the replacement app must support)
 - Onboarding/pairing UX: BLE scan for LYWSD03MMC name

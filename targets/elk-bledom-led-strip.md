@@ -7,22 +7,22 @@
 - transport(s): BLE
 - local-only viability: high — purely BLE, no cloud dependency
 
-## Known facts (public + observed)
+## Known facts (verified from RE sources)
 - Sold under dozens of brand names: JACKYLED, auraLED, HueLite, MELK, LEDBLE, ELK-BULB, ELK-LAMPL
 - Extremely cheap ($2-15 from AliExpress/Amazon)
-- Uses simple 9-byte BLE packets
-- BLE service UUID: 0xFFF0
-- Write characteristic UUID: 0xFFF3
-- Read characteristic UUID: 0xFFF4
-- Packet format: [0x7E, mode, r/g/b, speed, 0x00, 0xEF]
+- VERIFIED (source: FergusInLondon/ELK-BLEDOM): BLE service UUID: `0000fff0-0000-1000-8000-00805f9b34fb`
+- VERIFIED: Write characteristic UUID: `0000fff3-0000-1000-8000-00805f9b34fb`
+- VERIFIED: 9-byte packet format: Byte1=0x7E (start), Byte2=sequence/ID (0x00-0x07), Byte3=command type, Bytes4-7=parameters, Byte8=0x00 or 0x10, Byte9=0xEF (end)
+- VERIFIED: Command 0x05/0x03 = set RGB color, Command 0x01 = set brightness
+- VERIFIED: Device also advertises HID service 0x1812 (not actually implemented — ignore)
+- TBD — needs verification: Read characteristic UUID 0xFFF4 (not confirmed in primary RE source)
 - Multiple open-source RE projects exist but no unified protocol spec
-- One researcher bricked a unit by probing undocumented modes
 - Existing RE: github.com/FergusInLondon/ELK-BLEDOM, github.com/dave-code-ruiz/elkbledom, github.com/arduino12/ble_rgb_led_strip_controller
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "ELK-BLEDOM", "MELK", "LEDBLE", "ELK-BULB", "ELK-LAMPL"
-  - service UUIDs: 0000FFF0-0000-1000-8000-00805F9B34FB
+  - advertised name patterns: "ELK-BLEDOM", "MELK", "LEDBLE", "ELK-BULB", "ELK-LAMPL" (VERIFIED via elkbledom HA integration)
+  - service UUIDs: `0000fff0-0000-1000-8000-00805f9b34fb`
   - address behavior: public
 
 ## Threat model + guardrails
@@ -36,23 +36,22 @@
 4) Dynamic: record one "connect + set color" HCI/PCAP.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: no bonding required, open BLE write
+- Pairing/bonding steps: no bonding required, open BLE write (VERIFIED)
 - Session state machine: connect → write characteristic → disconnect
-- Commands: color set (RGB), brightness, mode/effect selection, on/off
-- Payload encoding: fixed 9-byte packets, see existing RE repos
-- Timing constraints: unknown; likely none
+- Commands: color set (RGB) via cmd 0x05/0x03, brightness via cmd 0x01, on/off, mode/effect selection (VERIFIED)
+- Payload encoding: fixed 9-byte packets [0x7E, seq, cmd, p1, p2, p3, p4, flag, 0xEF] (VERIFIED)
+- Timing constraints: TBD — needs verification
 
 ## Control surface inventory (what the replacement app must support)
 - Onboarding/pairing UX: BLE scan for ELK-BLEDOM name
 - Core controls (MVP): on/off, color (RGB), brightness
 - Power / brightness / modes / uploads: multiple effect modes (strobe, fade, etc.)
 - Error handling and recovery: reconnect on disconnect
-- Settings persistence: device may not persist state across power cycles
+- Settings persistence: TBD — needs verification
 
 ## Evidence checklist
 - APK hashes + version code: TBD
 - HCI snoop log: TBD
-- Screenshots (optional): N/A
 
 ## Spec output (clean-room)
 Write a derived spec in:

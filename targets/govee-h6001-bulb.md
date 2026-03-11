@@ -7,20 +7,24 @@
 - transport(s): BLE
 - local-only viability: high — BLE protocol fully reverse-engineered for local control
 
-## Known facts (public + observed)
-- Govee H6001 BLE LED smart bulb
+## Known facts (verified from RE sources)
+- Govee H6001 BLE LED smart bulb (source: chvolkmann/govee_btled)
 - Price: ~$13
-- Govee intentionally disables local API, forcing cloud dependency
-- BLE protocol fully reverse-engineered
-- Packets start with 0xAA, 0x33, or 0xA3
-- Padded to 20 bytes with XOR checksum
-- Existing RE: github.com/chvolkmann/govee_btled, blog.coding.kiwi/reverse-engineering-govee-smart-lights/
+- VERIFIED: Command prefix 0x33 for control commands
+- VERIFIED: 0xAA prefix for acknowledgment packets
+- VERIFIED: 20-byte packets, zero-padded, with XOR checksum of all bytes in final byte
+- VERIFIED: Power on: `33 01 01 00...00 <xor>`, Power off: `33 01 00 00...00 <xor>`
+- VERIFIED: Brightness: `33 04 <val> 00...00 <xor>` (val = 0x00-0xFF)
+- VERIFIED: Color RGB: `33 05 02 <R> <G> <B> 00...00 <xor>`
+- TBD — needs verification: BLE service/characteristic UUIDs (not documented in govee_btled source)
+- TBD — needs verification: Advertised name pattern ("ihoment_H6001_XXXX" is unconfirmed)
+- Existing RE: github.com/chvolkmann/govee_btled, blog.coding.kiwi
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "ihoment_H6001_XXXX"
-  - service UUIDs: TBD from APK analysis
-  - address behavior: public
+  - advertised name patterns: TBD — needs verification (unconfirmed in RE sources)
+  - service UUIDs: TBD — not documented in primary RE source
+  - address behavior: TBD
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
@@ -33,18 +37,18 @@
 4) Dynamic: record one "connect + set color" HCI snoop.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: no bonding, open BLE write
-- Session state machine: connect → write → disconnect
-- Commands: on/off (0x33 prefix), color set (0xA3 prefix), brightness
-- Payload encoding: 20-byte packets with XOR checksum in final byte
-- Timing constraints: unknown
+- Pairing/bonding steps: no bonding, open BLE write (VERIFIED)
+- Session state machine: connect -> write -> disconnect
+- Commands: power `33 01 01/00`, brightness `33 04 <val>`, color `33 05 02 <RGB>` (VERIFIED)
+- Payload encoding: 20-byte packets with XOR checksum in final byte (VERIFIED)
+- Timing constraints: TBD
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for ihoment_H6001 name
+- Onboarding/pairing UX: TBD — needs BLE name verification
 - Core controls (MVP): on/off, color (RGB), brightness
-- Power / brightness / modes / uploads: color temperature, scene modes
+- Power / brightness / modes / uploads: TBD — color temp/scene modes unconfirmed
 - Error handling and recovery: reconnect on disconnect
-- Settings persistence: device retains last state on power cycle
+- Settings persistence: TBD
 
 ## Evidence checklist
 - APK hashes + version code: TBD

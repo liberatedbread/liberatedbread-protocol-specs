@@ -2,25 +2,30 @@
 
 ## Target metadata
 - target_id: ble-pulse-oximeter
-- app package_id(s): com.viatom.oxyfit (and various generic oximeter apps)
+- app package_id(s): TBD — "com.viatom.oxyfit" was speculative; actual companion app may differ
 - device class: BLE pulse oximeter
 - transport(s): BLE
 - local-only viability: high — purely BLE, no cloud required
 
-## Known facts (public + observed)
+## Known facts (verified from RE sources)
 - BerryMed / SP001 / generic BLE fingertip pulse oximeters
 - Price: $15-30
-- Measures SpO2 (blood oxygen saturation) and pulse rate
-- Uses BLE GATT with proprietary framing (not standard BLE health profiles)
-- BCI protocol documented for some models
-- Many Amazon/AliExpress units share similar BLE chipsets and protocols
-- Partially RE'd: github.com/jcomas/PulseOximeterSP001
+- VERIFIED: Measures SpO2 (blood oxygen saturation) and pulse rate
+- VERIFIED: Uses BLE GATT (not standard 0x1822 Pulse Oximeter profile in most cheap units)
+- NOTE: jcomas/PulseOximeterSP001 repo exists but appears to be WIP with incomplete documentation
+- TBD — needs verification: All BLE service/characteristic UUIDs (not documented in cited repo)
+- TBD — needs verification: "BCI protocol documented" claim (unverified)
+- TBD — needs verification: Advertised name patterns ("BerryMed", "SP001" speculative)
+- TBD — needs verification: Data frame format, notification rate
+- TBD — needs verification: Companion app package ID
+- NOTE: This target has weak RE coverage — needs hands-on work
+- Existing RE: github.com/jcomas/PulseOximeterSP001 (WIP)
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "BerryMed", "SP001", "OxySmart", "Pulse Oximeter"
-  - service UUIDs: custom service (not standard 0x1822 Pulse Oximeter profile in most cheap units)
-  - address behavior: public
+  - advertised name patterns: TBD — "BerryMed", "SP001" are speculative
+  - service UUIDs: TBD — custom service (not standard 0x1822)
+  - address behavior: TBD
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
@@ -29,22 +34,22 @@
 
 ## First experiments (do these first)
 1) Run ./scripts/detect_devices.sh; attach log paths.
-2) Fetch APK (apkeep) for com.viatom.oxyfit or similar companion app.
-3) Static: grep for GATT service/characteristic UUIDs, data parsing format.
+2) Identify actual companion app; fetch APK.
+3) Static: grep for GATT service/characteristic UUIDs.
 4) Dynamic: record one "connect + read SpO2/pulse" HCI snoop.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: none expected (most cheap oximeters don't bond)
-- Session state machine: connect → subscribe to notifications → receive continuous readings → disconnect
-- Commands: N/A (read-only — device streams data when finger inserted)
-- Payload encoding: proprietary binary frames with SpO2 (%), pulse rate (bpm), plethysmograph waveform
-- Timing constraints: notifications at ~50-100 Hz for waveform, ~1 Hz for SpO2/pulse values
+- Pairing/bonding steps: TBD — likely none for cheap oximeters
+- Session state machine: TBD — likely connect -> subscribe -> receive readings
+- Commands: TBD — likely read-only (device streams when finger inserted)
+- Payload encoding: TBD — likely proprietary binary with SpO2 %, pulse bpm
+- Timing constraints: TBD
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for oximeter name patterns
+- Onboarding/pairing UX: TBD
 - Core controls (MVP): read SpO2 percentage, read pulse rate
-- Power / brightness / modes / uploads: plethysmograph waveform display (optional)
-- Error handling and recovery: detect finger removal (invalid readings), reconnect
+- Power / brightness / modes / uploads: TBD
+- Error handling and recovery: detect finger removal, reconnect
 - Settings persistence: N/A
 
 ## Evidence checklist

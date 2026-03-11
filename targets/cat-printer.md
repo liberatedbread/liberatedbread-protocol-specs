@@ -1,4 +1,4 @@
-# Target: Cat Printer (GB01/GB02/GT01)
+# Target: Cat Printer (GB01/GB02/GB03/GT01/YT01/MX05-10)
 
 ## Target metadata
 - target_id: cat-printer
@@ -7,20 +7,22 @@
 - transport(s): BLE
 - local-only viability: high — purely BLE, no cloud
 
-## Known facts (public + observed)
-- Cat-shaped mini thermal receipt/sticker printer
+## Known facts (verified from RE sources)
+- Cat-shaped mini thermal printer (source: NaitLee/Cat-Printer)
 - Price: $15-20
-- Multiple hardware variants: GB01, GB02, GT01 with documented differences
-- BLE protocol fully reverse-engineered
-- Cross-platform Python tool available
-- Popular novelty item widely available on AliExpress/Amazon
+- VERIFIED: Supported models: GB01, GB02, GB03, GT01, YT01, MX05, MX06, MX08, MX10
+- VERIFIED: TX characteristic UUID: `0000ae01-0000-1000-8000-00805f9b34fb`
+- VERIFIED: RX characteristic UUID: `0000ae02-0000-1000-8000-00805f9b34fb`
+- VERIFIED: 1-bit bitmap raster printing
+- VERIFIED: Model differences via flags: is_new_kind, problem_feeding, paper_width
+- Uses Bleak BLE library; cross-platform Python tool with web UI
 - Existing RE: github.com/NaitLee/Cat-Printer, werwolv.net/blog/cat_printer
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "GB01", "GB02", "GT01", "MX*"
-  - service UUIDs: TBD from RE projects
-  - address behavior: public
+  - advertised name patterns: "GB01", "GB02", "GB03", "GT01", "YT01", "MX05", "MX06", "MX08", "MX10" (VERIFIED)
+  - service UUIDs: TBD — primary service UUID not documented in README
+  - address behavior: TBD
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
@@ -29,21 +31,21 @@
 ## First experiments (do these first)
 1) Run ./scripts/detect_devices.sh; attach log paths.
 2) Fetch APK (apkeep) for com.iprint.paper.
-3) Static: grep for BLE service/characteristic UUIDs, print command format.
+3) Static: grep for BLE UUIDs, print command format.
 4) Dynamic: record one "connect + print image" HCI snoop.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: no bonding required
-- Session state machine: connect → configure → send image data → disconnect
-- Commands: print image (rasterized bitmap), feed paper, set energy (darkness)
-- Payload encoding: 1-bit bitmap rasterized row-by-row, command framing varies by model
-- Timing constraints: may need flow control between rows
+- Pairing/bonding steps: no bonding required (VERIFIED from tool behavior)
+- Session state machine: connect -> configure -> send image -> disconnect
+- Commands: print image, feed paper, set energy/darkness (VERIFIED)
+- Payload encoding: 1-bit bitmap row-by-row, framing varies by model (VERIFIED)
+- Timing constraints: flow control needed for some models
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for GB01/GB02/GT01 names
+- Onboarding/pairing UX: BLE scan for GB*/GT*/YT*/MX* names
 - Core controls (MVP): print image, feed paper
-- Power / brightness / modes / uploads: print darkness/energy setting
-- Error handling and recovery: paper-out detection, reconnect
+- Power / brightness / modes / uploads: print darkness/energy
+- Error handling and recovery: paper-out, reconnect, problem_feeding models
 - Settings persistence: N/A
 
 ## Evidence checklist

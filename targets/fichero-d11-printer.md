@@ -4,23 +4,28 @@
 - target_id: fichero-d11-printer
 - app package_id(s): com.lj.fichero
 - device class: thermal label printer
-- transport(s): BLE
-- local-only viability: high — purely BLE, no cloud
+- transport(s): BLE + Bluetooth Classic SPP
+- local-only viability: high — purely BLE/BT, no cloud
 
-## Known facts (public + observed)
-- Fichero/AiYin D11 thermal label printer
+## Known facts (verified from RE sources)
+- Fichero/AiYin D11s thermal label printer (source: 0xMH/fichero-printer)
 - Price: $15-20
-- Sold at discount stores under many brand names
-- All use the same LuckPrinter SDK internally
-- Protocol reverse-engineered from decompiled APK
+- VERIFIED: 4 BLE services exposed: 0x18f0, 0xff00, e7810a71..., 49535343...
+- VERIFIED: Print width 96px (12 bytes per row), `0C 00` in LE
+- VERIFIED: Raster header command: `1D 76 30`
+- VERIFIED: Enable printing: `10 FF FE 01`
+- VERIFIED: Stop printing: `10 FF FE 45`
+- VERIFIED: Advertised names: "FICHERO_XXXX", "D11s_" prefix
+- VERIFIED: Supports both BLE and Classic Bluetooth SPP
+- VERIFIED: 18500 Li-Ion battery with USB-C charging, 203 DPI printhead
+- NOTE: Previously described as "LuckPrinter SDK" — actual protocol uses AiYin commands per docs/PROTOCOL.md
 - Python CLI and Web GUI available
-- APK requests 26 permissions (suspicious for a label printer)
 - Existing RE: github.com/0xMH/fichero-printer
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "D11", "D110", "AiYin"
-  - service UUIDs: TBD from APK decompilation
+  - advertised name patterns: "FICHERO_XXXX", "D11s_" (VERIFIED)
+  - service UUIDs: 0x18f0, 0xff00, e7810a71..., 49535343... (VERIFIED)
   - address behavior: TBD
 
 ## Threat model + guardrails
@@ -30,18 +35,18 @@
 ## First experiments (do these first)
 1) Run ./scripts/detect_devices.sh; attach log paths.
 2) Fetch APK (apkeep) for com.lj.fichero.
-3) Static: identify LuckPrinter SDK BLE protocol layer.
+3) Static: identify AiYin protocol layer in decompiled APK.
 4) Dynamic: record one "connect + print label" HCI snoop.
 
 ## Protocol hypotheses (to validate)
 - Pairing/bonding steps: TBD
-- Session state machine: connect → configure label size → send image → disconnect
-- Commands: set label size, print image, feed
-- Payload encoding: LuckPrinter SDK framing, rasterized bitmap
+- Session state machine: connect -> enable (`10 FF FE 01`) -> send raster (`1D 76 30` + data) -> stop (`10 FF FE 45`)
+- Commands: enable, raster print, stop (VERIFIED)
+- Payload encoding: 1-bit raster, 12 bytes/row (96px), preceded by `1D 76 30` header (VERIFIED)
 - Timing constraints: TBD
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for D11/D110 name
+- Onboarding/pairing UX: BLE scan for FICHERO/D11s name
 - Core controls (MVP): print label image, set label size
 - Power / brightness / modes / uploads: print darkness
 - Error handling and recovery: reconnect on disconnect
