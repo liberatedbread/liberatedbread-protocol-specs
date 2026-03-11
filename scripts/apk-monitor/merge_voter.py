@@ -11,13 +11,17 @@ Each agent produces a candidate device spec and protocol doc.  This module:
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import textwrap
-import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+from config import ModelConfig
+from re_agents import _call_anthropic, _call_openai
 
 log = logging.getLogger("merge_voter")
 
@@ -43,29 +47,22 @@ class MergeDecision:
     timestamp: str
 
 
-def _load_candidate_specs(root_dir: Path, target_id: str) -> dict[str, str]:
-    """Load candidate specs from device-specs/candidates/."""
-    specs: dict[str, str] = {}
-    candidates_dir = root_dir / "device-specs" / "candidates"
-    if not candidates_dir.exists():
-        return specs
-    for f in candidates_dir.glob(f"{target_id}_*.yaml"):
-        # filename pattern: target_id_agentname.yaml
-        agent_name = f.stem.replace(f"{target_id}_", "")
-        specs[agent_name] = f.read_text()
-    return specs
+def _load_candidates(root_dir: Path, target_id: str,
+                     subdir: str, extension: str) -> dict[str, str]:
+    """Load candidate files from a subdirectory.
 
-
-def _load_candidate_docs(root_dir: Path, target_id: str) -> dict[str, str]:
-    """Load candidate protocol docs from docs/devices/candidates/."""
-    docs: dict[str, str] = {}
-    candidates_dir = root_dir / "docs" / "devices" / "candidates"
+    Args:
+        subdir: Relative path under root_dir (e.g. "device-specs/candidates").
+        extension: File extension including dot (e.g. ".yaml").
+    """
+    candidates: dict[str, str] = {}
+    candidates_dir = root_dir / subdir
     if not candidates_dir.exists():
-        return docs
-    for f in candidates_dir.glob(f"{target_id}_*.md"):
+        return candidates
+    for f in candidates_dir.glob(f"{target_id}_*{extension}"):
         agent_name = f.stem.replace(f"{target_id}_", "")
-        docs[agent_name] = f.read_text()
-    return docs
+        candidates[agent_name] = f.read_text()
+    return candidates
 
 
 def _build_review_prompt(target_id: str, candidate_agent: str,
@@ -117,7 +114,7 @@ def _build_review_prompt(target_id: str, candidate_agent: str,
 
 def _parse_vote_json(text: str) -> Optional[dict]:
     """Extract and parse JSON from a model response."""
-    import re
+    # Try fenced ```json block first
     match = re.search(r"```json\s*\n(.*?)```", text, re.DOTALL)
     if match:
         try:
@@ -129,7 +126,7 @@ def _parse_vote_json(text: str) -> Optional[dict]:
         return json.loads(text.strip())
     except json.JSONDecodeError:
         pass
-    # Try finding any JSON object
+    # Try finding any JSON object containing "score"
     match = re.search(r"\{[^{}]*\"score\"[^{}]*\}", text, re.DOTALL)
     if match:
         try:
@@ -151,10 +148,8 @@ def _call_reviewer(
 
     try:
         if reviewer_name == "claude":
-            from re_agents import _call_anthropic
             text, _ = _call_anthropic(system, prompt, model, api_key)
         else:
-            from re_agents import _call_openai
             url = base_url or "https://api.openai.com/v1"
             text, _ = _call_openai(system, prompt, model, api_key, url)
     except Exception as exc:
@@ -167,20 +162,11 @@ def _call_reviewer(
 def cross_check_and_vote(
     target_id: str,
     root_dir: Path,
-    claude_model: str = "claude-sonnet-4-20250514",
-    openai_model: str = "gpt-4o",
-    local_model: str = "qwen2.5-coder:32b",
-    local_base_url: str = "http://localhost:11434/v1",
-    local_api_key: str = "ollama",
-    anthropic_api_key: str = "",
-    openai_api_key: str = "",
+    models: ModelConfig,
 ) -> MergeDecision:
-    """Have each agent review the others' specs and vote.
-
-    Returns a MergeDecision with the winner (if any).
-    """
-    specs = _load_candidate_specs(root_dir, target_id)
-    docs = _load_candidate_docs(root_dir, target_id)
+    """Have each agent review the others' specs and vote."""
+    specs = _load_candidates(root_dir, target_id, "device-specs/candidates", ".yaml")
+    docs = _load_candidates(root_dir, target_id, "docs/devices/candidates", ".md")
 
     if not specs:
         log.warning("No candidate specs found for %s", target_id)
@@ -191,21 +177,20 @@ def cross_check_and_vote(
         )
 
     reviewers = {
-        "claude": (claude_model, anthropic_api_key, ""),
-        "openai": (openai_model, openai_api_key, "https://api.openai.com/v1"),
-        "local-qwen": (local_model, local_api_key, local_base_url),
+        "claude": (models.claude_model, models.anthropic_api_key, ""),
+        "openai": (models.openai_model, models.openai_api_key, "https://api.openai.com/v1"),
+        "local-qwen": (models.local_model, models.local_api_key, models.local_base_url),
     }
 
     all_votes: list[Vote] = []
 
-    # Each reviewer scores each candidate (but not themselves)
     for candidate_name in specs:
         spec_yaml = specs.get(candidate_name, "")
         protocol_doc = docs.get(candidate_name, "")
 
         for reviewer_name, (model, api_key, base_url) in reviewers.items():
             if reviewer_name == candidate_name:
-                continue  # Don't self-review
+                continue
             if not api_key and reviewer_name != "local-qwen":
                 continue
 
@@ -228,7 +213,6 @@ def cross_check_and_vote(
     for v in all_votes:
         candidate_scores.setdefault(v.candidate, []).append(v.score)
 
-    # Pick winner: highest average score
     best_candidate = ""
     best_avg = 0.0
     for candidate, scores in candidate_scores.items():
@@ -237,7 +221,7 @@ def cross_check_and_vote(
             best_avg = avg
             best_candidate = candidate
 
-    decision = MergeDecision(
+    return MergeDecision(
         target_id=target_id,
         winner=best_candidate,
         total_votes=len(all_votes),
@@ -248,8 +232,6 @@ def cross_check_and_vote(
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
-    return decision
-
 
 def auto_merge_winner(
     decision: MergeDecision,
@@ -257,11 +239,7 @@ def auto_merge_winner(
     min_votes: int = 2,
     min_score: float = 5.0,
 ) -> MergeDecision:
-    """If the winner meets thresholds, merge their spec into the repo.
-
-    Copies the winning candidate spec into device-specs/devices/ and
-    the protocol doc into docs/devices/, then commits.
-    """
+    """If the winner meets thresholds, copy their spec into the final locations and commit."""
     if not decision.winner:
         log.info("No winner for %s — skipping merge", decision.target_id)
         return decision
@@ -276,7 +254,6 @@ def auto_merge_winner(
                  decision.avg_score, min_score, decision.target_id)
         return decision
 
-    # Copy winning spec to final location
     src_spec = root_dir / "device-specs" / "candidates" / f"{decision.target_id}_{decision.winner}.yaml"
     dst_spec = root_dir / "device-specs" / "devices" / f"{decision.target_id}.yaml"
     dst_spec.parent.mkdir(parents=True, exist_ok=True)
@@ -284,15 +261,13 @@ def auto_merge_winner(
     src_doc = root_dir / "docs" / "devices" / "candidates" / f"{decision.target_id}_{decision.winner}.md"
     dst_doc = root_dir / "docs" / "devices" / f"{decision.target_id}.md"
 
-    files_to_commit = []
+    files_to_commit: list[str] = []
 
     if src_spec.exists():
-        import shutil
         shutil.copy2(src_spec, dst_spec)
         files_to_commit.append(str(dst_spec.relative_to(root_dir)))
 
     if src_doc.exists():
-        import shutil
         shutil.copy2(src_doc, dst_doc)
         files_to_commit.append(str(dst_doc.relative_to(root_dir)))
 
@@ -306,7 +281,6 @@ def auto_merge_winner(
     if files_to_commit:
         branch = f"re-merged/{decision.target_id}/{datetime.now(timezone.utc).strftime('%Y%m%d')}"
         try:
-            # Create branch, commit, push
             subprocess.run(["git", "checkout", "-b", branch], cwd=root_dir, capture_output=True, check=True)
             for fpath in files_to_commit:
                 subprocess.run(["git", "add", fpath], cwd=root_dir, capture_output=True, check=True)
@@ -335,12 +309,10 @@ if __name__ == "__main__":
     target_id = sys.argv[1]
     root = Path(__file__).resolve().parents[2]
 
-    decision = cross_check_and_vote(
-        target_id=target_id,
-        root_dir=root,
-        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
+    from config import load_config
+    cfg = load_config()
+    mc = ModelConfig.from_cfg(cfg)
 
+    decision = cross_check_and_vote(target_id=target_id, root_dir=root, models=mc)
     decision = auto_merge_winner(decision, root)
     print(json.dumps(asdict(decision), indent=2, default=str))

@@ -34,13 +34,13 @@ for venv_dir in "$ROOT_DIR/venv" "$ROOT_DIR/.venv" "$SCRIPT_DIR/venv"; do
 done
 
 # Ensure workspace dirs exist
-WORKSPACE="${WORKSPACE_DIR:-$ROOT_DIR/workspace}"
-mkdir -p "$WORKSPACE/apk-monitor/runs"
-mkdir -p "$WORKSPACE/apk-monitor/scans"
+export WORKSPACE_DIR="${WORKSPACE_DIR:-$ROOT_DIR/workspace}"
+mkdir -p "$WORKSPACE_DIR/apk-monitor/runs"
+mkdir -p "$WORKSPACE_DIR/apk-monitor/scans"
 
 # Log file for this run
 TS="$(date +"%Y%m%d_%H%M%S")"
-LOG_FILE="$WORKSPACE/apk-monitor/runs/cron_${TS}.log"
+LOG_FILE="$WORKSPACE_DIR/apk-monitor/runs/cron_${TS}.log"
 
 # Run the monitor
 echo "[$(date -Is)] Starting APK monitor run" | tee "$LOG_FILE"
