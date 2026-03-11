@@ -86,6 +86,20 @@ source/destination routing between components (app, device, backend, diagnostics
     disassembly or HCI capture analysis to reconstruct. The setting IDs and values below
     are confirmed; the wire encoding wrapping them is not yet fully mapped.
 
+### Protobuf Command Types
+
+The app uses a Data Storage Subsystem (DSS) for settings management:
+
+| Protobuf Type | Purpose |
+|---------------|---------|
+| `t_cmdDssSetData` | Write a setting (setting ID string + integer value) |
+| `t_cmdDssGetData` / `t_cmdDssGetData_Reply` | Read a setting |
+| `t_cmdDssOperation` | System operations: `DATA_COMMIT`, `DATA_FACTORY_DEFAULT`, `DATA_RELOAD`, etc. |
+| `t_cmdAppQuery` / `t_cmdAppQuery_Reply` | Query full device state |
+| `t_cmdLosSetLight` | Direct light output control (used by `sendLightOutput()`, `sendBarTest()`) |
+| `t_evtAppEvent` | Device → app events (brake state, turn signals, deceleration) |
+| `t_evtDiagMmsDecelData` | Diagnostic deceleration sensor data |
+
 ### Settings Commands
 
 All settings are defined in `lb_config.xml` (Flutter asset). Each setting has an ID string
@@ -102,8 +116,8 @@ and discrete allowed values. Settings are sent to the device as protobuf message
 | `LOS_BRAKE_STROBE_DURATION_MS` | Amber Strobe (Brake) | discrete | OFF=0, 5s=5000, 10s=10000, 15s=15000, 20s=20000, ON=-1 |
 | `LOS_PLATE_LIGHT_BRIGHTNESS` | Plate Light | toggle | ON=8000, OFF=0 |
 | `LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS` | Sequential Turn Signal | toggle | ON=30, OFF=0 |
-| `LOS_TURN_LIGHT_BRIGHTNESS` | Turn Light Brightness | discrete | (values TBD) |
-| `LOS_SET_LIGHT` | Set Light (direct) | — | (diagnostic/test use) |
+| `LOS_TURN_LIGHT_BRIGHTNESS` | Turn Light Brightness | discrete | (not in lb_config.xml — internal/runtime use only) |
+| `LOS_SET_LIGHT` | Set Light (direct) | — | (direct LED control via `sendLightOutput()` / `sendBarTest()`) |
 | `LOS_DEALER_DEMO_MODE` | Demo Mode | toggle | ON=1, OFF=0 (firmware version ^1+) |
 
 #### Motion Management Settings (MMS)
