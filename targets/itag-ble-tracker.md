@@ -7,45 +7,49 @@
 - transport(s): BLE
 - local-only viability: high — simple BLE device, no cloud
 
-## Known facts (public + observed)
-- iTag BLE key finder / anti-loss tracker
-- Price: $1-2 (one of the cheapest BLE devices available)
-- CR2032 battery
-- Has LED and buzzer
-- Immediate Alert service: value 2 triggers 30 beeps + LED blinks
-- Button press notifies on UUID 0xFFE1-0000-1000-8000-00805F9B34FB
-- Supported by Gadgetbridge
-- Known issue: some models drain batteries in hours if not bonded
-- Existing RE: github.com/Freeyourgadget/Gadgetbridge, thejeshgn.com/2017/06/20/reverse-engineering-itag-bluetooth-low-energy-button/
+## Known facts (verified from RE sources)
+- iTag BLE key finder (source: thejeshgn.com RE blog post)
+- Price: $1-2
+- CR2032 battery, LED and buzzer
+- VERIFIED: Immediate Alert service: `00001802-0000-1000-8000-00805f9b34fb`, char: `00002a06` (WRITE, WRITE_WITHOUT_RESPONSE, NOTIFY)
+- VERIFIED: Button service: `0000ffe0-0000-1000-8000-00805f9b34fb`, char: `0000ffe1` (READ, NOTIFY)
+- VERIFIED: Battery service: `0000180f-0000-1000-8000-00805f9b34fb`, char: `00002a19` (READ, NOTIFY)
+- VERIFIED: Alert levels: 0=off, 1=mild, 2=high (triggers buzzer + LED)
+- VERIFIED: "Almost every iTag manufacturer uses characteristic 0xFFE1 for button click" (quasi-standard)
+- VERIFIED: Double-click detection with 300ms window (iTracing2 app)
+- VERIFIED: Hard-coded MAC addresses enable tracking (privacy limitation)
+- Known issue: some models drain batteries in hours if not bonded (community reports)
+- Existing RE: thejeshgn.com, Gadgetbridge wiki, Edzelf/Itag
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "iTAG", "iTag"
-  - service UUIDs: 0x1802 (Immediate Alert), 0xFFE0 (button notify)
-  - address behavior: public
+  - advertised name patterns: TBD — "iTAG" unconfirmed in cited source
+  - service UUIDs: 0x1802 (Immediate Alert), 0xFFE0 (button) — VERIFIED
+  - address behavior: public, hard-coded MAC (VERIFIED)
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
 - Simple buzzer/LED — no safety risk.
+- Privacy: hard-coded MAC enables tracking.
 
 ## First experiments (do these first)
 1) Run ./scripts/detect_devices.sh; attach log paths.
-2) Fetch APK (apkeep) for common iTag companion apps.
-3) Static: identify GATT services (Immediate Alert 0x1802, custom 0xFFE0).
-4) Dynamic: trigger buzzer via Immediate Alert write, capture button press notification.
+2) Fetch APK (apkeep) for common iTag apps.
+3) Static: identify GATT services (0x1802, 0xFFE0, 0x180F).
+4) Dynamic: trigger buzzer, capture button notification.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: bonding recommended (prevents battery drain on some models)
-- Session state machine: connect → bond → subscribe notifications → use
-- Commands: alert level write to 0x1802 (0=off, 1=mild, 2=high), button press notification on 0xFFE1
-- Payload encoding: single byte for alert level; single byte for button state
-- Timing constraints: connection must be maintained for button notifications
+- Pairing/bonding steps: bonding recommended to prevent battery drain — community-documented
+- Session state machine: connect -> bond -> subscribe notifications -> use
+- Commands: alert write to 0x2A06 (0=off, 1=mild, 2=high) (VERIFIED), button notify on 0xFFE1 (VERIFIED)
+- Payload encoding: single byte alert level; button via CCCD (VERIFIED)
+- Timing constraints: connection must be maintained for notifications
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for "iTAG" name, bond
-- Core controls (MVP): trigger buzzer, receive button press
+- Onboarding/pairing UX: BLE scan, bond
+- Core controls (MVP): trigger buzzer, receive button press (single + double-click)
 - Power / brightness / modes / uploads: N/A
-- Error handling and recovery: reconnect on disconnect, handle battery drain issue
+- Error handling and recovery: reconnect, handle battery drain
 - Settings persistence: bonding state
 
 ## Evidence checklist

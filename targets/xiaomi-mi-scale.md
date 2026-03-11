@@ -7,19 +7,30 @@
 - transport(s): BLE
 - local-only viability: high — BLE protocol RE'd via openScale project
 
-## Known facts (public + observed)
-- Xiaomi Mi Scale (v1 and v2)
+## Known facts (verified from RE sources)
+- Xiaomi Mi Scale v1 and v2 (source: oliexdev/openScale wiki)
 - Price: $20-30
-- First byte is control byte with stabilized/weight-removed flags and unit field
-- Weight transmitted as little-endian integer, divide by 100 (lbs/jin) or 200 (kg)
+- VERIFIED: Weight Scale service UUID: `0000181d-0000-1000-8000-00805f9b34fb` (NOTE: NOT 0x181B as previously stated)
+- VERIFIED: Custom service UUID: `00001530-0000-3512-2118-0009af100700`
+- VERIFIED: Device Info service: `0000180a-0000-1000-8000-00805f9b34fb`
+- VERIFIED: Weight Measurement char: `00002a9d`
+- VERIFIED: Weight Scale Feature char: `00002a9e`
+- VERIFIED: History char: `00002a2f-0000-3512-2118-0009af100700`
+- VERIFIED: Current Time char: `00002a2b`
+- VERIFIED: 10-byte weight packet: [control_byte, weight_lo, weight_hi, year_lo, year_hi, month, day, hour, min, sec]
+- VERIFIED: Control byte bit layout: Bit0=LBS, Bit4=Jin, Bit5=Stabilized, Bit7=WeightRemoved
+- VERIFIED: Weight division: /100 for lbs/jin, /200 for kg
+- VERIFIED: Valid measurement only when Bit5 (stabilized) = true AND Bit7 (removed) = false
+- VERIFIED: History protocol: enable notify on 0x2A2F, write `01 FF FF FF FF`, re-enable, write `02`, receives data ending with `03`
+- VERIFIED: Set time by writing to 0x2A2B: [year_lo, year_hi, month, day, hour, min, sec, 0x03, 0x00, 0x00]
 - V2 adds impedance measurement for body composition
 - Existing RE: github.com/oliexdev/openScale
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "MIBCS", "MI_SCALE", "XMTZC"
-  - service UUIDs: 0x181B (Body Composition), 0x181D (Weight Scale)
-  - address behavior: public
+  - advertised name patterns: TBD — "MIBCS", "MI_SCALE", "XMTZC" are unconfirmed speculation
+  - service UUIDs: `0000181d-...` (Weight Scale) (VERIFIED)
+  - address behavior: TBD
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
@@ -32,16 +43,16 @@
 4) Dynamic: capture BLE weight measurement notification.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: minimal or none for basic weight reading
-- Session state machine: connect → subscribe to weight notifications → step on scale → receive measurement → disconnect
-- Commands: N/A (read-only)
-- Payload encoding: control byte (flags) + weight as LE int16; v2 adds impedance
-- Timing constraints: measurement notifications sent when weight stabilizes
+- Pairing/bonding steps: minimal or none for basic weight reading (VERIFIED from openScale)
+- Session state machine: connect -> subscribe -> step on -> receive measurement -> disconnect (VERIFIED)
+- Commands: N/A (read-only); history via 0x2A2F write sequence (VERIFIED)
+- Payload encoding: 10-byte packet with control flags + LE int16 weight + timestamp (VERIFIED)
+- Timing constraints: notifications sent when weight stabilizes (VERIFIED)
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for MI_SCALE name
+- Onboarding/pairing UX: BLE scan for scale (name pattern TBD)
 - Core controls (MVP): read weight, read unit (kg/lbs)
-- Power / brightness / modes / uploads: body composition (v2)
+- Power / brightness / modes / uploads: body composition (v2), history download
 - Error handling and recovery: handle unstable readings
 - Settings persistence: weight unit preference
 

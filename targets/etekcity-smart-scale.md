@@ -5,20 +5,24 @@
 - app package_id(s): com.vesync.vesync
 - device class: BLE kitchen/nutrition scale
 - transport(s): BLE
-- local-only viability: high — BLE protocol partially explored, local control feasible
+- local-only viability: TBD — BLE protocol only partially explored
 
-## Known facts (public + observed)
+## Known facts (verified from RE sources)
 - ETEKCITY ESN00 Smart Nutrition Scale
 - Price: $20-30
-- BLE protocol partially explored via Android HCI snoop + Wireshark
-- APK decompilation reveals serialization details
-- No complete protocol documentation exists — greenfield spec opportunity
-- Existing RE: partial, DEV Community writeup (dev.to/hertzg/hacking-ble-kitchen-scale-55io)
+- VERIFIED (source: dev.to/hertzg writeup): Methodology used Android HCI snoop + Wireshark to explore BLE traffic
+- VERIFIED: APK decompilation reveals serialization details
+- NOTE: The dev.to article documents RE methodology but does NOT provide a complete protocol spec
+- This is a genuine greenfield opportunity — no complete BLE protocol documentation exists
+- TBD — needs verification: All BLE service/characteristic UUIDs
+- TBD — needs verification: Advertised name patterns ("Etekcity", "ESN00" are speculative)
+- TBD — needs verification: Data encoding format
+- Existing RE: partial methodology only (dev.to/hertzg/hacking-ble-kitchen-scale-55io)
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "Etekcity", "ESN00"
-  - service UUIDs: TBD from APK analysis
+  - advertised name patterns: TBD — "Etekcity", "ESN00" are speculative
+  - service UUIDs: TBD
   - address behavior: TBD
 
 ## Threat model + guardrails
@@ -32,14 +36,14 @@
 4) Dynamic: record one "connect + weigh item" HCI snoop.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: TBD from APK analysis
-- Session state machine: connect → subscribe → place item → receive weight → disconnect
-- Commands: tare, unit change, possibly nutritional data lookup
-- Payload encoding: TBD — binary serialization found in APK
-- Timing constraints: weight notifications likely continuous while item on scale
+- Pairing/bonding steps: TBD
+- Session state machine: TBD
+- Commands: TBD — tare, unit change expected based on device function
+- Payload encoding: TBD — binary serialization found in APK but not documented
+- Timing constraints: TBD
 
 ## Control surface inventory (what the replacement app must support)
-- Onboarding/pairing UX: BLE scan for Etekcity name
+- Onboarding/pairing UX: TBD
 - Core controls (MVP): read weight, tare, change units
 - Power / brightness / modes / uploads: nutritional tracking (if supported)
 - Error handling and recovery: reconnect on disconnect

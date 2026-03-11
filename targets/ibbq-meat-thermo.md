@@ -7,18 +7,30 @@
 - transport(s): BLE
 - local-only viability: high — purely BLE, no cloud
 
-## Known facts (public + observed)
-- iBBQ/Inkbird multi-probe BBQ meat thermometer
-- Price: $15-25
-- Sold under many brands: Inkbird, Tenergy Solis, generic iBBQ
-- Protocol documented in gist form: credential messages, settings data, alarm silencing, temperature notifications
-- BLE notify for temperature readings
-- Existing RE: github.com/gleeds/cloudbbq, gist.github.com/uucidl (iBBQ protocol gist)
+## Known facts (verified from RE sources)
+- iBBQ/Inkbird multi-probe thermometer (source: gist.github.com/uucidl iBBQ protocol + gleeds/cloudbbq)
+- Price: $15-25, sold under Inkbird, Tenergy Solis, generic iBBQ brands
+- VERIFIED: Service UUID: `0000fff0-0000-1000-8000-00805f9b34fb`
+- VERIFIED: Characteristics:
+  - SettingsResult: 0xFFF1 (notify)
+  - AccountAndVerify: 0xFFF2 (write)
+  - HistoryData: 0xFFF3 (notify)
+  - RealtimeData: 0xFFF4 (notify)
+  - SettingsData: 0xFFF5 (write)
+  - CCCD descriptor: 0x2902
+- VERIFIED: Credential/pairing bytes: `{0x21, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0xb8, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00}` written to 0xFFF2
+- VERIFIED: Enable realtime: `{0x0B, 0x01, 0x00, 0x00, 0x00, 0x00}` to 0xFFF5
+- VERIFIED: Temperature as uint16 LE in 0.1C increments (divide by 10 for C), num_probes = data_length / 2
+- VERIFIED: Battery request: `{0x08, 0x24, 0x00, 0x00, 0x00, 0x00}`
+- VERIFIED: Celsius mode: `{0x02, 0x00, ...}`, Fahrenheit: `{0x02, 0x01, ...}`
+- VERIFIED: Silence alarm: `{0x04, 0xff, 0x00, 0x00, 0x00, 0x00}`
+- VERIFIED: Set target temp: `{0x01, probe#, low0, low1, high0, high1}` (temp x 10 as signed int16)
+- Existing RE: github.com/gleeds/cloudbbq, gist.github.com/uucidl/b9c60b6d36d8080d085a8e3310621d64
 
 ## Device discovery signals
 - BLE:
-  - advertised name patterns: "iBBQ", "Inkbird", "solis"
-  - service UUIDs: TBD from RE gists
+  - advertised name patterns: "iBBQ" (VERIFIED from RE source)
+  - service UUIDs: `0000fff0-0000-1000-8000-00805f9b34fb` (VERIFIED)
   - address behavior: TBD
 
 ## Threat model + guardrails
@@ -28,15 +40,15 @@
 ## First experiments (do these first)
 1) Run ./scripts/detect_devices.sh; attach log paths.
 2) Fetch APK (apkeep) for com.inkbird.ibbtgo.
-3) Static: grep for GATT service/characteristic UUIDs.
-4) Dynamic: record one "connect + read temperatures" HCI snoop.
+3) Static: grep for GATT UUIDs (already well documented).
+4) Dynamic: record one "connect + read temps" HCI snoop to confirm.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: credential exchange required after connection
-- Session state machine: connect → send credentials → enable real-time → receive notifications
-- Commands: pair/credential, enable real-time mode, set alarm thresholds, silence alarm
-- Payload encoding: temperature as 16-bit integers in notifications, divide by 10 for °C
-- Timing constraints: notifications at regular interval (~1-2 seconds)
+- Pairing/bonding steps: credential write to 0xFFF2 required after connection (VERIFIED)
+- Session state machine: connect -> write credentials -> enable CCCD -> enable realtime -> receive notifications (VERIFIED)
+- Commands: credential, enable realtime, battery request, set unit, set alarm, silence alarm (ALL VERIFIED)
+- Payload encoding: uint16 LE / 10 for C (VERIFIED)
+- Timing constraints: notifications at regular interval after enable
 
 ## Control surface inventory (what the replacement app must support)
 - Onboarding/pairing UX: BLE scan for iBBQ name
