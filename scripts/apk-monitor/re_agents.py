@@ -9,6 +9,7 @@ configurable transcripts repo.
 import json
 import logging
 import os
+import re
 import subprocess
 import textwrap
 import time
@@ -16,6 +17,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+from config import ModelConfig, MAX_TOKENS
 
 log = logging.getLogger("re_agents")
 
@@ -48,10 +51,8 @@ class AgentResult:
 def _build_system_prompt(meta_prompt_path: Path) -> str:
     """Build the system prompt from the agent meta-prompt."""
     if meta_prompt_path.exists():
-        meta = meta_prompt_path.read_text()
-    else:
-        meta = "You are a reverse engineering agent for IoT Bluetooth devices."
-    return meta
+        return meta_prompt_path.read_text()
+    return "You are a reverse engineering agent for IoT Bluetooth devices."
 
 
 def _build_user_prompt(task: AgentTask, protocol_hints_path: Optional[Path] = None) -> str:
@@ -107,19 +108,61 @@ def _build_user_prompt(task: AgentTask, protocol_hints_path: Optional[Path] = No
     """)
 
 
+# ── API call helpers ──────────────────────────────────────
+
+def _call_api_curl(url: str, headers: dict[str, str], payload: dict) -> tuple[str, float]:
+    """Generic curl-based API call.  Returns (response_body, duration_seconds)."""
+    header_args: list[str] = []
+    for k, v in headers.items():
+        header_args += ["-H", f"{k}: {v}"]
+
+    t0 = time.monotonic()
+    result = subprocess.run(
+        ["curl", "-s", "-X", "POST", url, *header_args,
+         "-H", "content-type: application/json",
+         "-d", json.dumps(payload)],
+        capture_output=True, timeout=600,
+    )
+    duration = time.monotonic() - t0
+
+    try:
+        body = result.stdout.decode(errors="replace")
+    except Exception:
+        body = ""
+
+    return body, duration
+
+
 def _call_anthropic(system: str, user: str, model: str, api_key: str) -> tuple[str, float]:
     """Call the Anthropic API.  Returns (response_text, duration_seconds)."""
     try:
         import anthropic
     except ImportError:
-        # Fall back to subprocess with curl
-        return _call_anthropic_curl(system, user, model, api_key)
+        # Fall back to curl
+        payload = {
+            "model": model,
+            "max_tokens": MAX_TOKENS,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        body, duration = _call_api_curl(
+            "https://api.anthropic.com/v1/messages",
+            {"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            payload,
+        )
+        try:
+            resp = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            log.warning("Anthropic curl response not valid JSON: %s", body[:200])
+            return "", duration
+        text = resp.get("content", [{}])[0].get("text", "")
+        return text, duration
 
     client = anthropic.Anthropic(api_key=api_key)
     t0 = time.monotonic()
     message = client.messages.create(
         model=model,
-        max_tokens=16384,
+        max_tokens=MAX_TOKENS,
         system=system,
         messages=[{"role": "user", "content": user}],
     )
@@ -128,75 +171,50 @@ def _call_anthropic(system: str, user: str, model: str, api_key: str) -> tuple[s
     return text, duration
 
 
-def _call_anthropic_curl(system: str, user: str, model: str, api_key: str) -> tuple[str, float]:
-    """Fallback: call Anthropic via curl."""
-    payload = json.dumps({
-        "model": model,
-        "max_tokens": 16384,
-        "system": system,
-        "messages": [{"role": "user", "content": user}],
-    })
-    t0 = time.monotonic()
-    result = subprocess.run(
-        ["curl", "-s", "-X", "POST", "https://api.anthropic.com/v1/messages",
-         "-H", f"x-api-key: {api_key}",
-         "-H", "anthropic-version: 2023-06-01",
-         "-H", "content-type: application/json",
-         "-d", payload],
-        capture_output=True, timeout=600,
-    )
-    duration = time.monotonic() - t0
-    resp = json.loads(result.stdout)
-    text = resp.get("content", [{}])[0].get("text", "")
-    return text, duration
-
-
 def _call_openai(system: str, user: str, model: str, api_key: str,
                  base_url: str = "https://api.openai.com/v1") -> tuple[str, float]:
-    """Call the OpenAI-compatible API.  Works for OpenAI, local QWEN via ollama/vllm, etc."""
+    """Call an OpenAI-compatible API.  Works for OpenAI, ollama, vllm, etc."""
     try:
         import openai
-        client = openai.OpenAI(api_key=api_key, base_url=base_url)
-        t0 = time.monotonic()
-        completion = client.chat.completions.create(
-            model=model,
-            max_tokens=16384,
-            messages=[
+    except ImportError:
+        # Fall back to curl
+        payload = {
+            "model": model,
+            "max_tokens": MAX_TOKENS,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+        }
+        body, duration = _call_api_curl(
+            f"{base_url}/chat/completions",
+            {"Authorization": f"Bearer {api_key}"},
+            payload,
         )
-        duration = time.monotonic() - t0
-        text = completion.choices[0].message.content or ""
+        try:
+            resp = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            log.warning("OpenAI curl response not valid JSON: %s", body[:200])
+            return "", duration
+        text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
         return text, duration
-    except ImportError:
-        return _call_openai_curl(system, user, model, api_key, base_url)
 
-
-def _call_openai_curl(system: str, user: str, model: str, api_key: str,
-                      base_url: str = "https://api.openai.com/v1") -> tuple[str, float]:
-    """Fallback: call OpenAI-compatible API via curl."""
-    payload = json.dumps({
-        "model": model,
-        "max_tokens": 16384,
-        "messages": [
+    client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    t0 = time.monotonic()
+    completion = client.chat.completions.create(
+        model=model,
+        max_tokens=MAX_TOKENS,
+        messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-    })
-    t0 = time.monotonic()
-    result = subprocess.run(
-        ["curl", "-s", "-X", "POST", f"{base_url}/chat/completions",
-         "-H", f"Authorization: Bearer {api_key}",
-         "-H", "content-type: application/json",
-         "-d", payload],
-        capture_output=True, timeout=600,
     )
     duration = time.monotonic() - t0
-    resp = json.loads(result.stdout)
-    text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+    text = completion.choices[0].message.content or ""
     return text, duration
 
+
+# ── Output helpers ────────────────────────────────────────
 
 def _save_transcript(
     transcripts_dir: Path,
@@ -238,8 +256,6 @@ def _save_transcript(
 
 def _extract_spec_yaml(response: str) -> str:
     """Extract the SPEC_YAML block from an agent response."""
-    import re
-    # Look for ```yaml blocks after SPEC_YAML header
     match = re.search(r"### *SPEC_YAML.*?```ya?ml\s*\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
@@ -252,52 +268,13 @@ def _extract_spec_yaml(response: str) -> str:
 
 def _extract_protocol_doc(response: str) -> str:
     """Extract the PROTOCOL_DOC block from an agent response."""
-    import re
     match = re.search(r"### *PROTOCOL_DOC.*?```(?:markdown|md)?\s*\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return ""
 
 
-def _create_branch(root_dir: Path, branch_name: str) -> bool:
-    """Create and checkout a new git branch."""
-    try:
-        subprocess.run(
-            ["git", "checkout", "-b", branch_name],
-            cwd=root_dir, capture_output=True, check=True,
-        )
-        return True
-    except subprocess.CalledProcessError:
-        # Branch may already exist
-        try:
-            subprocess.run(
-                ["git", "checkout", branch_name],
-                cwd=root_dir, capture_output=True, check=True,
-            )
-            return True
-        except subprocess.CalledProcessError as exc:
-            log.error("Failed to create/checkout branch %s: %s", branch_name, exc)
-            return False
-
-
-def _commit_and_push(root_dir: Path, branch_name: str, message: str, files: list[str]) -> bool:
-    """Stage files, commit, and push."""
-    try:
-        for f in files:
-            subprocess.run(["git", "add", f], cwd=root_dir, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", message],
-            cwd=root_dir, capture_output=True, check=True,
-        )
-        subprocess.run(
-            ["git", "push", "-u", "origin", branch_name],
-            cwd=root_dir, capture_output=True, check=True,
-        )
-        return True
-    except subprocess.CalledProcessError as exc:
-        log.error("Git commit/push failed: %s", exc)
-        return False
-
+# ── Agent execution ───────────────────────────────────────
 
 def run_agent(
     agent_name: str,
@@ -329,7 +306,6 @@ def run_agent(
         if agent_name == "claude":
             response, duration = _call_anthropic(system_prompt, user_prompt, model, api_key)
         else:
-            # OpenAI and local QWEN both use OpenAI-compatible API
             url = base_url or "https://api.openai.com/v1"
             response, duration = _call_openai(system_prompt, user_prompt, model, api_key, url)
 
@@ -348,7 +324,6 @@ def run_agent(
 
         if spec_yaml or protocol_doc:
             result.success = True
-            # Save spec to the protocol-docs repo
             if spec_yaml:
                 spec_dir = root_dir / "device-specs" / "candidates"
                 spec_dir.mkdir(parents=True, exist_ok=True)
@@ -378,26 +353,16 @@ def launch_all_agents(
     task: AgentTask,
     root_dir: Path,
     transcripts_dir: Path,
-    claude_model: str = "claude-sonnet-4-20250514",
-    openai_model: str = "gpt-4o",
-    local_model: str = "qwen2.5-coder:32b",
-    local_base_url: str = "http://localhost:11434/v1",
-    local_api_key: str = "ollama",
-    anthropic_api_key: str = "",
-    openai_api_key: str = "",
+    models: ModelConfig,
     protocol_hints_path: Optional[Path] = None,
 ) -> list[AgentResult]:
-    """Launch all three RE agents sequentially and collect results.
-
-    In production, these could be parallelized with multiprocessing or async.
-    Sequential is safer for a cron job and easier to debug.
-    """
+    """Launch all three RE agents sequentially and collect results."""
     results: list[AgentResult] = []
 
     agents = [
-        ("claude", claude_model, anthropic_api_key, ""),
-        ("openai", openai_model, openai_api_key, "https://api.openai.com/v1"),
-        ("local-qwen", local_model, local_api_key, local_base_url),
+        ("claude", models.claude_model, models.anthropic_api_key, ""),
+        ("openai", models.openai_model, models.openai_api_key, "https://api.openai.com/v1"),
+        ("local-qwen", models.local_model, models.local_api_key, models.local_base_url),
     ]
 
     for agent_name, model, api_key, base_url in agents:
@@ -437,13 +402,10 @@ if __name__ == "__main__":
     root = Path(__file__).resolve().parents[2]
     transcripts = Path(os.environ.get("TRANSCRIPTS_REPO", root / "workspace" / "re-transcripts"))
 
-    results = launch_all_agents(
-        task=task,
-        root_dir=root,
-        transcripts_dir=transcripts,
-        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
+    from config import load_config
+    cfg = load_config()
+    mc = ModelConfig.from_cfg(cfg)
 
+    results = launch_all_agents(task=task, root_dir=root, transcripts_dir=transcripts, models=mc)
     for r in results:
         print(json.dumps(asdict(r), indent=2))

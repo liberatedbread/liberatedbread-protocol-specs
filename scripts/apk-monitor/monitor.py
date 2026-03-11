@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import sys
+import textwrap
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,38 +33,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from apk_discovery import discover_new_apks, load_known_packages
 from bt_scanner import scan_apk, is_interesting, ScanResult
+from config import ModelConfig, ResolvedPaths, load_config
 from re_agents import AgentTask, launch_all_agents
 from merge_voter import cross_check_and_vote, auto_merge_winner
 
 log = logging.getLogger("monitor")
-
-
-def _load_config() -> dict:
-    """Load config from config.env if present, fall back to environment."""
-    config_path = Path(__file__).parent / "config.env"
-    cfg: dict[str, str] = {}
-    if config_path.exists():
-        for line in config_path.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" in line:
-                key, _, val = line.partition("=")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if val:  # only override if non-empty
-                    cfg[key] = val
-    # Environment variables take precedence
-    for key in cfg:
-        env_val = os.environ.get(key)
-        if env_val:
-            cfg[key] = env_val
-    return cfg
-
-
-def _detect_root() -> Path:
-    """Detect the repo root directory."""
-    return Path(__file__).resolve().parents[2]
 
 
 def _append_to_targets_csv(targets_csv: Path, package_id: str, target_id: str,
@@ -75,16 +49,44 @@ def _append_to_targets_csv(targets_csv: Path, package_id: str, target_id: str,
                          f"auto-discovered {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"])
 
 
-def _generate_target_id(package_id: str) -> str:
+def _generate_target_id(package_id: str, existing_ids: set[str] | None = None) -> str:
     """Generate a target_id from a package_id.
 
-    e.g. com.example.myapp -> myapp
-    Falls back to last two segments joined with hyphen.
+    Uses the last two segments to reduce collision risk:
+        com.foo.myapp  -> foo-myapp
+        com.bar.myapp  -> bar-myapp
+        org.example    -> org-example
+
+    If existing_ids is provided, appends a numeric suffix on collision.
     """
     parts = package_id.split(".")
-    if len(parts) >= 3:
-        return parts[-1].lower().replace("_", "-")
-    return "-".join(parts[-2:]).lower().replace("_", "-")
+    if len(parts) >= 2:
+        base = "-".join(parts[-2:]).lower().replace("_", "-")
+    else:
+        base = parts[0].lower().replace("_", "-")
+
+    if existing_ids is None:
+        return base
+
+    candidate = base
+    n = 2
+    while candidate in existing_ids:
+        candidate = f"{base}-{n}"
+        n += 1
+    return candidate
+
+
+def _load_existing_target_ids(targets_csv: Path) -> set[str]:
+    """Return the set of target_ids already in targets.csv."""
+    ids: set[str] = set()
+    if not targets_csv.exists():
+        return ids
+    with open(targets_csv, newline="") as f:
+        for row in csv.DictReader(f):
+            tid = row.get("target_id", "").strip()
+            if tid:
+                ids.add(tid)
+    return ids
 
 
 def _save_run_log(workspace_dir: Path, log_data: dict) -> Path:
@@ -98,20 +100,16 @@ def _save_run_log(workspace_dir: Path, log_data: dict) -> Path:
     return log_path
 
 
-def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
+def run_full_pipeline(paths: ResolvedPaths, models: ModelConfig,
+                      cfg: dict, scan_only: bool = False) -> dict:
     """Execute the full monitoring pipeline."""
-    root_dir = Path(cfg.get("PROTOCOL_DOCS_ROOT", "")) or _detect_root()
-    workspace_dir = Path(cfg.get("WORKSPACE_DIR", "")) or (root_dir / "workspace")
-    transcripts_dir = Path(cfg.get("TRANSCRIPTS_REPO", "")) or (workspace_dir / "re-transcripts")
-    targets_csv = root_dir / "targets" / "targets.csv"
-
     max_new = int(cfg.get("MAX_NEW_APKS_PER_RUN", "10"))
     apkeep_source = cfg.get("APKEEP_SOURCE", "apk-pure")
     min_votes = int(cfg.get("MIN_VOTES_TO_MERGE", "2"))
 
     run_log: dict = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "root_dir": str(root_dir),
+        "root_dir": str(paths.root_dir),
         "discovered": [],
         "scanned": [],
         "interesting": [],
@@ -121,7 +119,8 @@ def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
 
     # Step 1: Discover new APKs
     log.info("=== Step 1: Discovering new APKs ===")
-    downloaded = discover_new_apks(root_dir, workspace_dir, max_new=max_new, apkeep_source=apkeep_source)
+    downloaded = discover_new_apks(paths.root_dir, paths.workspace_dir,
+                                   max_new=max_new, apkeep_source=apkeep_source)
     run_log["discovered"] = downloaded
     log.info("Downloaded %d new APKs", len(downloaded))
 
@@ -132,7 +131,7 @@ def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
     for apk_info in downloaded:
         pkg = apk_info["package_id"]
         apk_path = Path(apk_info["apk_path"])
-        work_dir = workspace_dir / "apk-monitor" / "scans" / pkg
+        work_dir = paths.workspace_dir / "apk-monitor" / "scans" / pkg
 
         result = scan_apk(pkg, apk_path, work_dir=work_dir)
         run_log["scanned"].append(asdict(result))
@@ -150,7 +149,8 @@ def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
 
     # Step 3: For each interesting target, register and launch RE agents
     log.info("=== Step 3: Launching RE agents ===")
-    known_packages = load_known_packages(targets_csv)
+    known_packages = load_known_packages(paths.targets_csv)
+    existing_target_ids = _load_existing_target_ids(paths.targets_csv)
 
     for apk_info, scan_result in interesting_targets:
         pkg = apk_info["package_id"]
@@ -158,14 +158,15 @@ def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
             log.info("  Already in targets.csv, skipping: %s", pkg)
             continue
 
-        target_id = _generate_target_id(pkg)
+        target_id = _generate_target_id(pkg, existing_target_ids)
+        existing_target_ids.add(target_id)
 
         # Add to targets.csv
         transport = "BLE" if scan_result.has_ble_gatt else "Bluetooth"
-        _append_to_targets_csv(targets_csv, pkg, target_id, scan_result.summary[:50], transport)
+        _append_to_targets_csv(paths.targets_csv, pkg, target_id,
+                               scan_result.summary[:50], transport)
         log.info("  Added to targets.csv: %s -> %s", pkg, target_id)
 
-        # Build agent task
         task = AgentTask(
             package_id=pkg,
             target_id=target_id,
@@ -177,24 +178,14 @@ def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
         )
 
         # Find protocol hints from static analysis
-        hints_path = workspace_dir / "apk-monitor" / "scans" / pkg / "jadx"
-        protocol_hints = None
-        rg_hints = workspace_dir / "apk-monitor" / "scans" / pkg / "summary" / "rg_protocol_hints.txt"
-        if rg_hints.exists():
-            protocol_hints = rg_hints
+        rg_hints = paths.workspace_dir / "apk-monitor" / "scans" / pkg / "summary" / "rg_protocol_hints.txt"
+        protocol_hints = rg_hints if rg_hints.exists() else None
 
-        # Launch agents
         results = launch_all_agents(
             task=task,
-            root_dir=root_dir,
-            transcripts_dir=transcripts_dir,
-            claude_model=cfg.get("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
-            openai_model=cfg.get("OPENAI_MODEL", "gpt-4o"),
-            local_model=cfg.get("LOCAL_MODEL", "qwen2.5-coder:32b"),
-            local_base_url=cfg.get("LOCAL_MODEL_BASE_URL", "http://localhost:11434/v1"),
-            local_api_key=cfg.get("LOCAL_MODEL_API_KEY", "ollama"),
-            anthropic_api_key=cfg.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
-            openai_api_key=cfg.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
+            root_dir=paths.root_dir,
+            transcripts_dir=paths.transcripts_dir,
+            models=models,
             protocol_hints_path=protocol_hints,
         )
         run_log["agents_launched"].append({
@@ -208,16 +199,10 @@ def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
         if len(successful_agents) >= 2:
             decision = cross_check_and_vote(
                 target_id=target_id,
-                root_dir=root_dir,
-                claude_model=cfg.get("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
-                openai_model=cfg.get("OPENAI_MODEL", "gpt-4o"),
-                local_model=cfg.get("LOCAL_MODEL", "qwen2.5-coder:32b"),
-                local_base_url=cfg.get("LOCAL_MODEL_BASE_URL", "http://localhost:11434/v1"),
-                local_api_key=cfg.get("LOCAL_MODEL_API_KEY", "ollama"),
-                anthropic_api_key=cfg.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
-                openai_api_key=cfg.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
+                root_dir=paths.root_dir,
+                models=models,
             )
-            decision = auto_merge_winner(decision, root_dir, min_votes=min_votes)
+            decision = auto_merge_winner(decision, paths.root_dir, min_votes=min_votes)
             run_log["votes"].append(asdict(decision))
         else:
             log.info("  Only %d successful agents — skipping vote", len(successful_agents))
@@ -225,18 +210,12 @@ def run_full_pipeline(cfg: dict, scan_only: bool = False) -> dict:
     return run_log
 
 
-def run_target_only(cfg: dict, target_id: str) -> dict:
+def run_target_only(paths: ResolvedPaths, models: ModelConfig, target_id: str) -> dict:
     """Run RE agents on a specific existing target."""
-    root_dir = Path(cfg.get("PROTOCOL_DOCS_ROOT", "")) or _detect_root()
-    workspace_dir = Path(cfg.get("WORKSPACE_DIR", "")) or (root_dir / "workspace")
-    transcripts_dir = Path(cfg.get("TRANSCRIPTS_REPO", "")) or (workspace_dir / "re-transcripts")
-    targets_csv = root_dir / "targets" / "targets.csv"
-
-    # Find the target in CSV
     pkg = ""
     transport = "BLE"
     device_class = "unknown"
-    with open(targets_csv, newline="") as f:
+    with open(paths.targets_csv, newline="") as f:
         for row in csv.DictReader(f):
             if row.get("target_id") == target_id:
                 pkg = row["package_id"]
@@ -248,11 +227,11 @@ def run_target_only(cfg: dict, target_id: str) -> dict:
         log.error("Target %s not found in targets.csv", target_id)
         return {"error": f"target {target_id} not found"}
 
-    # Find APK
-    apk_candidates = list((workspace_dir / "apks").rglob(f"*{pkg}*.apk"))
-    if not apk_candidates:
-        apk_candidates = list((workspace_dir / "apks").rglob("*.apk"))
+    # Find APK — only match on package_id, don't fall back to arbitrary APKs
+    apk_candidates = list((paths.workspace_dir / "apks").rglob(f"*{pkg}*.apk"))
     apk_path = str(apk_candidates[0]) if apk_candidates else ""
+    if not apk_path:
+        log.warning("No APK found for %s — agents will work without it", pkg)
 
     task = AgentTask(
         package_id=pkg,
@@ -265,36 +244,19 @@ def run_target_only(cfg: dict, target_id: str) -> dict:
 
     results = launch_all_agents(
         task=task,
-        root_dir=root_dir,
-        transcripts_dir=transcripts_dir,
-        claude_model=cfg.get("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
-        openai_model=cfg.get("OPENAI_MODEL", "gpt-4o"),
-        local_model=cfg.get("LOCAL_MODEL", "qwen2.5-coder:32b"),
-        local_base_url=cfg.get("LOCAL_MODEL_BASE_URL", "http://localhost:11434/v1"),
-        local_api_key=cfg.get("LOCAL_MODEL_API_KEY", "ollama"),
-        anthropic_api_key=cfg.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
-        openai_api_key=cfg.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
+        root_dir=paths.root_dir,
+        transcripts_dir=paths.transcripts_dir,
+        models=models,
     )
 
     return {"target_id": target_id, "results": [asdict(r) for r in results]}
 
 
-def run_vote_only(cfg: dict, target_id: str) -> dict:
+def run_vote_only(paths: ResolvedPaths, models: ModelConfig, target_id: str) -> dict:
     """Run cross-check voting on existing candidate specs."""
-    root_dir = Path(cfg.get("PROTOCOL_DOCS_ROOT", "")) or _detect_root()
-
-    decision = cross_check_and_vote(
-        target_id=target_id,
-        root_dir=root_dir,
-        claude_model=cfg.get("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
-        openai_model=cfg.get("OPENAI_MODEL", "gpt-4o"),
-        local_model=cfg.get("LOCAL_MODEL", "qwen2.5-coder:32b"),
-        local_base_url=cfg.get("LOCAL_MODEL_BASE_URL", "http://localhost:11434/v1"),
-        local_api_key=cfg.get("LOCAL_MODEL_API_KEY", "ollama"),
-        anthropic_api_key=cfg.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
-        openai_api_key=cfg.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
-    )
-    decision = auto_merge_winner(decision, root_dir, min_votes=int(cfg.get("MIN_VOTES_TO_MERGE", "2")))
+    decision = cross_check_and_vote(target_id=target_id, root_dir=paths.root_dir, models=models)
+    decision = auto_merge_winner(decision, paths.root_dir,
+                                 min_votes=int(os.environ.get("MIN_VOTES_TO_MERGE", "2")))
     return asdict(decision)
 
 
@@ -320,29 +282,23 @@ def main():
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-        ],
     )
 
-    cfg = _load_config()
-    root_dir = Path(cfg.get("PROTOCOL_DOCS_ROOT", "")) or _detect_root()
-    workspace_dir = Path(cfg.get("WORKSPACE_DIR", "")) or (root_dir / "workspace")
+    cfg = load_config()
+    paths = ResolvedPaths.from_cfg(cfg)
+    models = ModelConfig.from_cfg(cfg)
 
     if args.target:
-        result = run_target_only(cfg, args.target)
+        result = run_target_only(paths, models, args.target)
     elif args.vote:
-        result = run_vote_only(cfg, args.vote)
+        result = run_vote_only(paths, models, args.vote)
     else:
-        result = run_full_pipeline(cfg, scan_only=args.scan_only)
+        result = run_full_pipeline(paths, models, cfg, scan_only=args.scan_only)
 
-    log_path = _save_run_log(workspace_dir, result)
+    log_path = _save_run_log(paths.workspace_dir, result)
     log.info("Run log saved to: %s", log_path)
     print(json.dumps(result, indent=2, default=str))
 
-
-# Needed for argparse epilog
-import textwrap
 
 if __name__ == "__main__":
     main()
