@@ -12,14 +12,14 @@
 - Price: $15-30
 - VERIFIED: Measures SpO2 (blood oxygen saturation) and pulse rate
 - VERIFIED: Uses BLE GATT (not standard 0x1822 Pulse Oximeter profile in most cheap units)
-- NOTE: jcomas/PulseOximeterSP001 repo exists but appears to be WIP with incomplete documentation
+- NOTE: jcomas/PulseOximeterSP001 repo exists with basic implementation (not marked WIP by author; reads SpO2/PR/PI data)
 - TBD — needs verification: All BLE service/characteristic UUIDs (not documented in cited repo)
 - TBD — needs verification: "BCI protocol documented" claim (unverified)
 - TBD — needs verification: Advertised name patterns ("BerryMed", "SP001" speculative)
 - TBD — needs verification: Data frame format, notification rate
 - TBD — needs verification: Companion app package ID
 - NOTE: This target has weak RE coverage — needs hands-on work
-- Existing RE: github.com/jcomas/PulseOximeterSP001 (WIP)
+- Existing RE: github.com/jcomas/PulseOximeterSP001
 
 ## Device discovery signals
 - BLE:

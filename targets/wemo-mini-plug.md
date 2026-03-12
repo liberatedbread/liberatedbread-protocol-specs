@@ -13,13 +13,13 @@
 - VERIFIED: Cloud shutdown announced for January 31, 2026 (news reports)
 - VERIFIED: Uses UPnP/SOAP protocol on local network
 - VERIFIED: SSDP multicast discovery on local LAN
-- VERIFIED: pywemo Python library provides local control (source: home-assistant-libs/pywemo, NOT pavoni/pywemo)
+- VERIFIED: pywemo Python library provides local control (source: pywemo/pywemo, NOT pavoni/pywemo)
 - HomeKit-enabled models retain local control via HomeKit
 - Non-HomeKit models at risk without local RE
 - TBD — needs verification: mDNS service type "_wemo._tcp" (speculative, may use UPnP SSDP only)
 - TBD — needs verification: UPnP URN "urn:Belkin:device:controllee:1" (plausible but unconfirmed)
 - Also relevant: Wemo WiFi Smart Dimmer, Smart Light Switch, Insight Switch
-- Existing RE: home-assistant-libs/pywemo, iancmcc/ouimeaux
+- Existing RE: pywemo/pywemo, iancmcc/ouimeaux
 
 ## Device discovery signals
 - Wi-Fi:
@@ -61,5 +61,5 @@ Write a derived spec in:
 - docs/specs/wemo-mini-plug.md
 
 ## References (URLs only)
-- https://github.com/home-assistant-libs/pywemo
+- https://github.com/pywemo/pywemo
 - https://github.com/iancmcc/ouimeaux

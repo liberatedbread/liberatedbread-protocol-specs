@@ -13,8 +13,9 @@
 - VERIFIED: Measures soil moisture, temperature, light intensity, soil fertility/conductivity
 - VERIFIED: Coin cell (CR2032) powered, ~1 year battery life
 - VERIFIED: Advertised name "Flower care" / "Flower mate" (community documentation)
-- Community-documented (not verified from primary cited source): write 0xA01F to handle 0x33 for real-time mode, read from handle 0x35, firmware/battery from handle 0x38
-- NOTE: The miflora Python library abstracts handles internally; handle numbers from community RE, not cited GitHub README
+- VERIFIED (from basnijholt/miflora source code miflora_poller.py): write 0xA01F to handle 0x33 (`_HANDLE_WRITE_MODE_CHANGE`) for real-time mode, read from handle 0x35 (`_HANDLE_READ_SENSOR_DATA`), firmware/battery from handle 0x38 (`_HANDLE_READ_VERSION_BATTERY`)
+- VERIFIED: Additional handles in source: device time 0x41 (`_HANDLE_DEVICE_TIME`), history control 0x3E (`_HANDLE_HISTORY_CONTROL`), history read 0x3C (`_HANDLE_HISTORY_READ`)
+- VERIFIED: Writing 0xFDFF to handle 0x33 makes device blink top LED once
 - Community-documented: Payload encoding binary LE — temp (C x 10), moisture (%), light (lux), fertility (uS/cm)
 - Existing RE: github.com/basnijholt/miflora, github.com/sidddy/flora, github.com/vrachieru/xiaomi-flower-care-api
 
@@ -37,7 +38,7 @@
 ## Protocol hypotheses (to validate)
 - Pairing/bonding steps: TBD — none for reading (community-documented), may need bonding for firmware update
 - Session state machine: connect -> write mode switch -> read data -> disconnect (community-documented)
-- Commands: enable real-time (write 0xA01F to handle 0x33), read sensors (handle 0x35), read FW/battery (handle 0x38) — community-documented, needs primary verification
+- Commands: enable real-time (write 0xA01F to handle 0x33), read sensors (handle 0x35), read FW/battery (handle 0x38) — VERIFIED from miflora_poller.py source
 - Payload encoding: binary LE integers (community-documented)
 - Timing constraints: TBD — real-time mode may timeout
 

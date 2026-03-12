@@ -2,7 +2,7 @@
 
 ## Target metadata
 - target_id: xiaomi-mi-scale
-- app package_id(s): com.xiaomi.mifit, com.mi.health
+- app package_id(s): com.xiaomi.hm.health (Zepp Life, formerly Mi Fit)
 - device class: BLE body composition scale
 - transport(s): BLE
 - local-only viability: high — BLE protocol RE'd via openScale project
