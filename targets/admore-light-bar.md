@@ -46,6 +46,60 @@
 - Non-goals: do not modify accelerometer thresholds beyond manufacturer-supported ranges (sensitivity 1–50 per config, corresponding to raw values 4000–80). Do not disable safety-critical brake light activation from the physical brake switch input.
 - Firmware updates: document the DFU mechanism but do not distribute or modify firmware images. DFU zip served from Firebase (`admore-light-bar-with-ble.firebaseio.com`).
 
+## App architecture (from Flutter Dart snapshot reverse engineering)
+
+### Reconstructed Dart source tree
+```
+package:admore_light_bar/
+├── main.dart
+├── internal/
+│   ├── extensions.dart
+│   └── version2/
+│       ├── auth/ (auth_api.dart, concrete_auth_api.dart, auth_api_repository.dart)
+│       └── local_cache/ (devices_api.dart, local_device.dart, local_device_repository.dart, local_devices_storage.dart)
+├── remote/
+│   ├── auth_config.dart         ← Firebase auth configuration
+│   ├── cloud_storage.dart       ← Firebase Storage (firmware DFU zips, diagnostics upload)
+│   ├── lightbar.dart            ← PRIMARY PROTOCOL: sendLightOutput(), sendBarTest(), _queryLightbar(), _connectUart()
+│   ├── signals.dart             ← Turn signal state model (SignalModel, _SignalColor)
+│   └── uart.dart                ← BLE UART abstraction layer
+├── utils/
+│   ├── ble_extra.dart           ← BLE helper utilities
+│   └── snackbar.dart
+├── views/version2/
+│   ├── bindings/ (armband, config, device, home, scan, settings)  ← GetX dependency injection
+│   ├── controllers/
+│   │   ├── armband_controller.dart   ← Armband provisioning (Left/Right), _connectUart(), sendDSSCommit()
+│   │   ├── config_controller.dart    ← lb_config.xml parsing (_parseContinuous, _parseDiscrete, _parseToggle)
+│   │   ├── developer_controller.dart ← Developer/diagnostic mode
+│   │   ├── device_controller.dart    ← Device connection management
+│   │   ├── dfu_controller.dart       ← Nordic DFU firmware update flow
+│   │   ├── home_controller.dart
+│   │   ├── scan_controller.dart      ← BLE scanning (startScan, stopScan, autoConnect)
+│   │   ├── settings_controller.dart
+│   │   └── your_info_controller.dart
+│   ├── model/
+│   │   ├── ble_uart.dart         ← BleUart / BleUartDevice model (openUart, UART state)
+│   │   ├── config_error.dart
+│   │   └── version_model.dart    ← Version info model
+│   └── screens/ (armband, bluetooth_off, config, developer, device, dfu, home_v2, scan, settings, your_info, email_verify, change_email, change_password)
+└── widgets/ (lb_conf_widgets.dart, scan_result_tile.dart)
+
+package:messaging_common/
+├── build_dart/
+│   ├── lightbar.pb.dart          ← Protobuf message classes (generated from .proto)
+│   └── lightbar.pbenum.dart      ← Protobuf enum definitions
+└── kmessaging.dart               ← KMsg routing system (CmdSinkSocket, CmdSourceSocket, EvtSinkSocket, EvtSourceSocket)
+```
+
+### Key dependencies
+- **BLE**: `flutter_blue_plus` (not flutter_reactive_ble)
+- **State mgmt**: GetX (`package:get`)
+- **Serialization**: `package:protobuf` (Dart protobuf runtime)
+- **DFU**: `package:nordic_dfu` (`dev.steenbakker.nordic_dfu`)
+- **Backend**: Firebase Auth, Firebase Storage, Firestore
+- **UI framework**: Cupertino-style (iOS-like) with `settings_ui`
+
 ## Protocol architecture (confirmed from APK static analysis)
 
 ### Transport layer
@@ -58,33 +112,109 @@
 - Protobuf schema defined in `package:messaging_common/build_dart/lightbar.pb.dart` and `lightbar.pbenum.dart`
 - Internal message bus uses **KMsg** (`package:messaging_common/kmessaging.dart`) with source/destination routing
 
-### Message routing
-- Sources (SRC): `SRC_CMD_APP`, `SRC_CMD_HOST_APP`, `SRC_CMD_HOST_DIAG`, `SRC_CMD_UART_DIAG`, `SRC_CMD_KMSG`, `SRC_CMD_BKND_APP`, `SRC_CMD_BKND_DIAG`, `SRC_CMD_APP_ARML`, `SRC_CMD_APP_ARMR`
-- Destinations (DST): `DST_CMD_APP`, `DST_CMD_BLE_ENGINE`, `DST_CMD_KMSG`, `DST_CMD_APP_DIAG`, `DST_CMD_APP_ARML`, `DST_CMD_APP_ARMR`, `DST_CMD_APP_DIAG_ARML`, `DST_CMD_APP_DIAG_ARMR`
-- Events: `SRC_EVT_*` / `DST_EVT_*` for async notifications
+### KMsg routing system
 
-### Protobuf command types (from libapp.so symbol analysis)
+#### Socket types
+The KMsg system uses a publish/subscribe socket pattern:
+- `CmdSinkSocket` / `CmdSourceSocket` — command request/response sockets
+- `EvtSinkSocket` / `EvtSourceSocket` — event subscription sockets
+- `_DestinationSocket` / `_SourceSocket` — internal routing primitives
+- Reply mechanism: `kmsgCmdSourcePublishReply()` with timeout
 
-The app uses these protobuf message types for communication:
+#### Route IDs (36 total)
 
-| Protobuf Type | Purpose |
+**Command Sources (SRC_CMD)**: `APP`, `HOST_APP`, `HOST_DIAG`, `UART_DIAG`, `KMSG`, `BKND_APP`, `BKND_DIAG`, `APP_ARML`, `APP_ARMR`
+**Command Destinations (DST_CMD)**: `APP`, `BLE_ENGINE`, `KMSG`, `APP_DIAG`, `APP_ARML`, `APP_ARMR`, `APP_DIAG_ARML`, `APP_DIAG_ARMR`
+**Event Sources (SRC_EVT)**: `APP`, `APP_ARML`, `APP_ARMR`, `APP_DIAG`, `APP_DIAG_ARML`, `APP_DIAG_ARMR`, `BLE_ENGINE`, `KMSG`
+**Event Destinations (DST_EVT)**: `APP`, `APP_ARML`, `APP_ARMR`, `BKND_APP`, `BKND_DIAG`, `BLE_ENGINE_APP`, `HOST_APP`, `HOST_DIAG`, `KMSG`
+**Special**: `SRC_UNASSIGNED`
+
+#### KMSG system events (14)
+| Event | Description |
 |---|---|
-| `t_cmdAppQuery` / `t_cmdAppQuery_Reply` | Query device state (request/response) |
-| `t_cmdAppNop` | No-op / keepalive |
-| `t_cmdAppWriteString` | Write string data (`APP_WRITE_STRING`) |
-| `t_cmdAppInjectEvent` | Inject event (`APP_INJECT_EVENT`) |
-| `t_cmdAppSetDstEvt` / `t_cmdAppSetDstEvtDiag` | Set event routing destinations |
-| `t_cmdDssSetData` | Set a device setting (setting ID + value) |
-| `t_cmdDssGetData` / `t_cmdDssGetData_Reply` | Get a device setting (request/response) |
-| `t_cmdDssOperation` | System operations (commit, factory reset, reload, etc.) |
-| `t_cmdLosSetLight` | Direct light output control (used by `sendLightOutput()`, `sendBarTest()`) |
-| `t_evtAppEvent` | Generic app event (device → app) |
-| `t_evtDiagMmsDecelData` | Diagnostic deceleration data (device → app) |
+| `KMSG_BLE_CONNECT` | BLE connection established |
+| `KMSG_BLE_CONNECT_READY` | BLE connection ready for commands |
+| `KMSG_BLE_DISCONNECT` | BLE disconnected |
+| `KMSG_BLE_ADVERTISING_START` | Device advertising started |
+| `KMSG_BLE_ADVERTISING_STOP` | Device advertising stopped |
+| `KMSG_BLE_SCANNING_START` | BLE scan started |
+| `KMSG_BLE_SCANNING_STOP` | BLE scan stopped |
+| `KMSG_BLE_ARMBAND_L_CONNECT` | Left armband connected |
+| `KMSG_BLE_ARMBAND_L_DISCONNECT` | Left armband disconnected |
+| `KMSG_BLE_ARMBAND_R_CONNECT` | Right armband connected |
+| `KMSG_BLE_ARMBAND_R_DISCONNECT` | Right armband disconnected |
+| `KMSG_BLE_SIGNALS_CONNECT` | Signals accessory connected |
+| `KMSG_BLE_SIGNALS_DISCONNECT` | Signals accessory disconnected |
 
-The DSS (Data Storage Subsystem) is the main mechanism for reading/writing settings:
+### Device state machine (19 states)
+```
+INITIAL → STARTUP → SEARCHING → CONNECT → SETUP_DONE → IDENTIFY → SERIAL → QUERY_STATE → SETTINGS
+                       ↓                                                                      ↓
+                  SEARCH_FAIL                                                               SAVING
+                       ↓                                                                      ↓
+                  RECONNECTING → RECONNECT_FAIL                                          PROCESSING
+                                                                                              ↓
+                                                                               VERIFYING → TRANSFERRING → TRANSFER_FAIL
+                                                                                              ↓
+                                                                                        DISCONNECT → EXIT_SLEEP
+```
+
+### Connection flow (from debug strings)
+1. **Scan**: `startScan()` → filter by name `"AdMore Light Bar"` or `"AdMore Armband"`
+2. **Connect**: `autoConnect` → `discoverServices()` → find NUS service UUID
+3. **UART open**: `_connectUart()` → `openUart()` on `BleUartDevice` → subscribe to TX notifications (`setNotifyValue`)
+4. **Query**: `_queryLightbar()` → `getLightbarData()` → parse protobuf response
+5. **Ready**: `KMSG_BLE_CONNECT_READY` → device ready for commands
+6. **Reconnect**: on disconnect → `RECONNECTING` → retry with exponential backoff
+
+### Protobuf message types (14 from libapp.so)
+
+| Protobuf Type | Direction | Purpose |
+|---|---|---|
+| `t_cmdAppQuery` | app→dev | Query device state |
+| `t_cmdAppQuery_Reply` | dev→app | Device state response |
+| `t_cmdAppNop` | app→dev | No-op / keepalive |
+| `t_cmdAppWriteString` | app→dev | Write string data (`APP_WRITE_STRING`) |
+| `t_cmdAppInjectEvent` | app→dev | Inject event (`APP_INJECT_EVENT`) |
+| `t_cmdAppSetDstEvt` | app→dev | Set event routing destination |
+| `t_cmdAppSetDstEvtDiag` | app→dev | Set diagnostic event routing destination |
+| `t_cmdDssSetData` | app→dev | Write a device setting (setting ID + value) |
+| `t_cmdDssGetData` | app→dev | Read a device setting |
+| `t_cmdDssGetData_Reply` | dev→app | Read setting response |
+| `t_cmdDssOperation` | app→dev | System operations (commit, factory reset, reload, etc.) |
+| `t_cmdLosSetLight` | app→dev | Direct LED output control |
+| `t_evtAppEvent` | dev→app | Generic state event notification |
+| `t_evtDiagMmsDecelData` | dev→app | Diagnostic deceleration sensor data |
+
+### Protobuf enums (7)
+| Enum | Likely purpose |
+|---|---|
+| `e_CMD` | Top-level command type discriminator |
+| `e_APP_QUERY` | Query type variants |
+| `e_APP_EVT` | App event type variants |
+| `e_CONFIG` | Configuration operation type |
+| `e_DSS_OPERATION` | DSS operation type (commit, reset, reload) |
+| `e_LIGHT_OUTPUT` | Light output mode/type |
+| `e_SKT` | Socket/routing type |
+
+### DSS (Data Storage Subsystem)
+The DSS is the main mechanism for reading/writing settings:
 - **`DSS_SET_DATA`**: Write a setting — takes a setting ID string (e.g., `LOS_TAIL_LIGHT_BRIGHTNESS`) and integer value
 - **`DSS_GET_DATA`**: Read a setting — takes a setting ID, reply contains current value
 - **`DSS_OPERATION`**: System-level operations — `DATA_COMMIT`, `DATA_FACTORY_DEFAULT`, `DATA_RELOAD`, `DATA_MAINTAIN`, `DATA_ABANDON_RESTORE`
+
+### App method call graph (remote/lightbar.dart)
+```
+_connectUart() → BleUartDevice.openUart() → NUS service discovery + TX notify subscribe
+_queryLightbar() → getLightbarData() → protobuf parse response
+sendLightOutput() → t_cmdLosSetLight protobuf → NUS RX writeCharacteristic
+sendBarTest() → t_cmdLosSetLight protobuf → NUS RX writeCharacteristic
+sendArmbandLeft() → armband NUS variant (DCCAAE)
+sendArmbandRight() → armband NUS variant (DCCAAE)
+sendArmbandDefault() → armband default config
+sendArmbandUndefined() → armband reset to unprovisioned
+setLight / setDecel / setLeftTurn / setRightTurn → helper methods for direct control
+```
 
 ### App commands (sent via protobuf over NUS)
 
@@ -170,18 +300,57 @@ The DSS (Data Storage Subsystem) is the main mechanism for reading/writing setti
 | `SYS_VERSIONS` | Query system/firmware versions |
 
 ### Version reporting
-The device reports multiple version strings:
-- Firmware Version
-- Bootloader Version
-- System Version
-- Database Version
+The device reports version info with these field names (from `version_model.dart`):
+| Field | Description |
+|---|---|
+| `productFirmware` | Current firmware version |
+| `productFirmwareBeta` | Beta firmware version (if any) |
+| `productBootloader` | Bootloader version |
+| `productSystem` | System/OS version |
+| `productDatabase` | Settings database version |
+| `productModel` | Hardware model identifier |
+| `productId` | Unique device identifier |
 
 ### Firmware update (DFU)
 - Uses Nordic DFU library (`package:nordic_dfu`)
 - Flutter plugin: `dev.steenbakker.nordic_dfu`
-- DFU zip files served from Firebase Storage (`admore-light-bar-with-ble.firebaseio.com`, path: `lightbar-firmware/`)
+- DFU zip files served from Firebase Storage:
+  - Project: `admore-light-bar-with-ble`
+  - Storage bucket: `admore-light-bar-with-ble.appspot.com`
+  - Database URL: `https://admore-light-bar-with-ble.firebaseio.com`
+  - Firmware path: `lightbar-firmware/`
+  - Debug firmware: `/debug/dfu_lightbar_latest.zip`
+- Latest version check: `getLatestLightbarVersion()` in `cloud_storage.dart`
 - Device enters DFU mode via `ENTER_DFU` command, advertises as `"AdMore Light Bar DFU"`
-- Supports both legacy and secure DFU modes
+- DFU states: `INITIAL` → `PROCESSING` → `VERIFYING` → `TRANSFERRING` → success or `TRANSFER_FAIL`
+
+### Config parsing (config_controller.dart)
+The `lb_config.xml` Flutter asset defines all settings with three types:
+- **Discrete**: `_parseDiscrete()` — finite set of labeled value options
+- **Toggle**: `_parseToggle()` — binary on/off with explicit on/off values
+- **Continuous**: `_parseContinuous()` — range with `continuousDivisor` and `continuousUpdates` (not used in current config)
+
+Setting subtypes:
+- **NativeSetting**: `isnative=true`, `nativechangetype=PREFERENCE_CHANGE` — stored as app preference, not sent to device directly. Example: `MMS_DECEL_TOGGLE` controls UI visibility of sub-settings.
+- **Dependent settings**: `<dependent to="MMS_DECEL_TOGGLE" />` — hidden when parent is OFF. Example: `MMS_DECEL_THRESHOLD`, `MMS_DECEL_OFF_DELAY_MS`, `MMS_DECEL_COUNT`
+- **Version-gated settings**: `<version value="^1" />` — only shown for firmware version ≥1. Example: `LIS_ENABLE_BRAKE_INVERT`, `LIS_ENABLE_TWO_WIRE`, `LOS_DEALER_DEMO_MODE`
+
+### Armband protocol
+- Armbands are turn signal accessories (left/right arms)
+- Provisioning flow: scan `"AdMore Armband"` → connect → mark as Left or Right → device renames to `"AdMore Armband Left"` or `"AdMore Armband Right"` → disconnect → USB reset → reconnect to verify
+- Armband NUS service: `6E400001-B5A3-F393-E0A9-E50E24DCCAAE`
+- Armband-specific methods: `sendArmbandLeft()`, `sendArmbandRight()`, `sendArmbandDefault()`, `sendArmbandUndefined()`
+- Armband routing: `SRC_CMD_APP_ARML` / `SRC_CMD_APP_ARMR` → `DST_CMD_APP_ARML` / `DST_CMD_APP_ARMR`
+- Armband types: `ArmbandType` enum with `LEFT`, `RIGHT`, `UNDEFINED`
+- Armband setting: `ARMBAND_SIDE` (provisioning command)
+- Firebase: `addArmbandToFirebase()`, `updateProductArmband()`
+
+### Diagnostics
+- Diagnostic event routing: `APP_SET_DST_EVT_DIAG` command
+- Deceleration diagnostic data: `t_evtDiagMmsDecelData` protobuf message
+- Diagnostic upload paths: `diagnostics/accel/`, `accel_diag/`
+- Upload to Firebase Storage: `Upload Diagnostics` feature in developer screen
+- Diagnostic sources: `SRC_CMD_UART_DIAG`, `SRC_CMD_HOST_DIAG`, `SRC_CMD_BKND_DIAG`
 
 ## Control surface inventory (replacement app MVP)
 - **Onboarding**: scan for BLE devices with name `"AdMore Light Bar"`, connect via NUS service UUID `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
@@ -206,24 +375,34 @@ The device reports multiple version strings:
 - **Read current settings**: query via `APP_QUERY` / `MMS_QUERY_INFO`
 - **Version info**: `APP_VERSIONS`, `HW_VERSIONS`, `SYS_VERSIONS`
 - **Factory reset**: `DATA_FACTORY_DEFAULT` with confirm/revert flow
-- **Error handling**: connection loss recovery, out-of-range notification, GATT error mapping via `y7/a.java`
+- **Error handling**: connection loss → `RECONNECTING` state with retry; autoConnect support; GATT error handling via flutter_blue_plus
 
 ## Evidence checklist
 - [x] APK hash + version code: SHA256 `1efb084dff01d0d68caf23883adf023806c0f8d2604494fbc5c51b37239d5141` (XAPK), version 2.1.0 (code 44)
-- [x] BLE service/characteristic UUID table (NUS-based, confirmed from libapp.so strings)
-- [x] Complete setting ID → value mapping (confirmed from lb_config.xml)
-- [x] Command ID list (confirmed from libapp.so strings)
-- [x] DFU mechanism (Nordic DFU, confirmed from jadx decompile)
+- [x] BLE service/characteristic UUID table (4 NUS variants, confirmed from libapp.so strings)
+- [x] Complete setting ID → value mapping (18 settings from lb_config.xml, all values enumerated)
+- [x] Command ID list — all setting IDs, system commands, test commands, override commands (confirmed from libapp.so)
+- [x] DFU mechanism (Nordic DFU, dev.steenbakker.nordic_dfu, confirmed from libapp.so)
+- [x] App architecture — full Dart source tree reconstructed from package: paths in libapp.so
+- [x] Protobuf message types — 14 types identified (t_cmd*, t_evt*)
+- [x] Protobuf enum types — 7 enums identified (e_CMD, e_APP_EVT, e_APP_QUERY, e_CONFIG, e_DSS_OPERATION, e_LIGHT_OUTPUT, e_SKT)
+- [x] KMsg routing — 36 route IDs, 14 system events, socket architecture (CmdSink/Source, EvtSink/Source)
+- [x] Device state machine — 19 states from INITIAL through SETTINGS/DFU
+- [x] Connection flow — scan → connect → discover → UART open → query → ready
+- [x] Version fields — 7 product fields (firmware, firmwareBeta, bootloader, system, database, model, id)
+- [x] Armband protocol — provisioning flow, NUS UUID, routing IDs, type enum
+- [x] Config parsing — 3 setting types (discrete, toggle, continuous), native settings, dependencies, version gating
+- [x] Firebase backend — project ID, storage bucket, firmware paths, diagnostic upload paths
+- [ ] Protobuf field numbers — exact wire format requires HCI capture or blutter analysis (blutter not available on this system)
 - [ ] HCI snoop log: connect + single setting change (requires physical device)
-- [ ] Protobuf message schema reconstruction (requires deeper Dart snapshot analysis)
-- [ ] Exact protobuf field numbers for each command (requires HCI capture or Dart snapshot disassembly)
 
-## Remaining work (requires physical device)
+## Remaining work (requires physical device or blutter)
 1. HCI snoop capture of a connect + query + setting change session
 2. Parse protobuf wire format from captured UART data to reconstruct field numbers
-3. Confirm exact protobuf message structure (lightbar.pb.dart schema)
+3. blutter analysis of libapp.so to extract Dart class field offsets and protobuf tag constants
 4. Validate all setting value ranges match device behavior
 5. Test factory reset and DFU flows
+6. Confirm armband provisioning protocol via HCI capture
 
 ## Spec output (clean-room)
 Write a derived spec in:
