@@ -2,7 +2,7 @@
 
 ## Target metadata
 - target_id: cat-printer
-- app package_id(s): com.iprint.paper (and various)
+- app package_id(s): TBD — iPrint app not on Play Store; exact package ID unknown
 - device class: mini thermal printer
 - transport(s): BLE
 - local-only viability: high — purely BLE, no cloud
@@ -21,7 +21,8 @@
 ## Device discovery signals
 - BLE:
   - advertised name patterns: "GB01", "GB02", "GB03", "GT01", "YT01", "MX05", "MX06", "MX08", "MX10" (VERIFIED)
-  - service UUIDs: TBD — primary service UUID not documented in README
+  - service UUIDs: VERIFIED: `0000ae30-0000-1000-8000-00805f9b34fb`
+  - additional characteristics: AE03 (write data), AE04 (notify), AE05 (indication), AE10 (read/write)
   - address behavior: TBD
 
 ## Threat model + guardrails
@@ -30,7 +31,7 @@
 
 ## First experiments (do these first)
 1) Run ./scripts/detect_devices.sh; attach log paths.
-2) Fetch APK (apkeep) for com.iprint.paper.
+2) Identify actual iPrint APK package ID; fetch APK.
 3) Static: grep for BLE UUIDs, print command format.
 4) Dynamic: record one "connect + print image" HCI snoop.
 

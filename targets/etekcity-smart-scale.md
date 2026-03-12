@@ -2,7 +2,7 @@
 
 ## Target metadata
 - target_id: etekcity-smart-scale
-- app package_id(s): com.vesync.vesync
+- app package_id(s): com.etekcity.vesyncplatform
 - device class: BLE kitchen/nutrition scale
 - transport(s): BLE
 - local-only viability: TBD — BLE protocol only partially explored

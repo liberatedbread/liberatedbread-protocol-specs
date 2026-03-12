@@ -10,7 +10,9 @@
 ## Known facts (verified from RE sources)
 - Fichero/AiYin D11s thermal label printer (source: 0xMH/fichero-printer)
 - Price: $15-20
-- VERIFIED: 4 BLE services exposed: 0x18f0, 0xff00, e7810a71..., 49535343...
+- VERIFIED: 4 BLE UART services (all functionally equivalent): 0x18f0, 0xff00, e7810a71..., 49535343...
+- VERIFIED: Write characteristics: `2af1`, `ff02`, `bef8d6c9...`, `4953...9bb3` (per service)
+- VERIFIED: Notify characteristics: `2af0`, `ff01`/`ff03` (per service)
 - VERIFIED: Print width 96px (12 bytes per row), `0C 00` in LE
 - VERIFIED: Raster header command: `1D 76 30`
 - VERIFIED: Enable printing: `10 FF FE 01`
