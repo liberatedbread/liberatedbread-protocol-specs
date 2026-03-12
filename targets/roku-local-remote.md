@@ -10,16 +10,16 @@
 ## Known facts (public + observed)
 
 ### The protocol is fully documented
-Roku publishes the ECP specification openly. Every Roku device runs an HTTP server on **TCP port 8060** that accepts standard GET and POST requests. No SDK, pairing, tokens, or account are required — any device on the same LAN can send commands with `curl`.
+Roku publishes the [ECP specification openly](https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md). Every Roku device runs an HTTP server on **TCP port 8060** that accepts standard GET and POST requests. No SDK, pairing, tokens, or account are required — any device on the same LAN can send commands with `curl`.
 
 ### Discovery uses standard SSDP
-Roku devices respond to SSDP M-SEARCH on the standard UPnP multicast address (`239.255.255.250:1900`) with search target `roku:ecp`. They also send periodic `ssdp:alive` notifications (~every 20 minutes).
+Roku devices respond to [SSDP M-SEARCH](https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md#ssdp-discovery) on the standard UPnP multicast address (`239.255.255.250:1900`) with search target `roku:ecp`. They also send periodic `ssdp:alive` notifications (~every 20 minutes).
 
 ### No authentication whatsoever
-ECP has no login, no tokens, no pairing flow, and no encryption. The only protection is a Host header check that verifies the request comes from a private/local IP (e.g., `192.168.x.x`). Consumer Reports has flagged this as a security weakness compared to Apple TV and Fire TV.
+ECP has no login, no tokens, no pairing flow, and no encryption. The only protection is a Host header check that verifies the request comes from a private/local IP (e.g., `192.168.x.x`). [Consumer Reports has flagged this as a security weakness](https://www.aftvnews.com/consumer-reports-says-rokus-unrestricted-remote-control-api-is-a-security-vulnerability/) compared to Apple TV and Fire TV.
 
 ### The official app uses the same protocol
-The Roku mobile app communicates with Roku devices using ECP over the local Wi-Fi network — there is no proprietary or hidden protocol layer.
+The Roku mobile app communicates with Roku devices using ECP over the local Wi-Fi network — there is no proprietary or hidden protocol layer. This has been [confirmed by network traffic analysis](https://github.com/artemisaiev/roku-ecp-sniffer).
 
 ## Device discovery signals
 - BLE: N/A (not used)
@@ -198,8 +198,26 @@ Unlike most targets in this project, no reverse engineering is actually needed. 
 | [Home Assistant](https://www.home-assistant.io/integrations/roku/) | Python | Full HA integration |
 
 ## References
-- https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md
-- https://sdkdocs-archive.roku.com/External-Control-API_1611563.html
-- https://www.home-assistant.io/integrations/roku/
-- https://github.com/jcarbaugh/python-roku
-- https://github.com/wseemann/RoMote
+
+### Official documentation
+- [Roku External Control API (ECP)](https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md) — current official spec
+- [Roku ECP archived docs](https://sdkdocs-archive.roku.com/External-Control-API_1611563.html) — older SDK documentation mirror
+
+### Open source implementations
+- [python-roku](https://github.com/jcarbaugh/python-roku) — mature Python library
+- [python-rokuecp](https://github.com/ctalkington/python-rokuecp) — modern async Python library
+- [roku-cli](https://github.com/ncmiller/roku-cli) — Python CLI remote control
+- [rokujs](https://github.com/gamontal/rokujs) — Node.js library
+- [RoMote](https://github.com/wseemann/RoMote) — full Android/Kotlin remote app
+- [roku-ecp-rs](https://github.com/Hermitter/roku-ecp-rs) — Rust library ([docs.rs](https://docs.rs/roku-ecp/latest/roku_ecp/))
+- [Roku::ECP](https://metacpan.org/release/ARENSB/Roku-ECP-1.0.0/view/lib/Roku/ECP.pm) — Perl module
+- [Home Assistant Roku integration](https://www.home-assistant.io/integrations/roku/) — full HA integration
+
+### Security and analysis
+- [Consumer Reports on Roku's unrestricted ECP API](https://www.aftvnews.com/consumer-reports-says-rokus-unrestricted-remote-control-api-is-a-security-vulnerability/) — security concerns
+- [Abusing Roku APIs](https://github.com/RoseSecurity/Abusing-Roku-APIs) — Bash/curl examples of ECP usage
+- [roku-ecp-sniffer](https://github.com/artemisaiev/roku-ecp-sniffer) — captures ECP traffic by impersonating a Roku device
+
+### Community
+- [Discovering Roku devices using SSDP](https://medium.com/@amitdogra70512/discovering-nearby-roku-devices-using-ssdp-a7a45c4a0637) — SSDP discovery walkthrough
+- [Roku Community: ECP 403 Forbidden](https://community.roku.com/t5/Roku-Developer-Program/External-Control-API-suddenly-returns-403-Forbidden/td-p/499344) — Host header validation behavior
