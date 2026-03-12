@@ -167,41 +167,264 @@ INITIAL → STARTUP → SEARCHING → CONNECT → SETUP_DONE → IDENTIFY → SE
 5. **Ready**: `KMSG_BLE_CONNECT_READY` → device ready for commands
 6. **Reconnect**: on disconnect → `RECONNECTING` → retry with exponential backoff
 
-### Protobuf message types (14 from libapp.so)
+### Protobuf message types (14 from libapp.so, 12 with wire format from blutter)
 
-| Protobuf Type | Direction | Purpose |
-|---|---|---|
-| `t_cmdAppQuery` | app→dev | Query device state |
-| `t_cmdAppQuery_Reply` | dev→app | Device state response |
-| `t_cmdAppNop` | app→dev | No-op / keepalive |
-| `t_cmdAppWriteString` | app→dev | Write string data (`APP_WRITE_STRING`) |
-| `t_cmdAppInjectEvent` | app→dev | Inject event (`APP_INJECT_EVENT`) |
-| `t_cmdAppSetDstEvt` | app→dev | Set event routing destination |
-| `t_cmdAppSetDstEvtDiag` | app→dev | Set diagnostic event routing destination |
-| `t_cmdDssSetData` | app→dev | Write a device setting (setting ID + value) |
-| `t_cmdDssGetData` | app→dev | Read a device setting |
-| `t_cmdDssGetData_Reply` | dev→app | Read setting response |
-| `t_cmdDssOperation` | app→dev | System operations (commit, factory reset, reload, etc.) |
-| `t_cmdLosSetLight` | app→dev | Direct LED output control |
-| `t_evtAppEvent` | dev→app | Generic state event notification |
-| `t_evtDiagMmsDecelData` | dev→app | Diagnostic deceleration sensor data |
+Each message type is associated with an `e_CMD` command ID. Field numbers and types extracted via blutter (Dart AOT snapshot disassembly).
 
-### Protobuf enums (7)
-| Enum | Likely purpose |
-|---|---|
-| `e_CMD` | Top-level command type discriminator |
-| `e_APP_QUERY` | Query type variants |
-| `e_APP_EVT` | App event type variants |
-| `e_CONFIG` | Configuration operation type |
-| `e_DSS_OPERATION` | DSS operation type (commit, reset, reload) |
-| `e_LIGHT_OUTPUT` | Light output mode/type |
-| `e_SKT` | Socket/routing type |
+```protobuf
+// Command dispatch: e_CMD value → protobuf message type
+// APP_NOP (0) → t_cmdAppNop
+// APP_INJECT_EVENT (3) → t_cmdAppInjectEvent
+// APP_SET_DST_EVT (4) → t_cmdAppSetDstEvt
+// APP_SET_DST_EVT_DIAG (5) → t_cmdAppSetDstEvtDiag
+// APP_QUERY (6) → t_cmdAppQuery
+// APP_WRITE_STRING (7) → t_cmdAppWriteString
+// DSS_OPERATION (8) → t_cmdDssOperation
+// DSS_SET_DATA (9) → t_cmdDssSetData
+// DSS_GET_DATA (10) → t_cmdDssGetData
+// LOS_SET_LIGHT (16) → t_cmdLosSetLight
+
+message t_cmdAppNop {
+  // Empty message — keepalive / no-op (e_CMD=0)
+  // No protobuf class in blutter output; handled as generic empty message
+}
+
+message t_cmdAppInjectEvent {
+  // Inject event into device state machine (e_CMD=3)
+  e_APP_EVT appEvent = 1;
+}
+
+message t_cmdAppSetDstEvt {
+  // Set event routing destination (e_CMD=4)
+  e_SKT sktDstEvt = 1;
+}
+
+message t_cmdAppSetDstEvtDiag {
+  // Set diagnostic event routing destination (e_CMD=5)
+  e_SKT sktDstEvt = 1;
+}
+
+message t_cmdAppQuery {
+  // Query device state (e_CMD=6)
+  e_APP_QUERY query = 1;
+}
+
+message t_cmdAppQuery_Reply {
+  // Response to APP_QUERY — device → app
+  string queryReply = 1;  // registered via BuilderInfo.aOS()
+}
+
+message t_cmdAppWriteString {
+  // Write string data to device (e_CMD=7)
+  // No protobuf class in blutter output; likely uses generic string field
+}
+
+message t_cmdDssOperation {
+  // DSS system operation (e_CMD=8)
+  e_DSS_OPERATION operation = 1;
+}
+
+message t_cmdDssSetData {
+  // Write a device setting (e_CMD=9)
+  e_CONFIG config = 1;    // setting ID enum
+  int32 setvalue = 2;     // setting value
+}
+
+message t_cmdDssGetData {
+  // Read a device setting (e_CMD=10)
+  e_CONFIG config = 1;    // setting ID enum
+}
+
+message t_cmdDssGetData_Reply {
+  // Response to DSS_GET_DATA — device → app
+  int32 getvalue = 1;     // current setting value
+}
+
+message t_cmdLosSetLight {
+  // Direct LED output control (e_CMD=16)
+  e_LIGHT_OUTPUT setLight = 1;   // which light output
+  bool lightOn = 2;              // on/off state (registered via BuilderInfo.aOB())
+}
+
+message t_evtAppEvent {
+  // State event notification — device → app
+  e_APP_EVT appEvent = 1;
+}
+
+message t_evtDiagMmsDecelData {
+  // Diagnostic deceleration sensor data — device → app
+  int32 samplePack1 = 1;
+  int32 samplePack2 = 2;
+  int32 samplePack3 = 3;
+}
+```
+
+### Protobuf enums (7) — complete values from blutter
+
+#### `e_CMD` — command type discriminator (10 values)
+| Value | Name |
+|-------|------|
+| 0 | `APP_NOP` |
+| 3 | `APP_INJECT_EVENT` |
+| 4 | `APP_SET_DST_EVT` |
+| 5 | `APP_SET_DST_EVT_DIAG` |
+| 6 | `APP_QUERY` |
+| 7 | `APP_WRITE_STRING` |
+| 8 | `DSS_OPERATION` |
+| 9 | `DSS_SET_DATA` |
+| 10 | `DSS_GET_DATA` |
+| 16 | `LOS_SET_LIGHT` |
+
+#### `e_APP_QUERY` — query type (4 values)
+| Value | Name |
+|-------|------|
+| 0 | `SERIAL` |
+| 1 | `APP_VERSIONS` |
+| 2 | `SYS_VERSIONS` |
+| 3 | `HW_VERSIONS` |
+
+#### `e_APP_EVT` — app event type (37 values)
+| Value | Name | Category |
+|-------|------|----------|
+| 0 | `STARTUP` | System |
+| 1 | `QUERY_STATE` | System |
+| 3 | `SOFT_RESET` | System |
+| 4 | `ENTER_DFU` | System |
+| 16 | `KMSG_BLE_CONNECT` | BLE |
+| 17 | `KMSG_BLE_CONNECT_READY` | BLE |
+| 18 | `KMSG_BLE_DISCONNECT` | BLE |
+| 19 | `KMSG_BLE_ADVERTISING_START` | BLE |
+| 20 | `KMSG_BLE_ADVERTISING_STOP` | BLE |
+| 21 | `KMSG_BLE_SCANNING_START` | BLE |
+| 22 | `KMSG_BLE_SCANNING_STOP` | BLE |
+| 26 | `KMSG_BLE_ARMBAND_L_CONNECT` | Armband |
+| 27 | `KMSG_BLE_ARMBAND_L_DISCONNECT` | Armband |
+| 28 | `KMSG_BLE_ARMBAND_R_CONNECT` | Armband |
+| 29 | `KMSG_BLE_ARMBAND_R_DISCONNECT` | Armband |
+| 30 | `KMSG_BLE_SIGNALS_CONNECT` | Signals |
+| 31 | `KMSG_BLE_SIGNALS_DISCONNECT` | Signals |
+| 48 | `MMS_TILT_DOWN` | Motion |
+| 49 | `MMS_TILT_UP` | Motion |
+| 50 | `MMS_DECEL_ON` | Motion |
+| 51 | `MMS_DECEL_OFF` | Motion |
+| 52 | `MMS_MOTION_ON` | Motion |
+| 53 | `MMS_MOTION_OFF` | Motion |
+| 54 | `MMS_QUERY_INFO` | Motion |
+| 55 | `MMS_MOTION_STOP` | Motion |
+| 56 | `LIS_BRAKE_ON` | Input |
+| 57 | `LIS_BRAKE_OFF` | Input |
+| 58 | `LIS_LEFT_ON` | Input |
+| 59 | `LIS_LEFT_OFF` | Input |
+| 60 | `LIS_RIGHT_ON` | Input |
+| 61 | `LIS_RIGHT_OFF` | Input |
+| 62 | `LIS_PWM_ON` | Input |
+| 63 | `LIS_PWM_OFF` | Input |
+| 128 | `BTN_DOWN` | Button |
+| 129 | `BTN_UP` | Button |
+| 144 | `ENTER_SLEEP` | Power |
+| 145 | `EXIT_SLEEP` | Power |
+
+#### `e_CONFIG` — setting ID enum (19 values)
+| Value | Name |
+|-------|------|
+| 0 | `NULL` |
+| 16 | `LOS_PLATE_LIGHT_BRIGHTNESS` |
+| 17 | `LOS_TAIL_LIGHT_BRIGHTNESS` |
+| 18 | `LOS_BRAKE_LIGHT_BRIGHTNESS` |
+| 19 | `LOS_TURN_LIGHT_BRIGHTNESS` |
+| 21 | `LOS_BRAKE_FLASH_COUNT` |
+| 22 | `LOS_BRAKE_FLASH_TIME_MS` |
+| 23 | `LOS_BRAKE_STROBE_DURATION_MS` |
+| 26 | `LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS` |
+| 31 | `LOS_DEALER_DEMO_MODE` |
+| 32 | `MMS_DECEL_OFF_DELAY_MS` |
+| 33 | `MMS_DECEL_THRESHOLD` |
+| 34 | `MMS_DECEL_COUNT` |
+| 36 | `MMS_ENABLE_BRAKE_WHITE_STROBE` |
+| 37 | `MMS_ENABLE_TIPOVER` |
+| 42 | `LIS_ENABLE_BRAKE_INVERT` |
+| 43 | `LIS_ENABLE_TWO_WIRE` |
+| 64 | `ARMBAND_SIDE` |
+| 96 | `TOTAL_SIZE` |
+
+#### `e_DSS_OPERATION` — DSS operation type (5 values)
+| Value | Name |
+|-------|------|
+| 0 | `DATA_MAINTAIN` |
+| 1 | `DATA_FACTORY_DEFAULT` |
+| 2 | `DATA_RELOAD` |
+| 3 | `DATA_COMMIT` |
+| 4 | `DATA_ABANDON_RESTORE` |
+
+#### `e_LIGHT_OUTPUT` — light output mode (21 values)
+| Value | Name | Category |
+|-------|------|----------|
+| 0 | `RESET_LIGHTS` | Control |
+| 1 | `TAIL_LIGHT` | Normal |
+| 2 | `BRAKE_LIGHT` | Normal |
+| 3 | `BRAKE_WHITE` | Normal |
+| 4 | `LEFT_TURN` | Normal |
+| 5 | `RIGHT_TURN` | Normal |
+| 6 | `PLATE_LIGHT` | Normal |
+| 7 | `BLUE_LIGHT` | Normal |
+| 10 | `OVERRIDE_TILTOVER` | Override |
+| 11 | `OVERRIDE_HAZARD` | Override |
+| 12 | `OVERRIDE_DEMO` | Override |
+| 13 | `OVERRIDE_PROCESSION` | Override |
+| 16 | `TEST_BRAKE_LIGHT_LEFT` | Test |
+| 17 | `TEST_BRAKE_LIGHT_CENTER` | Test |
+| 18 | `TEST_BRAKE_LIGHT_RIGHT` | Test |
+| 19 | `TEST_BRAKE_WHITE` | Test |
+| 20 | `TEST_LEFT_TURN` | Test |
+| 21 | `TEST_RIGHT_TURN` | Test |
+| 22 | `TEST_PLATE_LIGHT` | Test |
+| 23 | `TEST_BLUE_LIGHT` | Test |
+| 24 | `TEST_RESET_LIGHTS` | Test |
+
+#### `e_SKT` — socket/routing type (35 values)
+| Value | Name |
+|-------|------|
+| 0 | `SRC_UNASSIGNED` |
+| 16 | `SRC_CMD_BKND_APP` |
+| 17 | `SRC_CMD_BKND_DIAG` |
+| 18 | `DST_EVT_BKND_APP` |
+| 19 | `DST_EVT_BKND_DIAG` |
+| 24 | `DST_CMD_BLE_ENGINE` |
+| 25 | `SRC_EVT_BLE_ENGINE` |
+| 26 | `DST_EVT_BLE_ENGINE_APP` |
+| 32 | `SRC_CMD_HOST_APP` |
+| 33 | `SRC_CMD_HOST_DIAG` |
+| 34 | `DST_EVT_HOST_APP` |
+| 35 | `DST_EVT_HOST_DIAG` |
+| 64 | `DST_CMD_APP` |
+| 65 | `DST_CMD_APP_DIAG` |
+| 66 | `DST_EVT_APP` |
+| 72 | `SRC_CMD_APP` |
+| 73 | `SRC_EVT_APP` |
+| 74 | `SRC_EVT_APP_DIAG` |
+| 76 | `SRC_CMD_UART_DIAG` |
+| 80 | `DST_CMD_APP_ARML` |
+| 81 | `DST_CMD_APP_DIAG_ARML` |
+| 82 | `DST_EVT_APP_ARML` |
+| 84 | `SRC_CMD_APP_ARML` |
+| 85 | `SRC_EVT_APP_ARML` |
+| 86 | `SRC_EVT_APP_DIAG_ARML` |
+| 88 | `DST_CMD_APP_ARMR` |
+| 89 | `DST_CMD_APP_DIAG_ARMR` |
+| 90 | `DST_EVT_APP_ARMR` |
+| 92 | `SRC_CMD_APP_ARMR` |
+| 93 | `SRC_EVT_APP_ARMR` |
+| 94 | `SRC_EVT_APP_DIAG_ARMR` |
+| 240 | `DST_CMD_KMSG` |
+| 241 | `DST_EVT_KMSG` |
+| 242 | `SRC_CMD_KMSG` |
+| 243 | `SRC_EVT_KMSG` |
 
 ### DSS (Data Storage Subsystem)
-The DSS is the main mechanism for reading/writing settings:
-- **`DSS_SET_DATA`**: Write a setting — takes a setting ID string (e.g., `LOS_TAIL_LIGHT_BRIGHTNESS`) and integer value
-- **`DSS_GET_DATA`**: Read a setting — takes a setting ID, reply contains current value
-- **`DSS_OPERATION`**: System-level operations — `DATA_COMMIT`, `DATA_FACTORY_DEFAULT`, `DATA_RELOAD`, `DATA_MAINTAIN`, `DATA_ABANDON_RESTORE`
+The DSS is the main mechanism for reading/writing settings. Settings are identified by `e_CONFIG` enum values (not strings — the setting IDs map to integer enum values):
+- **`DSS_SET_DATA` (e_CMD=9)**: Write a setting — `t_cmdDssSetData{config: e_CONFIG.XXX, setvalue: <int>}`
+- **`DSS_GET_DATA` (e_CMD=10)**: Read a setting — `t_cmdDssGetData{config: e_CONFIG.XXX}` → reply: `t_cmdDssGetData_Reply{getvalue: <int>}`
+- **`DSS_OPERATION` (e_CMD=8)**: System-level operations — `t_cmdDssOperation{operation: e_DSS_OPERATION.XXX}`
 
 ### App method call graph (remote/lightbar.dart)
 ```
@@ -393,16 +616,16 @@ Setting subtypes:
 - [x] Armband protocol — provisioning flow, NUS UUID, routing IDs, type enum
 - [x] Config parsing — 3 setting types (discrete, toggle, continuous), native settings, dependencies, version gating
 - [x] Firebase backend — project ID, storage bucket, firmware paths, diagnostic upload paths
-- [ ] Protobuf field numbers — exact wire format requires HCI capture or blutter analysis (blutter not available on this system)
-- [ ] HCI snoop log: connect + single setting change (requires physical device)
+- [x] Protobuf field numbers — extracted via blutter (Dart AOT snapshot disassembly, Dart SDK 3.3.3)
+- [x] Protobuf enum values — all 7 enums with complete name→value mappings from blutter object pool
+- [x] Command dispatch table — e_CMD → message type mapping from device_controller.dart disassembly
+- [ ] HCI snoop log: connect + single setting change (requires physical device, for wire format validation)
 
-## Remaining work (requires physical device or blutter)
-1. HCI snoop capture of a connect + query + setting change session
-2. Parse protobuf wire format from captured UART data to reconstruct field numbers
-3. blutter analysis of libapp.so to extract Dart class field offsets and protobuf tag constants
-4. Validate all setting value ranges match device behavior
-5. Test factory reset and DFU flows
-6. Confirm armband provisioning protocol via HCI capture
+## Remaining work (requires physical device)
+1. HCI snoop capture of a connect + query + setting change session to validate protobuf wire format
+2. Validate all setting value ranges match device behavior
+3. Test factory reset and DFU flows
+4. Confirm armband provisioning protocol via HCI capture
 
 ## Spec output (clean-room)
 Write a derived spec in:
