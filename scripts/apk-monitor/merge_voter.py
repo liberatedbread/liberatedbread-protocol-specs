@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from config import ModelConfig
-from re_agents import _call_anthropic, _call_openai
+from re_agents import _call_anthropic, _call_openai, _OPENAI_DEFAULT_BASE_URL
 
 log = logging.getLogger("merge_voter")
 
@@ -133,6 +133,7 @@ def _parse_vote_json(text: str) -> Optional[dict]:
             return json.loads(match.group(0))
         except json.JSONDecodeError:
             pass
+    log.warning("Could not parse vote JSON from response: %s", text[:200])
     return None
 
 
@@ -150,7 +151,7 @@ def _call_reviewer(
         if reviewer_name == "claude":
             text, _ = _call_anthropic(system, prompt, model, api_key)
         else:
-            url = base_url or "https://api.openai.com/v1"
+            url = base_url or _OPENAI_DEFAULT_BASE_URL
             text, _ = _call_openai(system, prompt, model, api_key, url)
     except Exception as exc:
         log.warning("Reviewer %s failed: %s", reviewer_name, exc)
@@ -178,7 +179,7 @@ def cross_check_and_vote(
 
     reviewers = {
         "claude": (models.claude_model, models.anthropic_api_key, ""),
-        "openai": (models.openai_model, models.openai_api_key, "https://api.openai.com/v1"),
+        "openai": (models.openai_model, models.openai_api_key, _OPENAI_DEFAULT_BASE_URL),
         "local-qwen": (models.local_model, models.local_api_key, models.local_base_url),
     }
 

@@ -1,6 +1,7 @@
 """Tests for merge_voter.py — vote parsing, scoring, merge thresholds."""
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,11 @@ class TestParseVoteJson:
 
     def test_empty_string(self):
         assert _parse_vote_json("") is None
+
+    def test_unparseable_logs_warning(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="merge_voter"):
+            _parse_vote_json("This is not JSON at all, just rambling text.")
+        assert any("Could not parse vote JSON" in r.message for r in caplog.records)
 
 
 class TestLoadCandidates:

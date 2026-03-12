@@ -38,6 +38,9 @@ SEARCH_TERMS = [
     "wifi smart camera",
     "bluetooth vape",
     "bluetooth speaker controller",
+    "flutter bluetooth iot",
+    "flutter ble smart home",
+    "flutter led controller",
 ]
 
 
