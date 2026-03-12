@@ -1,11 +1,12 @@
 """Tests for monitor.py — target_id generation, CSV operations."""
 
 import csv
+import inspect
 from pathlib import Path
 
 import pytest
 
-from monitor import _generate_target_id, _append_to_targets_csv, _load_existing_target_ids
+from monitor import _generate_target_id, _append_to_targets_csv, _load_existing_target_ids, run_vote_only
 
 
 class TestGenerateTargetId:
@@ -70,3 +71,15 @@ class TestLoadExistingTargetIds:
     def test_missing_file(self, tmp_path):
         ids = _load_existing_target_ids(tmp_path / "nope.csv")
         assert ids == set()
+
+
+class TestRunVoteOnly:
+    def test_accepts_cfg_param(self):
+        """run_vote_only should use cfg dict, not os.environ directly."""
+        sig = inspect.signature(run_vote_only)
+        assert "cfg" in sig.parameters
+
+    def test_no_os_environ_for_min_votes(self):
+        """run_vote_only source should not reference os.environ for MIN_VOTES."""
+        source = inspect.getsource(run_vote_only)
+        assert "os.environ" not in source

@@ -52,7 +52,24 @@ BT_PATTERNS = {
         r"setDeviceName|getLocalName|scanRecord|advertisedServiceUuids|localName",
         re.IGNORECASE,
     ),
+    "flutter_ble": re.compile(
+        r"flutter_blue|flutter_reactive_ble|flutter_ble_lib"
+        r"|FlutterBluePlus|flutter_blue_plus"
+        r"|quick_blue|win_ble",
+        re.IGNORECASE,
+    ),
 }
+
+# Weights for confidence scoring — keyed by BT_PATTERNS name
+_CONFIDENCE_WEIGHTS = {
+    "bluetooth_permission": 0.15,
+    "ble_gatt": 0.30,
+    "ble_scan": 0.15,
+    "bluetooth_adapter": 0.10,
+    "ble_advertising_name": 0.10,
+    "flutter_ble": 0.25,
+}
+_UUID_WEIGHT = 0.20
 
 # Standard SIG UUIDs we can ignore (they're not custom device protocols)
 SIG_BASE_UUIDS = {
@@ -71,9 +88,9 @@ class ScanResult:
     has_bluetooth: bool = False
     has_ble_gatt: bool = False
     has_custom_uuids: bool = False
+    is_flutter: bool = False
     confidence: float = 0.0  # 0.0 to 1.0
     uuids_found: list[str] = field(default_factory=list)
-    ble_service_names: list[str] = field(default_factory=list)
     pattern_hits: dict[str, int] = field(default_factory=dict)
     summary: str = ""
     decompile_dir: str = ""
@@ -142,6 +159,15 @@ def _grep_dir(directory: Path, pattern: re.Pattern, max_matches: int = 500) -> l
     return matches
 
 
+def _detect_flutter(decompile_root: Path) -> bool:
+    """Check if the decompiled APK is a Flutter app."""
+    markers = ["libapp.so", "libflutter.so", "flutter_assets"]
+    for marker in markers:
+        if list(decompile_root.rglob(marker)):
+            return True
+    return False
+
+
 def _extract_uuids(matches: list[str]) -> list[str]:
     """Extract unique UUIDs from match lines."""
     uuids: set[str] = set()
@@ -175,6 +201,7 @@ def scan_apk(package_id: str, apk_path: Path, work_dir: Optional[Path] = None) -
         return result
 
     result.decompile_dir = str(decompile_root)
+    result.is_flutter = _detect_flutter(decompile_root)
 
     # Run all pattern checks
     for name, pattern in BT_PATTERNS.items():
@@ -187,23 +214,20 @@ def scan_apk(package_id: str, apk_path: Path, work_dir: Optional[Path] = None) -
 
     result.uuids_found = sorted(set(result.uuids_found))
 
-    # Determine confidence
+    # Determine confidence using weight dict
     score = 0.0
+    for key, weight in _CONFIDENCE_WEIGHTS.items():
+        if result.pattern_hits.get(key, 0) > 0:
+            score += weight
     if result.pattern_hits.get("bluetooth_permission", 0) > 0:
         result.has_bluetooth = True
-        score += 0.15
+    if result.pattern_hits.get("flutter_ble", 0) > 0:
+        result.has_bluetooth = True
     if result.pattern_hits.get("ble_gatt", 0) > 0:
         result.has_ble_gatt = True
-        score += 0.30
-    if result.pattern_hits.get("ble_scan", 0) > 0:
-        score += 0.15
-    if result.pattern_hits.get("bluetooth_adapter", 0) > 0:
-        score += 0.10
-    if result.pattern_hits.get("ble_advertising_name", 0) > 0:
-        score += 0.10
     if len(result.uuids_found) > 0:
         result.has_custom_uuids = True
-        score += 0.20
+        score += _UUID_WEIGHT
 
     result.confidence = min(score, 1.0)
 

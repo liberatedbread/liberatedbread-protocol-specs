@@ -22,6 +22,8 @@ from config import ModelConfig, MAX_TOKENS
 
 log = logging.getLogger("re_agents")
 
+_OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
 
 @dataclass
 class AgentTask:
@@ -33,6 +35,7 @@ class AgentTask:
     uuids_found: list[str] = field(default_factory=list)
     device_class: str = "unknown"
     transport: str = "BLE"
+    is_flutter: bool = False
 
 
 @dataclass
@@ -64,6 +67,20 @@ def _build_user_prompt(task: AgentTask, protocol_hints_path: Optional[Path] = No
         raw = protocol_hints_path.read_text(errors="replace")[:15000]
         protocol_hints = f"\n## Protocol hints from static analysis\n```\n{raw}\n```\n"
 
+    flutter_note = ""
+    if task.is_flutter:
+        flutter_note = textwrap.dedent("""\
+
+        ## Flutter App Note
+        This APK is a Flutter application. The BLE communication likely uses a Flutter
+        plugin (flutter_blue_plus, flutter_reactive_ble, etc.) which bridges to native
+        Android BLE APIs. Look for:
+        - Dart string constants containing UUIDs in the decompiled output
+        - Plugin channel method calls related to BLE operations
+        - The underlying native BLE calls may be wrapped in plugin bridge code
+        - Flutter assets directory may contain useful configuration files
+        """)
+
     return textwrap.dedent(f"""\
     # Reverse Engineering Task: {task.target_id}
 
@@ -79,7 +96,7 @@ def _build_user_prompt(task: AgentTask, protocol_hints_path: Optional[Path] = No
 
     ## Custom UUIDs Found
     {uuid_list}
-    {protocol_hints}
+    {protocol_hints}{flutter_note}
     ## Your Task
     1. Analyze the decompiled APK output for BLE/Bluetooth protocol details.
     2. Identify all GATT services, characteristics, and their purposes.
@@ -125,11 +142,7 @@ def _call_api_curl(url: str, headers: dict[str, str], payload: dict) -> tuple[st
     )
     duration = time.monotonic() - t0
 
-    try:
-        body = result.stdout.decode(errors="replace")
-    except Exception:
-        body = ""
-
+    body = result.stdout.decode(errors="replace")
     return body, duration
 
 
@@ -172,7 +185,7 @@ def _call_anthropic(system: str, user: str, model: str, api_key: str) -> tuple[s
 
 
 def _call_openai(system: str, user: str, model: str, api_key: str,
-                 base_url: str = "https://api.openai.com/v1") -> tuple[str, float]:
+                 base_url: str = _OPENAI_DEFAULT_BASE_URL) -> tuple[str, float]:
     """Call an OpenAI-compatible API.  Works for OpenAI, ollama, vllm, etc."""
     try:
         import openai
@@ -306,7 +319,7 @@ def run_agent(
         if agent_name == "claude":
             response, duration = _call_anthropic(system_prompt, user_prompt, model, api_key)
         else:
-            url = base_url or "https://api.openai.com/v1"
+            url = base_url or _OPENAI_DEFAULT_BASE_URL
             response, duration = _call_openai(system_prompt, user_prompt, model, api_key, url)
 
         result.duration_seconds = duration
@@ -361,7 +374,7 @@ def launch_all_agents(
 
     agents = [
         ("claude", models.claude_model, models.anthropic_api_key, ""),
-        ("openai", models.openai_model, models.openai_api_key, "https://api.openai.com/v1"),
+        ("openai", models.openai_model, models.openai_api_key, _OPENAI_DEFAULT_BASE_URL),
         ("local-qwen", models.local_model, models.local_api_key, models.local_base_url),
     ]
 

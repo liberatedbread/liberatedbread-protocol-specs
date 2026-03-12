@@ -175,6 +175,7 @@ def run_full_pipeline(paths: ResolvedPaths, models: ModelConfig,
             uuids_found=scan_result.uuids_found,
             device_class="auto-discovered",
             transport=transport,
+            is_flutter=scan_result.is_flutter,
         )
 
         # Find protocol hints from static analysis
@@ -252,11 +253,12 @@ def run_target_only(paths: ResolvedPaths, models: ModelConfig, target_id: str) -
     return {"target_id": target_id, "results": [asdict(r) for r in results]}
 
 
-def run_vote_only(paths: ResolvedPaths, models: ModelConfig, target_id: str) -> dict:
+def run_vote_only(paths: ResolvedPaths, models: ModelConfig, target_id: str,
+                   cfg: dict) -> dict:
     """Run cross-check voting on existing candidate specs."""
+    min_votes = int(cfg.get("MIN_VOTES_TO_MERGE", "2"))
     decision = cross_check_and_vote(target_id=target_id, root_dir=paths.root_dir, models=models)
-    decision = auto_merge_winner(decision, paths.root_dir,
-                                 min_votes=int(os.environ.get("MIN_VOTES_TO_MERGE", "2")))
+    decision = auto_merge_winner(decision, paths.root_dir, min_votes=min_votes)
     return asdict(decision)
 
 
@@ -291,7 +293,7 @@ def main():
     if args.target:
         result = run_target_only(paths, models, args.target)
     elif args.vote:
-        result = run_vote_only(paths, models, args.vote)
+        result = run_vote_only(paths, models, args.vote, cfg)
     else:
         result = run_full_pipeline(paths, models, cfg, scan_only=args.scan_only)
 

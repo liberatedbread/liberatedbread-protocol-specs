@@ -9,7 +9,10 @@ from bt_scanner import (
     BT_PATTERNS,
     ScanResult,
     SIG_BASE_UUIDS,
+    _CONFIDENCE_WEIGHTS,
     _UUID_RE,
+    _UUID_WEIGHT,
+    _detect_flutter,
     _extract_uuids,
     _grep_dir,
     is_interesting,
@@ -92,20 +95,17 @@ class TestConfidenceScoring:
         """Helper to build a ScanResult with specific pattern hits."""
         r = ScanResult(package_id="test", apk_path="/test.apk")
         r.pattern_hits = pattern_hits
-        # Re-compute confidence like scan_apk does
+        # Re-compute confidence like scan_apk does — using the weight dict
         score = 0.0
+        for key, weight in _CONFIDENCE_WEIGHTS.items():
+            if r.pattern_hits.get(key, 0) > 0:
+                score += weight
         if r.pattern_hits.get("bluetooth_permission", 0) > 0:
             r.has_bluetooth = True
-            score += 0.15
+        if r.pattern_hits.get("flutter_ble", 0) > 0:
+            r.has_bluetooth = True
         if r.pattern_hits.get("ble_gatt", 0) > 0:
             r.has_ble_gatt = True
-            score += 0.30
-        if r.pattern_hits.get("ble_scan", 0) > 0:
-            score += 0.15
-        if r.pattern_hits.get("bluetooth_adapter", 0) > 0:
-            score += 0.10
-        if r.pattern_hits.get("ble_advertising_name", 0) > 0:
-            score += 0.10
         r.confidence = min(score, 1.0)
         return r
 
@@ -175,3 +175,40 @@ class TestUuidConstant:
 
     def test_custom_service_uuid_not_in_patterns(self):
         assert "custom_service_uuid" not in BT_PATTERNS
+
+    def test_flutter_ble_pattern_in_bt_patterns(self):
+        assert "flutter_ble" in BT_PATTERNS
+
+    def test_confidence_weights_cover_all_non_uuid_patterns(self):
+        """Every non-uuid pattern that should contribute to scoring has a weight."""
+        for key in _CONFIDENCE_WEIGHTS:
+            assert key in BT_PATTERNS, f"{key} in weights but not in BT_PATTERNS"
+
+    def test_flutter_ble_boosts_confidence(self):
+        r = ScanResult(package_id="test", apk_path="/test.apk")
+        r.pattern_hits = {"flutter_ble": 5}
+        score = 0.0
+        for key, weight in _CONFIDENCE_WEIGHTS.items():
+            if r.pattern_hits.get(key, 0) > 0:
+                score += weight
+        assert score == pytest.approx(0.25)
+
+
+class TestFlutterDetection:
+    def test_detects_libflutter(self, tmp_path):
+        lib_dir = tmp_path / "lib" / "arm64-v8a"
+        lib_dir.mkdir(parents=True)
+        (lib_dir / "libflutter.so").write_text("fake")
+        (lib_dir / "libapp.so").write_text("fake")
+        assert _detect_flutter(tmp_path)
+
+    def test_detects_flutter_assets(self, tmp_path):
+        (tmp_path / "assets" / "flutter_assets").mkdir(parents=True)
+        assert _detect_flutter(tmp_path)
+
+    def test_non_flutter_app(self, tmp_path):
+        (tmp_path / "classes.dex").write_text("fake")
+        assert not _detect_flutter(tmp_path)
+
+    def test_empty_dir(self, tmp_path):
+        assert not _detect_flutter(tmp_path)
