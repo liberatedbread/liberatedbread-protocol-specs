@@ -1,6 +1,6 @@
 # AdMore Light Bar Pro
 
-> **Status**: In Progress (Flutter app reverse engineering complete; HCI capture pending for protobuf field numbers)
+> **Status**: Complete (Protobuf schema fully extracted via blutter Dart AOT disassembly; HCI capture pending for wire format validation)
 > **Protocol**: BLE (Nordic UART Service + Protobuf)
 > **Manufacturer**: AdMore Lighting Inc.
 > **Manufacturer Status**: Active (app-dependent — settings require AdMore Connect app)
@@ -85,42 +85,136 @@ KMsg uses a publish/subscribe socket pattern:
 - `EvtSinkSocket` / `EvtSourceSocket` — event subscriptions
 - Reply mechanism: `kmsgCmdSourcePublishReply()` with timeout
 
-!!! note "Protobuf field numbers unknown"
-    The exact protobuf field numbers and message structure require either Dart snapshot
-    disassembly (blutter) or HCI capture analysis to reconstruct. The setting IDs, values,
-    message types, and enum types below are confirmed; the wire encoding wrapping them is
-    not yet fully mapped.
+### Protobuf Message Schema
 
-### Protobuf Message Types (14)
+Protobuf field numbers and types extracted via blutter (Dart AOT snapshot disassembly,
+Dart SDK 3.3.3). Each command message is dispatched by the `e_CMD` enum value.
 
-| Protobuf Type | Direction | Purpose |
-|---------------|-----------|---------|
-| `t_cmdAppQuery` | app→dev | Query device state |
-| `t_cmdAppQuery_Reply` | dev→app | Device state response |
-| `t_cmdAppNop` | app→dev | No-op / keepalive |
-| `t_cmdAppWriteString` | app→dev | Write string data |
-| `t_cmdAppInjectEvent` | app→dev | Inject event |
-| `t_cmdAppSetDstEvt` | app→dev | Set event routing destination |
-| `t_cmdAppSetDstEvtDiag` | app→dev | Set diagnostic event routing destination |
-| `t_cmdDssSetData` | app→dev | Write a device setting (setting ID string + integer value) |
-| `t_cmdDssGetData` | app→dev | Read a device setting |
-| `t_cmdDssGetData_Reply` | dev→app | Read setting response |
-| `t_cmdDssOperation` | app→dev | System operations: `DATA_COMMIT`, `DATA_FACTORY_DEFAULT`, `DATA_RELOAD`, etc. |
-| `t_cmdLosSetLight` | app→dev | Direct light output control (used by `sendLightOutput()`, `sendBarTest()`) |
-| `t_evtAppEvent` | dev→app | State event notification (brake, turn, deceleration) |
-| `t_evtDiagMmsDecelData` | dev→app | Diagnostic deceleration sensor data |
+#### Command Messages (app → device)
 
-### Protobuf Enums (7)
+| `e_CMD` | Protobuf Type | Field 1 | Field 2 |
+|---------|---------------|---------|---------|
+| 0 | `t_cmdAppNop` | *(empty)* | |
+| 3 | `t_cmdAppInjectEvent` | `e_APP_EVT appEvent = 1` | |
+| 4 | `t_cmdAppSetDstEvt` | `e_SKT sktDstEvt = 1` | |
+| 5 | `t_cmdAppSetDstEvtDiag` | `e_SKT sktDstEvt = 1` | |
+| 6 | `t_cmdAppQuery` | `e_APP_QUERY query = 1` | |
+| 7 | `t_cmdAppWriteString` | *(string — no class in snapshot)* | |
+| 8 | `t_cmdDssOperation` | `e_DSS_OPERATION operation = 1` | |
+| 9 | `t_cmdDssSetData` | `e_CONFIG config = 1` | `int32 setvalue = 2` |
+| 10 | `t_cmdDssGetData` | `e_CONFIG config = 1` | |
+| 16 | `t_cmdLosSetLight` | `e_LIGHT_OUTPUT setLight = 1` | `bool lightOn = 2` |
 
-| Enum | Purpose |
-|------|---------|
-| `e_CMD` | Top-level command type discriminator |
-| `e_APP_QUERY` | Query type variants |
-| `e_APP_EVT` | App event type variants |
-| `e_CONFIG` | Configuration operation type |
-| `e_DSS_OPERATION` | DSS operation type (commit, reset, reload) |
-| `e_LIGHT_OUTPUT` | Light output mode/type |
-| `e_SKT` | Socket/routing type |
+#### Response / Event Messages (device → app)
+
+| Protobuf Type | Purpose | Fields |
+|---------------|---------|--------|
+| `t_cmdAppQuery_Reply` | Query response | `string queryReply = 1` |
+| `t_cmdDssGetData_Reply` | Setting read response | `int32 getvalue = 1` |
+| `t_evtAppEvent` | State event notification | `e_APP_EVT appEvent = 1` |
+| `t_evtDiagMmsDecelData` | Deceleration diagnostic data | `int32 samplePack1 = 1`, `int32 samplePack2 = 2`, `int32 samplePack3 = 3` |
+
+### Protobuf Enums (7) — Complete Values
+
+#### `e_CMD` — Command Type (10 values)
+
+| Value | Name | Message Type |
+|-------|------|-------------|
+| 0 | `APP_NOP` | `t_cmdAppNop` |
+| 3 | `APP_INJECT_EVENT` | `t_cmdAppInjectEvent` |
+| 4 | `APP_SET_DST_EVT` | `t_cmdAppSetDstEvt` |
+| 5 | `APP_SET_DST_EVT_DIAG` | `t_cmdAppSetDstEvtDiag` |
+| 6 | `APP_QUERY` | `t_cmdAppQuery` |
+| 7 | `APP_WRITE_STRING` | `t_cmdAppWriteString` |
+| 8 | `DSS_OPERATION` | `t_cmdDssOperation` |
+| 9 | `DSS_SET_DATA` | `t_cmdDssSetData` |
+| 10 | `DSS_GET_DATA` | `t_cmdDssGetData` |
+| 16 | `LOS_SET_LIGHT` | `t_cmdLosSetLight` |
+
+#### `e_APP_QUERY` — Query Type (4 values)
+
+| Value | Name |
+|-------|------|
+| 0 | `SERIAL` |
+| 1 | `APP_VERSIONS` |
+| 2 | `SYS_VERSIONS` |
+| 3 | `HW_VERSIONS` |
+
+#### `e_CONFIG` — Setting ID (19 values)
+
+| Value | Name |
+|-------|------|
+| 0 | `NULL` |
+| 16 | `LOS_PLATE_LIGHT_BRIGHTNESS` |
+| 17 | `LOS_TAIL_LIGHT_BRIGHTNESS` |
+| 18 | `LOS_BRAKE_LIGHT_BRIGHTNESS` |
+| 19 | `LOS_TURN_LIGHT_BRIGHTNESS` |
+| 21 | `LOS_BRAKE_FLASH_COUNT` |
+| 22 | `LOS_BRAKE_FLASH_TIME_MS` |
+| 23 | `LOS_BRAKE_STROBE_DURATION_MS` |
+| 26 | `LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS` |
+| 31 | `LOS_DEALER_DEMO_MODE` |
+| 32 | `MMS_DECEL_OFF_DELAY_MS` |
+| 33 | `MMS_DECEL_THRESHOLD` |
+| 34 | `MMS_DECEL_COUNT` |
+| 36 | `MMS_ENABLE_BRAKE_WHITE_STROBE` |
+| 37 | `MMS_ENABLE_TIPOVER` |
+| 42 | `LIS_ENABLE_BRAKE_INVERT` |
+| 43 | `LIS_ENABLE_TWO_WIRE` |
+| 64 | `ARMBAND_SIDE` |
+| 96 | `TOTAL_SIZE` |
+
+#### `e_DSS_OPERATION` — DSS Operation (5 values)
+
+| Value | Name |
+|-------|------|
+| 0 | `DATA_MAINTAIN` |
+| 1 | `DATA_FACTORY_DEFAULT` |
+| 2 | `DATA_RELOAD` |
+| 3 | `DATA_COMMIT` |
+| 4 | `DATA_ABANDON_RESTORE` |
+
+#### `e_LIGHT_OUTPUT` — Light Output (21 values)
+
+| Value | Name | Category |
+|-------|------|----------|
+| 0 | `RESET_LIGHTS` | Control |
+| 1 | `TAIL_LIGHT` | Normal |
+| 2 | `BRAKE_LIGHT` | Normal |
+| 3 | `BRAKE_WHITE` | Normal |
+| 4 | `LEFT_TURN` | Normal |
+| 5 | `RIGHT_TURN` | Normal |
+| 6 | `PLATE_LIGHT` | Normal |
+| 7 | `BLUE_LIGHT` | Normal |
+| 10 | `OVERRIDE_TILTOVER` | Override |
+| 11 | `OVERRIDE_HAZARD` | Override |
+| 12 | `OVERRIDE_DEMO` | Override |
+| 13 | `OVERRIDE_PROCESSION` | Override |
+| 16–24 | `TEST_*` | Test (9 values) |
+
+#### `e_APP_EVT` — App Event (37 values)
+
+| Value | Name | Category |
+|-------|------|----------|
+| 0–4 | `STARTUP`, `QUERY_STATE`, `SOFT_RESET`, `ENTER_DFU` | System |
+| 16–22 | `KMSG_BLE_*` | BLE connection events |
+| 26–31 | `KMSG_BLE_ARMBAND_*`, `KMSG_BLE_SIGNALS_*` | Accessory events |
+| 48–55 | `MMS_*` | Motion/deceleration events |
+| 56–63 | `LIS_*` | Light input events |
+| 128–129 | `BTN_DOWN`, `BTN_UP` | Button events |
+| 144–145 | `ENTER_SLEEP`, `EXIT_SLEEP` | Power events |
+
+#### `e_SKT` — Socket/Routing (35 values)
+
+| Range | Names | Purpose |
+|-------|-------|---------|
+| 0 | `SRC_UNASSIGNED` | Default/unset |
+| 16–19 | `*_BKND_*` | Backend routing |
+| 24–26 | `*_BLE_ENGINE*` | BLE engine routing |
+| 32–35 | `*_HOST_*` | Host routing |
+| 64–76 | `*_APP*`, `*_UART_DIAG` | App routing |
+| 80–94 | `*_ARML`, `*_ARMR` | Armband routing |
+| 240–243 | `*_KMSG` | KMsg internal routing |
 
 ### Settings Commands
 
@@ -328,7 +422,7 @@ Special setting behaviors:
 - [x] `strings` + `readelf` — Dart AOT snapshot (libapp.so) analysis
 - [x] `unzip` — XAPK/APK extraction, lb_config.xml extraction
 - [x] ELF analysis — snapshot structure (_kDartIsolateSnapshotData, _kDartVmSnapshotData)
-- [ ] blutter — Dart AOT snapshot decompilation (not available; needed for protobuf field numbers)
+- [x] blutter — Dart AOT snapshot decompilation (Dart SDK 3.3.3, protobuf field numbers + enum values extracted)
 - [ ] nRF Connect — GATT enumeration and characteristic discovery (requires device)
 - [ ] Android HCI snoop log — capture BLE traffic during app usage (requires device)
 - [ ] Wireshark — analyze HCI snoop / PCAP captures
