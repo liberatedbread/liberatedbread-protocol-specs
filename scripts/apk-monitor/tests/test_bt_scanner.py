@@ -12,6 +12,7 @@ from bt_scanner import (
     _CONFIDENCE_WEIGHTS,
     _UUID_RE,
     _UUID_WEIGHT,
+    _compute_confidence,
     _detect_flutter,
     _extract_uuids,
     _grep_dir,
@@ -95,18 +96,7 @@ class TestConfidenceScoring:
         """Helper to build a ScanResult with specific pattern hits."""
         r = ScanResult(package_id="test", apk_path="/test.apk")
         r.pattern_hits = pattern_hits
-        # Re-compute confidence like scan_apk does — using the weight dict
-        score = 0.0
-        for key, weight in _CONFIDENCE_WEIGHTS.items():
-            if r.pattern_hits.get(key, 0) > 0:
-                score += weight
-        if r.pattern_hits.get("bluetooth_permission", 0) > 0:
-            r.has_bluetooth = True
-        if r.pattern_hits.get("flutter_ble", 0) > 0:
-            r.has_bluetooth = True
-        if r.pattern_hits.get("ble_gatt", 0) > 0:
-            r.has_ble_gatt = True
-        r.confidence = min(score, 1.0)
+        _compute_confidence(r)
         return r
 
     def test_no_hits_zero_confidence(self):
@@ -130,19 +120,18 @@ class TestConfidenceScoring:
         assert r.confidence == pytest.approx(0.80)
 
     def test_confidence_caps_at_1(self):
-        r = self._make_result(
-            bluetooth_permission=1,
-            ble_gatt=5,
-            ble_scan=2,
-            bluetooth_adapter=1,
-            ble_advertising_name=1,
-        )
-        # Even with UUIDs, should cap at 1.0
+        r = ScanResult(package_id="test", apk_path="/test.apk")
+        r.pattern_hits = {
+            "bluetooth_permission": 1,
+            "ble_gatt": 5,
+            "ble_scan": 2,
+            "bluetooth_adapter": 1,
+            "ble_advertising_name": 1,
+        }
         r.uuids_found = ["fake-uuid"]
-        r.has_custom_uuids = True
-        # Manual add of uuid score
-        r.confidence = min(r.confidence + 0.20, 1.0)
+        _compute_confidence(r)
         assert r.confidence == 1.0
+        assert r.has_custom_uuids
 
 
 class TestIsInteresting:
@@ -187,11 +176,9 @@ class TestUuidConstant:
     def test_flutter_ble_boosts_confidence(self):
         r = ScanResult(package_id="test", apk_path="/test.apk")
         r.pattern_hits = {"flutter_ble": 5}
-        score = 0.0
-        for key, weight in _CONFIDENCE_WEIGHTS.items():
-            if r.pattern_hits.get(key, 0) > 0:
-                score += weight
-        assert score == pytest.approx(0.25)
+        _compute_confidence(r)
+        assert r.confidence == pytest.approx(0.25)
+        assert r.has_bluetooth
 
 
 class TestFlutterDetection:

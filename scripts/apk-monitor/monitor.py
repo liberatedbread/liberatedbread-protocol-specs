@@ -21,7 +21,6 @@ import argparse
 import csv
 import json
 import logging
-import os
 import sys
 import textwrap
 from dataclasses import asdict
@@ -33,7 +32,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from apk_discovery import discover_new_apks, load_known_packages
 from bt_scanner import scan_apk, is_interesting, ScanResult
-from config import ModelConfig, ResolvedPaths, load_config
+from config import (
+    DEFAULT_APKEEP_SOURCE, DEFAULT_MAX_NEW_APKS, DEFAULT_MIN_VOTES,
+    ModelConfig, ResolvedPaths, load_config,
+)
 from re_agents import AgentTask, launch_all_agents
 from merge_voter import cross_check_and_vote, auto_merge_winner
 
@@ -103,9 +105,9 @@ def _save_run_log(workspace_dir: Path, log_data: dict) -> Path:
 def run_full_pipeline(paths: ResolvedPaths, models: ModelConfig,
                       cfg: dict, scan_only: bool = False) -> dict:
     """Execute the full monitoring pipeline."""
-    max_new = int(cfg.get("MAX_NEW_APKS_PER_RUN", "10"))
-    apkeep_source = cfg.get("APKEEP_SOURCE", "apk-pure")
-    min_votes = int(cfg.get("MIN_VOTES_TO_MERGE", "2"))
+    max_new = int(cfg.get("MAX_NEW_APKS_PER_RUN", str(DEFAULT_MAX_NEW_APKS)))
+    apkeep_source = cfg.get("APKEEP_SOURCE", DEFAULT_APKEEP_SOURCE)
+    min_votes = int(cfg.get("MIN_VOTES_TO_MERGE", str(DEFAULT_MIN_VOTES)))
 
     run_log: dict = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -119,8 +121,12 @@ def run_full_pipeline(paths: ResolvedPaths, models: ModelConfig,
 
     # Step 1: Discover new APKs
     log.info("=== Step 1: Discovering new APKs ===")
-    downloaded = discover_new_apks(paths.root_dir, paths.workspace_dir,
-                                   max_new=max_new, apkeep_source=apkeep_source)
+    downloaded = discover_new_apks(
+        paths.root_dir, paths.workspace_dir,
+        max_new=max_new, apkeep_source=apkeep_source,
+        apkeep_email=cfg.get("APKEEP_EMAIL", ""),
+        apkeep_aas_token=cfg.get("APKEEP_AAS_TOKEN", ""),
+    )
     run_log["discovered"] = downloaded
     log.info("Downloaded %d new APKs", len(downloaded))
 
@@ -256,7 +262,7 @@ def run_target_only(paths: ResolvedPaths, models: ModelConfig, target_id: str) -
 def run_vote_only(paths: ResolvedPaths, models: ModelConfig, target_id: str,
                    cfg: dict) -> dict:
     """Run cross-check voting on existing candidate specs."""
-    min_votes = int(cfg.get("MIN_VOTES_TO_MERGE", "2"))
+    min_votes = int(cfg.get("MIN_VOTES_TO_MERGE", str(DEFAULT_MIN_VOTES)))
     decision = cross_check_and_vote(target_id=target_id, root_dir=paths.root_dir, models=models)
     decision = auto_merge_winner(decision, paths.root_dir, min_votes=min_votes)
     return asdict(decision)

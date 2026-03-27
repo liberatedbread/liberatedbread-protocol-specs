@@ -9,7 +9,6 @@ any that are new.
 import csv
 import json
 import logging
-import os
 import re
 import subprocess
 import urllib.request
@@ -150,6 +149,8 @@ def discover_new_apks(
     workspace_dir: Path,
     max_new: int = 10,
     apkeep_source: str = "apk-pure",
+    apkeep_email: str = "",
+    apkeep_aas_token: str = "",
 ) -> list[dict]:
     """Main entry point: search, filter, download.
 
@@ -181,8 +182,8 @@ def discover_new_apks(
         apk_path = download_apk(
             pkg, apk_dir,
             apkeep_source=apkeep_source,
-            email=os.environ.get("APKEEP_EMAIL", ""),
-            aas_token=os.environ.get("APKEEP_AAS_TOKEN", ""),
+            email=apkeep_email,
+            aas_token=apkeep_aas_token,
         )
         seen.add(pkg)
         if apk_path:
