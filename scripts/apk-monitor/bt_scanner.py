@@ -8,7 +8,6 @@ the APK is likely controlling a Bluetooth IoT device.
 
 import json
 import logging
-import os
 import re
 import shutil
 import subprocess
@@ -163,7 +162,7 @@ def _detect_flutter(decompile_root: Path) -> bool:
     """Check if the decompiled APK is a Flutter app."""
     markers = ["libapp.so", "libflutter.so", "flutter_assets"]
     for marker in markers:
-        if list(decompile_root.rglob(marker)):
+        if any(decompile_root.rglob(marker)):
             return True
     return False
 
@@ -177,6 +176,24 @@ def _extract_uuids(matches: list[str]) -> list[str]:
             if u not in SIG_BASE_UUIDS:
                 uuids.add(u)
     return sorted(uuids)
+
+
+def _compute_confidence(result: ScanResult) -> None:
+    """Compute confidence score and set boolean flags on a ScanResult in place."""
+    score = 0.0
+    for key, weight in _CONFIDENCE_WEIGHTS.items():
+        if result.pattern_hits.get(key, 0) > 0:
+            score += weight
+    if result.pattern_hits.get("bluetooth_permission", 0) > 0:
+        result.has_bluetooth = True
+    if result.pattern_hits.get("flutter_ble", 0) > 0:
+        result.has_bluetooth = True
+    if result.pattern_hits.get("ble_gatt", 0) > 0:
+        result.has_ble_gatt = True
+    if len(result.uuids_found) > 0:
+        result.has_custom_uuids = True
+        score += _UUID_WEIGHT
+    result.confidence = min(score, 1.0)
 
 
 def scan_apk(package_id: str, apk_path: Path, work_dir: Optional[Path] = None) -> ScanResult:
@@ -213,23 +230,7 @@ def scan_apk(package_id: str, apk_path: Path, work_dir: Optional[Path] = None) -
             result.uuids_found.extend(uuids)
 
     result.uuids_found = sorted(set(result.uuids_found))
-
-    # Determine confidence using weight dict
-    score = 0.0
-    for key, weight in _CONFIDENCE_WEIGHTS.items():
-        if result.pattern_hits.get(key, 0) > 0:
-            score += weight
-    if result.pattern_hits.get("bluetooth_permission", 0) > 0:
-        result.has_bluetooth = True
-    if result.pattern_hits.get("flutter_ble", 0) > 0:
-        result.has_bluetooth = True
-    if result.pattern_hits.get("ble_gatt", 0) > 0:
-        result.has_ble_gatt = True
-    if len(result.uuids_found) > 0:
-        result.has_custom_uuids = True
-        score += _UUID_WEIGHT
-
-    result.confidence = min(score, 1.0)
+    _compute_confidence(result)
 
     # Build summary
     parts = []
