@@ -10,7 +10,6 @@ Each agent produces a candidate device spec and protocol doc.  This module:
 
 import json
 import logging
-import os
 import re
 import shutil
 import subprocess
@@ -20,8 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from config import ModelConfig
-from re_agents import _call_anthropic, _call_openai, _OPENAI_DEFAULT_BASE_URL
+from config import DEFAULT_OPENAI_BASE_URL, ModelConfig
+from re_agents import _call_anthropic, _call_openai
 
 log = logging.getLogger("merge_voter")
 
@@ -151,7 +150,7 @@ def _call_reviewer(
         if reviewer_name == "claude":
             text, _ = _call_anthropic(system, prompt, model, api_key)
         else:
-            url = base_url or _OPENAI_DEFAULT_BASE_URL
+            url = base_url or DEFAULT_OPENAI_BASE_URL
             text, _ = _call_openai(system, prompt, model, api_key, url)
     except Exception as exc:
         log.warning("Reviewer %s failed: %s", reviewer_name, exc)
@@ -177,11 +176,7 @@ def cross_check_and_vote(
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
-    reviewers = {
-        "claude": (models.claude_model, models.anthropic_api_key, ""),
-        "openai": (models.openai_model, models.openai_api_key, _OPENAI_DEFAULT_BASE_URL),
-        "local-qwen": (models.local_model, models.local_api_key, models.local_base_url),
-    }
+    reviewers = {name: (model, key, url) for name, model, key, url in models.agent_configs()}
 
     all_votes: list[Vote] = []
 

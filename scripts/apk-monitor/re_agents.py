@@ -8,7 +8,6 @@ configurable transcripts repo.
 
 import json
 import logging
-import os
 import re
 import subprocess
 import textwrap
@@ -18,11 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from config import ModelConfig, MAX_TOKENS
+from config import DEFAULT_OPENAI_BASE_URL, ModelConfig, MAX_TOKENS
 
 log = logging.getLogger("re_agents")
-
-_OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
 @dataclass
@@ -185,7 +182,7 @@ def _call_anthropic(system: str, user: str, model: str, api_key: str) -> tuple[s
 
 
 def _call_openai(system: str, user: str, model: str, api_key: str,
-                 base_url: str = _OPENAI_DEFAULT_BASE_URL) -> tuple[str, float]:
+                 base_url: str = DEFAULT_OPENAI_BASE_URL) -> tuple[str, float]:
     """Call an OpenAI-compatible API.  Works for OpenAI, ollama, vllm, etc."""
     try:
         import openai
@@ -319,7 +316,7 @@ def run_agent(
         if agent_name == "claude":
             response, duration = _call_anthropic(system_prompt, user_prompt, model, api_key)
         else:
-            url = base_url or _OPENAI_DEFAULT_BASE_URL
+            url = base_url or DEFAULT_OPENAI_BASE_URL
             response, duration = _call_openai(system_prompt, user_prompt, model, api_key, url)
 
         result.duration_seconds = duration
@@ -372,13 +369,7 @@ def launch_all_agents(
     """Launch all three RE agents sequentially and collect results."""
     results: list[AgentResult] = []
 
-    agents = [
-        ("claude", models.claude_model, models.anthropic_api_key, ""),
-        ("openai", models.openai_model, models.openai_api_key, _OPENAI_DEFAULT_BASE_URL),
-        ("local-qwen", models.local_model, models.local_api_key, models.local_base_url),
-    ]
-
-    for agent_name, model, api_key, base_url in agents:
+    for agent_name, model, api_key, base_url in models.agent_configs():
         if not api_key and agent_name != "local-qwen":
             log.warning("Skipping %s: no API key configured", agent_name)
             continue
@@ -406,18 +397,19 @@ if __name__ == "__main__":
         sys.exit(1)
 
     task_input = sys.argv[1]
-    if os.path.isfile(task_input):
+    if Path(task_input).is_file():
         task_data = json.loads(Path(task_input).read_text())
     else:
         task_data = json.loads(task_input)
 
     task = AgentTask(**task_data)
     root = Path(__file__).resolve().parents[2]
-    transcripts = Path(os.environ.get("TRANSCRIPTS_REPO", root / "workspace" / "re-transcripts"))
 
-    from config import load_config
+    from config import ResolvedPaths, load_config
     cfg = load_config()
     mc = ModelConfig.from_cfg(cfg)
+    paths = ResolvedPaths.from_cfg(cfg)
+    transcripts = paths.transcripts_dir
 
     results = launch_all_agents(task=task, root_dir=root, transcripts_dir=transcripts, models=mc)
     for r in results:
