@@ -18,6 +18,7 @@ DEFAULT_LOCAL_API_KEY = "ollama"
 DEFAULT_APKEEP_SOURCE = "apk-pure"
 DEFAULT_MAX_NEW_APKS = 10
 DEFAULT_MIN_VOTES = 2
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 MAX_TOKENS = 16384
 
 # All env vars we recognize (checked even without a config file)
@@ -59,6 +60,14 @@ class ModelConfig:
             anthropic_api_key=cfg.get("ANTHROPIC_API_KEY", ""),
             openai_api_key=cfg.get("OPENAI_API_KEY", ""),
         )
+
+    def agent_configs(self) -> list[tuple[str, str, str, str]]:
+        """Return (agent_name, model, api_key, base_url) for each agent."""
+        return [
+            ("claude", self.claude_model, self.anthropic_api_key, ""),
+            ("openai", self.openai_model, self.openai_api_key, DEFAULT_OPENAI_BASE_URL),
+            ("local-qwen", self.local_model, self.local_api_key, self.local_base_url),
+        ]
 
 
 @dataclass

@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from config import ModelConfig, ResolvedPaths, load_config, DEFAULT_CLAUDE_MODEL
+from config import (
+    DEFAULT_CLAUDE_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
+    ModelConfig, ResolvedPaths, load_config,
+)
 
 
 class TestLoadConfig:
@@ -54,6 +57,23 @@ class TestModelConfig:
         mc = ModelConfig.from_cfg({"CLAUDE_MODEL": "custom", "ANTHROPIC_API_KEY": "sk-x"})
         assert mc.claude_model == "custom"
         assert mc.anthropic_api_key == "sk-x"
+
+    def test_agent_configs_returns_three_tuples(self):
+        mc = ModelConfig()
+        configs = mc.agent_configs()
+        assert len(configs) == 3
+        names = [name for name, _, _, _ in configs]
+        assert names == ["claude", "openai", "local-qwen"]
+
+    def test_agent_configs_uses_instance_values(self):
+        mc = ModelConfig(claude_model="my-claude", openai_api_key="sk-test")
+        configs = mc.agent_configs()
+        claude_cfg = configs[0]
+        assert claude_cfg == ("claude", "my-claude", "", "")
+        openai_cfg = configs[1]
+        assert openai_cfg[0] == "openai"
+        assert openai_cfg[2] == "sk-test"
+        assert openai_cfg[3] == DEFAULT_OPENAI_BASE_URL
 
 
 class TestResolvedPaths:
