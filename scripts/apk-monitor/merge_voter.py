@@ -211,10 +211,13 @@ def cross_check_and_vote(
 
     best_candidate = ""
     best_avg = 0.0
+    best_vote_count = 0
     for candidate, scores in candidate_scores.items():
         avg = sum(scores) / len(scores) if scores else 0
-        if avg > best_avg:
+        count = len(scores)
+        if (avg, count) > (best_avg, best_vote_count):
             best_avg = avg
+            best_vote_count = count
             best_candidate = candidate
 
     if not best_candidate and candidate_scores:
@@ -279,20 +282,35 @@ def auto_merge_winner(
 
     if files_to_commit:
         branch = f"re-merged/{decision.target_id}/{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+        branch_created = False
         try:
-            subprocess.run(["git", "checkout", "-b", branch], cwd=root_dir, capture_output=True, check=True)
+            subprocess.run(
+                ["git", "checkout", "-b", branch],
+                cwd=root_dir, capture_output=True, check=True,
+            )
+            branch_created = True
             for fpath in files_to_commit:
-                subprocess.run(["git", "add", fpath], cwd=root_dir, capture_output=True, check=True)
+                subprocess.run(
+                    ["git", "add", fpath],
+                    cwd=root_dir, capture_output=True, check=True,
+                )
             msg = (
                 f"Add RE spec for {decision.target_id} "
-                f"(winner: {decision.winner}, score: {decision.avg_score:.1f}/{decision.total_votes} votes)"
+                f"(winner: {decision.winner}, "
+                f"score: {decision.avg_score:.1f}/{decision.total_votes} votes)"
             )
-            subprocess.run(["git", "commit", "-m", msg], cwd=root_dir, capture_output=True, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", msg],
+                cwd=root_dir, capture_output=True, check=True,
+            )
             decision.merged = True
             decision.merge_branch = branch
             log.info("Merged spec for %s on branch %s", decision.target_id, branch)
         except subprocess.CalledProcessError as exc:
-            log.error("Merge commit failed for %s: %s", decision.target_id, exc)
+            log.error(
+                "Merge commit failed for %s on branch %s: %s",
+                decision.target_id, branch if branch_created else "(not created)", exc,
+            )
 
     return decision
 

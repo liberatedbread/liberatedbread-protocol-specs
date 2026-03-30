@@ -165,7 +165,8 @@ def _call_anthropic(system: str, user: str, model: str, api_key: str) -> tuple[s
         except (json.JSONDecodeError, TypeError):
             log.warning("Anthropic curl response not valid JSON: %s", body[:200])
             return "", duration
-        text = resp.get("content", [{}])[0].get("text", "")
+        content = resp.get("content") or []
+        text = content[0].get("text", "") if content else ""
         return text, duration
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -206,7 +207,8 @@ def _call_openai(system: str, user: str, model: str, api_key: str,
         except (json.JSONDecodeError, TypeError):
             log.warning("OpenAI curl response not valid JSON: %s", body[:200])
             return "", duration
-        text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+        choices = resp.get("choices") or []
+        text = choices[0].get("message", {}).get("content", "") if choices else ""
         return text, duration
 
     client = openai.OpenAI(api_key=api_key, base_url=base_url)
