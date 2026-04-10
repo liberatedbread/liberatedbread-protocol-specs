@@ -10,4 +10,8 @@ A catalog of IoT devices we've documented (or are documenting).
 
 ## Devices
 
-No devices documented yet -- be the first! Use the [device template](_template.md) to get started.
+| Device | Protocol | Status | Manufacturer |
+|--------|----------|--------|-------------|
+| [CHEF iQ Sense](../specs/chef-iq-sense.md) | BLE | In Progress | CHEF iQ (Chefman) |
+| [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | AdMore Lighting Inc. |
+| [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Frigidaire (Electrolux) |
