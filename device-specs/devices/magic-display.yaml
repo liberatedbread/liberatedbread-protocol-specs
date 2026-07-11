@@ -1,0 +1,134 @@
+# Magic Display device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Magic Display"
+  manufacturer: "tirohk / AiTURE"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+  notes: >
+    Bluetooth-controlled LED displays for shoes, bags, hats, crafts.
+    Uses Quintic (NXP QN-series) BLE chipset with QPP (Quintic Private Profile) on service 0xFEE9.
+    All BLE traffic is AES-128 encrypted via native libAES.so (key in .so binary, not in Java).
+    Commands are fixed 16-byte ASCII-named packets: [length, ASCII_CMD..., params..., zero_pad].
+    Bulk data uses 3-way handshake: DATS -> DATSOK -> 16-byte frames -> DATCP -> DATCPOK.
+    Supports multiple display sizes: 5x36, 12x48, 14x56, 16x64 (reported via STYPE response).
+    Monochrome 1-bit-per-pixel bitmap encoding (threshold: any RGB channel >= 128 = ON).
+    Device identification by manufacturer-specific adv data: {0x54, 0x52, 0x00, 0x27} ("TR" + 0x0027).
+    No pairing required.
+    Also has OTA service at 0xFEE8 (Quintic OTA protocol).
+  identification:
+    local_name_prefix: ""
+    service_uuids:
+      - "0000fee9-0000-1000-8000-00805f9b34fb"
+
+services:
+  - uuid: "0000fee9-0000-1000-8000-00805f9b34fb"
+    name: "QPP Service"
+    characteristics:
+      - uuid: "d44bc439-abfd-45a2-b575-925416129600"
+        name: "Command (WRITE1)"
+        properties: ["write"]
+        commands:
+          query_device_type:
+            description: "Query display dimensions. Response on notify: 'STYPE5X36', 'STYPE12X48', 'STYPE16X64', etc."
+            value: [0x05, 0x53, 0x54, 0x59, 0x50, 0x45]
+          led_on:
+            description: "Turn LED display on"
+            value: [0x05, 0x4C, 0x45, 0x44, 0x4F, 0x4E]
+          led_off:
+            description: "Turn LED display off"
+            value: [0x06, 0x4C, 0x45, 0x44, 0x4F, 0x46, 0x46]
+          set_brightness:
+            description: "Set brightness level"
+            template: [0x06, 0x4C, 0x49, 0x47, 0x48, 0x54, "{brightness}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_speed:
+            description: "Set animation speed"
+            template: [0x06, 0x53, 0x50, 0x45, 0x45, 0x44, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_mode_static:
+            description: "Static display mode"
+            value: [0x05, 0x4D, 0x4F, 0x44, 0x45, 0x01]
+          set_mode_scroll_left:
+            description: "Scroll left mode"
+            template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x03, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_mode_scroll_right:
+            description: "Scroll right mode"
+            template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x04, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_time:
+            description: "Set device clock"
+            template: [0x07, 0x54, 0x49, 0x4D, 0x45, "{hour}", "{minute}", "{second}"]
+            parameters:
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+              second:
+                type: "uint8"
+                min: 0
+                max: 59
+          invert_display:
+            description: "Invert/flip display"
+            value: [0x05, 0x45, 0x56, 0x45, 0x52, 0x54]
+          data_transfer_start:
+            description: "Start bulk data transfer. hi/lo = big-endian 16-bit data length."
+            template: [0x08, 0x44, 0x41, 0x54, 0x53, "{len_hi}", "{len_lo}", 0x00, "{link_flag}"]
+            parameters:
+              len_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+              len_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+              link_flag:
+                type: "uint8"
+                min: 0
+                max: 1
+          data_transfer_complete:
+            description: "Signal bulk data transfer complete"
+            value: [0x05, 0x44, 0x41, 0x54, 0x43, 0x50]
+
+      - uuid: "d44bc439-abfd-45a2-b575-925416129601"
+        name: "Notification"
+        properties: ["notify"]
+
+      - uuid: "d44bc439-abfd-45a2-b575-92541612960a"
+        name: "Bulk Data (WRITE2)"
+        properties: ["write"]
+
+      - uuid: "d44bc439-abfd-45a2-b575-92541612960b"
+        name: "Auxiliary (WRITE3)"
+        properties: ["write"]
+
+entities:
+  - platform: "light"
+    name: "LED Display"
+    features: ["brightness"]
+    commands:
+      set_brightness: "set_brightness"
