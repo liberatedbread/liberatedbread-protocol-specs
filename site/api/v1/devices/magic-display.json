@@ -9,7 +9,7 @@
     "manufacturer": "tirohk / AiTURE",
     "manufacturer_status": "abandoned",
     "name": "Magic Display",
-    "notes": "Bluetooth-controlled LED displays for shoes, bags, hats, crafts. Uses Quintic (NXP QN-series) BLE chipset with QPP (Quintic Private Profile) on service 0xFEE9. All BLE traffic is AES-128 encrypted via native libAES.so (key in .so binary, not in Java). Commands are fixed 16-byte ASCII-named packets: [length, ASCII_CMD..., params..., zero_pad]. Bulk data uses 3-way handshake: DATS -> DATSOK -> 16-byte frames -> DATCP -> DATCPOK. Supports multiple display sizes: 5x36, 12x48, 14x56, 16x64 (reported via STYPE response). Monochrome 1-bit-per-pixel bitmap encoding (threshold: any RGB channel >= 128 = ON). Device identification by manufacturer-specific adv data: {0x54, 0x52, 0x00, 0x27} (\"TR\" + 0x0027). No pairing required. Also has OTA service at 0xFEE8 (Quintic OTA protocol).\n",
+    "notes": "Bluetooth-controlled LED displays for shoes, bags, hats, crafts. Uses Quintic (NXP QN-series) BLE chipset with QPP (Quintic Private Profile) on service 0xFEE9. All command traffic is AES-128-ECB encrypted via the native libAES.so (aes.keyExpansionDefault() is a JNI native method; the 16-byte key lives in the .so binary, NOT in Java — extract libAES.so to recover it). Commands are fixed 16-byte ASCII-named packets: [length, ASCII_CMD..., params..., zero_pad]. CORRECTION: there is NO connection-time 3-way handshake (the earlier claim was wrong). After connecting, the app simply queries the LED matrix type (STYPE) and parses the response. Bulk image transfer uses DATS (data_transfer_start) framing followed by 16-byte data frames and DATCP (data_transfer_complete) — that is transfer framing, not an authentication handshake. Supports multiple display sizes: 5x36, 12x48, 14x56, 16x64 (reported via STYPE response). Monochrome 1-bit-per-pixel bitmap encoding (threshold: any RGB channel >= 128 = ON). Device identification by manufacturer-specific adv data: {0x54, 0x52, 0x00, 0x27} (\"TR\" + 0x0027). No pairing required. Shares the com.cdbwsoft BLE codebase with Shining Glasses. A secondary Texas Instruments profile (service 0xFFF0 / char 0xFFF1) is also supported for TI-based hardware variants. Also has OTA service at 0xFEE8 (Quintic OTA protocol). CONFIDENCE: command/UUID mapping HIGH (jadx of com.tirohk.magicdisplay); AES key UNRECOVERABLE from the Java APK (native lib not captured).\n",
     "protocol": "ble"
   },
   "entities": [
@@ -24,6 +24,15 @@
       "platform": "light"
     }
   ],
+  "features": [
+    {
+      "format": "1bit-bitmap",
+      "max_height": 16,
+      "max_width": 64,
+      "type": "image_upload"
+    }
+  ],
+  "protocol_handler": "cdbwsoft_ecb",
   "services": [
     {
       "characteristics": [
@@ -234,7 +243,12 @@
               ]
             }
           },
+          "encryption": {
+            "algorithm": "aes-128-ecb",
+            "key_derivation": "static"
+          },
           "name": "Command (WRITE1)",
+          "notes": "AES-128-ECB, fixed static key. static_key OMITTED: the key is in the native libAES.so (loaded via aes.keyExpansionDefault, a JNI method) and is not present in the decompiled Java APK. Recover it by extracting the 16-byte key from libAES.so. Confidence: HIGH structure, key UNRECOVERABLE. Evidence: com/tirohk/magicdisplay/MainApplication.java:26 (keyExpansionDefault); csh/tiro/cc/aes.java:11 (native); com/cdbwsoft/library/ble/BleManager.java:50-57.\n",
           "properties": [
             "write"
           ],
@@ -248,14 +262,24 @@
           "uuid": "d44bc439-abfd-45a2-b575-925416129601"
         },
         {
+          "encryption": {
+            "algorithm": "aes-128-ecb",
+            "key_derivation": "static"
+          },
           "name": "Bulk Data (WRITE2)",
+          "notes": "Bulk image frames; same AES-128-ECB native key as the command char (key OMITTED, in libAES.so).",
           "properties": [
             "write"
           ],
           "uuid": "d44bc439-abfd-45a2-b575-92541612960a"
         },
         {
+          "encryption": {
+            "algorithm": "aes-128-ecb",
+            "key_derivation": "static"
+          },
           "name": "Auxiliary (WRITE3)",
+          "notes": "Auxiliary write path; same AES-128-ECB native key (key OMITTED, in libAES.so).",
           "properties": [
             "write"
           ],
@@ -264,6 +288,25 @@
       ],
       "name": "QPP Service",
       "uuid": "0000fee9-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "encryption": {
+            "algorithm": "aes-128-ecb",
+            "key_derivation": "static"
+          },
+          "name": "TI Command",
+          "notes": "TI-variant command characteristic; same AES-128-ECB native key (key OMITTED, in libAES.so). Evidence: BleManager.java:52,58.\n",
+          "properties": [
+            "write",
+            "notify"
+          ],
+          "uuid": "0000fff1-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "TI Service",
+      "uuid": "0000fff0-0000-1000-8000-00805f9b34fb"
     }
   ]
 }

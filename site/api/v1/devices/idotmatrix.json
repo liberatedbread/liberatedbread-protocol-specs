@@ -3,13 +3,14 @@
     "identification": {
       "local_name_prefix": "IDM-",
       "service_uuids": [
+        "0000fee9-0000-1000-8000-00805f9b34fb",
         "0000fa02-0000-1000-8000-00805f9b34fb"
       ]
     },
-    "manufacturer": "iDotMatrix",
+    "manufacturer": "iDotMatrix / Tech",
     "manufacturer_status": "unsupported",
     "name": "iDotMatrix",
-    "notes": "16x16 or 32x32 RGB pixel display. No pairing required. Commands are variable-length bytearrays written to characteristic 0xFA02. GIF upload uses 4096-byte chunks with CRC32 validation. Device name prefix is \"IDM-\".\n",
+    "notes": "Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers, schedules). No pairing required.\nPRIMARY (recovered) protocol — service 0xFEE9, from jadx of com.tech.idotmatrix: framed binary packets with a 16-byte header per 4096-byte payload chunk:\n  [0-1]  total packet length (uint16 BE)\n  [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase\n  [3]    sub-type: 0x00 data / 0x02 MultiColor/Phrase\n  [4]    chunk flag: 0=first, 2=continuation\n  [5-8]  total data length (uint32 LE)\n  [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)\n  [13-14] time/delay (uint16 BE)\n  [15]   speed/type byte\n  [16+]  payload\nBLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for GIF/image, 50 ms/chunk for text. Notify response: [?,0,cmd_type,sub_type,status] with status 0=invalid, 1=next-chunk, 2=error, 3=finished. Display sizes (ScreenData.getLedSize): 1010=10x10, 1001=1x100, 1116=16x11, 1318=18x13, 1619=19x16, 1920=20x19, 2020=32x32 (default), 2010=10x20, 3010=10x30, 3820=20x38. FLAGGED: exact image pixel encoding (RGB565 bitmap laid out by device type) needs live BLE capture to confirm; text glyph width varies by device/font. CONFIDENCE: UUIDs, framing header, CRC32, chunk sizes, command types, response format all HIGH; image pixel layout MEDIUM. Evidence: Ble.java:354-362 (UUIDs), GifAgreement.java:160-196/271-286 (framing, CRC32, response), ScreenData.java (display sizes), CrcUtils.java (java.util.zip.CRC32).\nALTERNATE (legacy) protocol — service 0xFA02: some iDotMatrix units / the popular community \"python-idotmatrix\" library speak an unframed 0xFA02 protocol with short length-prefixed byte commands ([len, 0x00, cmd, ...]). That command set is preserved below as a second service (\"iDotMatrix Legacy (0xFA02) Service\") for those devices; a given unit speaks one protocol or the other. Name prefix \"IDM-\".\n",
     "protocol": "ble"
   },
   "entities": [
@@ -27,7 +28,96 @@
       "state_characteristic": "0000fa03-0000-1000-8000-00805f9b34fb"
     }
   ],
+  "features": [
+    {
+      "format": "rgb565",
+      "max_height": 32,
+      "max_width": 32,
+      "type": "image_upload"
+    }
+  ],
+  "protocol_handler": "idotmatrix_image",
   "services": [
+    {
+      "characteristics": [
+        {
+          "framing": {
+            "checksum": "crc32",
+            "length_prefix": true,
+            "max_chunk_size": 4096
+          },
+          "name": "Data Write/Read",
+          "notes": "All framed protocol commands (GIF/Image/Text/Phrase) are written here. 16-byte header + up to 4096-byte payload per frame; CRC32 (java.util.zip.CRC32) over the whole data payload. Evidence: Ble.java:355-356, GifAgreement.java:160-196.\n",
+          "properties": [
+            "write",
+            "read"
+          ],
+          "uuid": "d44bc439-abfd-45a2-b575-925416129600"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "unknown",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "reserved_zero",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "command_type",
+              "offset": 2,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "sub_type",
+              "offset": 3,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "status",
+              "offset": 4,
+              "type": "uint8"
+            }
+          ],
+          "name": "Data Notify",
+          "notes": "Transfer-progress responses. Evidence: Ble.java:358, GifAgreement.java:271-286.",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "d44bc439-abfd-45a2-b575-925416129601"
+        }
+      ],
+      "name": "iDotMatrix Data Service",
+      "uuid": "0000fee9-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "OTA Write",
+          "properties": [
+            "write"
+          ],
+          "uuid": "0000ae01-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "OTA Notify",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "0000ae02-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "iDotMatrix OTA Service",
+      "uuid": "0000ae00-0000-1000-8000-00805f9b34fb"
+    },
     {
       "characteristics": [
         {
@@ -174,7 +264,7 @@
           "uuid": "0000fa03-0000-1000-8000-00805f9b34fb"
         }
       ],
-      "name": "iDotMatrix Service",
+      "name": "iDotMatrix Legacy (0xFA02) Service",
       "uuid": "0000fa02-0000-1000-8000-00805f9b34fb"
     }
   ]
