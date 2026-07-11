@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://opengreeniot.pigscanfly.ca/device-spec.schema.json",
   "title": "OpenGreenIoT Device Spec",
-  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi).",
+  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). Permissive by design: unknown keys are allowed so bespoke, device-specific metadata (e.g. protobuf/state_machine blocks) can travel alongside the standard fields. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
   "type": "object",
   "required": ["device"],
   "anyOf": [
@@ -10,6 +10,81 @@
     { "required": ["http_endpoints"] },
     { "required": ["mqtt_topics"] }
   ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "initialization": {
+      "type": "array",
+      "description": "Ordered handshake / setup steps executed after connecting and before normal commands. Allowed at the top level and per-service.",
+      "items": {
+        "type": "object",
+        "required": ["characteristic"],
+        "properties": {
+          "characteristic": {
+            "type": "string",
+            "description": "Target characteristic UUID for this step."
+          },
+          "write": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Byte sequence to write in this step."
+          },
+          "read": {
+            "type": "boolean",
+            "description": "If true, read from the characteristic in this step (e.g. to capture a handshake response / encryption key)."
+          },
+          "delay_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Delay in milliseconds to wait after this step."
+          }
+        }
+      }
+    },
+    "encryption": {
+      "type": "object",
+      "description": "Declares that a characteristic's payload is encrypted and how to derive the key.",
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["aes-128-ecb", "aes-128-ofb", "aes-128-ctr"],
+          "description": "Symmetric cipher/mode used for this characteristic's payload."
+        },
+        "key_derivation": {
+          "type": "string",
+          "enum": ["static", "handshake", "device-specific"],
+          "description": "How the key is obtained: a fixed static key, established via a connection handshake, or derived per device."
+        },
+        "static_key": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]+$",
+          "description": "Hex-encoded static key, present only when key_derivation is 'static'."
+        }
+      }
+    },
+    "framing": {
+      "type": "object",
+      "description": "Structured packet framing applied on top of raw BLE writes for this characteristic.",
+      "properties": {
+        "length_prefix": {
+          "type": "boolean",
+          "description": "Whether each frame is prefixed with its length."
+        },
+        "checksum": {
+          "type": "string",
+          "enum": ["crc32", "xor", "sum"],
+          "description": "Checksum algorithm appended to each frame."
+        },
+        "max_chunk_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum payload bytes per frame (e.g. for chunked image uploads)."
+        }
+      }
+    }
+  },
   "properties": {
     "device": {
       "type": "object",
@@ -28,12 +103,12 @@
         "manufacturer_status": {
           "type": "string",
           "enum": ["abandoned", "shutdown", "unsupported"],
-          "description": "Why this device needs open source rescue."
+          "description": "Why this device needs open source rescue. Enum kept aligned with the mobile Rust ManufacturerStatus enum. A device whose manufacturer is still in business but whose protocol is closed/proprietary should use 'unsupported' (note the real status in `notes`)."
         },
         "protocol": {
           "type": "string",
           "enum": ["ble", "wifi", "zigbee", "zwave"],
-          "description": "Primary communication protocol."
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum."
         },
         "notes": {
           "type": "string",
@@ -49,10 +124,7 @@
             },
             "service_uuids": {
               "type": "array",
-              "items": {
-                "type": "string",
-                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-              },
+              "items": { "$ref": "#/$defs/uuid" },
               "description": "BLE service UUIDs advertised by the device."
             },
             "mdns_service_type": {
@@ -68,6 +140,70 @@
               "description": "Default TCP port for the device's local API."
             }
           }
+        },
+        "variants": {
+          "type": "array",
+          "description": "Distinct device models that share the same BLE service UUIDs but differ in command set. Consumers match a connected device to a variant via its identification block.",
+          "items": {
+            "type": "object",
+            "required": ["model"],
+            "properties": {
+              "model": {
+                "type": "string",
+                "description": "Model identifier (e.g. 'SP107E')."
+              },
+              "identification": {
+                "type": "object",
+                "description": "How to identify this specific variant during scanning.",
+                "properties": {
+                  "local_name_prefix": {
+                    "type": "string",
+                    "description": "BLE advertisement local name prefix that distinguishes this variant."
+                  },
+                  "service_uuids": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/uuid" },
+                    "description": "BLE service UUIDs advertised by this variant."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "initialization": { "$ref": "#/$defs/initialization" },
+    "protocol_handler": {
+      "type": "string",
+      "description": "Names a consumer-side (e.g. Rust) handler implementation to dispatch to for devices whose protocol cannot be fully expressed in YAML (image assembly, custom crypto, etc.). Lets a registry select the right code path automatically instead of hardcoding a device->handler map."
+    },
+    "features": {
+      "type": "array",
+      "description": "Declares high-level device capabilities that go beyond raw GATT reads/writes. The capability is declarative; some (e.g. image_upload) require dedicated consumer-side code to implement.",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["image_upload", "firmware_update", "audio_upload"],
+            "description": "Capability type."
+          },
+          "max_width": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum image width in pixels (for image_upload)."
+          },
+          "max_height": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum image height in pixels (for image_upload)."
+          },
+          "format": {
+            "type": "string",
+            "enum": ["1bit-bitmap", "gif", "rgb565", "rgb888", "png"],
+            "description": "Binary format the device expects for uploaded assets."
+          }
         }
       }
     },
@@ -79,14 +215,14 @@
         "required": ["uuid", "name", "characteristics"],
         "properties": {
           "uuid": {
-            "type": "string",
-            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "$ref": "#/$defs/uuid",
             "description": "BLE service UUID."
           },
           "name": {
             "type": "string",
             "description": "Human-readable service name."
           },
+          "initialization": { "$ref": "#/$defs/initialization" },
           "characteristics": {
             "type": "array",
             "minItems": 1,
@@ -95,8 +231,7 @@
               "required": ["uuid", "name", "properties"],
               "properties": {
                 "uuid": {
-                  "type": "string",
-                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "$ref": "#/$defs/uuid",
                   "description": "BLE characteristic UUID."
                 },
                 "name": {
@@ -109,8 +244,10 @@
                     "type": "string",
                     "enum": ["read", "write", "write_without_response", "notify", "indicate"]
                   },
-                  "description": "BLE characteristic properties."
+                  "description": "BLE characteristic properties. Enum kept aligned with the mobile Rust CharacteristicProperty enum."
                 },
+                "encryption": { "$ref": "#/$defs/encryption" },
+                "framing": { "$ref": "#/$defs/framing" },
                 "commands": {
                   "type": "object",
                   "additionalProperties": {
@@ -131,15 +268,45 @@
                         "type": "array",
                         "description": "Parameterized byte sequence. Strings are parameter references."
                       },
+                      "encoding": {
+                        "type": "string",
+                        "enum": ["bytes", "json", "tlv"],
+                        "default": "bytes",
+                        "description": "How the command payload is serialized. 'bytes' is a raw byte sequence (value/template); 'json' and 'tlv' commands describe their payload via the `payload` object. NOTE: the mobile Rust parser currently assumes 'bytes'; json/tlv require dedicated handler code."
+                      },
+                      "payload": {
+                        "type": "object",
+                        "description": "Structured payload description for json/tlv encoded commands.",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "description": "Payload key/field name (or TLV tag name)."
+                          },
+                          "value_type": {
+                            "type": "string",
+                            "description": "Type of the payload value (e.g. string, int, bool)."
+                          }
+                        }
+                      },
                       "parameters": {
                         "type": "object",
+                        "description": "Command parameter definitions, keyed by parameter name. The reserved key `color_order` is not a parameter but declares RGB channel byte order for this command's color parameters.",
+                        "properties": {
+                          "color_order": {
+                            "type": "string",
+                            "enum": ["rgb", "rbg", "grb", "gbr", "brg", "bgr"],
+                            "default": "rgb",
+                            "description": "Byte order in which R/G/B channel values are emitted for this command (e.g. Shining Mask uses 'rbg'). Defaults to 'rgb'."
+                          }
+                        },
                         "additionalProperties": {
                           "type": "object",
                           "required": ["type"],
                           "properties": {
                             "type": {
                               "type": "string",
-                              "enum": ["uint8", "uint16", "int8", "int16", "bytes", "string"]
+                              "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
+                              "description": "Parameter value type. NOTE: int32/uint32 are accepted for devices such as the AdMore Light Bar (protobuf setvalue fields) but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
                             },
                             "min": {
                               "type": "integer"
@@ -172,7 +339,8 @@
                       },
                       "type": {
                         "type": "string",
-                        "enum": ["bool", "uint8", "uint16", "int8", "int16", "bytes", "string"]
+                        "enum": ["bool", "uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
+                        "description": "Field value type. NOTE: int32/uint32 are accepted here for parity with the parameter enum but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
                       }
                     }
                   },
@@ -327,8 +495,8 @@
         "properties": {
           "platform": {
             "type": "string",
-            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate"],
-            "description": "Home Assistant entity platform."
+            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select"],
+            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar."
           },
           "name": {
             "type": "string"
@@ -346,8 +514,7 @@
             }
           },
           "state_characteristic": {
-            "type": "string",
-            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            "$ref": "#/$defs/uuid"
           },
           "state_topic": {
             "type": "string",
