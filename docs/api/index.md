@@ -23,17 +23,27 @@ for specs that changed.
   "api_version": "1",
   "generated_at": "2026-03-12T01:11:51+00:00",
   "schema": "https://opengreeniot.pigscanfly.ca/device-spec.schema.json",
-  "device_count": 15,
+  "device_count": 4,
   "devices": [
     {
+      "id": "admore-light-bar",
+      "name": "AdMore Light Bar Pro",
+      "manufacturer": "AdMore Lighting Inc.",
+      "protocol": "ble",
+      "status": "active",
+      "updated_at": "2026-03-12T01:11:51+00:00",
+      "url": "/api/v1/devices/admore-light-bar.json",
+      "checksum": "sha256:5c04e0af..."
+    },
+    {
       "id": "chef-iq-sense",
-      "name": "Chef iQ Sense",
+      "name": "CHEF iQ Sense",
       "manufacturer": "CHEF iQ (Chefman)",
       "protocol": "ble",
       "status": "unsupported",
       "updated_at": "2026-03-12T01:11:51+00:00",
       "url": "/api/v1/devices/chef-iq-sense.json",
-      "checksum": "sha256:abc123..."
+      "checksum": "sha256:df484d15..."
     }
   ]
 }
@@ -58,7 +68,7 @@ Each device entry:
 | `status` | string | Manufacturer support status (`active`, `abandoned`, `shutdown`, `unsupported`) |
 | `updated_at` | string | UTC ISO 8601 timestamp of the spec's last git commit |
 | `url` | string | Path to the per-device JSON endpoint |
-| `checksum` | string | `sha256:<hex>` of the per-device JSON (content-addressable) |
+| `checksum` | string | `sha256:<hex>` of the per-device JSON file bytes (content-addressable) |
 
 ## Per-device endpoint (`/api/v1/devices/<id>.json`)
 
@@ -73,7 +83,7 @@ GET /api/v1/devices/chef-iq-sense.json
 ```json
 {
   "device": {
-    "name": "Chef iQ Sense",
+    "name": "CHEF iQ Sense",
     "manufacturer": "CHEF iQ (Chefman)",
     "manufacturer_status": "unsupported",
     "protocol": "ble",
@@ -112,7 +122,7 @@ static registry, not a real-time service.
 ## Building locally
 
 ```bash
-pip install -r requirements.txt pyyaml jsonschema
+pip install -r requirements.txt
 python scripts/build_index.py
 # Output in site/api/v1/manifest.json and site/api/v1/devices/*.json
 ```

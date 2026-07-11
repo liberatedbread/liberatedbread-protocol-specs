@@ -27,6 +27,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -38,8 +39,26 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPECS_DIR = REPO_ROOT / "device-specs" / "devices"
 SCHEMA_PATH = REPO_ROOT / "device-specs" / "schema.json"
-API_DIR = REPO_ROOT / "site" / "api" / "v1"
-MANIFEST_PATH = API_DIR / "manifest.json"
+DEFAULT_API_DIR = REPO_ROOT / "site" / "api" / "v1"
+
+
+@dataclass(frozen=True)
+class Spec:
+    """A loaded, validated device spec with its serialization pre-computed.
+
+    *raw* is the parsed YAML dict.
+    *json_text* is the exact string written to the per-device JSON file
+    (normalized JSON plus a trailing newline).
+    *checksum* is ``sha256:<hex>`` of *json_text* encoded as UTF-8.
+    *id* is the filename stem.
+    *path* is the source YAML ``Path``.
+    """
+
+    raw: Dict[str, Any]
+    json_text: str
+    checksum: str
+    id: str
+    path: Path
 
 
 def load_schema() -> Dict[str, Any]:
@@ -99,16 +118,6 @@ def json_dumps(obj: Any) -> str:
     return json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False)
 
 
-def compute_checksum(json_str: str) -> str:
-    """Return ``sha256:<hexdigest>`` of *json_str*."""
-    return f"sha256:{hashlib.sha256(json_str.encode('utf-8')).hexdigest()}"
-
-
-def spec_id(path: Path) -> str:
-    """Return the device id (filename stem) for *path*."""
-    return Path(path).stem
-
-
 def _normalize_for_json(obj: Any) -> Any:
     """Recursively convert Python objects to JSON-safe equivalents.
 
@@ -128,44 +137,58 @@ def _normalize_for_json(obj: Any) -> Any:
     return obj
 
 
-def build_per_device_json(spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize *spec* dict for the per-device JSON endpoint."""
-    return _normalize_for_json(spec)
+def serialize_device_spec(spec: Dict[str, Any]) -> tuple[str, str]:
+    """Serialize *spec* to JSON and compute its checksum.
+
+    Returns ``(json_text, checksum)`` where *json_text* includes a trailing
+    newline — the exact bytes written to ``<id>.json`` on disk.  *checksum*
+    is ``sha256:<hex>`` of those bytes.
+    """
+    normalized = _normalize_for_json(spec)
+    json_text = json_dumps(normalized) + "\n"
+    checksum = f"sha256:{hashlib.sha256(json_text.encode('utf-8')).hexdigest()}"
+    return json_text, checksum
+
+
+def load_and_serialize_spec(path: Path, schema: Dict[str, Any]) -> Spec:
+    """Load, validate, and serialize a single device spec.
+
+    This is the single source of truth for a spec's bytes-on-disk and
+    checksum.  Both manifest generation and file writing call this.
+    """
+    raw = load_yaml(path)
+    validate_spec(raw, schema, path)
+    json_text, checksum = serialize_device_spec(raw)
+    return Spec(
+        raw=raw,
+        json_text=json_text,
+        checksum=checksum,
+        id=Path(path).stem,
+        path=Path(path),
+    )
 
 
 def build_manifest(
-    spec_paths: List[Path],
+    specs: List[Spec],
     schema: Dict[str, Any],
     generated_at: str,
 ) -> Dict[str, Any]:
-    """Build the manifest JSON from all validated specs."""
+    """Build the manifest JSON from pre-loaded, validated specs."""
     device_entries: List[Dict[str, Any]] = []
-    device_count = 0
 
-    for path in spec_paths:
-        spec = load_yaml(path)
-        validate_spec(spec, schema, path)
-        device_count += 1
-
-        sid = spec_id(path)
-        url = f"/api/v1/devices/{sid}.json"
-        per_device_path = API_DIR / "devices" / f"{sid}.json"
-
-        # Compute per-device JSON first so we can checksum it
-        per_device_data = build_per_device_json(spec)
-        per_device_json = json_dumps(per_device_data)
-
-        updated_at = git_last_modified(path, generated_at)
+    for spec in specs:
+        raw = spec.raw
+        updated_at = git_last_modified(spec.path, generated_at)
 
         device_entries.append({
-            "id": sid,
-            "name": spec.get("device", {}).get("name", sid),
-            "manufacturer": spec.get("device", {}).get("manufacturer", ""),
-            "protocol": spec.get("device", {}).get("protocol", ""),
-            "status": spec.get("device", {}).get("manufacturer_status", ""),
+            "id": spec.id,
+            "name": raw.get("device", {}).get("name", spec.id),
+            "manufacturer": raw.get("device", {}).get("manufacturer", ""),
+            "protocol": raw.get("device", {}).get("protocol", ""),
+            "status": raw.get("device", {}).get("manufacturer_status", ""),
             "updated_at": updated_at,
-            "url": url,
-            "checksum": compute_checksum(per_device_json),
+            "url": f"/api/v1/devices/{spec.id}.json",
+            "checksum": spec.checksum,
         })
 
     schema_id = schema.get("$id", "")
@@ -173,42 +196,55 @@ def build_manifest(
         "api_version": "1",
         "generated_at": generated_at,
         "schema": schema_id,
-        "device_count": device_count,
+        "device_count": len(specs),
         "devices": device_entries,
     }
 
 
-def write_output(manifest: Dict[str, Any], spec_paths: List[Path], schema: Dict[str, Any]) -> None:
-    """Write manifest.json and per-device JSON files to disk."""
-    API_DIR.mkdir(parents=True, exist_ok=True)
-    devices_dir = API_DIR / "devices"
+def write_output(
+    manifest: Dict[str, Any],
+    specs: List[Spec],
+    api_dir: Path,
+) -> None:
+    """Write manifest.json and per-device JSON files to disk.
+
+    Uses the pre-computed *json_text* from each Spec so the bytes on disk
+    are guaranteed to match the checksums in the manifest.
+    """
+    api_dir.mkdir(parents=True, exist_ok=True)
+    devices_dir = api_dir / "devices"
     devices_dir.mkdir(parents=True, exist_ok=True)
 
-    for path in spec_paths:
-        spec = load_yaml(path)
-        validate_spec(spec, schema, path)
-        sid = spec_id(path)
-        per_device_data = build_per_device_json(spec)
-        per_device_json = json_dumps(per_device_data)
-        out_path = devices_dir / f"{sid}.json"
+    for spec in specs:
+        out_path = devices_dir / f"{spec.id}.json"
         with open(out_path, "w", encoding="utf-8") as f:
-            f.write(per_device_json)
-            f.write("\n")
+            f.write(spec.json_text)
 
-    manifest_json = json_dumps(manifest)
-    with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+    manifest_json = json_dumps(manifest) + "\n"
+    manifest_path = api_dir / "manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
         f.write(manifest_json)
-        f.write("\n")
 
 
-def run(generated_at: str | None = None, check_only: bool = False) -> int:
+def run(
+    generated_at: str | None = None,
+    check_only: bool = False,
+    output_dir: Path | None = None,
+) -> int:
     """Discover, validate, and index all device specs.
 
     Returns 0 on success, non-zero on failure.
+
+    Args:
+        generated_at: ISO-8601 timestamp; default is now in UTC.
+        check_only: Validate without writing files.
+        output_dir: Root dir for api/v1/; defaults to ``site/api/v1`` under
+            the repo root.  The mkdocs hook passes ``config["site_dir"]`` here.
     """
     if generated_at is None:
         generated_at = datetime.now(timezone.utc).isoformat()
 
+    api_dir = (output_dir / "api" / "v1") if output_dir else DEFAULT_API_DIR
     schema = load_schema()
     spec_paths = discover_specs()
 
@@ -216,12 +252,12 @@ def run(generated_at: str | None = None, check_only: bool = False) -> int:
         print("No device specs found in", str(SPECS_DIR), file=sys.stderr)
         return 1
 
-    # Validate all specs first
-    errors = []
+    # Load + validate + serialize every spec once
+    errors: List[str] = []
+    specs: List[Spec] = []
     for path in spec_paths:
         try:
-            spec = load_yaml(path)
-            validate_spec(spec, schema, path)
+            specs.append(load_and_serialize_spec(Path(path), schema))
         except (yaml.YAMLError, ValueError, jsonschema.ValidationError) as exc:
             errors.append(str(exc))
 
@@ -231,16 +267,17 @@ def run(generated_at: str | None = None, check_only: bool = False) -> int:
         return 1
 
     if check_only:
-        print(f"✓ {len(spec_paths)} device specs validated successfully")
+        print(f"✓ {len(specs)} device specs validated successfully")
         return 0
 
     # Build manifest and write output
-    manifest = build_manifest(spec_paths, schema, generated_at)
-    write_output(manifest, spec_paths, schema)
+    manifest = build_manifest(specs, schema, generated_at)
+    write_output(manifest, specs, api_dir)
 
-    print(f"✓ Manifest: {MANIFEST_PATH} ({manifest['device_count']} devices)")
+    manifest_path = api_dir / "manifest.json"
+    print(f"✓ Manifest: {manifest_path} ({manifest['device_count']} devices)")
     for entry in manifest["devices"]:
-        dev_path = API_DIR / "devices" / f"{entry['id']}.json"
+        dev_path = api_dir / "devices" / f"{entry['id']}.json"
         print(f"  {entry['id']}: {dev_path}")
     return 0
 
