@@ -24,9 +24,10 @@ def test_discover_specs():
     paths = build_index.discover_specs()
     assert len(paths) > 0, "Expected at least one device spec"
     stems = {Path(p).stem for p in paths}
-    # The 4 device specs that exist on main as of this commit
+    # These device specs are always expected to be present; more may be added
+    # (e.g. the ported structured specs), so assert presence rather than exact set.
     expected = {"admore-light-bar", "chef-iq-sense", "frigidaire-window-ac", "frigidaire-portable-ac"}
-    assert stems == expected, f"Expected {sorted(expected)}, got {sorted(stems)}"
+    assert expected <= stems, f"Expected {sorted(expected)} to be present, got {sorted(stems)}"
 
 
 def test_load_yaml():
@@ -36,7 +37,7 @@ def test_load_yaml():
     spec = build_index.load_yaml(Path(chef))
     assert isinstance(spec, dict)
     assert "device" in spec
-    assert spec["device"]["name"] == "CHEF iQ Sense"
+    assert spec["device"]["name"] == "Chef iQ Sense"
 
 
 def test_validate_all_specs_pass():
