@@ -5,7 +5,7 @@ API files are always included in the published site without needing a
 separate CI step.
 
 The hook runs :func:`scripts.build_index.run`, which discovers, validates,
-and emits the manifest + per-device JSON into ``site/api/v1/``.
+and emits the manifest + per-device JSON into ``<site_dir>/api/v1/``.
 """
 
 from __future__ import annotations
@@ -23,9 +23,11 @@ import build_index  # noqa: E402
 
 def on_post_build(config, **kwargs) -> None:  # noqa: ARG001
     """Generate the device API index after mkdocs writes site/."""
+    site_dir = Path(config["site_dir"])
     print("\n--- Generating device-spec JSON API ---")
-    rc = build_index.run()
+    rc = build_index.run(output_dir=site_dir)
     if rc != 0:
-        print("WARNING: build_index returned non-zero; API may be incomplete")
-    else:
-        print("--- Device-spec JSON API generated ---\n")
+        raise SystemExit(
+            f"build_index returned {rc} — aborting build to prevent stale API publish"
+        )
+    print("--- Device-spec JSON API generated ---\n")
