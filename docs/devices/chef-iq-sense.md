@@ -265,7 +265,7 @@ Probe data notifications (`048AF000`) use a Tag-Length-Value binary encoding. Ea
 | GraphQL | `https://graph.chefiq.com/graphql` |
 | IoT MQTT | `iot.chefiq.com` (mqttv3) |
 | Auth | AWS Cognito User Pools (`us-east-1`) |
-| Cognito Pool | `us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259` |
+| Cognito Pool | `us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259` (public client-side identity-pool id, not a secret) |
 | Certificate pinning | None |
 
 ### MQTT Topics
