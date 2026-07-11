@@ -114,20 +114,50 @@ entities:
 
 Maps device capabilities to Home Assistant entity types. See the example spec for details.
 
+## Extended / optional fields
+
+The schema is intentionally **permissive** (no `additionalProperties: false`),
+so specs may carry bespoke, device-specific metadata alongside the standard
+fields. In addition to the required fields above, `schema.json` formally
+defines several **optional** blocks for richer protocols — including
+characteristic-level `encryption` and `framing`, top-and-service-level
+`initialization` handshakes, `device.variants`, command-level `encoding` /
+`payload`, per-command `parameters.color_order`, top-level `features` and
+`protocol_handler`. See `schema.json` (the source of truth) for the exact
+shapes and enums. Some optional fields are declarative and require dedicated
+consumer-side code; those carry a `NOTE` in the schema `description`.
+
 ## Schema Validation
 
-All specs are validated against `schema.json` in CI. To validate locally:
+All specs under `device-specs/` are validated against `schema.json` on every
+push and pull request by the `validate-specs` job in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The same job also
+regenerates `index.json` and fails if it is out of date.
+
+To validate locally:
 
 ```bash
-pip install pyyaml jsonschema
-python -c "
-import json, yaml, jsonschema
-schema = json.load(open('device-specs/schema.json'))
-spec = yaml.safe_load(open('device-specs/examples/example-bulb.yaml'))
-jsonschema.validate(spec, schema)
-print('Valid!')
-"
+pip install -r requirements.txt        # installs jsonschema + pyyaml
+python scripts/validate_specs.py        # PASS/FAIL per file; exits non-zero on any failure
 ```
+
+`scripts/validate_specs.py` discovers every `device-specs/**/*.yaml` (top-level,
+`examples/`, and `devices/`), validates each against the draft 2020-12 schema,
+and prints a `PASS`/`FAIL` line per file with the failing JSON path on error.
+
+## Machine-consumable manifest (`index.json`)
+
+`device-specs/index.json` is a generated manifest that lets consumers enumerate
+specs automatically instead of hardcoding a file list. It is a JSON array,
+sorted by path, of `{ name, path, protocol, manufacturer, manufacturer_status,
+protocol_handler (if set), schema_version }`. Regenerate it with:
+
+```bash
+python scripts/generate_index.py        # idempotent: no diff on re-run
+```
+
+Do not edit `index.json` by hand — it is produced from the specs and checked in
+CI.
 
 ## Structure
 
@@ -135,6 +165,7 @@ print('Valid!')
 device-specs/
 ├── README.md          # This file
 ├── schema.json        # JSON Schema for validation
+├── index.json         # Generated manifest of all valid specs (scripts/generate_index.py)
 ├── examples/          # Example specs for reference
 │   └── example-bulb.yaml
 └── devices/           # Actual device specs (added as devices are RE'd)
