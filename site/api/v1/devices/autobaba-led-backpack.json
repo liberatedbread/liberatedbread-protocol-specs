@@ -9,7 +9,7 @@
     "manufacturer": "LOY SPACE / popled.cn",
     "manufacturer_status": "abandoned",
     "name": "AUTOBABA LED Backpack",
-    "notes": "Programmable full-color LED backpack screen. Uses the LOY SPACE / popled.cn protocol (identical to NYAN GEAR). Supports BLE and Wi-Fi (AP mode, SSID starts with \"YS\", default password 12345678, UDP port 9090). BLE device name starts with \"YS\" or \"TL\". Packet format: [0xAA, 0x55, addr_hi, addr_lo, len_hi, len_lo, sno_hi, sno_lo, flags, type, ...payload]. Commands are JSON-based, serialized to binary TLV packets. Images sent as 24-bit uncompressed BMP. Supports multiple resolutions: 16x16, 32x16, 32x32, 48x28, 64x20, 64x64, 96x128, 160x32, 192x40. Backend API: store-cdn.popled.cn. Sliding window ACK protocol with max window size 3-10.\n",
+    "notes": "Programmable full-color LED backpack screen. Uses the LOY SPACE / popled.cn protocol (identical to NYAN GEAR). Supports BLE and Wi-Fi (AP mode, SSID starts with \"YS\", default password 12345678, UDP port 9090). BLE device name starts with \"YS\" or \"TL\". Packet format: [0xAA, 0x55, addr_hi, addr_lo, len_hi, len_lo, sno_hi, sno_lo, flags, type, ...payload]. Commands are JSON-based, serialized to binary TLV packets. Images sent as 24-bit uncompressed BMP. Supports multiple resolutions: 16x16, 32x16, 32x32, 48x28, 64x20, 64x64, 96x128, 160x32, 192x40. Backend API: store-cdn.popled.cn. Sliding window ACK protocol with max window size 3-10. BLE transport: commands are JSON objects serialized into framed binary packets with a 0xAA55 magic header (bytes AA 55) + 2 reserved + little-endian uint16 payload length, then the JSON bytes; chunked at ~180 bytes/write. Regular JSON commands carry NO checksum (firmware images use MD5 separately). CONFIDENCE: HIGH — service/char UUIDs, name prefixes and command JSON verified in the uni-app app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2, NotifyId 0000FFF1; header magic constant present).\n",
     "protocol": "ble"
   },
   "entities": [
@@ -24,13 +24,28 @@
       "platform": "light"
     }
   ],
+  "features": [
+    {
+      "format": "gif",
+      "max_height": 16,
+      "max_width": 32,
+      "type": "image_upload"
+    }
+  ],
+  "protocol_handler": "popled_json",
   "services": [
     {
       "characteristics": [
         {
-          "name": "Notify",
+          "framing": {
+            "length_prefix": true,
+            "max_chunk_size": 180
+          },
+          "name": "Notify / Write",
+          "notes": "NotifyId in app-service.js. 0xAA55 header + 2 reserved + LE uint16 length frame; no checksum on JSON commands. Evidence: common module b8e6 get_pkt_data.\n",
           "properties": [
             "read",
+            "write",
             "notify"
           ],
           "uuid": "0000fff1-0000-1000-8000-00805f9b34fb"
@@ -38,39 +53,76 @@
         {
           "commands": {
             "delete_all_programs": {
-              "description": "Delete all programs. JSON: {delete:{del_all:1}}",
-              "value": []
+              "description": "Delete all programs. JSON: {\"cmd\":{\"delete\":{\"del_all\":1}},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.delete.del_all",
+                "value_type": "int"
+              }
             },
             "get_brightness": {
-              "description": "Query brightness. JSON: {get:'light'}",
-              "value": []
+              "description": "Query brightness. JSON: {\"cmd\":{\"get\":\"light\"},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.get",
+                "value_type": "string"
+              }
             },
             "get_device_info": {
-              "description": "Query device info. JSON: {get:'dev_info'}",
-              "value": []
+              "description": "Query device info. JSON: {\"cmd\":{\"get\":\"dev_info\"},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.get",
+                "value_type": "string"
+              }
             },
             "get_power_state": {
-              "description": "Query power state. JSON: {get:'power'}",
-              "value": []
+              "description": "Query power state. JSON: {\"cmd\":{\"get\":\"power\"},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.get",
+                "value_type": "string"
+              }
             },
             "play_program": {
-              "description": "Play a program by index. JSON: {pgm_play:{model:0, index:N}}",
-              "value": []
+              "description": "Play a program by index. JSON: {\"cmd\":{\"pgm_play\":{\"model\":0,\"index\":N}},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.pgm_play.index",
+                "value_type": "int"
+              }
             },
             "power_toggle": {
-              "description": "Toggle screen power. JSON: {power:{type:0}}",
-              "value": []
+              "description": "Toggle screen power. JSON: {\"cmd\":{\"power\":{\"type\":0}},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.power.type",
+                "value_type": "int"
+              }
             },
             "set_brightness": {
-              "description": "Set brightness 0-15. JSON: {light:{type:0, value_fix:N}}",
-              "value": []
+              "description": "Set brightness 0-15. JSON: {\"cmd\":{\"light\":{\"type\":0,\"value_fix\":N}},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.light.value_fix",
+                "value_type": "int"
+              }
             },
             "set_rotation": {
-              "description": "Set screen rotation. JSON: {rotate:N}",
-              "value": []
+              "description": "Set screen rotation. JSON: {\"cmd\":{\"rotate\":N},\"sno\":N}",
+              "encoding": "json",
+              "payload": {
+                "key": "cmd.rotate",
+                "value_type": "int"
+              }
             }
           },
+          "framing": {
+            "length_prefix": true,
+            "max_chunk_size": 180
+          },
           "name": "Write",
+          "notes": "WriteId in app-service.js. JSON commands are wrapped as {\"cmd\": <command>, \"sno\": <sequence>} and framed with the 0xAA55 header. checksum OMITTED: none on regular JSON commands (firmware uses MD5).\n",
           "properties": [
             "write"
           ],
