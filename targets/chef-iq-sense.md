@@ -170,7 +170,7 @@ Each family shares a common base UUID suffix; the 2nd-4th bytes vary per charact
 - Device firmware modification is out of scope
 
 ## Spec output (clean-room)
-- Protocol spec: `docs/specs/chef-iq-sense.md`
+- Protocol spec: `docs/devices/chef-iq-sense.md`
 - Machine-readable YAML: `device-specs/devices/chef-iq-sense.yaml`
 
 ## References
