@@ -126,7 +126,9 @@ Commands are JSON objects serialized to binary TLV packets:
 | Form CDN | `https://wxbtapp-cdn.popled.cn/` |
 | Font CDN | `https://store-cdn.popled.cn/font_en/` |
 
-Auth: `token = MD5(MD5_key + timestamp)` with `app_key: "144b18f8dbb91dc8472e9d6a9f8fb469"`.
+Auth: `token = MD5(MD5(app_key) + timestamp)`. The `app_key` is a popled.cn / LOY
+SPACE backend credential and is intentionally **`<redacted>`** here per the project
+clean-room rules (no vendor keys/credentials in the repo).
 
 ## Tools Used
 
