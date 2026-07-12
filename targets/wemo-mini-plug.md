@@ -16,17 +16,30 @@
 - VERIFIED: pywemo Python library provides local control (source: pywemo/pywemo, NOT pavoni/pywemo)
 - HomeKit-enabled models retain local control via HomeKit
 - Non-HomeKit models at risk without local RE
-- TBD — needs verification: mDNS service type "_wemo._tcp" (speculative, may use UPnP SSDP only)
-- TBD — needs verification: UPnP URN "urn:Belkin:device:controllee:1" (plausible but unconfirmed)
+- VERIFIED: Discovery is SSDP/UPnP, NOT mDNS. There is no `_wemo._tcp` service
+  (that earlier guess was wrong and has been dropped). M-SEARCH goes to the
+  SSDP multicast group `239.255.255.250:1900`.
+- VERIFIED: UPnP deviceType `urn:Belkin:device:controllee:1` (Mini plug);
+  SSDP search-target URN `urn:Belkin:service:basicevent:1` (source: pywemo)
 - Also relevant: Wemo WiFi Smart Dimmer, Smart Light Switch, Insight Switch
 - Existing RE: pywemo/pywemo, iancmcc/ouimeaux
+- Structured spec: `device-specs/devices/wemo-mini-plug.yaml`
 
 ## Device discovery signals
-- Wi-Fi:
-  - SSID patterns: "WeMo.Setup.XXX" (during setup) — TBD, needs verification
-  - default gateway IPs: N/A (joins home network)
-  - mDNS service types: TBD — _wemo._tcp is speculative
-  - UPnP URNs / LOCATION: TBD — needs verification from pywemo source
+- Wi-Fi (SSDP / UPnP — this is the discovery path; there is NO mDNS):
+  - SSDP M-SEARCH: multicast group `239.255.255.250:1900`, MAN `"ssdp:discover"`,
+    MX `1`, ST `urn:Belkin:service:basicevent:1`
+    (alternates that also match: `ssdp:all`, `urn:Belkin:device:controllee:1`)
+  - SSDP reply: `LOCATION` header → `http://<ip>:<port>/setup.xml`;
+    `USN` → `uuid:Socket-1_0-<serial>::urn:Belkin:service:basicevent:1`
+  - setup.xml port behavior: port is NOT stable — it drifts across 49152-49159.
+    Probe 49153 first, then 49152, 49154, 49151, 49155-49159
+    (pywemo `PROBE_PORTS`); re-probe after the device reconnects / changes IP.
+  - setup-AP SSID: factory-reset device broadcasts SSID prefix `WeMo.Setup.`
+    (app provisions home WiFi via SOAP: GetApList / ConnectHomeNetwork)
+  - mDNS service types: N/A — Wemo does not use mDNS/Bonjour
+  - UPnP deviceType (from setup.xml): `urn:Belkin:device:controllee:1` (plug);
+    others in the family — `:insight:1`, `:dimmer:1`, `:lightswitch:1`, `:bridge:1`
 
 ## Threat model + guardrails
 - Scope: only owned devices, no safety-critical use cases.
@@ -39,11 +52,16 @@
 4) Dynamic: capture one "discover + toggle on/off" PCAP on local network.
 
 ## Protocol hypotheses (to validate)
-- Pairing/bonding steps: WiFi provisioning via WeMo.Setup AP (TBD — needs verification)
-- Session state machine: UPnP SSDP discovery -> SOAP action calls (VERIFIED)
-- Commands: on/off toggle, get state, energy monitoring (Insight) — TBD exact SOAP actions
+- Pairing/bonding steps: WiFi provisioning via `WeMo.Setup.` AP (VERIFIED — pywemo api/wifi_setup.py)
+- Session state machine: UPnP SSDP discovery -> GET /setup.xml -> SOAP action calls (VERIFIED)
+- Commands (VERIFIED SOAP actions, SOAP 1.1 POST): basicevent →
+  `SetBinaryState` (BinaryState=1/0) and `GetBinaryState` on
+  `/upnp/control/basicevent1`; insight → `GetInsightParams` on
+  `/upnp/control/insight1` (Insight models only). Each requires a
+  `SOAPACTION: "<serviceType>#<Action>"` header. Async state via UPnP
+  SUBSCRIBE to `/upnp/event/basicevent1`.
 - Payload encoding: XML/SOAP over HTTP (VERIFIED from pywemo architecture)
-- Timing constraints: SSDP multicast for discovery
+- Timing constraints: SSDP multicast for discovery; MX 1 second response window
 
 ## Control surface inventory (what the replacement app must support)
 - Onboarding/pairing UX: WiFi AP provisioning flow
@@ -62,4 +80,10 @@ Write a derived spec in:
 
 ## References (URLs only)
 - https://github.com/pywemo/pywemo
+- https://github.com/pywemo/pywemo/blob/main/pywemo/ssdp.py
+- https://github.com/pywemo/pywemo/tree/main/pywemo/ouimeaux_device
+- https://github.com/pywemo/pywemo/tree/main/pywemo/ouimeaux_device/api/xsd
+- https://github.com/pywemo/pywemo/blob/main/pywemo/ouimeaux_device/api/wifi_setup.py
+- https://www.home-assistant.io/integrations/wemo/
+- https://github.com/home-assistant/core/tree/dev/homeassistant/components/wemo
 - https://github.com/iancmcc/ouimeaux
