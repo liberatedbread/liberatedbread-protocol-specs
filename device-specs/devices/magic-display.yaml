@@ -8,16 +8,64 @@ device:
   manufacturer_status: "abandoned"
   protocol: "ble"
   notes: >
-    Bluetooth-controlled LED displays for shoes, bags, hats, crafts.
-    Uses Quintic (NXP QN-series) BLE chipset with QPP (Quintic Private Profile) on service 0xFEE9.
-    All BLE traffic is AES-128 encrypted via native libAES.so (key in .so binary, not in Java).
-    Commands are fixed 16-byte ASCII-named packets: [length, ASCII_CMD..., params..., zero_pad].
-    Bulk data uses 3-way handshake: DATS -> DATSOK -> 16-byte frames -> DATCP -> DATCPOK.
-    Supports multiple display sizes: 5x36, 12x48, 14x56, 16x64 (reported via STYPE response).
-    Monochrome 1-bit-per-pixel bitmap encoding (threshold: any RGB channel >= 128 = ON).
-    Device identification by manufacturer-specific adv data: {0x54, 0x52, 0x00, 0x27} ("TR" + 0x0027).
-    No pairing required.
-    Also has OTA service at 0xFEE8 (Quintic OTA protocol).
+    Bluetooth-controlled LED displays for shoes, bags, hats, and crafts.
+    Companion Android app is com.tirohk.magicdisplay ("Magic Display", by tirohk/Heaton;
+    a mirror package cn.com.tiro.magicdisplay also exists). Facts below verified against
+    version 1.5.6 (versionCode 156) via jadx decompilation unless marked as inferred.
+
+    Uses a Quintic (NXP QN-series) BLE chipset with QPP (Quintic Private Profile) on
+    service 0xFEE9 and the Quintic OTA firmware-update service on 0xFEE8.
+
+    All application-layer BLE traffic (both command frames and bulk-data frames) is
+    AES-128 encrypted. Encryption is done in native code: Java class csh.tiro.cc.aes
+    (cipher / invCipher / keyExpansion / keyExpansionDefault) backed by libAES.so
+    (lib/arm64-v8a/libAES.so). keyExpansionDefault() implies a hardcoded default key
+    baked into the .so; the key is NOT present in the Java/Dalvik code. Every command
+    is encrypted with Agreement.getEncryptData() before writing, and every notification
+    is decrypted with Agreement.getDecodeData() on receipt.
+
+    Commands are fixed 16-byte packets: [length_byte, ASCII_CMD..., params..., zero_pad].
+    The leading length byte counts the ASCII command plus its parameter bytes (not the
+    trailing zero padding); the frame is then AES-encrypted and written as 16 bytes.
+    (The STYPE query is the one exception: it is built as a 6-byte payload {5,'S','T','Y','P','E'}.)
+
+    Bulk pixel/image upload uses a 3-way handshake on the QPP characteristics:
+      1. App -> WRITE1 (0x...9600): DATS [08 'DATS' len_hi len_lo 00 link_flag] where
+         len_hi/len_lo is the big-endian 16-bit payload length and link_flag (byte index 8)
+         = 1 to chain/link the transfer, else 0.
+      2. Device -> NOTIFY (0x...9601): "DATSOK".
+      3. App -> WRITE2 (0x...960a): payload split into 16-byte frames, each
+         [chunk_len, up to 15 data bytes]; full frames carry 15 payload bytes (chunk_len=15),
+         the final frame carries the remainder. Each frame is AES-encrypted; the app sleeps
+         ~60 ms between frames.
+      4. App -> WRITE1: DATCP [05 'DATCP'] to signal completion.
+      5. Device -> NOTIFY: "DATCPOK".
+
+    STYPE response encodes the panel geometry (parsed in Agreement.parseType):
+    "STYPE5X36"=5x36, "STYPE12X48"=12x48, "STYPE14X56"=14x56, "STYPE16X64"=16x64.
+    Some responses carry a trailing 'N' ("STYPE5X36N", "STYPE12X48N") which the app maps
+    to distinct internal type codes (5360, 12480) vs the un-suffixed variants (536, 1248);
+    the exact hardware meaning of the 'N' suffix is unconfirmed (likely a panel/firmware
+    revision) - treat as uncertain.
+
+    Pixel data is monochrome 1-bit-per-pixel; a pixel is ON when any RGB channel exceeds
+    the mid threshold (>=128 for 5x36, >128 for 12x48/16x64). Column-major packing, e.g.
+    16x64 emits 128 bytes (2 bytes/column, MSB=row0); 12x48 emits 72 bytes via an
+    interleaved 2-column scheme; 5x36 emits 1 byte/column (low 5 bits).
+
+    Device identification is by BLE manufacturer-specific advertising data (GAP AD type
+    0xFF): the manufacturer data begins with the 4-byte signature {0x54,0x52,0x00,0x27}
+    ("TR" + 0x0027), matched in BleConfig.matchProduct against BROADCAST_AiTURE_PRODUCT.
+    There is no local-name prefix filter; the advertised name is used only for display and
+    reconnection, not discovery. No pairing/bonding is required.
+
+    Beyond static image upload the app also supports: a flashlight/torch toggle (LIGHTON/
+    LIGHTOFF); a music/rhythm ("律动") equalizer mode driven by on-device FFT
+    (lib/arm64-v8a/libint16fft.so) using display MODE 7; a DIY real-time sync draw mode
+    (SMVEW enter/exit/save); selecting between two chained displays (LEDFIRST/LEDSECOND,
+    e.g. left/right shoe); an incoming-call notification passthrough (CALL); a scheduled
+    on/off timer (SCHD to set, STSC to read; device answers with an "SBHD" status frame);
+    and animation selection (ANIM).
   identification:
     local_name_prefix: ""
     service_uuids:
@@ -25,23 +73,32 @@ device:
 
 services:
   - uuid: "0000fee9-0000-1000-8000-00805f9b34fb"
-    name: "QPP Service"
+    name: "QPP Service (Quintic Private Profile)"
     characteristics:
       - uuid: "d44bc439-abfd-45a2-b575-925416129600"
-        name: "Command (WRITE1)"
+        name: "Command / Text (WRITE1)"
         properties: ["write"]
         commands:
           query_device_type:
-            description: "Query display dimensions. Response on notify: 'STYPE5X36', 'STYPE12X48', 'STYPE16X64', etc."
+            description: >
+              Query display geometry. Sent as the 6-byte payload {0x05,'STYPE'}. Device
+              answers on the notify characteristic with e.g. 'STYPE5X36', 'STYPE12X48',
+              'STYPE14X56', 'STYPE16X64' (optionally with a trailing 'N').
             value: [0x05, 0x53, 0x54, 0x59, 0x50, 0x45]
           led_on:
-            description: "Turn LED display on"
+            description: "Turn LED display on (LEDON). Device echoes 'LEDON' on notify."
             value: [0x05, 0x4C, 0x45, 0x44, 0x4F, 0x4E]
           led_off:
-            description: "Turn LED display off"
+            description: "Turn LED display off (LEDOFF). Device echoes 'LEDOFF' on notify."
             value: [0x06, 0x4C, 0x45, 0x44, 0x4F, 0x46, 0x46]
+          flashlight_on:
+            description: "Turn the module's white torch/flashlight LED on (LIGHTON)."
+            value: [0x07, 0x4C, 0x49, 0x47, 0x48, 0x54, 0x4F, 0x4E]
+          flashlight_off:
+            description: "Turn the module's white torch/flashlight LED off (LIGHTOFF)."
+            value: [0x08, 0x4C, 0x49, 0x47, 0x48, 0x54, 0x4F, 0x46, 0x46]
           set_brightness:
-            description: "Set brightness level"
+            description: "Set display brightness (LIGHT). App UI exposes discrete levels; wire value is a raw byte."
             template: [0x06, 0x4C, 0x49, 0x47, 0x48, 0x54, "{brightness}"]
             parameters:
               brightness:
@@ -49,7 +106,7 @@ services:
                 min: 0
                 max: 255
           set_speed:
-            description: "Set animation speed"
+            description: "Set animation/scroll speed (SPEED)."
             template: [0x06, 0x53, 0x50, 0x45, 0x45, 0x44, "{speed}"]
             parameters:
               speed:
@@ -57,10 +114,24 @@ services:
                 min: 0
                 max: 255
           set_mode_static:
-            description: "Static display mode"
+            description: "Static display mode (MODE 1)."
             value: [0x05, 0x4D, 0x4F, 0x44, 0x45, 0x01]
+          set_mode_flash:
+            description: >
+              Blink/flash mode (MODE 2). blink_hi/blink_lo form a big-endian 16-bit
+              parameter (blink interval / repeat count; exact unit unconfirmed).
+            template: [0x07, 0x4D, 0x4F, 0x44, 0x45, 0x02, "{blink_hi}", "{blink_lo}"]
+            parameters:
+              blink_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+              blink_lo:
+                type: "uint8"
+                min: 0
+                max: 255
           set_mode_scroll_left:
-            description: "Scroll left mode"
+            description: "Scroll-left mode (MODE 3). Parameter is scroll speed."
             template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x03, "{speed}"]
             parameters:
               speed:
@@ -68,15 +139,57 @@ services:
                 min: 0
                 max: 255
           set_mode_scroll_right:
-            description: "Scroll right mode"
+            description: "Scroll-right mode (MODE 4). Parameter is scroll speed."
             template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x04, "{speed}"]
             parameters:
               speed:
                 type: "uint8"
                 min: 0
                 max: 255
+          set_mode_music:
+            description: >
+              Music / rhythm equalizer mode (MODE 7, app 'RP'/'律动'). Display reacts to
+              audio analysed on-device via libint16fft.so; use stop_music_rhythm to end.
+            value: [0x05, 0x4D, 0x4F, 0x44, 0x45, 0x07]
+          set_mode_connect_scroll_right:
+            description: "Chained/linked scroll-right across two displays (MODE 8). Parameter is speed."
+            template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x08, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_mode_connect_scroll_left:
+            description: "Chained/linked scroll-left across two displays (MODE 9). Parameter is speed."
+            template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x09, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_content_mode:
+            description: >
+              Generic display-mode selector (MODE n) used by getContentCommand for the
+              stored content slot / mode index. Overlaps the specific MODE commands above.
+            template: [0x05, 0x4D, 0x4F, 0x44, 0x45, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+          select_animation:
+            description: "Select a built-in animation/image slot (ANIM)."
+            template: [0x05, 0x41, 0x4E, 0x49, 0x4D, "{animation}"]
+            parameters:
+              animation:
+                type: "uint8"
+                min: 0
+                max: 255
+          invert_display:
+            description: "Invert / flip display polarity (EVERT). Sent identically for both 'positive' and 'inverted' in the app."
+            value: [0x05, 0x45, 0x56, 0x45, 0x52, 0x54]
           set_time:
-            description: "Set device clock"
+            description: "Set device clock (TIME)."
             template: [0x07, 0x54, 0x49, 0x4D, 0x45, "{hour}", "{minute}", "{second}"]
             parameters:
               hour:
@@ -91,11 +204,65 @@ services:
                 type: "uint8"
                 min: 0
                 max: 59
-          invert_display:
-            description: "Invert/flip display"
-            value: [0x05, 0x45, 0x56, 0x45, 0x52, 0x54]
+          set_schedule_timer:
+            description: >
+              Configure the scheduled on/off timer (SCHD). enable=1 sets/arms, enable=0
+              clears; hour/minute is the trigger time. Device reports current state in an
+              'SBHD' notification (see read_schedule_timer).
+            template: [0x07, 0x53, 0x43, 0x48, 0x44, "{enable}", "{hour}", "{minute}"]
+            parameters:
+              enable:
+                type: "uint8"
+                min: 0
+                max: 1
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+          read_schedule_timer:
+            description: "Query the scheduled on/off timer (STSC). Device answers with an 'SBHD' status frame [.., enable, hour, minute]."
+            value: [0x04, 0x53, 0x54, 0x53, 0x43]
+          select_display_first:
+            description: "Address/select the first of two chained displays (LEDFIRST), e.g. the left shoe."
+            value: [0x08, 0x4C, 0x45, 0x44, 0x46, 0x49, 0x52, 0x53, 0x54]
+          select_display_second:
+            description: "Address/select the second of two chained displays (LEDSECOND), e.g. the right shoe."
+            value: [0x09, 0x4C, 0x45, 0x44, 0x53, 0x45, 0x43, 0x4F, 0x4E, 0x44]
+          enter_diy_sync:
+            description: "Enter DIY real-time sync draw mode (SMVEW, subcode 1)."
+            value: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, 0x01]
+          exit_diy_sync:
+            description: "Exit DIY sync draw mode without saving (SMVEW, subcode 0)."
+            value: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, 0x00]
+          save_exit_diy_sync:
+            description: "Save the DIY frame and exit sync draw mode (SMVEW, subcode 2)."
+            value: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, 0x02]
+          stop_music_rhythm:
+            description: "Stop the music/rhythm equalizer mode (STOPR)."
+            value: [0x05, 0x53, 0x54, 0x4F, 0x50, 0x52]
+          notify_incoming_call:
+            description: >
+              Push an incoming-call notification to the display (CALL). status is a
+              call-state flag and duration a byte (seconds/ring count; exact semantics unconfirmed).
+            template: [0x06, 0x43, 0x41, 0x4C, 0x4C, "{status}", "{duration}"]
+            parameters:
+              status:
+                type: "uint8"
+                min: 0
+                max: 255
+              duration:
+                type: "uint8"
+                min: 0
+                max: 255
           data_transfer_start:
-            description: "Start bulk data transfer. hi/lo = big-endian 16-bit data length."
+            description: >
+              Start bulk pixel/image transfer (DATS). len_hi/len_lo = big-endian 16-bit
+              total payload length; link_flag (packet byte index 8) = 1 to chain a linked
+              transfer, else 0. Device replies 'DATSOK' before frames are sent on WRITE2.
             template: [0x08, 0x44, 0x41, 0x54, 0x53, "{len_hi}", "{len_lo}", 0x00, "{link_flag}"]
             parameters:
               len_hi:
@@ -111,24 +278,74 @@ services:
                 min: 0
                 max: 1
           data_transfer_complete:
-            description: "Signal bulk data transfer complete"
+            description: "Signal bulk data transfer complete (DATCP). Device replies 'DATCPOK'."
             value: [0x05, 0x44, 0x41, 0x54, 0x43, 0x50]
 
       - uuid: "d44bc439-abfd-45a2-b575-925416129601"
-        name: "Notification"
+        name: "Notification (NOTIFY1)"
         properties: ["notify"]
+        commands:
+          # Notifications are AES-decrypted, then matched by their ASCII prefix.
+          response_device_type:
+            description: "Panel geometry report, e.g. 'STYPE16X64' (optionally 'N'-suffixed). Parsed by Agreement.parseType."
+          response_light_state:
+            description: "Power-state echo: 'LEDON' or 'LEDOFF'."
+          response_schedule_state:
+            description: "Scheduled-timer status 'SBHD' frame: [.., enable(byte5), hour(byte6), minute(byte7)]."
+          response_data_start_ack:
+            description: "'DATSOK' - device is ready to receive bulk-data frames on WRITE2."
+          response_data_complete_ack:
+            description: "'DATCPOK' - device confirms the completed bulk-data transfer."
 
       - uuid: "d44bc439-abfd-45a2-b575-92541612960a"
         name: "Bulk Data (WRITE2)"
         properties: ["write"]
+        commands:
+          bulk_data_frame:
+            description: >
+              One 16-byte AES-encrypted bulk-data frame during a DATS transfer:
+              [chunk_len, data...]. Full frames carry chunk_len=15 and 15 payload bytes;
+              the final frame carries the remaining byte count. App paces frames ~60 ms apart.
+            template: ["{chunk_len}", "{data}"]
+            parameters:
+              chunk_len:
+                type: "uint8"
+                min: 1
+                max: 15
+              data:
+                type: "bytes"
 
       - uuid: "d44bc439-abfd-45a2-b575-92541612960b"
         name: "Auxiliary (WRITE3)"
         properties: ["write"]
+
+  - uuid: "0000fee8-0000-1000-8000-00805f9b34fb"
+    name: "Quintic OTA Service (firmware update)"
+    characteristics:
+      - uuid: "013784cf-f7e3-55b4-6c4c-9fd140100a16"
+        name: "OTA Write"
+        properties: ["write"]
+      - uuid: "003784cf-f7e3-55b4-6c4c-9fd140100a16"
+        name: "OTA Notify"
+        properties: ["notify"]
 
 entities:
   - platform: "light"
     name: "LED Display"
     features: ["brightness"]
     commands:
+      turn_on: "led_on"
+      turn_off: "led_off"
       set_brightness: "set_brightness"
+  - platform: "switch"
+    name: "Flashlight"
+    commands:
+      turn_on: "flashlight_on"
+      turn_off: "flashlight_off"
+
+references:
+  - "https://play.google.com/store/apps/details?id=com.tirohk.magicdisplay"
+  - "https://apkpure.com/magic-display/com.tirohk.magicdisplay"
+  - "https://apkcombo.com/magic-display/com.tirohk.magicdisplay/"
+  - "https://www.appbrain.com/app/magic-display/com.tirohk.magicdisplay"
+  - "https://www.appbrain.com/app/magic-display/cn.com.tiro.magicdisplay"
