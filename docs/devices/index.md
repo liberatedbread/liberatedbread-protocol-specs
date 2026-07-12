@@ -26,3 +26,4 @@ A catalog of IoT devices we've documented (or are documenting).
 | [MoTool Slacker](motool-slacker.md) | BLE | In Progress | MoTool |
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | AdMore Lighting Inc. |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Frigidaire (Electrolux) |
+| [Belkin Wemo Mini Smart Plug](wemo-mini-plug.md) | WiFi | Research | Belkin |
