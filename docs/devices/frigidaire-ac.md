@@ -1,7 +1,7 @@
 # Frigidaire Connected Air Conditioners
 
 > **Status**: Research
-> **Protocol**: WiFi (cloud-connected)
+> **Protocol**: WiFi (cloud-connected; local setup only)
 > **Manufacturer**: Frigidaire (Electrolux)
 > **Manufacturer Status**: Unsupported (cloud-dependent — if Electrolux shuts down servers, app control is lost)
 
@@ -12,9 +12,11 @@ portable units, and wall-mounted/PTAC units. All are controlled through the Frig
 (Electrolux platform) and communicate via the Electrolux cloud. This makes them vulnerable
 to bricking if Electrolux discontinues the cloud service.
 
-This is the first HVAC/climate device category in the OpenGreenIoT project. The protocol
-has not yet been reverse engineered — device specs are hypothesized from publicly available
-app feature descriptions and need validation through APK analysis and network captures.
+This is the first HVAC/climate device category in the OpenGreenIoT project. APK
+static analysis has now been completed for the active Frigidaire Android app
+package. The control protocol still needs authenticated traffic captures for
+exact payload schemas, but local discovery is no longer open: no post-pairing
+LAN control path was found.
 
 ## Hardware
 
@@ -48,20 +50,25 @@ app feature descriptions and need validation through APK analysis and network ca
 
 ## Protocol Summary
 
-!!! warning "Hypothesized Protocol"
-    The protocol details below are hypothesized from public app features and common
-    Electrolux platform patterns. Nothing has been validated through APK analysis or
-    network captures yet.
+!!! note "Static Analysis Finding"
+    Frigidaire `com.electrolux.oneapp.android.frigidaire` v3.6 / versionCode
+    504110958 was pulled from APKPure via `apkeep` and decompiled with `jadx`.
+    Public mirrors list newer 4.x builds, so those should be rechecked when an
+    artifact is obtainable. In the analyzed build, local networking is
+    provisioning-only: SoftAP SSID hints, AllJoyn onboarding, UDP broadcast on
+    port 3000, and a setup connection to `192.168.6.1:3002`. No mDNS, SSDP/UPnP,
+    `.local`, AWS Greengrass, MQTT local proxy, or static-IP LAN control path was
+    found for post-pairing AC control.
 
-### Architecture (Hypothesized)
+### Architecture
 
 ```
-┌──────────────┐    WiFi    ┌──────────────────┐    MQTT/HTTPS    ┌──────────────────┐
-│  AC Unit     │◄──────────►│  Home Router     │◄───────────────►│  Electrolux Cloud│
-│  (WiFi SoC)  │            │                  │                 │  (AWS/Azure?)    │
+┌──────────────┐    WiFi    ┌──────────────────┐    HTTPS/WSS     ┌──────────────────┐
+│  AC Unit     │◄──────────►│  Home Router     │◄───────────────►│  Electrolux OCP  │
+│  (WiFi SoC)  │            │                  │                 │  Cloud           │
 └──────────────┘            └──────────────────┘                 └────────┬─────────┘
                                                                          │
-                                                                         │ MQTT/HTTPS
+                                                                         │ HTTPS/WSS
                                                                          ▼
                                                                 ┌──────────────────┐
                                                                 │  Frigidaire App  │
@@ -71,25 +78,58 @@ app feature descriptions and need validation through APK analysis and network ca
 
 ### Discovery and Authentication
 
-- **Device class**: WiFi cloud appliance, not BLE.
-- **Local discovery**: No SSDP, mDNS, or static-IP LAN control path has been
-  verified.
+- **Device class**: WiFi cloud appliance.
+- **Local discovery**: Closed as cloud-only for post-pairing control. No SSDP,
+  mDNS, NSD, `.local`, UPnP, static-IP HTTP API, MQTT LAN broker, or AWS
+  Greengrass/local proxy path was found in APK static analysis.
+- **Local provisioning**: Present. The app references appliance SoftAP names
+  beginning with `AJ`, `@E`, `IOT`, `Air_Conditioner`, or `Dehumidifier`,
+  AllJoyn onboarding/enrollment, UDP broadcast on port 3000, and
+  `192.168.6.1:3002`.
 - **User discovery path**: Pair the AC in the Frigidaire/Electrolux app, then
   enumerate appliances from the authenticated Electrolux cloud/OCP account.
 - **Replacement implication**: A local-first replacement likely needs confirmed
-  cloud API/broker behavior, DNS redirection plus protocol capture, or firmware
-  work. A LAN scan alone is not expected to produce a usable control endpoint.
+  cloud API behavior, DNS redirection plus protocol capture, or firmware work.
+  A LAN scan alone is not expected to produce a usable post-pairing control
+  endpoint.
 
 ### Transport
 
-- **Primary**: WiFi to Electrolux cloud (MQTT over TLS or HTTPS REST — unconfirmed)
-- **Local API**: Unknown — needs investigation (some Electrolux devices may have local HTTP fallback)
-- **Provisioning**: App-based pairing; likely SoftAP or BLE to transfer WiFi credentials during setup
+- **Primary**: WiFi to Electrolux OCP cloud over HTTPS REST plus websocket paths
+  observed in APK strings.
+- **Local API**: No steady-state LAN control API found.
+- **Provisioning**: App-based pairing over SoftAP/AllJoyn/OCP provisioning.
+
+### APK Evidence
+
+| Item | Finding |
+|------|---------|
+| Active Android package | `com.electrolux.oneapp.android.frigidaire` |
+| Analyzed app version | v3.6, versionCode 504110958 |
+| Fetch caveat | `apkeep --list-versions` only exposed APKPure versions through 3.6; public mirrors list newer 4.x builds for future re-check |
+| XAPK SHA-256 | `0fa212791d3f488eaffbbb1dbc628b7c988d786e1546be32fcc297795a6c99aa` |
+| Decompiler | `jadx` completed with recoverable errors |
+| Local setup endpoint | `192.168.6.1:3002` |
+| Local provisioning broadcast | UDP port 3000 |
+| Provisioning frameworks | AllJoyn onboarding/enrollment, OCP provisioning models |
+| Post-pairing LAN discovery | Not found |
+
+Observed cloud/OCP strings include:
+
+- `https://api.ocp-dev.electrolux.one`
+- `https://api.ocp-staging.electrolux.one`
+- `https://frigidaire.app.electrolux.one/`
+- `wss://ws.eu.ocp-dev.electrolux.one`
+- `wss://ws.eu.ocp-staging.electrolux.one`
+- `/appliance/api/v2/appliances?includeMetadata=true`
+- `/appliance/api/v2/appliances/{applianceId}/command`
+- `/appliance/api/v3/appliances/info`
+- `/remote-control/api/v1/appliances/`
 
 ### Authentication
 
 - Electrolux/Frigidaire user account (OAuth2/OCP flow expected)
-- Device-to-cloud authentication (certificate or token-based, TBD)
+- Device-to-cloud authentication (certificate or token-based, still needs traffic capture)
 
 ## Commands
 
@@ -148,26 +188,26 @@ app feature descriptions and need validation through APK analysis and network ca
 
 ## Tools Used
 
-- [ ] mitmproxy — HTTPS/MQTT traffic capture between app and cloud
+- [ ] mitmproxy — HTTPS/websocket traffic capture between app and cloud
 - [ ] Wireshark — network packet analysis
-- [ ] jadx — APK decompilation and static analysis
-- [ ] apkeep — APK retrieval from Play Store
+- [x] jadx — APK decompilation and static analysis
+- [x] apkeep — APK retrieval from APKPure using the active package ID
 - [ ] nmap — local network scan for device services
 - [ ] Frida — runtime app instrumentation (if needed for certificate pinning bypass)
 
 ## Next Steps
 
-1. **Verify app package ID**: Confirm `com.electrolux.oneapp.frigidaire` on Google Play
-2. **Fetch and decompile APK**: Use apkeep + jadx for static analysis
-3. **Identify cloud endpoints**: Grep for MQTT broker addresses, REST API base URLs, authentication flows
-4. **Network capture**: Set up mitmproxy to capture app-to-cloud traffic during control operations
-5. **Check for local API**: Scan device IP for open ports / HTTP endpoints
-6. **Validate hypothesized protocol**: Compare actual traffic against the hypothesized MQTT/HTTP structure
+1. **Network capture**: Set up mitmproxy or equivalent to capture app-to-cloud HTTPS/websocket traffic during control operations
+2. **Confirm production base URL selection**: Determine how the app selects production versus dev/staging OCP hosts at runtime
+3. **Validate payload schemas**: Compare actual traffic against the observed REST paths and AC capability JSON assets
+4. **Optional device-side scan**: During setup, inspect the SoftAP at `192.168.6.1:3002`; after pairing, verify the device does not expose unexpected LAN services on the home network
 
 ## References
 
 - Frigidaire Connected Products: https://www.frigidaire.com/owner-center/connect/
-- Frigidaire App on Google Play: https://play.google.com/store/apps/details?id=com.electrolux.oneapp.frigidaire
+- Frigidaire App on Google Play: https://play.google.com/store/apps/details?id=com.electrolux.oneapp.android.frigidaire
+- Home Assistant custom component using Frigidaire/Electrolux cloud API: https://github.com/bm1549/home-assistant-frigidaire
+- Electrolux official API portal: https://portal-eu-prod.electrolux.com/
 
 ## Contributors
 

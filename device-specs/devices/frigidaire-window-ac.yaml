@@ -1,7 +1,10 @@
 # Frigidaire WiFi Window Air Conditioner — Device Specification
-# Status: Hypothesized — derived from public app feature descriptions.
-#   No APK analysis or network captures performed yet.
-#   All endpoints, topics, and payload formats are placeholders pending RE.
+# Status: Cloud-only discovery confirmed by APK static analysis (2026-07-13).
+#   App package analyzed: com.electrolux.oneapp.android.frigidaire v3.6
+#   APK/XAPK source: APKPure via apkeep. Public mirrors list newer 4.x builds
+#   that should be rechecked when obtainable.
+#   No steady-state LAN control discovery was found; local networking appears
+#   limited to SoftAP/AllJoyn/OCP provisioning and enrollment.
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 
@@ -13,25 +16,49 @@ device:
   notes: >
     WiFi-connected window AC units controlled via the Frigidaire app
     (Electrolux platform). Covers FHWW series (8K-15K BTU) and Gallery
-    GHWQ series. Cloud-connected via Electrolux servers. Gallery models include
+    GHWQ series. Cloud-connected via Electrolux OCP servers. Gallery models include
     an ionizer (Clean Air) feature.
 
-    DISCOVERY/AUTHENTICATION: this is WiFi cloud control, not BLE and not a
-    confirmed local LAN protocol. Discovery for users happens through the
-    Frigidaire/Electrolux app account after app-based pairing. The replacement
-    control path must authenticate to the Electrolux cloud/OCP account, enumerate
-    appliances assigned to that account, then send commands through the cloud API
-    or broker. No SSDP, mDNS, or static-IP local discovery flow has been verified
-    for these AC units.
+    DISCOVERY/AUTHENTICATION: this is WiFi cloud control, not a steady-state
+    local LAN protocol. APK static analysis of Frigidaire
+    com.electrolux.oneapp.android.frigidaire v3.6 (versionCode 504110958,
+    XAPK SHA-256 0fa212791d3f488eaffbbb1dbc628b7c988d786e1546be32fcc297795a6c99aa)
+    found OCP cloud endpoints and a websocket host, plus provisioning-only
+    local paths: SoftAP SSID hints (AJ, @E, IOT, Air_Conditioner,
+    Dehumidifier), AllJoyn onboarding/enrollment classes, UDP broadcast on
+    port 3000, and a direct setup connection to 192.168.6.1:3002. Searches for
+    mDNS/NSD, SSDP/UPnP, .local service discovery, and AWS Greengrass/local
+    proxy patterns found no usable post-pairing LAN discovery/control path for
+    these AC units.
 
-    Protocol details are hypothesized from public app features — APK analysis
-    and network captures are needed to confirm endpoints, authentication, and
-    payload formats.
+    Discovery for users happens through the Frigidaire/Electrolux app account
+    after app-based pairing. The replacement control path must authenticate to
+    the Electrolux cloud/OCP account, enumerate appliances assigned to that
+    account, then send commands through the cloud API or websocket.
+
+    Protocol details still need network captures to confirm exact request and
+    payload formats, but local device discovery is closed as cloud-only for
+    post-pairing control based on the inspected APK.
   identification:
-    ssid_prefix: "Frigidaire_"
+    ssid_prefix: "Air_Conditioner"
     discovery: "Electrolux/Frigidaire app and cloud account enumeration"
-    local_discovery: "none verified"
+    local_discovery: false
+    provisioning_local_only:
+      softap_ssid_prefixes: ["AJ", "@E", "IOT", "Air_Conditioner", "Dehumidifier"]
+      protocols: ["AllJoyn onboarding", "OCP provisioning"]
+      setup_endpoint: "192.168.6.1:3002"
+      udp_broadcast_port: 3000
     cloud_provider: "Electrolux OCP / Frigidaire app"
+    cloud_endpoints_observed:
+      - "https://api.ocp-dev.electrolux.one"
+      - "https://api.ocp-staging.electrolux.one"
+      - "https://frigidaire.app.electrolux.one/"
+      - "wss://ws.eu.ocp-dev.electrolux.one"
+      - "wss://ws.eu.ocp-staging.electrolux.one"
+      - "/appliance/api/v2/appliances?includeMetadata=true"
+      - "/appliance/api/v2/appliances/{applianceId}/command"
+      - "/appliance/api/v3/appliances/info"
+      - "/remote-control/api/v1/appliances/"
 
   discovery:
     methods:
@@ -50,63 +77,36 @@ device:
     identity:
       stable_keys: ["appliance_id"]
       display: "name"
+    static_ip_required: false
 
-# Hypothesized MQTT topic structure — pending RE validation.
-# Electrolux-connected appliances likely use MQTT over TLS to a cloud broker.
-mqtt_topics:
-  - topic: "appliance/{device_id}/command"
-    name: "Device Command"
-    direction: "publish"
-    description: "Send control commands to the AC unit (power, mode, temp, fan, etc.)."
-    qos: 1
-    payload_format:
-      encoding: "json"
-      fields:
-        - name: "command"
-          type: "string"
-          description: "Command name (e.g. set_power, set_mode, set_temperature, set_fan_speed)."
-        - name: "value"
-          type: "string"
-          description: "Command value."
+http_endpoints:
+  - method: "GET"
+    path: "/appliance/api/v2/appliances?includeMetadata=true"
+    name: "Appliance List"
+    description: "Cloud account enumeration path observed in APK strings."
+    response_body:
+      content_type: "application/json"
 
-  - topic: "appliance/{device_id}/state"
-    name: "Device State"
-    direction: "subscribe"
-    description: "Receive current device state (power, mode, temperatures, fan speed, alerts)."
-    qos: 1
-    payload_format:
-      encoding: "json"
-      fields:
-        - name: "power"
-          type: "string"
-          description: "Power state: on / off."
-        - name: "mode"
-          type: "string"
-          description: "Operating mode: cool / eco / fan_only."
-        - name: "target_temperature"
-          type: "integer"
-          description: "Target temperature in °F (60-90)."
-        - name: "current_temperature"
-          type: "integer"
-          description: "Current room temperature in °F."
-        - name: "fan_speed"
-          type: "string"
-          description: "Fan speed: auto / low / medium / high."
-        - name: "timer_hours"
-          type: "number"
-          description: "Timer remaining in hours (0 = off)."
-        - name: "sleep_mode"
-          type: "string"
-          description: "Sleep mode: on / off."
-        - name: "filter_alert"
-          type: "string"
-          description: "Filter status: ok / needs_cleaning."
-        - name: "display"
-          type: "string"
-          description: "Display state: on / off."
-        - name: "clean_air"
-          type: "string"
-          description: "Ionizer state: on / off (Gallery models only)."
+  - method: "GET"
+    path: "/appliance/api/v3/appliances/info"
+    name: "Appliance Info"
+    description: "Fetch appliance metadata for account-enumerated appliances."
+    response_body:
+      content_type: "application/json"
+
+  - method: "POST"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    name: "Appliance Command"
+    description: "Cloud command path observed in APK strings; exact payload requires traffic capture."
+    request_body:
+      content_type: "application/json"
+
+  - method: "POST"
+    path: "/remote-control/api/v1/appliances/"
+    name: "Remote Control"
+    description: "Cloud remote-control path observed in APK strings; exact payload requires traffic capture."
+    request_body:
+      content_type: "application/json"
 
 entities:
   - platform: "climate"
