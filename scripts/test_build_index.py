@@ -40,8 +40,12 @@ def test_discover_specs():
         "motool-slacker",
         "nyan-bt-image-controller",
         "pax-vape",
+        "proglow-motorcycle-led",
+        "seeblue-motorcycle-led",
         "shining-glasses",
         "shining-mask",
+        "vector-robot",
+        "wemo-smart-plug",
     }
     assert stems == expected, f"Expected {sorted(expected)}, got {sorted(stems)}"
 
