@@ -45,34 +45,35 @@ Variable-length bytearrays written to `0xFA02`.
 | Set Time | `0B 00 01 80 YY MM DD WW HH mm SS` | Set clock |
 | Set Password | `08 00 04 02 01 HH MM LL` | 6-digit password |
 
-### GIF Upload Protocol
+### Framed Upload Protocol (recovered — com.tech.idotmatrix)
 
-GIF files are split into 4096-byte chunks with a 16-byte header per chunk:
-
-| Offset | Length | Field |
-|--------|--------|-------|
-| 0-1 | 2 | Total chunk length (LE) |
-| 2-3 | 2 | Fixed: `0x01 0x00` |
-| 4 | 1 | `0x00` for first chunk, `0x02` for subsequent |
-| 5-8 | 4 | Total GIF file length (LE) |
-| 9-12 | 4 | CRC32 of entire GIF file (LE) |
-| 13 | 1 | Fixed: `0x05` |
-| 14-15 | 2 | Fixed: `0x00 0x0D` |
-| 16+ | var | GIF data chunk |
-
-Each chunk is sent with `write_gatt_char(..., response=True)` for acknowledgment.
-
-### Image Upload
-
-PNG files split into 4096-byte chunks with 9-byte header:
+The recovered app (service `0xFEE9`, characteristic `d44bc439-…-925416129600`) sends
+GIF / image / text as framed 4096-byte payload chunks, each prefixed by a 16-byte
+header. This is the authoritative layout, derived from `GifAgreement.java` (see the
+evidence report and the device-spec YAML, which use the same layout):
 
 | Offset | Length | Field |
 |--------|--------|-------|
-| 0-1 | 2 | Total data length + chunk count (LE) |
-| 2-3 | 2 | Fixed: `0x00 0x00` |
-| 4 | 1 | `0x00` for first chunk, `0x02` for subsequent |
-| 5-8 | 4 | Total PNG file length (LE, signed int) |
-| 9+ | var | PNG data chunk |
+| 0-1 | 2 | Total packet length (uint16, **big-endian**) |
+| 2 | 1 | Command type: `1`=GIF, `2`=Image, `3`=Text/MultiColor, `6`=Phrase |
+| 3 | 1 | Sub-type: `0x00`=data, `0x02`=MultiColor/Phrase |
+| 4 | 1 | Chunk flag: `0x00`=first, `0x02`=continuation |
+| 5-8 | 4 | Total data length (uint32, **little-endian**) |
+| 9-12 | 4 | CRC32 of the entire data payload (`java.util.zip.CRC32`, **little-endian**) |
+| 13-14 | 2 | Time/delay (uint16, **big-endian**) |
+| 15 | 1 | Speed/type byte |
+| 16+ | var | Payload (image / GIF / text data) |
+
+For a GIF chunk, bytes `[2..3]` are therefore `0x01 0x00`; for an image, `0x02 0x00`.
+Each chunk is written with acknowledgment (`response=True`). BLE chunking: 509 bytes
+when MTU is negotiated, else 18; 20 ms/chunk for GIF/image, 50 ms/chunk for text.
+The exact image pixel encoding (RGB565, laid out per device type) is **MEDIUM**
+confidence and needs live-capture confirmation.
+
+> The `0xFA02` byte commands in the **Commands** table above belong to the legacy /
+> community `python-idotmatrix` protocol (service `0xFA02`). A given unit speaks either
+> the framed `0xFEE9` protocol documented here or the legacy `0xFA02` one; the device
+> spec YAML documents both.
 
 ## Tools Used
 
