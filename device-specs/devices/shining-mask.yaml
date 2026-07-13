@@ -8,27 +8,51 @@ device:
   manufacturer_status: "unsupported"
   protocol: "ble"
   notes: >
-    LED face mask with 2074 RGB LEDs, 16-pixel-tall display.
-    All commands to the Command characteristic are AES-128 ECB encrypted with a
-    fixed key (published in open-source implementations). No pairing/authentication.
-    Image data to the upload characteristic is sent unencrypted.
-    FCC ID: 2AOLN-16.
-    Color order for FC/BC commands is R,B,G (not R,G,B).
+    Programmable BLE LED face mask controlled by the official Shining Mask app
+    (Android package cn.com.heaton.shiningmask; APKPure XAPK v1.2.6/versionCode
+    126 inspected, XAPK SHA256
+    29cc2c088634b28b06b67cab7b17f15bb6551bdb3d422b4e188274c825fbcb94).
+    The Play Store listing describes text, display effects, animations, pictures,
+    camera, and gallery import. Public RE and app static analysis agree that the
+    mask uses BLE service 0000fff0-0000-1000-8000-00805f9b34fb, command
+    characteristic d44bc439-abfd-45a2-b575-925416129600, notification
+    characteristic d44bc439-abfd-45a2-b575-925416129601, image/text upload
+    characteristic d44bc439-abfd-45a2-b575-92541612960a, and audio visualizer
+    characteristic d44bc439-abfd-45a2-b575-92541612960b. The official app's
+    BleManager constants also include CCCD 00002902-0000-1000-8000-00805f9b34fb.
+    Command and notification payloads are 16-byte AES-128 ECB blocks initialized
+    by the app's native libAES.so keyExpansionDefault(); public RE documents the
+    fixed key as 32672f7974ad43451d9c6c894a0e8764. No pairing/authentication is
+    documented in public RE; Bishop Fox demonstrated nearby unauthenticated BLE
+    control. Bulk upload packets sent to the upload characteristic are not AES
+    encrypted. Text/bitmap upload uses DATS, 98-byte data chunks when MTU is set
+    (18-byte chunks otherwise in the official app), REOK acknowledgements, then
+    DATCP/DATCPOK. Public RE reports MASK as the advertised local-name prefix.
+    FCC ID 2AOLN-16 and 2074 RGB LEDs are from existing project documentation and
+    should be hardware-verified. Schema gap: this schema has no structured
+    references, encryption metadata, packet framing, MTU, response, or uncertainty
+    fields, so source URLs and caveats are recorded here.
+    Sources: https://play.google.com/store/apps/details?id=cn.com.heaton.shiningmask ;
+    https://github.com/GoneUp/mask-go ;
+    https://github.com/BrickCraftDream/Shining-Mask-stuff/blob/main/ble-protocol.md ;
+    https://github.com/BishopFox/shining-mask ;
+    https://bishopfox.com/blog/invasion-of-the-face-changers-halloween-hijinks-with-bluetooth-led-masks ;
+    https://gist.github.com/Staars/71e63e4bdefc7e3fd22377bf9c50ac12
   identification:
-    local_name_prefix: ""
+    local_name_prefix: "MASK"
     service_uuids:
       - "0000fff0-0000-1000-8000-00805f9b34fb"
 
 services:
-  - uuid: "d44bc439-abfd-45a2-b575-925416129600"
-    name: "Command (encrypted)"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Mask Control"
     characteristics:
       - uuid: "d44bc439-abfd-45a2-b575-925416129600"
-        name: "Command"
+        name: "Command (AES-128 ECB)"
         properties: ["write"]
         commands:
           set_brightness:
-            description: "Set brightness (AES encrypted). Plaintext: [0x06, 'LIGHT', brightness]"
+            description: "Set brightness. Plaintext is padded to 16 bytes and AES-128 ECB encrypted before write."
             template: [0x06, 0x4C, 0x49, 0x47, 0x48, 0x54, "{brightness}"]
             parameters:
               brightness:
@@ -36,15 +60,15 @@ services:
                 min: 0
                 max: 255
           set_mode:
-            description: "Set display mode. 0=off, 1=steady, 2=blink, 3=scroll R-to-L, 4=scroll L-to-R, 5=steady custom"
+            description: "Set text display mode. Public RE maps 1=off/steady depending source, 2=blink, 3=scroll right-to-left, 4=scroll left-to-right; other values are uncertain."
             template: [0x05, 0x4D, 0x4F, 0x44, 0x45, "{mode}"]
             parameters:
               mode:
                 type: "uint8"
-                min: 0
-                max: 5
+                min: 1
+                max: 4
           set_speed:
-            description: "Set animation speed"
+            description: "Set text display speed. Plaintext is padded to 16 bytes and AES-128 ECB encrypted before write."
             template: [0x06, 0x53, 0x50, 0x45, 0x45, 0x44, "{speed}"]
             parameters:
               speed:
@@ -52,7 +76,7 @@ services:
                 min: 0
                 max: 255
           show_builtin_image:
-            description: "Display built-in static image (0x00-0x69, 106 images)"
+            description: "Display built-in static image. BrickCraftDream documents valid IDs through 0x69; official app builds IMAG command with one image byte."
             template: [0x05, 0x49, 0x4D, 0x41, 0x47, "{image_id}"]
             parameters:
               image_id:
@@ -60,7 +84,7 @@ services:
                 min: 0
                 max: 105
           play_builtin_animation:
-            description: "Play built-in animation (0x00-0x45, 70 animations)"
+            description: "Play built-in animation. BrickCraftDream documents valid IDs through 0x45; official app builds ANIM command with one animation byte."
             template: [0x05, 0x41, 0x4E, 0x49, 0x4D, "{anim_id}"]
             parameters:
               anim_id:
@@ -68,14 +92,14 @@ services:
                 min: 0
                 max: 69
           set_foreground_color:
-            description: "Set text foreground color (R,B,G order)"
-            template: [0x06, 0x46, 0x43, 0x01, "{red}", "{blue}", "{green}"]
+            description: "Set text foreground color. Official app sends FC enable byte then RGB bytes; older notes in this repo claimed R,B,G, so verify channel order on hardware."
+            template: [0x06, 0x46, 0x43, "{enabled}", "{red}", "{green}", "{blue}"]
             parameters:
-              red:
+              enabled:
                 type: "uint8"
                 min: 0
-                max: 255
-              blue:
+                max: 1
+              red:
                 type: "uint8"
                 min: 0
                 max: 255
@@ -83,18 +107,165 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_background_color:
+            description: "Set text background color. Official app sends BC enable byte then RGB bytes; public RE documents same structure."
+            template: [0x06, 0x42, 0x43, "{enabled}", "{red}", "{green}", "{blue}"]
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_text_effect:
+            description: "Set special text color/effect mode using the one-byte M command. Public RE documents modes 0-7; official app has getDefaultMode(enable, mode)."
+            template: [0x03, 0x4D, "{enabled}", "{effect}"]
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+              effect:
+                type: "uint8"
+                min: 0
+                max: 7
+          query_diy_image_count:
+            description: "Query number of DIY images. Official app sends CHEC and parses CHEC notification with count byte."
+            value: [0x04, 0x43, 0x48, 0x45, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          play_diy_images:
+            description: "Play one or more uploaded DIY images. First packet is PLAY with count and up to 10 image IDs; official app has a continuation helper for more than 10 IDs."
+            template: [0x06, 0x50, 0x4C, 0x41, 0x59, "{count}", "{image_id}"]
+            parameters:
+              count:
+                type: "uint8"
+                min: 1
+                max: 10
+              image_id:
+                type: "uint8"
+                min: 0
+                max: 255
+          delete_diy_images:
+            description: "Delete one or more DIY images. First packet is DELE with count and up to 10 image IDs; official app has a continuation helper for more than 10 IDs."
+            template: [0x06, 0x44, 0x45, 0x4C, 0x45, "{count}", "{image_id}"]
+            parameters:
+              count:
+                type: "uint8"
+                min: 1
+                max: 10
+              image_id:
+                type: "uint8"
+                min: 0
+                max: 255
+          start_text_upload:
+            description: "Begin text/bitmap upload. Official app sends 09 DATS, total length (big-endian uint16), bitmap length (big-endian uint16), then 0x00 for text/bitmap upload; wait for DATSOK."
+            template: [0x09, 0x44, 0x41, 0x54, 0x53, "{total_len_hi}", "{total_len_lo}", "{bitmap_len_hi}", "{bitmap_len_lo}", 0x00]
+            parameters:
+              total_len_hi:
+                type: "uint8"
+              total_len_lo:
+                type: "uint8"
+              bitmap_len_hi:
+                type: "uint8"
+              bitmap_len_lo:
+                type: "uint8"
+          start_image_upload:
+            description: "Begin DIY image upload. Official app sends 09 DATS, image length (big-endian uint16), image index, and image flag 0x01; wait for DATSOK."
+            template: [0x09, 0x44, 0x41, 0x54, 0x53, "{length_hi}", "{length_lo}", 0x00, "{image_index}", 0x01]
+            parameters:
+              length_hi:
+                type: "uint8"
+              length_lo:
+                type: "uint8"
+              image_index:
+                type: "uint8"
+                min: 0
+                max: 255
+          finish_upload:
+            description: "Finish upload. Official app sends DATCP padded to 16 bytes for text upload, and sends DATCP plus 4 timestamp bytes for DIY image upload."
+            template: [0x05, 0x44, 0x41, 0x54, 0x43, 0x50]
+          query_diy_image_time:
+            description: "Query DIY image timestamp/status. Official app sends TIME, image/type byte, and four timestamp bytes, then parses TIMEOK or TIMEERR."
+            template: [0x09, 0x54, 0x49, 0x4D, 0x45, "{image_id}", "{time_0}", "{time_1}", "{time_2}", "{time_3}"]
+            parameters:
+              image_id:
+                type: "uint8"
+              time_0:
+                type: "uint8"
+              time_1:
+                type: "uint8"
+              time_2:
+                type: "uint8"
+              time_3:
+                type: "uint8"
+          set_diy_edit_mode:
+            description: "Enter/exit DIY editor state. Official app emits SIVEW with state bytes 0, 1, 2, or 3; exact semantics beyond enter/exit/save need hardware validation."
+            template: [0x06, 0x53, 0x49, 0x56, 0x45, 0x57, "{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                min: 0
+                max: 3
 
       - uuid: "d44bc439-abfd-45a2-b575-925416129601"
-        name: "Notification"
+        name: "Notification (AES-128 ECB)"
         properties: ["notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "length"
+            type: "uint8"
+          - offset: 1
+            length: 15
+            name: "response_and_arguments"
+            type: "bytes"
 
       - uuid: "d44bc439-abfd-45a2-b575-92541612960a"
-        name: "Image Upload"
+        name: "Image/Text Upload"
         properties: ["write"]
+        commands:
+          upload_chunk:
+            description: "Unencrypted upload chunk. Official app uses [payload_len + 1, packet_index, payload], with 98 payload bytes when MTU setup succeeded and 18 otherwise; public RE reports max 100-byte packets."
+            template: ["{length_plus_counter}", "{packet_index}", "{payload}"]
+            parameters:
+              length_plus_counter:
+                type: "uint8"
+                min: 1
+                max: 99
+              packet_index:
+                type: "uint8"
+                min: 0
+                max: 255
+              payload:
+                type: "bytes"
 
       - uuid: "d44bc439-abfd-45a2-b575-92541612960b"
-        name: "Audio Visualizer"
+        name: "Audio Visualizer (AES-128 ECB)"
         properties: ["write"]
+        commands:
+          set_audio_visualizer_frame:
+            description: "Send one encrypted visualizer frame. Public RE documents first byte 0x0f, one mode byte (0-4 seen), then 14 visualization bytes whose nibbles map to LED rows."
+            template: [0x0F, "{mode}", "{levels}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 4
+              levels:
+                type: "bytes"
 
 entities:
   - platform: "light"
