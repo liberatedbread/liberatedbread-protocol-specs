@@ -131,9 +131,11 @@ consumer-side code; those carry a `NOTE` in the schema `description`.
 
 All specs under `device-specs/` are validated against `schema.json` on every
 push and pull request by the `validate-specs` job in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The `build` job
-additionally runs `python scripts/build_index.py --check`, re-validating every
-published spec against the schema before the docs (and JSON API) are built.
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The same job also
+regenerates `device-specs/index.json` and fails if it is out of date. The
+`build` job additionally runs `python scripts/build_index.py --check`,
+re-validating every published spec against the schema before the docs (and JSON
+API) are built.
 
 To validate locally:
 
@@ -145,6 +147,20 @@ python scripts/validate_specs.py        # PASS/FAIL per file; exits non-zero on 
 `scripts/validate_specs.py` discovers every `device-specs/**/*.yaml` (top-level,
 `examples/`, and `devices/`), validates each against the draft 2020-12 schema,
 and prints a `PASS`/`FAIL` line per file with the failing JSON path on error.
+
+## Machine-consumable spec index (`device-specs/index.json`)
+
+`device-specs/index.json` is a generated manifest that lets consumers enumerate
+specs automatically instead of hardcoding a file list. It is a JSON array,
+sorted by path, of `{ name, path, protocol, manufacturer, manufacturer_status,
+protocol_handler (if set), schema_version }`. Regenerate it with:
+
+```bash
+python scripts/generate_index.py        # idempotent: no diff on re-run
+```
+
+Do not edit `index.json` by hand — it is produced from the specs and checked in
+CI.
 
 ## Machine-consumable manifest (JSON API)
 
@@ -175,6 +191,7 @@ included in the manifest.
 device-specs/
 ├── README.md          # This file
 ├── schema.json        # JSON Schema for validation
+├── index.json         # Generated spec index (scripts/generate_index.py)
 ├── examples/          # Example specs for reference (not published in the API)
 │   └── example-bulb.yaml
 └── devices/           # Published device specs (surfaced in the JSON API)
