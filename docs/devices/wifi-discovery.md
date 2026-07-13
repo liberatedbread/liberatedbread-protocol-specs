@@ -1,3 +1,16 @@
+## Machine-Readable Discovery
+
+Every device spec in `device-specs/devices/` now includes a `device.discovery`
+section that a consumer app can parse to implement automatic discovery without
+per-device hardcoding. See the `discovery` property in
+[device-specs/schema.json](../device-specs/schema.json) for the full JSON
+Schema definition. See the discovery reference at
+[docs/devices/discovery.yaml](../docs/devices/discovery.yaml) for a
+annotated example of each discovery method.
+
+The flows documented below are the SSDP, mDNS, and Cloud variants that
+correspond to the machine-readable `device.discovery.methods[].type` values.
+
 # WiFi Device Discovery
 
 WiFi devices in this repository do not all use the same discovery model. The
