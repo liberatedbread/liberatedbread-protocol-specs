@@ -24,10 +24,27 @@ def test_discover_specs():
     paths = build_index.discover_specs()
     assert len(paths) > 0, "Expected at least one device spec"
     stems = {Path(p).stem for p in paths}
-    # These device specs are always expected to be present; more may be added
-    # (e.g. the ported structured specs), so assert presence rather than exact set.
-    expected = {"admore-light-bar", "chef-iq-sense", "frigidaire-window-ac", "frigidaire-portable-ac"}
-    assert expected <= stems, f"Expected {sorted(expected)} to be present, got {sorted(stems)}"
+    # Every device spec published in the JSON API after integrating the
+    # structured-specs port (device-specs/devices/*.yaml).
+    expected = {
+        "admore-light-bar",
+        "autobaba-led-backpack",
+        "bluetooth-led-name-badge",
+        "chef-iq-sense",
+        "ember-mug",
+        "frigidaire-portable-ac",
+        "frigidaire-window-ac",
+        "idotmatrix",
+        "leds2rave4-lunchbox-led",
+        "magic-display",
+        "motool-slacker",
+        "nyan-bt-image-controller",
+        "pax-vape",
+        "shining-glasses",
+        "shining-mask",
+        "wemo-mini-plug",
+    }
+    assert stems == expected, f"Expected {sorted(expected)}, got {sorted(stems)}"
 
 
 def test_load_yaml():

@@ -33,15 +33,6 @@ Temperature-controlled vaporizer (PAX 3, Era, Era Pro). Uses AES-128 OFB encrypt
 | `...0201` | Read | Read encrypted data packets |
 | `...0202` | Write | Send encrypted command packets |
 | `...0203` | Read, Notify | Notification trigger (data ready to read) |
-
-### Characteristics
-
-| UUID | Properties | Purpose |
-|------|------------|---------|
-| `8e320200-64d2-11e6-bdf4-0800200c9a66` | -- | Primary service |
-| `...0201` | Read | Read encrypted data packets |
-| `...0202` | Write | Send encrypted command packets |
-| `...0203` | Read, Notify | Notification trigger (data ready to read) |
 | `...0210` | -- | Internal service (pairing/enrollment) |
 | `...0212` | Write | Internal write (AES-CTR encrypted) |
 
