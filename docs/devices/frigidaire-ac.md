@@ -69,15 +69,26 @@ app feature descriptions and need validation through APK analysis and network ca
                                                                 └──────────────────┘
 ```
 
+### Discovery and Authentication
+
+- **Device class**: WiFi cloud appliance, not BLE.
+- **Local discovery**: No SSDP, mDNS, or static-IP LAN control path has been
+  verified.
+- **User discovery path**: Pair the AC in the Frigidaire/Electrolux app, then
+  enumerate appliances from the authenticated Electrolux cloud/OCP account.
+- **Replacement implication**: A local-first replacement likely needs confirmed
+  cloud API/broker behavior, DNS redirection plus protocol capture, or firmware
+  work. A LAN scan alone is not expected to produce a usable control endpoint.
+
 ### Transport
 
 - **Primary**: WiFi to Electrolux cloud (MQTT over TLS or HTTPS REST — unconfirmed)
 - **Local API**: Unknown — needs investigation (some Electrolux devices may have local HTTP fallback)
-- **Provisioning**: Likely SoftAP or BLE to transfer WiFi credentials during setup
+- **Provisioning**: App-based pairing; likely SoftAP or BLE to transfer WiFi credentials during setup
 
 ### Authentication
 
-- Electrolux user account (OAuth2 expected)
+- Electrolux/Frigidaire user account (OAuth2/OCP flow expected)
 - Device-to-cloud authentication (certificate or token-based, TBD)
 
 ## Commands

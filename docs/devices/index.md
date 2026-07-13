@@ -25,4 +25,5 @@ A catalog of IoT devices we've documented (or are documenting).
 | [Nyan BT Image Controller](nyan-bt-image-controller.md) | BLE | Complete | NYAN GEAR / LOY SPACE |
 | [MoTool Slacker](motool-slacker.md) | BLE | In Progress | MoTool |
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | AdMore Lighting Inc. |
+| [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | Belkin |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Frigidaire (Electrolux) |
