@@ -1,6 +1,61 @@
 # PAX vaporizer device spec
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
+#
+# Enriched by reverse-engineering the official Android app `com.pax.app`
+# ("PAX Mobile"), pulled from APKPure via apkeep and statically decompiled with
+# jadx (clean-room, artifacts gitignored under workspace/). Cross-referenced
+# against the independent third-party web reimplementation `pax-romana`
+# (github.com/evertonstz/pax-romana). Every fact below is annotated with its
+# evidence source; uncertain items are marked.
+#
+# FIRST-PARTY EVIDENCE (com.pax.app, jadx decompile — obfuscated class names):
+#   com/pax/peace/encryption/b.java   AESEncryption.kt   (OFB payload cipher + key derivation)
+#   com/pax/peace/encryption/a.java   AESCTREncryption.kt(CTR pairing cipher)
+#   com/pax/peace/encryption/i.java   EncryptionProvider.kt (fixed deadbeef CTR IV)
+#   com/pax/peace/g/q/l.java          (decrypt path: IV taken from LAST 16 bytes)
+#   com/pax/peace/models/u.java       PAXAttribute.kt    (the wire attribute-ID enum)
+#   com/pax/peace/g/p/g.java          PaxServiceType.kt  (all known GATT service UUIDs)
+#   com/pax/peace/g/p/b.java          AdvertisingInformation.kt (manufacturer-data layout)
+#   com/pax/peace/g/p/e.java          ManufacturerBitField.kt   (advert status bitfield)
+#   com/pax/peace/g/p/c.java          (DIS serial-number char 0x2A25 read)
+#   com/pax/peace/j/b.java            NumberExtensions.kt(LE byte encoders)
+#
+# ─────────────────────────────────────────────────────────────────────────
+# CORRECTIONS TO THE PRIOR SPEC (evidence-backed):
+#   (1) ENCRYPTION MODE: prior note said "AES-128 OFB" — CONFIRMED as
+#       AES/OFB128/NoPadding for the data-plane payload cipher
+#       (encryption/b.java). Good.
+#   (2) WIRE FRAMING WAS BACKWARDS: prior note said "[IV (16 bytes)] +
+#       [ciphertext]. On read, first 16 bytes = IV." The app does the OPPOSITE:
+#       on ENCRYPT it returns `ciphertext ++ IV` (encryption/b.java, Kotlin
+#       ArraysKt.plus(doFinal, iv)); on DECRYPT it takes the IV from the LAST
+#       16 bytes (g/q/l.java: takeLast(16)). Framing is therefore
+#       [ciphertext] + [IV (16 bytes)] — IV is the TRAILING 16 bytes.
+#   (3) "deadbeef" IV RECLASSIFIED: deadbeefdeadbeefdeadbeefdeadbeef is NOT an
+#       OFB fallback. It is the FIXED 16-byte IV for the AES/CTR key-exchange
+#       cipher used during pairing/enrollment (encryption/i.java builds
+#       {0xDE,0xAD,0xBE,0xEF}x4; encryption/a.java = AES/CTR/NoPadding). The
+#       OFB data cipher uses a RANDOM per-message IV (first 16 bytes of the
+#       ASCII-hex of a random UUIDv4), never deadbeef.
+# ─────────────────────────────────────────────────────────────────────────
+# SCHEMA GAPS FLAGGED (schema.json intentionally NOT modified):
+#   (a) No place for `encryption` metadata (AES mode, master key, key
+#       derivation, IV framing). All of it lives in device.notes.
+#   (b) No `manufacturer_data` field under `identification` for the BLE
+#       advertisement layout (company-id + status bitfield + 8-char serial);
+#       documented in notes.
+#   (c) The Read/Notify characteristic (…0201/…0203) MULTIPLEXES ~50 distinct
+#       attribute types onto one value, distinguished by byte 0. `format` can
+#       express only one fixed layout, so per-attribute payloads are documented
+#       in the ATTRIBUTE REFERENCE note below rather than in `format`.
+#   (d) `commands.template`/`parameters` cannot express a multi-byte LE integer
+#       parameter directly, so `set_heater_setpoint` is split into 4 uint8
+#       bytes (matching the app's 4-byte LE encoder), and the STATUS_UPDATE
+#       8-byte attribute bitmask is described in prose.
+#   (e) No `references` field in the schema; kept as a top-level `references`
+#       list (same convention as wemo-mini-plug.yaml).
+# ─────────────────────────────────────────────────────────────────────────
 
 device:
   name: "PAX Vaporizer"
@@ -8,89 +63,304 @@ device:
   manufacturer_status: "unsupported"
   protocol: "ble"
   notes: >
-    Supports PAX 3, PAX Era, PAX Era Pro. Uses AES-128 OFB encryption.
-    Master key (hex): f7c866c38f78753086293bd57dd32540.
-    Key derivation: read 8-char serial, duplicate to 16 bytes,
-    AES-128-ECB encrypt with master key -> per-device key.
-    Encrypt: AES-128-OFB with per-device key and random 16-byte IV.
-    Wire format: [IV (16 bytes)] + [ciphertext]. On read, first 16 bytes = IV.
-    Default IV: deadbeefdeadbeefdeadbeefdeadbeef (fallback only).
-    Also has AES-128-CTR mode for initial pairing/enrollment (service ...0210, char ...0212).
-    Temperature encoding: uint16 LE, value / 10 = degrees C.
-    Nordic Semiconductor chipset. FCC ID: 2AJWD-PAX3.
+    Covers PAX 3, PAX Era and PAX Era Pro. Reverse-engineered from the official
+    Android app com.pax.app (jadx) and cross-checked against the independent
+    pax-romana web client.
+
+
+    IDENTIFICATION. Primary: the advertised 128-bit PAX service UUID
+    8e320200-64d2-11e6-bdf4-0800200c9a66 (PaxServiceType.kt). The BLE local name
+    is user-customisable in-app, so it is a weak signal — default names begin
+    with "PAX" but must not be relied on alone. The advertisement also carries
+    MANUFACTURER-SPECIFIC DATA whose bytes are, after decryption,
+    [2-byte status bitfield, little-endian][8-byte ASCII serial number]
+    (AdvertisingInformation.kt: the 2-byte manufacturer company-id is read
+    dynamically via SparseArray.keyAt(0) and prepended to the value before
+    decrypt — no fixed company-id constant is baked into the app, so none is
+    asserted here). The 8-char serial in the advert is the SAME serial used for
+    key derivation, so a scanner can derive the device key without a GATT
+    connection. The status bitfield (ManufacturerBitField.kt) unpacks a
+    little-endian uint32 as: bit0 = flag, bits1-4 = int (model/variant),
+    bit5 = flag, bit6 = flag, bits7-11 = int; exact semantics of each field are
+    NOT fully resolved (marked uncertain).
+
+
+    KNOWN GATT SERVICES (from PaxServiceType.kt):
+      8e320200-64d2-11e6-bdf4-0800200c9a66  PAX data service (primary).
+      8e320210-64d2-11e6-bdf4-0800200c9a66  PAX pairing / encrypted-enrollment
+                                            service (AES-CTR key exchange).
+      0000180a-0000-1000-8000-00805f9b34fb  Device Information Service; the
+                                            Serial Number String char
+                                            00002a25-… is read to obtain the
+                                            8-char serial for key derivation.
+      00001530-1212-efde-1523-785feabcd123  Nordic Semiconductor LEGACY DFU
+                                            (buttonless OTA). Its presence
+                                            corroborates the Nordic radio.
+      64f50300-efdc-11e6-bc64-92361f002671  PAX Era-family service (chars not
+      64f50310-efdc-11e6-bc64-92361f002671  observed statically — pod/oil
+      84900100-1217-11e6-bb3d-0002a5d5c51b  devices; marked uncertain).
+    Only the primary + Device Information services are modelled under `services`
+    below; the pairing and Era-family services are documented here because their
+    characteristic UUIDs were not recovered from the static analysis
+    (do-not-invent).
+
+
+    ENCRYPTION (data plane — encryption/b.java, AESEncryption.kt).
+    Master key (hex): f7c866c38f78753086293bd57dd32540  (byte-for-byte match to
+    the array {247,200,102,195,143,120,117,48,134,41,59,213,125,211,37,64}).
+    Key derivation: take the 8-char ASCII serial, DUPLICATE it to 16 bytes,
+    then AES-128-ECB encrypt the first 16 bytes with the master key -> 16-byte
+    per-device key (cipher "AES/ECB/NoPadding"). Payload cipher: AES/OFB128/
+    NoPadding under the per-device key with a RANDOM 16-byte IV (the app uses
+    the first 16 bytes of the ASCII-hex of a random UUIDv4). WIRE FRAMING:
+    [ciphertext] + [IV (16 bytes)] — the IV is APPENDED (trailing), and decrypt
+    reads it from the last 16 bytes (g/q/l.java takeLast(16)). NOTE: this
+    corrects the prior spec, which had the IV prepended.
+
+
+    ENCRYPTION (pairing plane — encryption/a.java + i.java). A separate
+    AES/CTR/NoPadding cipher is used for the initial key-exchange / enrollment
+    handshake on service 8e320210 (attributes KEY_EXCHANGE=49,
+    ENCRYPTED_PACKET=50). EncryptionProvider.kt hard-codes the CTR IV to
+    deadbeefdeadbeefdeadbeefdeadbeef ({0xDE,0xAD,0xBE,0xEF} repeated 4x) and
+    exchanges a peripheral nonce that is persisted per serial (sqlcipher DB).
+
+
+    PACKET / ATTRIBUTE LAYOUT. Every decrypted packet is
+    [byte0 = attribute type][attribute-specific payload]. Attribute type is the
+    first byte and maps to PAXAttribute.kt (enum `u`). To REQUEST an attribute,
+    write a packet containing just its type byte to the Write char; the device
+    answers via a Notify packet [type, payload…]. To SET, write
+    [type, payload…]. All packets are encrypted/framed as above.
+
+
+    ATTRIBUTE REFERENCE (first-party enum u = PAXAttribute.kt; ids are decimal):
+      1  TEMPERATURE            payload uint16 LE, /10 = degrees C (read)
+      2  HEATER_SET_POINT       target temp; app writes int32 LE = tenths of C
+      3  BATTERY                payload uint8 = percent
+      4  USAGE                  5 USAGE_LIMIT
+      6  IS_LOCKED              payload uint8 (1=lock, 0=unlock)
+      7  CHARGE_STATUS          8 POD_INSERTED (Era)  9 TIME (int32 LE epoch)
+      10 NAME                   11 EEPROM  12 LOG  13 START_REPLAY  14 RESET
+      15 GAME_MODE  16 SESSION_TIMEOUT  17 HEATER_RANGES  18 LOG_SYNC_REQUEST
+      19 DYNAMIC_MODE  20 COLOR_THEME  21 BRIGHTNESS  22 USAGE_DISPLAY
+      23 HAPTIC_MODE  24 SUPPORTED_ATTRIBUTES (bitmask of supported ids)
+      25 HEATING_PARAMETERS  26 DFU_MODE  27 UI_MODE  28 SHELL_COLOR
+      29 ENTER_EXIT_OVEN_OFF  30 LOW_SOC_MODE_STATUS
+      31 ACTIVE_TARGET_TEMPERATURE  32 HEATING_STATE (uint8, see below)
+      33 CLEAR_LOGS  34 LOG_CLEAR_COMPLETE  36 SESSION_CONTROL  37 DFU
+      38 EXTENDED_DEVICE_NAME  39 UI_MODE_COLOR_THEME  40 HAPTICS
+      41 LOG_REQUEST  42 POD_DATA  43 POD_DATA_FIELD  44 POD_FIELD_SYNC_REQUEST
+      45 LOG_SYNC_INDEX  46 HAPTICS_PULSE  49 KEY_EXCHANGE  50 ENCRYPTED_PACKET
+      51 FACTORY_RESET  52 DIS_ATTRIBUTE  53 BLE_RSSI  54 FIND_MY_PAX
+      55 LAST_LOG_INDEX  254 STATUS_UPDATE (see below)
+    HEATING_STATE (HeatingStates enum, pax-romana): 0 HEATING, 1 READY,
+      2 BOOSTING, 3 COOLING, 4 STANDBY, 5 OVEN_OFF, 6 TEMP_SET_MODE.
+    STATUS_UPDATE (254): the app writes an 8-byte LITTLE-ENDIAN uint64 bitmask
+      after the type byte, requesting a batch push of the selected attributes
+      (devices/g.java -> j/b.a(long, 8)). A bare [254] is treated as "all".
+
+
+    HARDWARE. Nordic Semiconductor radio (corroborated by the Nordic Legacy DFU
+    service). FCC ID 2AJWD-PAX3 (PAX 3), verified against fccid.io.
     PAX is explicitly allowed by project policy.
   identification:
+    # Primary, reliable signal: the advertised PAX service UUID.
+    # local_name is user-customisable; "PAX" is only the default prefix.
     local_name_prefix: "PAX"
     service_uuids:
       - "8e320200-64d2-11e6-bdf4-0800200c9a66"
 
 services:
   - uuid: "8e320200-64d2-11e6-bdf4-0800200c9a66"
-    name: "PAX Service"
+    name: "PAX Data Service"
     characteristics:
       - uuid: "8e320201-64d2-11e6-bdf4-0800200c9a66"
         name: "Read Data"
+        # Multiplexed: byte0 = attribute type (enum u); the remaining bytes are
+        # attribute-specific (see ATTRIBUTE REFERENCE in device.notes). Payload
+        # is delivered decrypted/deframed by the client. Schema gap (c).
         properties: ["read"]
         format:
           - offset: 0
             length: 1
-            name: "message_type"
+            name: "attribute_type"
             type: "uint8"
 
       - uuid: "8e320202-64d2-11e6-bdf4-0800200c9a66"
         name: "Write Command"
+        # Packets are [attribute_type, payload...] then encrypted+framed. A
+        # single type byte with no payload is a READ REQUEST for that attribute;
+        # the device answers on the Notify characteristic (…0203). Command
+        # `value`/`template` arrays below are the PLAINTEXT packet bytes prior
+        # to AES/OFB128 encryption + trailing-IV framing.
         properties: ["write"]
         commands:
           get_actual_temp:
-            description: "Request current temperature (encrypted, type 0x01)"
+            description: "Request current temperature (TEMPERATURE=1). Reply payload uint16 LE, /10 = degrees C."
             value: [0x01]
           set_heater_setpoint:
-            description: "Set target temperature (encrypted, type 0x02, uint16 LE temp*10)"
-            template: [0x02, "{temp_low}", "{temp_high}"]
+            description: >
+              Set target temperature (HEATER_SET_POINT=2). App encodes the value
+              as a 4-byte little-endian int32 = round(degrees C * 10) (t0=LSB).
+              For realistic temps t2=t3=0. App validates ~175-215. Schema gap
+              (d): split into 4 uint8 bytes.
+            template: [0x02, "{t0}", "{t1}", "{t2}", "{t3}"]
             parameters:
-              temp_low:
-                type: "uint8"
-                min: 0
-                max: 255
-              temp_high:
-                type: "uint8"
-                min: 0
-                max: 255
+              t0: { type: "uint8", min: 0, max: 255 }
+              t1: { type: "uint8", min: 0, max: 255 }
+              t2: { type: "uint8", min: 0, max: 255 }
+              t3: { type: "uint8", min: 0, max: 255 }
           get_battery:
-            description: "Request battery level (encrypted, type 0x03)"
+            description: "Request battery level (BATTERY=3). Reply payload uint8 = percent."
             value: [0x03]
+          get_usage:
+            description: "Request session usage (USAGE=4). Payload layout not resolved (uncertain)."
+            value: [0x04]
+          get_charge_status:
+            description: "Request charge status (CHARGE_STATUS=7)."
+            value: [0x07]
+          get_pod_inserted:
+            description: "Request pod-inserted state (POD_INSERTED=8, Era/Era Pro)."
+            value: [0x08]
+          set_time:
+            description: >
+              Set device clock (TIME=9). App writes a 4-byte little-endian int32
+              Unix epoch (devices/g.java -> j/b.b(epoch, 4)). Schema gap (d).
+            template: [0x09, "{t0}", "{t1}", "{t2}", "{t3}"]
+            parameters:
+              t0: { type: "uint8", min: 0, max: 255 }
+              t1: { type: "uint8", min: 0, max: 255 }
+              t2: { type: "uint8", min: 0, max: 255 }
+              t3: { type: "uint8", min: 0, max: 255 }
+          get_device_name:
+            description: "Request device name (NAME=10)."
+            value: [0x0A]
+          get_heater_ranges:
+            description: "Request supported heater temperature ranges (HEATER_RANGES=17)."
+            value: [0x11]
+          get_dynamic_mode:
+            description: "Request dynamic-mode setting (DYNAMIC_MODE=19)."
+            value: [0x13]
+          get_color_theme:
+            description: "Request color theme (COLOR_THEME=20)."
+            value: [0x14]
+          get_brightness:
+            description: "Request LED brightness (BRIGHTNESS=21)."
+            value: [0x15]
+          get_haptic_mode:
+            description: "Request haptic-feedback mode (HAPTIC_MODE=23)."
+            value: [0x17]
           set_lock:
-            description: "Set lock status (encrypted, type 0x06, 0=unlock, 1=lock)"
+            description: "Set lock (IS_LOCKED=6): payload uint8 0=unlock, 1=lock. Confirmed devices/g.java."
             template: [0x06, "{lock_state}"]
             parameters:
-              lock_state:
-                type: "uint8"
-                min: 0
-                max: 1
+              lock_state: { type: "uint8", min: 0, max: 1 }
           get_supported_attributes:
-            description: "Request supported attributes bitfield (type 0x18)"
+            description: "Request the supported-attribute bitmask (SUPPORTED_ATTRIBUTES=24)."
             value: [0x18]
+          get_active_target_temp:
+            description: "Request the active target temperature (ACTIVE_TARGET_TEMPERATURE=31)."
+            value: [0x1F]
+          get_heating_state:
+            description: >
+              Request heating state (HEATING_STATE=32). Reply payload uint8 per
+              HeatingStates: 0 HEATING,1 READY,2 BOOSTING,3 COOLING,4 STANDBY,
+              5 OVEN_OFF,6 TEMP_SET_MODE.
+            value: [0x20]
+          find_my_pax:
+            description: "Trigger Find-My-PAX locate behaviour (FIND_MY_PAX=54). Payload not resolved (uncertain)."
+            value: [0x36]
           request_status_update:
-            description: "Request full status update (type 0xFE)"
+            description: >
+              Request a batched status push (STATUS_UPDATE=254). The app appends
+              an 8-byte little-endian uint64 attribute bitmask selecting which
+              attributes to include (schema gap (d)); a bare [0xFE] is treated
+              as "all attributes".
             value: [0xFE]
 
       - uuid: "8e320203-64d2-11e6-bdf4-0800200c9a66"
         name: "Notification Trigger"
+        # Device pushes [attribute_type, payload...] here in response to reads,
+        # requests and asynchronous state changes. Same multiplexing as …0201.
         properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "attribute_type"
+            type: "uint8"
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    characteristics:
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        # Standard GATT 0x2A25. Read to obtain the 8-char serial that seeds the
+        # per-device key derivation (g/p/c.java references this exact UUID).
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 8
+            name: "serial_number"
+            type: "string"
 
 entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
     unit: "C"
-    state_characteristic: "8e320201-64d2-11e6-bdf4-0800200c9a66"
+    # Pushed as attribute TEMPERATURE (type byte 1): uint16 LE at offset 1, /10.
+    state_characteristic: "8e320203-64d2-11e6-bdf4-0800200c9a66"
     state_mapping:
-      value: "message_type"
+      attribute: 1
+      offset: 1
+      type: "uint16_le"
+      scale: 0.1
 
   - platform: "sensor"
     name: "Battery"
     device_class: "battery"
     unit: "%"
-    state_characteristic: "8e320201-64d2-11e6-bdf4-0800200c9a66"
+    # Pushed as attribute BATTERY (type byte 3): uint8 at offset 1 = percent.
+    state_characteristic: "8e320203-64d2-11e6-bdf4-0800200c9a66"
     state_mapping:
-      value: "message_type"
+      attribute: 3
+      offset: 1
+      type: "uint8"
+
+  - platform: "sensor"
+    name: "Heating State"
+    # HEATING_STATE (type byte 32): uint8 at offset 1 mapped via HeatingStates.
+    state_characteristic: "8e320203-64d2-11e6-bdf4-0800200c9a66"
+    state_mapping:
+      attribute: 32
+      offset: 1
+      type: "uint8"
+      values:
+        0: "heating"
+        1: "ready"
+        2: "boosting"
+        3: "cooling"
+        4: "standby"
+        5: "oven_off"
+        6: "temp_set_mode"
+
+  - platform: "binary_sensor"
+    name: "Locked"
+    # IS_LOCKED (type byte 6): uint8 at offset 1 (1=locked).
+    state_characteristic: "8e320203-64d2-11e6-bdf4-0800200c9a66"
+    state_mapping:
+      attribute: 6
+      offset: 1
+      type: "uint8"
+
+# References (verified to resolve 2026-07-11). The authoritative source is the
+# first-party APK (com.pax.app, pulled from APKPure via apkeep; not committed);
+# these public links corroborate it. kush-kontroller was intentionally dropped —
+# no resolving URL could be confirmed.
+references:
+  - "https://github.com/evertonstz/pax-romana"
+  - "https://github.com/evertonstz/pax-romana/blob/main/src/pax/shared/enums/Messages.ts"
+  - "https://github.com/evertonstz/pax-romana/blob/main/src/pax/core/crypt/Pax3Imp.ts"
+  - "https://fccid.io/2AJWD-PAX3"
+  - "https://github.com/NordicSemiconductor/Android-DFU-Library"
