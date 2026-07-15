@@ -51,14 +51,16 @@ LAN control path was found.
 ## Protocol Summary
 
 !!! note "Static Analysis Finding"
-    Frigidaire `com.electrolux.oneapp.android.frigidaire` v3.6 / versionCode
-    504110958 was pulled from APKPure via `apkeep` and decompiled with `jadx`.
-    Public mirrors list newer 4.x builds, so those should be rechecked when an
-    artifact is obtainable. In the analyzed build, local networking is
-    provisioning-only: SoftAP SSID hints, AllJoyn onboarding, UDP broadcast on
-    port 3000, and a setup connection to `192.168.6.1:3002`. No mDNS, SSDP/UPnP,
-    `.local`, AWS Greengrass, MQTT local proxy, or static-IP LAN control path was
-    found for post-pairing AC control.
+    Frigidaire `com.electrolux.oneapp.android.frigidaire` v1.24 / versionCode
+    5851, v2.0 / versionCode 6895, and v3.6 / versionCode 504110958 were pulled
+    from APKPure via `apkeep` and decompiled with `jadx`. The older v1.24/v2.0
+    builds contain more legacy local setup machinery than v3.6, including a
+    Delta NIU TCP/TLS provisioning stack on `192.168.6.1:3002`,
+    `DELTA_NIU_HTTP_REQUEST`, `LOCAL_ROBOT_PASSWORD`, and in v2.0 a cleartext
+    network-security exception for `192.168.0.1`. These are still
+    provisioning/enrollment paths. No mDNS, SSDP/UPnP, `.local`, AWS
+    Greengrass, MQTT local proxy, static-IP REST API, or post-pairing LAN
+    control path was found for AC control.
 
 ### Architecture
 
@@ -105,14 +107,31 @@ LAN control path was found.
 | Item | Finding |
 |------|---------|
 | Active Android package | `com.electrolux.oneapp.android.frigidaire` |
-| Analyzed app version | v3.6, versionCode 504110958 |
-| Fetch caveat | `apkeep --list-versions` only exposed APKPure versions through 3.6; public mirrors list newer 4.x builds for future re-check |
+| Analyzed app versions | v1.24 / versionCode 5851; v2.0 / versionCode 6895; v3.6 / versionCode 504110958 |
+| Fetch result | `apkeep --list-versions` exposed APKPure versions `1.24`, `2.0`, and `3.6`; APKCombo currently lists only newer `4.24`-`4.26` old-version pages |
+| Legacy XAPK SHA-256 | v1.24 `67e79350b1e39d1b084b6578d5a46925db3fc06ba7b9dbb35a46775c0862f3cf`; v2.0 `032e869b706275e94dd1fa2b3222e6d4e8a5d2591d7344f95bd7147869170f66` |
 | XAPK SHA-256 | `0fa212791d3f488eaffbbb1dbc628b7c988d786e1546be32fcc297795a6c99aa` |
 | Decompiler | `jadx` completed with recoverable errors |
-| Local setup endpoint | `192.168.6.1:3002` |
+| Local setup endpoints | `192.168.6.1:3002`; v2.0 also allows cleartext to `192.168.0.1` |
 | Local provisioning broadcast | UDP port 3000 |
-| Provisioning frameworks | AllJoyn onboarding/enrollment, OCP provisioning models |
+| Provisioning frameworks | Delta NIU TCP/TLS setup, AllJoyn onboarding/enrollment, ECP/OCP provisioning models |
 | Post-pairing LAN discovery | Not found |
+
+Older-version local setup strings and enums include:
+
+- `DELTA_NIU_HTTP_REQUEST`
+- `DELTA_NIU_COOKIE_SIGN`
+- `DELTA_NIU_SET_CLOUD_PASSWORD`
+- `DELTA_CLOUD_POST_APPLIANCE`
+- `OCP_CLOUD_POST_APPLIANCE`
+- `AJ_NIU_CONNECT_AND_DISCOVER`
+- `AJ_NIU_WIFI_SCAN`
+- `AJ_NIU_ONBOARD`
+- `SET_LOCAL_ROBOT_PASSWORD_REQUEST`
+- `LOCAL_ROBOT_PASSWORD`
+
+These are provisioning/setup operations, not discovered AC runtime control
+endpoints.
 
 Observed cloud/OCP strings include:
 
