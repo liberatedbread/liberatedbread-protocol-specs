@@ -27,3 +27,11 @@ A catalog of IoT devices we've documented (or are documenting).
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | AdMore Lighting Inc. |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | Belkin |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Frigidaire (Electrolux) |
+| [Roku External Control Protocol](roku-ecp.md) | WiFi | Complete | Roku / TCL |
+| [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Signify / Philips Hue |
+| [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Enphase Energy |
+| [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | Dyson |
+| [LIFX Z](lifx-z.md) | WiFi | Complete | LIFX |
+| [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Lutron |
+| [Rachio Controller](rachio-controller.md) | WiFi | Research | Rachio |
+| [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Samsung SmartThings |
