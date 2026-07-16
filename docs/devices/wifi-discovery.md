@@ -17,7 +17,7 @@ WiFi devices in this repository do not all use the same discovery model. The
 right first step depends on whether the device exposes a local protocol, an
 mDNS service, or only a cloud account API.
 
-## SSDP / UPnP: Wemo
+## SSDP / UPnP: Wemo and Roku
 
 Wemo devices should be discovered with SSDP first. Users should not have to
 enter static IP addresses.
@@ -152,3 +152,53 @@ firmware-level work.
 
 For Wemo, ports are never the identity. Ports are connection details discovered
 from SSDP `LOCATION` or from the fallback probe list.
+
+### Roku ECP
+
+Roku devices use SSDP with a purpose-built search target:
+
+```http
+M-SEARCH * HTTP/1.1
+HOST: 239.255.255.250:1900
+MAN: "ssdp:discover"
+MX: 1
+ST: roku:ecp
+```
+
+The SSDP `LOCATION` normally points at `http://<ip>:8060/`. Consumers must then
+fetch `http://<ip>:8060/query/device-info` and parse the XML identity. Stable
+ordering should use `serial-number`, then `device-id`; `user-device-name` is
+display text only.
+
+Example:
+
+```bash
+python scripts/roku_discover.py --timeout 5
+```
+
+## mDNS / DNS-SD: Local WiFi Devices
+
+Many newer WiFi devices advertise DNS-SD service records. These records should
+be treated as location hints plus identity metadata; IP addresses remain
+connection details, not identity.
+
+| Device | Service | Stable identity | Follow-up probe |
+|---|---|---|---|
+| Vector Robot | `_ankivector._tcp.local.` | TXT serial or hostname | gRPC TLS on port 443 |
+| Philips Hue Bridge | `_hue._tcp.local.` | TXT `bridgeid`, then `mac` | `GET /api/config` |
+| Enphase Envoy | `_enphase-envoy._tcp.local.` | TXT `serialnum` | `GET /production.json` |
+| Dyson purifier | `_dyson_mqtt._tcp.local.` | Serial from hostname | MQTT connect to port 1883 |
+| LIFX Z | `_hap._tcp.local.` where `md=LIFX Z` | TXT `id` | UDP LIFX GetService to 56700 |
+| Lutron Caseta Bridge | `_leap._tcp.local.`, `_lutron._tcp.local.` | TXT `MACADDR`, then hostname | LEAP TLS/WebSocket on 8081 |
+| Rachio Controller | `_hap._tcp.local.` where `md` starts with Rachio | TXT `id` | HAP/local control research |
+| SmartThings Hub v2 | `_smartthings._tcp.local.` | TXT `id` | Edge WebSocket on `_smartthings-hedge._tcp` |
+
+Use the local tools:
+
+```bash
+python scripts/hue_discover.py --timeout 5
+python scripts/enphase_discover.py --timeout 5
+python scripts/dyson_discover.py --timeout 5
+python scripts/lifx_discover.py --timeout 5
+python scripts/lutron_discover.py --timeout 5
+```
