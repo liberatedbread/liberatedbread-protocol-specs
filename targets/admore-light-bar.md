@@ -630,7 +630,7 @@ Setting subtypes:
 ## Spec output (clean-room)
 Write a derived spec in:
 - docs/devices/admore-light-bar.md (human-readable protocol documentation)
-- device-specs/admore-light-bar.yaml (machine-readable device spec)
+- device-specs/devices/admore-light-bar.yaml (machine-readable device spec)
 - Include message formats, UUIDs, command tables, value ranges, and examples.
 
 ## References (URLs only)

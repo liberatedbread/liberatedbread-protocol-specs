@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  validate-specs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +18,26 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Validate device specs against schema.json
+        run: python scripts/validate_specs.py
+      - name: Verify device-specs/index.json is up to date
+        run: |
+          python scripts/generate_index.py
+          git diff --exit-code device-specs/index.json
+
+  build:
+    needs: validate-specs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Verify device-spec JSON API is fresh and valid
+        run: python scripts/build_index.py --check
       - run: mkdocs build --strict
 
   deploy:
@@ -28,8 +48,12 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Verify device-spec JSON API is fresh and valid
+        run: python scripts/build_index.py --check
       - run: mkdocs gh-deploy --force
