@@ -113,8 +113,9 @@ def parse_metadata_section(text: str) -> dict:
         stripped = line.strip()
 
         # Detect top-level metadata headers: lines starting with "- " at col 0
-        # followed by a word + colon (these are "field_name: value" lines)
-        is_field_header = bool(re.match(r"-\s+\w+\s*:", line))
+        # followed by a field name (allowing multi-word like "device class" and
+        # parens like "package_id(s)") then ":".
+        is_field_header = bool(re.match(r"-\s+.+?:", line))
 
         if not in_pkg_section:
             # Check if this line contains any package_id(s) label
