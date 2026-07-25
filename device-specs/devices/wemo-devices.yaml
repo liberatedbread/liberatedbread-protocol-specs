@@ -142,7 +142,7 @@ device:
 
   setup:
     required: true
-    confidence: "medium"
+    confidence: "high"
     notes: >
       Wemo devices ship unprovisioned and cannot be discovered by SSDP until
       they hold WiFi credentials. Provisioning is entirely local: the device
@@ -151,11 +151,13 @@ device:
       required at any point, which is why Wemo hardware remains recoverable
       after the January 2026 cloud shutdown.
 
-      CONFIDENCE: the service/action names are HIGH (they appear in the device
-      setup.xml service list and in the public pywemo and wemosetup
-      implementations). The passphrase encryption derivation and the exact
-      ApList field order are MEDIUM — taken from the public wemosetup
-      implementation and not yet replayed against hardware in this project.
+      CONFIDENCE: HIGH. Service names, action names, argument names, the
+      ApList layout, the network status codes and all three passphrase
+      encryption variants come from pywemo's implementation
+      (pywemo/ouimeaux_device/__init__.py, Apache 2.0), which is maintained and
+      exercised against real hardware across several device generations. Not
+      yet replayed against hardware by this project.
+
       Always read the WiFiSetup controlURL from setup.xml rather than assuming
       a path: both /upnp/control/WiFiSetup1 and /upnp/control/wifi1 have been
       reported across firmware generations.
@@ -172,25 +174,51 @@ device:
           open_network: true
           gateway_ip: "10.22.22.1"
           port: 49153
+          port_probe_list: [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
+          port_notes: >
+            Probe rather than assume: the setup-mode port varies like the
+            normal one. pywemo walks the same fallback list it uses on the LAN.
           credential_encryption:
             algorithm: "aes-128-cbc"
             key_derivation: >
-              Key material is built from the MetaInfo string returned by
-              metainfo#GetMetaInfo, split on '|': keydata =
-              meta[0][0:6] + meta[1] + meta[0][6:12]. The first 8 bytes of
-              keydata are the salt and the first 16 bytes are the IV; keydata
-              itself is the OpenSSL passphrase, run through the legacy
-              EVP_BytesToKey MD5 derivation.
+              Key material comes from the MetaInfo string returned by
+              metainfo#GetMetaInfo, split on '|', where field 0 is the MAC and
+              field 1 is the serial number. The AES key is MD5(keydata + salt)
+              truncated to 16 bytes, with salt = keydata[0:8] and
+              iv = keydata[0:16] — equivalent to OpenSSL's legacy
+              EVP_BytesToKey MD5 derivation for AES-128 with the IV supplied
+              explicitly.
+            variants:
+              - method: 1
+                keydata: "mac[0:6] + serial + mac[6:12]"
+                add_lengths: true
+                selector: "Default."
+              - method: 2
+                keydata: "mac[0:6] + serial + mac[6:12] + 'b3{8t;80dIN{ra83eC1s?M70?683@2Yf'"
+                add_lengths: false
+                selector: "setup.xml contains rtos=1 and not iot=1."
+              - method: 3
+                keydata: >
+                  mac[0:3] + mac[9:12] + serial +
+                  'b2Ujb3Rtb24mY3ZEbmlhaXBBZGFiT25v' + mac[6:9] + mac[3:6]
+                add_lengths: true
+                selector: >
+                  The Wemo app associates this with binaryOption=1, but pywemo
+                  reports the rtos/iot selector above matches hardware more
+                  often. Try this variant manually if the others fail.
             encoding: >
-              base64 of the ciphertext with OpenSSL's 16-byte "Salted__"+salt
-              header removed, followed by the hex-encoded length of that base64
-              string and the hex-encoded length of the plaintext passphrase.
+              base64 of the ciphertext, then — for methods 1 and 3 only — four
+              hex digits: the length of that base64 string and the length of
+              the plaintext passphrase, each zero-padded to exactly two digits.
+              Note that OpenSSL 1.x prefixes ciphertext with a 16-byte
+              "Salted__"+salt header even when the salt is given explicitly
+              while OpenSSL 3.x does not, so strip that header conditionally.
             notes: >
-              Derived from the public wemosetup implementation. The scheme
-              protects the passphrase from a passive listener on the open setup
-              AP, but the key is derived entirely from device metadata that the
-              device hands out unauthenticated, so it is obfuscation rather
-              than a trust boundary.
+              The scheme protects the passphrase from a passive listener on the
+              open setup AP, but the key is derived entirely from device
+              metadata that the device hands out unauthenticated, so it is
+              obfuscation rather than a trust boundary. Passphrases shorter
+              than 8 characters are rejected by the device (network status 2).
         steps:
           - action: "Factory reset the device (or call basicevent#ReSetup on a provisioned one) so it re-enters setup mode."
             actor: "user"
@@ -203,7 +231,12 @@ device:
             request:
               protocol: "http"
               action: "GET http://10.22.22.1:49153/setup.xml"
-            expect: "serviceList contains urn:Belkin:service:WiFiSetup:1 and urn:Belkin:service:metainfo:1."
+            expect: >
+              serviceList contains urn:Belkin:service:WiFiSetup:1 and
+              urn:Belkin:service:metainfo:1. Belkin also adds non-standard
+              elements alongside the UPnP ones — rtos, iot, binaryOption,
+              new_algo, firmwareVersion — and these select the passphrase
+              encryption variant (see credential_encryption.variants).
           - action: "Read device metadata used to derive the passphrase encryption key."
             actor: "client"
             request:
@@ -217,7 +250,13 @@ device:
               protocol: "soap"
               service: "urn:Belkin:service:WiFiSetup:1"
               action: "GetApList"
-            expect: "ApList string, one entry per line, carrying SSID, channel, auth mode, cipher and signal."
+            expect: >
+              ApList string. The first line is a header and is skipped. Each
+              remaining line is pipe-delimited with SSID in column 0, channel
+              in column 1, and 'AUTHMODE/CIPHER' in the last column; a trailing
+              comma is common. An auth mode of 'Unknown' means the device
+              cannot join that network (WPA3 appears this way). Supported
+              ciphers are NONE, AES and TKIPAES.
             timeout_seconds: 20
           - action: "Encrypt the home network passphrase and hand the device its credentials."
             actor: "client"
@@ -246,13 +285,22 @@ device:
                   type: "integer"
                   required: true
                   description: "Channel from the ApList entry."
+            expect: >
+              Returns PairingStatus. Send this action twice about 100ms apart —
+              pywemo reports a markedly higher success rate when it is repeated,
+              for reasons that are not understood. For an open network send
+              auth=OPEN, encrypt=NONE and an empty password.
           - action: "Poll the join result until the device reports a connected state."
             actor: "client"
             request:
               protocol: "soap"
               service: "urn:Belkin:service:WiFiSetup:1"
               action: "GetNetworkStatus"
-            expect: "NetworkStatus of 1 indicates a successful join; anything else means the credentials were rejected."
+            expect: >
+              NetworkStatus: 0 = still connecting, 1 = connected,
+              2 = rejected because the passphrase is shorter than 8
+              characters, 3 = handshaking (usually becomes 1 within a few
+              seconds, so do not treat it as a failure).
             timeout_seconds: 30
           - action: "Close setup mode so the device leaves its AP and joins the home network."
             actor: "client"
@@ -260,7 +308,11 @@ device:
               protocol: "soap"
               service: "urn:Belkin:service:WiFiSetup:1"
               action: "CloseSetup"
-            expect: "Setup AP disappears; the client can rejoin its normal network."
+            expect: >
+              Returns status = success. Follow with
+              basicevent#SetSetupDoneStatus where present; it is absent on some
+              firmware and its absence is not an error. Setup AP disappears and
+              the client can rejoin its normal network.
           - action: "Rediscover the device on the home LAN by SSDP and confirm control."
             actor: "client"
             request:
@@ -328,7 +380,20 @@ device:
             protocol: "soap"
             service: "urn:Belkin:service:basicevent:1"
             action: "ReSetup"
-          expect: "Device drops off the LAN and starts advertising its Wemo.* setup AP."
+            arguments:
+              - name: "Reset"
+                type: "integer"
+                required: true
+                description: >
+                  Scope of the reset: 1 clears name/icon/rules ("Clear
+                  Personalized Info"), 2 clears everything including WiFi
+                  ("Factory Restore"), 5 clears WiFi credentials only ("Change
+                  Wi-Fi"). Codes were consistent across the devices pywemo has
+                  been tested against but are not guaranteed for every model.
+          expect: >
+            Returns Reset = success; at least one device reports reset_remote
+            instead and still resets correctly. Device drops off the LAN and
+            starts advertising its Wemo.* setup AP.
         - action: "Run the softap_soap provisioning flow against the new network."
           actor: "client"
     credentials:
