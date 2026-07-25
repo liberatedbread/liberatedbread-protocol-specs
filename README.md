@@ -36,14 +36,16 @@ Local-first helper scripts, all standard-library only:
 ```bash
 python scripts/wemo_discover.py --timeout 5     # find Wemo devices via SSDP
 python scripts/wemo_control.py state --device 192.168.1.42:49153
-python scripts/wemo_setup.py info               # provision/reset (dry-run by default)
 python scripts/vector_discover.py --timeout 5   # mDNS discovery for other families
 ```
 
-`scripts/wemo_setup.py` also needs the `openssl` binary for the passphrase
-encryption Wemo devices require. See
-[Wemo setup, reset and rebinding](docs/devices/wemo-setup.md) and
-[Initial Device Setup](docs/protocols/device-setup.md).
+These find and probe devices. We deliberately do not ship provisioning clients
+— existing libraries (pywemo for Wemo) do that job and are tested against far
+more hardware than we are. The protocol specs are our contribution, and they
+are written to be implementable on their own: see
+[Wemo setup, reset and rebinding](docs/devices/wemo-setup.md),
+[Initial Device Setup](docs/protocols/device-setup.md) and
+[Reading a Device Spec](docs/api/spec-format.md).
 
 ## Adding a New Device
 

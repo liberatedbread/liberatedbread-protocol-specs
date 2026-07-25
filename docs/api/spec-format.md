@@ -192,10 +192,18 @@ test_vectors:
 ```
 
 Vectors use a documentation-range MAC and an invented serial, so they identify
-no real device. `scripts/test_wemo.py` asserts both that our code reproduces
-them *and* that a transcription of the written algorithm — using nothing but
-`hashlib`, `base64` and `openssl` — reproduces them too. That second test is
-the one that keeps the prose honest.
+no real device.
+
+`scripts/test_wemo_spec.py` is how the claim is kept honest: it transcribes the
+published algorithm using nothing but `hashlib`, `base64` and `openssl` —
+importing none of our own code — and asserts the transcription reproduces the
+spec's own vectors. If that cannot be written, the spec is underspecified and
+CI fails, regardless of whether anything else still works.
+
+That test is also why this repository ships no provisioning client. Existing
+libraries already do that job and are tested against far more hardware than we
+are; a second implementation from us would be a worse copy. The spec is the
+contribution, and proving it implementable is the test.
 
 ### Factory reset, rejoin, credentials
 

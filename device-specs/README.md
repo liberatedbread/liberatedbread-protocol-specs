@@ -170,10 +170,15 @@ follow it. In practice that means:
   and an abandoned one.
 
 `devices/wemo-devices.yaml` is the worked reference — it is written so a Wemo
-device can be provisioned from that file alone, and `scripts/test_wemo.py`
-asserts both that our code reproduces its test vectors and that a transcription
-of the written algorithm — using nothing but `hashlib`, `base64` and `openssl` —
-reproduces them too, so the prose cannot quietly rot.
+device can be provisioned from that file alone. `scripts/test_wemo_spec.py`
+proves it: the module transcribes the published algorithm using nothing but
+`hashlib`, `base64` and `openssl`, imports none of our own code, and asserts
+the transcription reproduces the spec's own test vectors. If the transcription
+cannot be written, the spec is underspecified and CI fails.
+
+That is also why this repository ships no provisioning clients. Existing
+libraries do that job and are tested against far more hardware than we are; the
+spec is our contribution, and proving it implementable is the test.
 
 Full field-by-field walkthrough:
 [`docs/api/spec-format.md`](../docs/api/spec-format.md). Patterns across

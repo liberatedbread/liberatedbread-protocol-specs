@@ -71,14 +71,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     WiFi (SoftAP) and BLE devices
   - `docs/devices/wemo-setup.md` — Wemo factory reset, provisioning over the
     device's setup AP, and rebinding to a new network via `ReSetup`
-  - `scripts/wemo_setup.py` — dry-run-by-default Wemo provisioning client,
-    implementing pywemo's protocol: all three passphrase encryption variants
-    with firmware-based detection and manual override, ApList parsing, the
-    documented network status codes, and `ReSetup` scope codes
-- `scripts/test_wemo.py` — tests for Wemo discovery parsing, InsightParams
-  field alignment, and the setup passphrase encryption
-- `scripts/test_wemo_setup_e2e.py` — end-to-end provisioning test against a
-  fake Wemo that decrypts the passphrase it is sent
+- `scripts/test_wemo.py` — tests for Wemo discovery parsing and InsightParams
+  field alignment
+- `scripts/test_wemo_spec.py` — proves the Wemo setup spec is implementable
+  from the spec alone: transcribes the published algorithm using only
+  `hashlib`, `base64` and `openssl`, importing none of this project's code, and
+  asserts it reproduces the spec's own test vectors
 - `docs/api/spec-format.md` — how to read a device spec, with the `setup` block
   covered field by field
 - `scripts/test_device_specs.py` — cross-spec consistency checks for conventions

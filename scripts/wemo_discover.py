@@ -88,18 +88,12 @@ class WemoDevice:
     usn: str = ""
     services: list[WemoService] = field(default_factory=list)
     #: Belkin's non-standard extension elements inside <device>, e.g.
-    #: firmwareVersion, rtos, iot, binaryOption, new_algo. These select the
-    #: WiFi-setup password encryption variant — see scripts/wemo_setup.py.
+    #: firmwareVersion, rtos, iot, binaryOption, new_algo. These select which
+    #: passphrase encryption variant the device expects during provisioning —
+    #: see device.setup in device-specs/devices/wemo-devices.yaml.
     config_extras: dict[str, str] = field(default_factory=dict)
     raw_ssdp_response: str = ""
     fetch_error: Optional[str] = None
-
-    def service_by_type(self, service_type: str) -> Optional[WemoService]:
-        """Return the advertised service with *service_type*, if present."""
-        for service in self.services:
-            if service.service_type == service_type:
-                return service
-        return None
 
 
 def build_msearch_packet(st: str, mx: int = SSDP_MX) -> bytes:
@@ -320,45 +314,6 @@ def parse_setup_xml(xml_bytes: bytes) -> Optional[WemoDevice]:
     return device
 
 
-def probe_port(host: str, ports: Optional[list[int]] = None) -> Optional[int]:
-    """Find the port a Wemo device is currently serving /setup.xml on.
-
-    Wemo ports move across 49151-49159 after a power cycle, so the port is
-    never identity — probe for it. Returns None if nothing answers.
-    """
-    for port in ports or PROBE_PORTS:
-        xml_data = fetch_setup_xml(f"http://{host}:{port}/setup.xml", timeout=2)
-        if xml_data is not None and parse_setup_xml(xml_data) is not None:
-            return port
-    return None
-
-
-def device_at(host: str, port: Optional[int] = None) -> Optional[WemoDevice]:
-    """Fetch and parse the description of the Wemo device at *host*.
-
-    Probes the known port list when *port* is not given. Returns None when no
-    Wemo device answers.
-    """
-    if port is None:
-        port = probe_port(host)
-        if port is None:
-            return None
-
-    url = f"http://{host}:{port}/setup.xml"
-    xml_data = fetch_setup_xml(url)
-    if xml_data is None:
-        return None
-
-    device = parse_setup_xml(xml_data)
-    if device is None:
-        return None
-
-    device.location_url = url
-    device.ip = host
-    device.port = port
-    return device
-
-
 def _merge_parsed(device: WemoDevice, parsed: WemoDevice) -> None:
     """Copy description fields from a parsed setup.xml onto a discovered device."""
     device.device_type = parsed.device_type
@@ -515,6 +470,17 @@ def format_table(devices: list[WemoDevice]) -> str:
                     f"        Service: {st_short:<20} CTRL={svc.control_url:<30} EVENT={svc.event_sub_url}"
                 )
 
+        # rtos/iot decide which passphrase encryption variant this device
+        # wants at provisioning time, so surface them next to the firmware.
+        notable = {
+            k: v
+            for k, v in d.config_extras.items()
+            if k.lower() in {"firmwareversion", "rtos", "iot", "binaryoption", "new_algo"}
+        }
+        if notable:
+            summary = "  ".join(f"{k}={v}" for k, v in sorted(notable.items()))
+            lines.append(f"        Firmware: {summary}")
+
         if d.fetch_error:
             lines.append(f"        ⚠ {d.fetch_error}")
 
@@ -538,6 +504,7 @@ def format_json(devices: list[WemoDevice]) -> str:
             "mac_address": d.mac_address,
             "udn": d.udn,
             "usn": d.usn,
+            "config_extras": d.config_extras,
             "services": [
                 {
                     "service_type": svc.service_type,
