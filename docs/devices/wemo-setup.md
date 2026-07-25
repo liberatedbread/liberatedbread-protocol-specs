@@ -15,7 +15,7 @@ normal control. Nothing in the flow requires Belkin's servers, which is why
 Wemo hardware remains recoverable after the January 2026 shutdown.
 
 !!! info "Confidence and provenance"
-    This page and `scripts/wemo_setup.py` follow
+    This page and `device-specs/devices/wemo-devices.yaml` follow
     [pywemo](https://github.com/pywemo/pywemo)'s implementation
     (`pywemo/ouimeaux_device/__init__.py`, Apache 2.0), which is the maintained
     reference and has been exercised against real hardware across several
@@ -23,15 +23,14 @@ Wemo hardware remains recoverable after the January 2026 shutdown.
     [wemosetup](https://github.com/vadimkantorov/wemosetup) for the encryption
     derivation.
 
-    Our encryption is byte-identical to pywemo's across all three key
-    variants, and the whole flow is exercised end to end against a fake device
-    that decrypts what the client sends
-    (`scripts/test_wemo_setup_e2e.py`). What has *not* happened yet is a run
-    against real hardware in this project — if you hit something this page gets
-    wrong, that is worth filing.
+    The spec is checked by implementing it: `scripts/test_wemo_spec.py`
+    transcribes the published algorithm using nothing but `hashlib`, `base64`
+    and `openssl`, and asserts it reproduces the spec's own test vectors. If
+    that transcription cannot be written, the spec is underspecified and CI
+    fails.
 
-    **If our script fails on your device, use pywemo.** It is better tested,
-    and it is the same protocol.
+    What has *not* happened is a run against real hardware in this project. If
+    you hit something this page gets wrong, that is worth filing.
 
 ## When you need this
 
@@ -255,8 +254,8 @@ pywemo notes that the Wemo app's own logic (`binaryOption=1` → method 3,
 `rtos`/`iot`, so the table above is what to implement.
 
 If a connect attempt fails, the variant is the first thing to vary — there are
-six combinations, and `wemo_setup.py` exposes them with `--encrypt-method` and
-`--add-lengths` / `--no-add-lengths`.
+six combinations, and pywemo exposes them as `_encrypt_method` and
+`_add_password_lengths`.
 
 !!! danger "This is obfuscation, not encryption"
     Every input to the key derivation comes from `GetMetaInfo`, which the
@@ -296,75 +295,62 @@ different address, so match on UDN, serial or MAC, never on IP:
 python scripts/wemo_discover.py --timeout 5
 ```
 
-## Using the tool
+## Doing it
 
-`scripts/wemo_setup.py` implements the flow above. It is **dry-run by
-default** — every subcommand prints the SOAP it would send and stops there
-unless you pass `--execute`.
-
-```bash
-# Confirm you are on the setup AP. Also reports which encryption variant
-# this device's firmware calls for.
-python scripts/wemo_setup.py info --execute
-
-# See the networks the device can find (prints the raw ApList too)
-python scripts/wemo_setup.py list-aps --execute
-
-# Hand over credentials. Auth mode, cipher and channel are taken from the
-# device's own scan results — you only name the network.
-python scripts/wemo_setup.py connect --ssid "HomeNetwork" --execute
-```
-
-`connect` runs the whole sequence: scan, key material, credentials (sent
-twice), status polling, `CloseSetup` and `SetSetupDoneStatus`. The other
-subcommands are for picking apart a failure:
-
-```bash
-python scripts/wemo_setup.py status --execute   # decode the current NetworkStatus
-python scripts/wemo_setup.py close --execute    # release the device manually
-
-# Push a device that is still on your LAN back into setup mode.
-# --wifi is the app's "Change Wi-Fi"; --data and --factory are also available.
-python scripts/wemo_setup.py reset --wifi --device 192.168.1.42 --execute
-```
-
-If a connect attempt fails, the encryption variant is the first thing to vary.
-There are six combinations; try them in this order:
-
-```bash
-python scripts/wemo_setup.py connect --ssid HomeNetwork --execute \
-    --encrypt-method 1 --add-lengths        # default for most devices
-python scripts/wemo_setup.py connect --ssid HomeNetwork --execute \
-    --encrypt-method 2 --no-add-lengths
-python scripts/wemo_setup.py connect --ssid HomeNetwork --execute \
-    --encrypt-method 3 --add-lengths
-# then the remaining three combinations
-```
-
-The passphrase is read from the `WEMO_WIFI_PASSWORD` environment variable, or
-prompted for without echo. It is never printed, never logged, and never written
-to a file — including in dry-run output, where the encrypted blob is shown as a
-placeholder.
-
-Encryption is performed by the `openssl` command-line tool, which must be on
-your `PATH`. Python's standard library has no AES implementation, and this
-repository's tooling deliberately has no third-party runtime dependencies.
-
-### Or just use pywemo
-
-pywemo does all of the above and is tested against far more hardware than we
-are. If you only want the device on your network, this is the faster path:
+We do not ship a provisioning client. [pywemo](https://github.com/pywemo/pywemo)
+already does this job, is maintained, and is tested against far more hardware
+than we have — a second implementation from us would be a worse copy of it. Our
+contribution is the spec.
 
 ```bash
 pip install pywemo
 python - <<'EOF'
 import pywemo
+
+# Joined to the device's open Wemo.* setup AP:
 url = pywemo.setup_url_for_address("10.22.22.1")
 device = pywemo.discovery.device_from_description(url)
 print(device)
 print(device.setup(ssid="HomeNetwork", password="secret"))   # ('1', 'success')
 EOF
 ```
+
+If a connect attempt fails, the encryption variant is the first thing to vary.
+pywemo exposes the same six combinations this page documents:
+
+```python
+device.setup(ssid="HomeNetwork", password="secret",
+             _encrypt_method=1, _add_password_lengths=True)   # default for most
+device.setup(ssid="HomeNetwork", password="secret",
+             _encrypt_method=2, _add_password_lengths=False)
+device.setup(ssid="HomeNetwork", password="secret",
+             _encrypt_method=3, _add_password_lengths=True)
+# then the remaining three combinations
+```
+
+Resets are `device.reset(data=..., wifi=...)` — see
+[Rebinding to a new network](#rebinding-to-a-new-network) for what each scope
+clears.
+
+### Finding the device
+
+`scripts/wemo_discover.py` is ours and stays useful either side of setup. It
+prints the firmware flags that decide which encryption variant a device wants,
+so you can predict the right combination before trying:
+
+```bash
+python scripts/wemo_discover.py --timeout 5
+#   192.168.1.42  49153  Kitchen Plug   controllee   221517K0101769
+#           Firmware: firmwareVersion=WeMo_US_2.00.11408  iot=0  rtos=1
+#           ^ rtos=1 without iot=1 means encryption method 2, no length suffix
+```
+
+### Implementing it yourself
+
+Work from `device-specs/devices/wemo-devices.yaml`. Its `device.setup` block is
+written to be complete on its own and publishes test vectors so you can verify
+your encryption before going near hardware — see
+[Reading a Device Spec](../api/spec-format.md).
 
 ## Rebinding to a new network
 
@@ -381,8 +367,13 @@ the Wemo app used to offer:
 | `2` | Everything, including WiFi | Factory Restore | `--factory` |
 | `5` | WiFi credentials only | Change Wi-Fi | `--wifi` |
 
-```bash
-python scripts/wemo_setup.py reset --wifi --device 192.168.1.42 --execute
+```python
+import pywemo
+
+device = pywemo.discovery.device_from_description(
+    pywemo.setup_url_for_address("192.168.1.42")
+)
+device.reset(data=False, wifi=True)   # "Change Wi-Fi"
 ```
 
 A successful reset returns `success`; at least one device is reported to return
