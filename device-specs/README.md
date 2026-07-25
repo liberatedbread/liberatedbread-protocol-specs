@@ -84,13 +84,33 @@ entities:
 | `protocol` | Yes | Primary protocol: `ble`, `wifi`, `zigbee`, `zwave`, `obd2` |
 | `notes` | No | Free-text notes about the device |
 | `identification` | No | How to auto-discover during scanning |
+| `discovery` | No | Machine-readable discovery methods and identity keys |
+| `setup` | No | One-time provisioning, factory reset and rebinding |
 
 ### `identification` (optional)
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `local_name_prefix` | No | BLE advertisement local name prefix |
+| `local_name_prefix` | No | BLE advertisement local name prefix. Omit it rather than setting `""` — an empty prefix matches every device. |
 | `service_uuids` | No | BLE service UUIDs (full 128-bit format) |
+
+### `setup` (optional)
+
+Describes how a factory-fresh device is brought onto the network — deliberately
+separate from `discovery` (finding an already-provisioned device) and from
+`initialization` (the per-connection handshake).
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `required` | No | Whether provisioning is needed at all. `false` for most BLE devices. |
+| `confidence` | No | `high` (replayed against hardware or a working open implementation), `medium` (public source/vendor docs), `low` (inferred) |
+| `methods` | No | Ordered onboarding methods; `type` is one of `none`, `softap_http`, `softap_soap`, `ble_provisioning`, `ble_direct`, `wps`, `smartconfig`, `wired`, `device_ui`, `hub_pairing`, `button_pairing`, `cloud_account` |
+| `factory_reset` | No | What a reset clears, and the per-variant procedures that trigger it |
+| `rejoin` | No | Whether a device can be moved to a new network without a reset |
+| `credentials` | No | How the WiFi passphrase is protected, what the device stores, what it issues to the client |
+
+See [`docs/protocols/device-setup.md`](../docs/protocols/device-setup.md) for
+the patterns and a worked example, and `schema.json` for the exact shapes.
 
 ### `services` (required, array)
 

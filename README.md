@@ -29,12 +29,39 @@ mkdocs serve
 
 Then open http://localhost:8000
 
+## Device Tooling
+
+Local-first helper scripts, all standard-library only:
+
+```bash
+python scripts/wemo_discover.py --timeout 5     # find Wemo devices via SSDP
+python scripts/wemo_control.py state --device 192.168.1.42:49153
+python scripts/wemo_setup.py info               # provision/reset (dry-run by default)
+python scripts/vector_discover.py --timeout 5   # mDNS discovery for other families
+```
+
+`scripts/wemo_setup.py` also needs the `openssl` binary for the passphrase
+encryption Wemo devices require. See
+[Wemo setup, reset and rebinding](docs/devices/wemo-setup.md) and
+[Initial Device Setup](docs/protocols/device-setup.md).
+
 ## Adding a New Device
 
 1. Copy `docs/devices/_template.md` to `docs/devices/your-device-name.md`
-2. Fill in the template
-3. Add your device to `docs/devices/index.md`
-4. Submit a PR!
+2. Fill in the template — including the setup, factory reset and rebinding section
+3. Add your device to `docs/devices/index.md` and to `mkdocs.yml`'s nav
+4. Add a spec under `device-specs/devices/` and validate it:
+   `python scripts/validate_specs.py`
+5. Submit a PR!
+
+## Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+ruff check .        # lint the helper scripts
+pytest -q           # run the test suite
+mkdocs build --strict
+```
 
 ## Related Repos
 

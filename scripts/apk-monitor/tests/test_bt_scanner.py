@@ -1,23 +1,19 @@
 """Tests for bt_scanner.py — pattern matching, UUID extraction, confidence scoring."""
 
 import re
-from pathlib import Path
 
 import pytest
 
 from bt_scanner import (
     BT_PATTERNS,
     ScanResult,
-    SIG_BASE_UUIDS,
     _CONFIDENCE_WEIGHTS,
     _UUID_RE,
-    _UUID_WEIGHT,
     _compute_confidence,
     _detect_flutter,
     _extract_uuids,
     _grep_dir,
     is_interesting,
-    scan_apk,
 )
 
 

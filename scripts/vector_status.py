@@ -35,7 +35,6 @@ import json
 import os
 import ssl
 import sys
-import tempfile
 from datetime import datetime
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError

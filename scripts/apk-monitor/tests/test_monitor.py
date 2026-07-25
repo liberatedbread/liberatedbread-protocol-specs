@@ -2,9 +2,7 @@
 
 import csv
 import inspect
-from pathlib import Path
 
-import pytest
 
 from monitor import _generate_target_id, _append_to_targets_csv, _load_existing_target_ids, run_vote_only
 

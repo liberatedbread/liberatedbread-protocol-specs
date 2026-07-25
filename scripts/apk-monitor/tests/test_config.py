@@ -1,13 +1,9 @@
 """Tests for config.py — loading, env precedence, dataclass factories."""
 
-import os
-from pathlib import Path
 
-import pytest
 
 from config import (
-    DEFAULT_CLAUDE_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
-    ModelConfig, ResolvedPaths, load_config,
+    DEFAULT_CLAUDE_MODEL, DEFAULT_OPENAI_BASE_URL, ModelConfig, ResolvedPaths, load_config,
 )
 
 

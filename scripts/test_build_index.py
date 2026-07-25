@@ -16,51 +16,23 @@ _scripts_dir = Path(__file__).resolve().parent
 if str(_scripts_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_dir))
 
-import build_index
+import build_index  # noqa: E402
 
 
 def test_discover_specs():
-    """Glob finds the expected YAML files under device-specs/devices/."""
+    """Glob finds every YAML file under device-specs/devices/."""
     paths = build_index.discover_specs()
     assert len(paths) > 0, "Expected at least one device spec"
     stems = {Path(p).stem for p in paths}
-    # Every device spec published in the JSON API after integrating the
-    # structured-specs port (device-specs/devices/*.yaml).
-    expected = {
-        "admore-light-bar",
-        "autobaba-led-backpack",
-        "bluetooth-led-name-badge",
-        "bmw-motorcycle-diagnostics",
-        "chef-iq-sense",
-        "coolledx-led-sign",
-        "dyson-air-purifier",
-        "ember-mug",
-        "enphase-envoy",
-        "frigidaire-portable-ac",
-        "frigidaire-window-ac",
-        "hue-bridge",
-        "idotmatrix",
-        "leds2rave4-lunchbox-led",
-        "lifx-z",
-        "lutron-caseta-smart-bridge",
-        "magic-display",
-        "motool-slacker",
-        "nyan-bt-image-controller",
-        "obd2-bluetooth-adapter",
-        "pax-vape",
-        "proglow-motorcycle-led",
-        "rachio-controller",
-        "roku-ecp",
-        "seeblue-motorcycle-led",
-        "shining-glasses",
-        "shining-mask",
-        "smartthings-hub-v2",
-        "spotled-led-panel",
-        "triumph-tiger-900",
-        "vector-robot",
-        "wemo-devices",
-    }
-    assert stems == expected, f"Expected {sorted(expected)}, got {sorted(stems)}"
+
+    # Compare against the directory itself rather than a hardcoded list: the
+    # registry grows, and a list baked into the test only ever rots into a
+    # false failure. What matters is that the glob misses nothing.
+    on_disk = {p.stem for p in build_index.SPECS_DIR.glob("*.yaml")}
+    assert stems == on_disk, f"Glob missed {sorted(on_disk - stems)}"
+
+    # A few long-standing specs, so an empty or wrongly-rooted glob still fails.
+    assert {"ember-mug", "wemo-devices", "vector-robot"} <= stems
 
 
 def test_load_yaml():
@@ -89,7 +61,9 @@ def test_manifest_structure(monkeypatch):
 
     generated_at = "2026-01-01T00:00:00+00:00"
     # Force git fallback so updated_at is deterministic
-    monkeypatch.setattr(build_index, "git_last_modified", lambda p, fb: generated_at)
+    monkeypatch.setattr(
+        build_index, "git_last_modified", lambda _path, _fallback: generated_at
+    )
 
     # Load + serialize every spec
     specs = [build_index.load_and_serialize_spec(Path(p), schema) for p in paths]
@@ -120,8 +94,6 @@ def test_manifest_structure(monkeypatch):
 
 def test_deterministic_output():
     """Two runs produce the same manifest and per-device JSON."""
-    import datetime
-
     schema = build_index.load_schema()
     paths = build_index.discover_specs()
     generated_at = "2026-01-01T00:00:00+00:00"
@@ -135,7 +107,6 @@ def test_deterministic_output():
 
 def test_per_device_json():
     """Per-device JSON is valid JSON with expected structure."""
-    schema = build_index.load_schema()
     paths = build_index.discover_specs()
 
     for path in paths:

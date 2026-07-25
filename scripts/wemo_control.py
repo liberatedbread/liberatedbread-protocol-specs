@@ -86,11 +86,10 @@ def build_soap_envelope(
 def envelope_to_bytes(envelope: ET.Element) -> bytes:
     """Serialize a SOAP envelope Element to UTF-8 bytes for the HTTP body.
 
-    Strips the XML declaration for maximum compatibility with Wemo devices.
+    Includes the XML declaration, which UPnP control requests are expected to
+    carry and which Wemo devices accept.
     """
-    raw = ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
-    # Some Wemo devices don't like the XML declaration; strip it.
-    return raw
+    return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
 
 
 def soapaction_header(service_type: str, action: str) -> str:
@@ -210,33 +209,95 @@ def parse_soap_response(xml_bytes: bytes) -> Optional[str]:
     return None
 
 
-def parse_insight_params(raw: str) -> dict[str, str]:
-    """Parse the colon-delimited InsightParams string.
+def parse_soap_values(xml_bytes: bytes) -> dict[str, str]:
+    """Extract every named value from a SOAP response body.
 
-    Format (from pywemo):
-        state|lastchange|onfor|ontoday|ontotal|timeperiod|...
-        averagepower|instantpower(mW)|energytoday|energytotal|...
-
-    Returns a dict with named fields.
+    Wemo actions such as ``GetMetaInfo`` and ``GetApList`` return one or more
+    named children inside the response element; :func:`parse_soap_response`
+    only yields the first. Returns an empty dict if the document cannot be
+    parsed or carries no values.
     """
-    parts = raw.replace("|", ":").split(":")
-    fields = [
-        "state",
-        "lastchange",
-        "onfor_seconds",
-        "ontoday_seconds",
-        "ontotal_seconds",
-        "timeperiod",
-        "currentmw",
-        "todaymw",
-        "totalmw",
-        "powertreshold",
-        "unknown",
-    ]
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return {}
+
+    body = root.find(f"{{{SOAP_ENVELOPE_NS}}}Body")
+    if body is None:
+        return {}
+
+    children = list(body)
+    if not children:
+        return {}
+
+    values: dict[str, str] = {}
+    for el in children[0]:
+        tag = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        values[tag] = (el.text or "").strip()
+    return values
+
+
+def post_soap(
+    device_addr: str,
+    envelope: ET.Element,
+    service_type: str,
+    action: str,
+    control_path: str,
+    timeout: int = 10,
+) -> bytes:
+    """POST a SOAP envelope to a Wemo device and return the raw response body.
+
+    Raises ``URLError`` (or ``HTTPError``, its subclass) on transport failure.
+    """
+    req = urllib.request.Request(
+        f"http://{device_addr}{control_path}",
+        data=envelope_to_bytes(envelope),
+        headers={
+            "Content-Type": 'text/xml; charset="utf-8"',
+            "SOAPACTION": soapaction_header(service_type, action),
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+#: Field order of the pipe-delimited InsightParams string, per pywemo.
+INSIGHT_PARAM_FIELDS = [
+    "state",
+    "lastchange",
+    "onfor_seconds",
+    "ontoday_seconds",
+    "ontotal_seconds",
+    "timeperiod",
+    "wifipower",
+    "currentpower_mw",
+    "todaymw",
+    "totalmw",
+    "powerthreshold",
+]
+
+
+def parse_insight_params(raw: str) -> dict[str, str]:
+    """Parse the pipe-delimited InsightParams string.
+
+    Format (from pywemo)::
+
+        state|lastchange|onfor|ontoday|ontotal|timeperiod|wifipower|
+        currentpower_mw|todaymw|totalmw|powerthreshold
+
+    Fields past the known list are returned as ``field_<n>`` so a firmware that
+    appends values is reported rather than silently dropped.
+    """
+    parts = raw.split("|")
 
     result: dict[str, str] = {}
     for i, part in enumerate(parts):
-        key = fields[i] if i < len(fields) else f"field_{i}"
+        key = (
+            INSIGHT_PARAM_FIELDS[i]
+            if i < len(INSIGHT_PARAM_FIELDS)
+            else f"field_{i}"
+        )
         result[key] = part.strip()
     return result
 
@@ -283,37 +344,32 @@ def send_soap(
     print()
     print("[SENDING...]")
 
-    req = urllib.request.Request(
-        url,
-        data=body_bytes,
-        headers={
-            "Content-Type": 'text/xml; charset="utf-8"',
-            "SOAPACTION": soapaction,
-        },
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp_body = resp.read()
-            print(f"HTTP {resp.status}")
-            print()
-            print(resp_body.decode("utf-8", errors="replace"))
-            print()
-
-            # Try to parse the result.
-            result = parse_soap_response(resp_body)
-            if result:
-                print(f"RESULT: {result}")
-
-                if action == "GetInsightParams":
-                    insight = parse_insight_params(result)
-                    print("── InsightParams parsed ──")
-                    for k, v in insight.items():
-                        print(f"  {k}: {v}")
+        resp_body = post_soap(
+            device_addr=device_addr,
+            envelope=envelope,
+            service_type=service_type,
+            action=action,
+            control_path=control_path,
+            timeout=timeout,
+        )
     except URLError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from exc
+
+    print(resp_body.decode("utf-8", errors="replace"))
+    print()
+
+    # Try to parse the result.
+    result = parse_soap_response(resp_body)
+    if result:
+        print(f"RESULT: {result}")
+
+        if action == "GetInsightParams":
+            insight = parse_insight_params(result)
+            print("── InsightParams parsed ──")
+            for k, v in insight.items():
+                print(f"  {k}: {v}")
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────

@@ -266,7 +266,7 @@ endpoints where available.
 | `DeletePhoto` | `POST /v1/delete_photo` | Delete a photo |
 | `CaptureSingleImage` | `POST /v1/capture_single_image` | Take a photo |
 
-### Discovery
+## Discovery
 
 ### mDNS (Wi-Fi)
 - Service type: `_ankivector._tcp.local.`
@@ -343,7 +343,7 @@ python scripts/vector_status.py 192.168.1.42 \
 - [kercre123/wire-pod](https://github.com/kercre123/wire-pod) — Community local chipper replacement (★770)
 - [codaris/Anki.Vector.SDK](https://github.com/codaris/Anki.Vector.SDK) — .NET SDK (★92)
 - [developer.anki.com/vector/docs/](https://developer.anki.com/vector/docs/) — Official SDK docs (archived)
-- [Protocol target spec](https://github.com/opengreeniot/protocol-docs/blob/main/targets/vector-robot.md) — Full RE target spec
+- [Protocol target spec](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/vector-robot.md) — Full RE target spec
 
 ## Contributors
 

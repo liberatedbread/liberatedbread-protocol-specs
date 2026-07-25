@@ -87,12 +87,75 @@ device:
       stable_keys: ["address"]
       display: "local_name"
     static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      There is nothing to provision — no network, no account, no cloud. What
+      trips clients up instead is write authorization: several libraries report
+      that a mug fresh out of the box accepts reads but rejects writes until a
+      client has claimed it by writing the UDSK characteristic (what
+      python-ember-mug calls making the mug writable). Historically that first
+      claim was done by the vendor app.
+    methods:
+      - type: "ble_direct"
+        description: >
+          Scan, connect, then claim write access. Temperature reads work
+          immediately; setpoint and LED writes may not.
+        ble:
+          advertised_name: "Ember"
+          pairing_required: true
+          pin_source: "None — claiming is a characteristic write, not a BLE PIN pairing."
+        steps:
+          - action: "Put the mug in pairing mode by holding the button on the base until the LED shows the pairing colour."
+            actor: "user"
+            expect: "Mug advertises with local name Ember* and manufacturer ID 961 (0x03C1)."
+          - action: "Connect and read the device state characteristics to confirm the link."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "If writes are rejected, claim the mug by writing a UDSK value."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Write UDSK"
+            notes: >
+              python-ember-mug's make_writable() writes a random UDSK. Treat
+              the DSK/UDSK semantics as partially understood; keep the value
+              you wrote, since it is the client's claim on the mug.
+    factory_reset:
+      confidence: "low"
+      effect: "Clears the stored claim and returns the mug to pairing mode; temperature history and target are lost."
+      procedures:
+        - name: "Base button held"
+          hold_seconds: 10
+          indicator: "LED changes colour and the mug re-enters pairing mode."
+          steps:
+            - action: "Press and hold the button on the base of the mug until the LED changes."
+              actor: "user"
+              notes: "Hold time varies by model; watch the LED rather than the clock."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The usual symptom of a mug that will not connect is not a broken claim
+        but a phone that is still holding the single allowed connection. Close
+        or uninstall the other client, or power-cycle the mug on its coaster,
+        before assuming a reset is required.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "UDSK claim value"
+      issued_to_client:
+        - "DSK read from the mug, and the UDSK the client wrote"
 services:
   - uuid: "fc543622-236c-4c94-8fa9-944a3e5353fa"
     name: "Ember Mug Service"
     notes: >
       Standard Mug/Cup/Tumbler service. Travel Mug variants use service UUIDs
-      fc543621-236c-4c94-8fa9-944a3e5353fa and fc5421a1-236c-4c94-8fa9-944a3e5353fa
+      fc543621-236c-4c94-8fa9-944a3e5353fa and
+      fc5421a1-236c-4c94-8fa9-944a3e5353fa
       with the same fc54XXXX characteristic UUID pattern according to
       python-ember-mug. Schema has no way to declare equivalent service UUIDs
       without duplicating every characteristic.
