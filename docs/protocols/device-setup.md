@@ -215,8 +215,9 @@ bind the device to any network, ever again.
 
 ## Documenting setup for a new device
 
-Fill in `device.setup` in the device's spec YAML alongside the prose page. The
-minimum useful set:
+Fill in `device.setup` in the device's spec YAML alongside the prose page.
+[Reading a Device Spec](../api/spec-format.md) covers every field; the minimum
+useful set is:
 
 ```yaml
 device:
@@ -278,6 +279,7 @@ Rules of thumb:
 
 ## Related
 
+- [Reading a Device Spec](../api/spec-format.md) — the `setup` block field by field
 - [Wemo setup, reset and rebinding](../devices/wemo-setup.md) — the worked example
 - [Common WiFi Patterns](wifi-common.md)
 - [Common BLE Patterns](ble-common.md)
