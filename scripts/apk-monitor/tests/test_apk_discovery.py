@@ -1,9 +1,7 @@
 """Tests for apk_discovery.py — package filtering, state management."""
 
 import json
-from pathlib import Path
 
-import pytest
 
 from apk_discovery import load_known_packages, load_seen_packages, save_seen_packages
 

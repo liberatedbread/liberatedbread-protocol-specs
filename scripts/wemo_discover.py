@@ -28,7 +28,6 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
-from urllib.error import URLError
 
 # ── Constants ────────────────────────────────────────────────────────────────
 SSDP_MULTICAST = "239.255.255.250"
@@ -43,8 +42,7 @@ SEARCH_TARGETS = [
     "ssdp:all",
 ]
 
-# Default SOAP port for Wemo devices (probed first; then the full list).
-DEFAULT_SOAP_PORT = 49153
+# Port fallback order used by pywemo when the advertised LOCATION is stale.
 PROBE_PORTS = [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
 
 # Timeout for fetching setup.xml after discovery.
@@ -202,8 +200,28 @@ def fetch_setup_xml(url: str, timeout: int = HTTP_TIMEOUT) -> Optional[bytes]:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
-    except (URLError, OSError) as exc:
+    except OSError:
+        # URLError is an OSError subclass; this also covers socket timeouts.
         return None
+
+
+def _local_tag(tag: str) -> str:
+    """Return an XML tag without its ``{namespace}`` prefix."""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+def _find_child(parent: ET.Element, name: str) -> Optional[ET.Element]:
+    """Return the first child element with local tag *name*, ignoring namespace."""
+    for child in parent:
+        if _local_tag(child.tag) == name:
+            return child
+    return None
+
+
+def _child_text(parent: ET.Element, name: str) -> str:
+    """Return the stripped text of the first child named *name*, or ""."""
+    child = _find_child(parent, name)
+    return (child.text or "").strip() if child is not None else ""
 
 
 def parse_setup_xml(xml_bytes: bytes) -> Optional[WemoDevice]:
@@ -219,103 +237,149 @@ def parse_setup_xml(xml_bytes: bytes) -> Optional[WemoDevice]:
 
     device_el = root.find(".//dn:device", NS)
     if device_el is None:
-        device_el = root.find(".//{urn:schemas-upnp-org:device-1-0}device")
+        # Some firmware serves the description without the UPnP namespace.
+        device_el = next(
+            (el for el in root.iter() if _local_tag(el.tag) == "device"), None
+        )
 
     if device_el is None:
         return None
-
-    def _text(tag: str, default: str = "") -> str:
-        el = device_el.find(f"dn:{tag}", NS)
-        if el is None:
-            el = device_el.find(f"{{{NS['dn']}}}{tag}")
-        if el is not None and el.text:
-            return el.text.strip()
-        return default
 
     device = WemoDevice(
         location_url="",
         ip="",
         port=0,
-        device_type=_text("deviceType"),
-        friendly_name=_text("friendlyName"),
-        manufacturer=_text("manufacturer"),
-        model_name=_text("modelName"),
-        model_number=_text("modelNumber"),
-        serial_number=_text("serialNumber"),
-        mac_address=_text("macAddress"),
-        udn=_text("UDN"),
+        device_type=_child_text(device_el, "deviceType"),
+        friendly_name=_child_text(device_el, "friendlyName"),
+        manufacturer=_child_text(device_el, "manufacturer"),
+        model_name=_child_text(device_el, "modelName"),
+        model_number=_child_text(device_el, "modelNumber"),
+        serial_number=_child_text(device_el, "serialNumber"),
+        mac_address=_child_text(device_el, "macAddress"),
+        udn=_child_text(device_el, "UDN"),
     )
 
-    # Parse service list.
-    service_list_el = device_el.find("dn:serviceList", NS)
-    if service_list_el is None:
-        service_list_el = device_el.find(f"{{{NS['dn']}}}serviceList")
+    # Parse service list. Devices vary in whether they namespace child
+    # elements, so match on the local tag name rather than on a namespace.
+    service_list_el = _find_child(device_el, "serviceList")
 
     if service_list_el is not None:
-        for svc_el in service_list_el.findall("dn:service", NS):
-            if svc_el is None:
-                svc_el_tag = f"{{{NS['dn']}}}service"
-                svc_el_list = service_list_el.findall(svc_el_tag)
-            else:
-                svc_el_list = service_list_el.findall("dn:service", NS)
-
-            # Redo this cleanly
-            pass
-
-    # Re-parse services cleanly.
-    device.services = []
-    if service_list_el is not None:
-        for svc_el in list(service_list_el):
-            tag = svc_el.tag.split("}")[-1] if "}" in svc_el.tag else svc_el.tag
-            if tag != "service":
+        for svc_el in service_list_el:
+            if _local_tag(svc_el.tag) != "service":
                 continue
-
-            def _svc_text(t: str) -> str:
-                el2 = svc_el.find(f"dn:{t}", NS)
-                if el2 is None:
-                    el2 = svc_el.find(f"{{{NS['dn']}}}{t}")
-                return el2.text.strip() if el2 is not None and el2.text else ""
-
             device.services.append(
                 WemoService(
-                    service_type=_svc_text("serviceType"),
-                    service_id=_svc_text("serviceId"),
-                    control_url=_svc_text("controlURL"),
-                    event_sub_url=_svc_text("eventSubURL"),
-                    scpd_url=_svc_text("SCPDURL"),
+                    service_type=_child_text(svc_el, "serviceType"),
+                    service_id=_child_text(svc_el, "serviceId"),
+                    control_url=_child_text(svc_el, "controlURL"),
+                    event_sub_url=_child_text(svc_el, "eventSubURL"),
+                    scpd_url=_child_text(svc_el, "SCPDURL"),
                 )
             )
 
     return device
 
 
+def _merge_parsed(device: WemoDevice, parsed: WemoDevice) -> None:
+    """Copy description fields from a parsed setup.xml onto a discovered device."""
+    device.device_type = parsed.device_type
+    device.friendly_name = parsed.friendly_name
+    device.manufacturer = parsed.manufacturer
+    device.model_name = parsed.model_name
+    device.model_number = parsed.model_number
+    device.serial_number = parsed.serial_number
+    device.mac_address = parsed.mac_address
+    device.udn = parsed.udn
+    device.services = parsed.services
+
+
+def _fetch_description(device: WemoDevice, probe_ports: bool) -> None:
+    """Fetch and parse the device description, updating *device* in place.
+
+    Tries the SSDP ``LOCATION`` URL first. Wemo ports move across 49152-49159
+    after a power cycle, so when the advertised location is stale and
+    *probe_ports* is set, the known port list is probed for ``/setup.xml``.
+    """
+    xml_data = fetch_setup_xml(device.location_url)
+    if xml_data is not None:
+        parsed = parse_setup_xml(xml_data)
+        if parsed is not None:
+            _merge_parsed(device, parsed)
+            return
+        device.fetch_error = f"Failed to parse {device.location_url}"
+        return
+
+    if not probe_ports:
+        device.fetch_error = f"Failed to fetch {device.location_url}"
+        return
+
+    for port in PROBE_PORTS:
+        if port == device.port:
+            continue
+        url = f"http://{device.ip}:{port}/setup.xml"
+        xml_data = fetch_setup_xml(url, timeout=1)
+        if xml_data is None:
+            continue
+        parsed = parse_setup_xml(xml_data)
+        if parsed is not None:
+            _merge_parsed(device, parsed)
+            device.location_url = url
+            device.port = port
+            return
+
+    device.fetch_error = (
+        f"Failed to fetch {device.location_url} (also probed ports "
+        f"{PROBE_PORTS[0]}-{PROBE_PORTS[-1]})"
+    )
+
+
+def is_wemo(device: WemoDevice) -> bool:
+    """Whether a discovered SSDP responder looks like a Belkin Wemo device.
+
+    ``ssdp:all`` is one of the search targets, so every UPnP responder on the
+    LAN answers. Belkin identifies itself in the USN/ST of its own search
+    targets and in the manufacturer and deviceType of its description.
+    """
+    haystack = " ".join(
+        (
+            device.usn,
+            device.device_type,
+            device.manufacturer,
+            device.raw_ssdp_response,
+        )
+    ).lower()
+    return "belkin" in haystack or "wemo" in haystack
+
+
 def discover(
     timeout: float = 3.0,
     fetch_details: bool = True,
+    probe_ports: bool = True,
+    wemo_only: bool = True,
 ) -> list[WemoDevice]:
     """Discover Wemo devices on the local LAN.
 
     Args:
-        timeout: Seconds to wait for M-SEARCH responses.
-        fetch_details: If True, fetch and parse /setup.xml for each device.
+        timeout: Seconds to wait for M-SEARCH responses, per search target.
+        fetch_details: If True, fetch and parse the device description.
+        probe_ports: If True, fall back to probing PROBE_PORTS when the
+            advertised LOCATION does not answer.
+        wemo_only: If True, drop responders that do not identify as Belkin/Wemo.
 
     Returns:
-        List of discovered WemoDevice objects.
+        List of discovered WemoDevice objects, ordered by IP then port.
     """
     # Collect all SSDP responses (deduplicate by LOCATION).
     seen_locations: dict[str, tuple[str, str, str]] = {}
 
     for st in SEARCH_TARGETS:
-        responses = send_msearch(st, timeout=timeout)
-        for resp in responses:
+        for resp in send_msearch(st, timeout=timeout):
             loc, usn, search_st = parse_ssdp_response(resp)
-            if loc:
-                # Deduplicate by location URL.
-                if loc not in seen_locations:
-                    seen_locations[loc] = (resp, usn or "", search_st or "")
+            if loc and loc not in seen_locations:
+                seen_locations[loc] = (resp, usn or "", search_st or "")
 
     devices: list[WemoDevice] = []
-    for loc, (raw_resp, usn, st_val) in seen_locations.items():
+    for loc, (raw_resp, usn, _search_st) in seen_locations.items():
         ip, port = parse_ip_port(loc)
         device = WemoDevice(
             location_url=loc,
@@ -325,31 +389,15 @@ def discover(
             raw_ssdp_response=raw_resp,
         )
 
-        if fetch_details and loc.endswith("/setup.xml"):
-            xml_data = fetch_setup_xml(loc)
-            if xml_data is not None:
-                parsed = parse_setup_xml(xml_data)
-                if parsed is not None:
-                    # Merge parsed data into discovery device.
-                    device.device_type = parsed.device_type
-                    device.friendly_name = parsed.friendly_name
-                    device.manufacturer = parsed.manufacturer
-                    device.model_name = parsed.model_name
-                    device.model_number = parsed.model_number
-                    device.serial_number = parsed.serial_number
-                    device.mac_address = parsed.mac_address
-                    device.udn = parsed.udn
-                    device.services = parsed.services
-                else:
-                    device.fetch_error = "Failed to parse setup.xml"
-            else:
-                device.fetch_error = f"Failed to fetch {loc}"
-        elif not fetch_details and not loc.endswith("/setup.xml"):
-            # Probe known port list to find the actual setup.xml.
-            device.fetch_error = "setup.xml not probed (different port may apply)"
+        if fetch_details:
+            _fetch_description(device, probe_ports=probe_ports)
+
+        if wemo_only and not is_wemo(device):
+            continue
 
         devices.append(device)
 
+    devices.sort(key=lambda d: (d.ip, d.port))
     return devices
 
 
@@ -454,16 +502,33 @@ Examples:
         action="store_true",
         help="Skip fetching /setup.xml; report SSDP responses only.",
     )
+    parser.add_argument(
+        "--no-probe-ports",
+        action="store_true",
+        help=(
+            "Do not fall back to probing ports "
+            f"{PROBE_PORTS[0]}-{PROBE_PORTS[-1]} when the advertised LOCATION "
+            "is stale."
+        ),
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Report every SSDP responder, not just Belkin/Wemo devices.",
+    )
 
     args = parser.parse_args()
 
     print(f"Probing SSDP multicast on {SSDP_MULTICAST}:{SSDP_PORT}...", file=sys.stderr)
-    print(
-        f"Search targets: {', '.join(SEARCH_TARGETS)}", file=sys.stderr
-    )
+    print(f"Search targets: {', '.join(SEARCH_TARGETS)}", file=sys.stderr)
     print(f"Waiting up to {args.timeout}s per target...", file=sys.stderr)
 
-    devices = discover(timeout=args.timeout, fetch_details=not args.no_fetch)
+    devices = discover(
+        timeout=args.timeout,
+        fetch_details=not args.no_fetch,
+        probe_ports=not args.no_probe_ports,
+        wemo_only=not args.all,
+    )
 
     print(f"Found {len(devices)} device(s).\n", file=sys.stderr)
 

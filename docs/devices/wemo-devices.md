@@ -5,6 +5,13 @@
 > **Manufacturer**: Belkin
 > **Manufacturer Status**: Shutdown (cloud-dependent features affected; local UPnP control survives for supported devices)
 
+!!! tip "Setting a device up, or moving it to a new network?"
+    This page covers discovery and control of a device that is already on your
+    WiFi. For factory reset, first-time provisioning over the device's own
+    setup AP, and rebinding a device to a different network without the (now
+    defunct) Wemo app, see
+    **[Wemo Setup, Factory Reset and Rebinding](wemo-setup.md)**.
+
 ## Discovery First
 
 Wemo local control starts with SSDP. Do not require users to enter static IP
@@ -82,7 +89,13 @@ Common services:
 | deviceevent | `urn:Belkin:service:deviceevent:1` | `/upnp/control/deviceevent1` | `GetAttributes`, `SetAttributes`, `GetAttributeList` |
 | bridge | `urn:Belkin:service:bridge:1` | `/upnp/control/bridge1` | `GetEndDevicesWithStatus`, `GetDeviceStatus`, `SetDeviceStatus` |
 | metainfo | `urn:Belkin:service:metainfo:1` | `/upnp/control/metainfo1` | `GetMetaInfo`, `GetExtMetaInfo` |
-| WiFiSetup | `urn:Belkin:service:WiFiSetup:1` | `/upnp/control/wifi1` | `GetApList`, `ConnectHomeNetwork`, `GetNetworkStatus` |
+| WiFiSetup | `urn:Belkin:service:WiFiSetup:1` | `/upnp/control/WiFiSetup1` | `GetApList`, `ConnectHomeNetwork`, `GetNetworkStatus`, `CloseSetup` |
+
+The WiFiSetup control URL spelling varies across firmware generations
+(`/upnp/control/WiFiSetup1` and `/upnp/control/wifi1` have both been reported),
+so resolve it from the `serviceList` in `setup.xml` rather than hardcoding it.
+That service is only exposed while the device is in setup mode — see
+[Wemo Setup](wemo-setup.md).
 
 ## References
 
@@ -91,3 +104,4 @@ Common services:
 - [ouimeaux](https://github.com/iancmcc/ouimeaux)
 - Local APK analysis: `data/wemo/summary.md`
 - Machine-readable spec: `device-specs/devices/wemo-devices.yaml`
+- [Wemo Setup, Factory Reset and Rebinding](wemo-setup.md)

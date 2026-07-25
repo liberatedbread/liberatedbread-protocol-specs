@@ -1,21 +1,24 @@
-## Machine-Readable Discovery
-
-Every device spec in `device-specs/devices/` now includes a `device.discovery`
-section that a consumer app can parse to implement automatic discovery without
-per-device hardcoding. See the `discovery` property in
-`device-specs/schema.json` for the full JSON
-Schema definition. See the discovery reference at
-[docs/devices/discovery.yaml](discovery.yaml) for a
-annotated example of each discovery method.
-
-The flows documented below are the SSDP, mDNS, and Cloud variants that
-correspond to the machine-readable `device.discovery.methods[].type` values.
-
 # WiFi Device Discovery
 
 WiFi devices in this repository do not all use the same discovery model. The
 right first step depends on whether the device exposes a local protocol, an
 mDNS service, or only a cloud account API.
+
+This page is about finding a device that is **already on the network**. Getting
+it there in the first place is covered in
+[Initial Device Setup](../protocols/device-setup.md).
+
+## Machine-Readable Discovery
+
+Every device spec in `device-specs/devices/` includes a `device.discovery`
+section that a consumer app can parse to implement automatic discovery without
+per-device hardcoding. See the `discovery` property in
+`device-specs/schema.json` for the full JSON Schema definition, and the
+discovery reference at [docs/devices/discovery.yaml](discovery.yaml) for an
+annotated example of each discovery method.
+
+The flows documented below are the SSDP, mDNS, and Cloud variants that
+correspond to the machine-readable `device.discovery.methods[].type` values.
 
 ## SSDP / UPnP: Wemo and Roku
 
