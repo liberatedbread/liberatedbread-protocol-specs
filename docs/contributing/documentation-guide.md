@@ -20,7 +20,8 @@ Record how the device is provisioned, how it is factory reset, and whether it
 can be moved to a new network without one — plus an honest confidence level.
 "The onboarding exchange has not been captured" is useful; silence is
 indistinguishable from "there is nothing to document". See
-[Initial Device Setup](../protocols/device-setup.md).
+[Initial Device Setup](../protocols/device-setup.md) for the patterns, and
+[Reading a Device Spec](../api/spec-format.md) for the YAML fields.
 
 If the device onboards through a vendor cloud that still exists, capturing that
 exchange is the highest-value thing you can do, because it is the one capture

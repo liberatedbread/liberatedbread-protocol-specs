@@ -4,6 +4,15 @@
 #
 # Discovery-first catalog for all publicly reverse-engineered Wemo device
 # families covered by pywemo/Home Assistant/ouimeaux and the decoded Wemo APK.
+#
+# device.setup is intended to be COMPLETE ON ITS OWN: an implementer should be
+# able to provision a Wemo device from this file alone, without reading our
+# prose docs or any other implementation. It carries the SOAP wire format
+# (soap_common.request_format), the MetaInfo and ApList layouts, the full
+# passphrase encryption algorithm with reproducible test vectors, the network
+# status codes, timing constants and a troubleshooting table. If you find
+# yourself needing to look something up elsewhere to finish an implementation,
+# that is a bug in this file.
 
 device:
   name: "Belkin Wemo Smart Devices"
@@ -180,14 +189,42 @@ device:
             normal one. pywemo walks the same fallback list it uses on the LAN.
           credential_encryption:
             algorithm: "aes-128-cbc"
+            padding: "pkcs7"
             key_derivation: >
-              Key material comes from the MetaInfo string returned by
-              metainfo#GetMetaInfo, split on '|', where field 0 is the MAC and
-              field 1 is the serial number. The AES key is MD5(keydata + salt)
-              truncated to 16 bytes, with salt = keydata[0:8] and
-              iv = keydata[0:16] — equivalent to OpenSSL's legacy
-              EVP_BytesToKey MD5 derivation for AES-128 with the IV supplied
-              explicitly.
+              Key material ("keydata") is assembled from the MetaInfo string
+              returned by metainfo#GetMetaInfo, split on '|', where field 0 is
+              the MAC and field 1 is the serial number. The AES key is
+              MD5(keydata_bytes + salt_bytes) truncated to 16 bytes, with
+              salt = keydata[0:8] and iv = keydata[0:16] — equivalent to
+              OpenSSL's legacy EVP_BytesToKey MD5 derivation for AES-128 with
+              the IV supplied explicitly.
+            algorithm_steps:
+              - "1. Choose the keydata layout for this device (see variants below)."
+              - "2. salt = the first 8 characters of keydata, as UTF-8 bytes (NOT hex-decoded)."
+              - "3. iv = the first 16 characters of keydata, as UTF-8 bytes (NOT hex-decoded)."
+              - "4. aes_key = MD5(utf8(keydata) || salt)[0:16]. One MD5 round only; do not iterate."
+              - "5. Pad the UTF-8 passphrase with PKCS#7 to a multiple of 16 bytes."
+              - "6. Encrypt with AES-128-CBC using aes_key and iv."
+              - "7. Base64-encode the ciphertext (standard alphabet, with '=' padding)."
+              - >
+                8. If this variant sets add_lengths, append four lowercase hex
+                digits: the length of the base64 string from step 7, then the
+                length of the plaintext passphrase, EACH zero-padded to exactly
+                two digits. A passphrase of 8 characters contributes '08', not
+                '8'.
+              - "9. Send the result as the `password` argument of ConnectHomeNetwork."
+            openssl_equivalent:
+              command: >
+                openssl enc -aes-128-cbc -md md5 -S <hex of salt bytes>
+                -iv <hex of iv bytes> -pass pass:<keydata>
+              notes: >
+                Produces byte-identical output to the steps above. Note the
+                header quirk: OpenSSL 1.x prefixes its output with the 16-byte
+                "Salted__" + salt header even when the salt is supplied with
+                -S, while OpenSSL 3.x does not. Strip that header only when it
+                is actually present — slicing 16 bytes unconditionally, as
+                older published scripts do, silently corrupts the credential on
+                OpenSSL 3.x.
             variants:
               - method: 1
                 keydata: "mac[0:6] + serial + mac[6:12]"
@@ -219,6 +256,175 @@ device:
               metadata that the device hands out unauthenticated, so it is
               obfuscation rather than a trust boundary. Passphrases shorter
               than 8 characters are rejected by the device (network status 2).
+            password_constraints:
+              min_length: 8
+              max_length: 255
+              notes: >
+                A passphrase under 8 characters is rejected by the device with
+                network status 2. The upper bound follows from the two-hex-digit
+                length suffix: both the plaintext and the base64 ciphertext must
+                be 255 characters or fewer.
+            test_vectors:
+              description: >
+                Reproducible vectors so an implementation can be verified
+                without hardware. The MAC is from the IANA documentation range
+                (00:00:5E) and the serial is invented — these identify no real
+                device. Every value below is generated from the algorithm_steps
+                above; scripts/test_wemo.py asserts our implementation still
+                reproduces them, so the spec and the code cannot drift apart.
+              input:
+                meta_info: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
+                mac: "00005E00530A"
+                serial: "229999K9999999"
+                passphrase: "correct horse battery staple"
+                passphrase_length: 28
+              vectors:
+                - method: 1
+                  add_lengths: true
+                  keydata: "00005E229999K999999900530A"
+                  salt: "00005E22"
+                  iv: "00005E229999K999"
+                  aes_key_hex: "6d27765d242fa465ae5ee33a671d7714"
+                  base64_ciphertext: "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM="
+                  password_argument: "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c"
+                  suffix_explanation: >
+                    base64 is 44 characters = 0x2c; passphrase is 28 = 0x1c.
+                - method: 2
+                  add_lengths: false
+                  keydata: "00005E229999K999999900530Ab3{8t;80dIN{ra83eC1s?M70?683@2Yf"
+                  salt: "00005E22"
+                  iv: "00005E229999K999"
+                  aes_key_hex: "83b55ae7a7b3bbf7a1b6ead631a232da"
+                  base64_ciphertext: "9ibm3ouYHODjuzVQ0hEHGkEdj4Pf/uCQ0vr8s8Ghuyk="
+                  password_argument: "9ibm3ouYHODjuzVQ0hEHGkEdj4Pf/uCQ0vr8s8Ghuyk="
+                  suffix_explanation: "Method 2 appends no length suffix."
+                - method: 3
+                  add_lengths: true
+                  keydata: "00030A229999K9999999b2Ujb3Rtb24mY3ZEbmlhaXBBZGFiT25v00505E"
+                  salt: "00030A22"
+                  iv: "00030A229999K999"
+                  aes_key_hex: "040c94b31e16aacdaf9bd16e79e08b45"
+                  base64_ciphertext: "JHw2xNnoahVM1rEfW1N2HDn4UT/v60Up80M4Nd3xAQo="
+                  password_argument: "JHw2xNnoahVM1rEfW1N2HDn4UT/v60Up80M4Nd3xAQo=2c1c"
+                  suffix_explanation: >
+                    Same lengths as method 1; only the keydata layout differs.
+        payload_formats:
+          MetaInfo:
+            description: >
+              metainfo#GetMetaInfo returns a single MetaInfo value: a
+              pipe-delimited string of at least six fields. Field order matters —
+              using the serial where the MAC belongs yields a valid-looking blob
+              the device rejects without explanation.
+            fields:
+              - index: 0
+                name: "mac"
+                description: "12 hex characters, no separators. Key material."
+              - index: 1
+                name: "serial_number"
+                description: "Device serial. Key material."
+              - index: 2
+                name: "device_sku"
+                description: "Regional SKU, e.g. Wemo_WW."
+              - index: 3
+                name: "firmware_version"
+                description: "e.g. WeMo_US_2.00.11408."
+              - index: 4
+                name: "access_point_ssid"
+                description: "The device's own setup AP name — it tells you what it advertises."
+              - index: 5
+                name: "model_name"
+                description: "e.g. Socket."
+            example: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
+          ApList:
+            description: >
+              WiFiSetup#GetApList returns a single ApList value holding the
+              device's scan results, newline-separated.
+            parse_rules:
+              - "Split on newline. SKIP THE FIRST LINE — it is a header/count, not an access point."
+              - "Strip whitespace and any trailing comma from each remaining line."
+              - "Ignore lines with no '|' — some firmware emits blank or partial trailing lines."
+              - "Split on '|'. Column 0 is the SSID. Column 1 is the channel."
+              - >
+                The LAST column is 'AUTHMODE/CIPHER'. Split it on '/' to get the
+                `auth` and `encrypt` arguments for ConnectHomeNetwork. Do not
+                assume a fixed column index for it; the number of columns varies.
+              - >
+                Send the device's own strings back verbatim. A network the device
+                can see is still rejected if the auth string does not match its
+                own vocabulary.
+            auth_modes_observed: ["OPEN", "WPA2PSK", "WPAPSK", "Unknown"]
+            supported_ciphers: ["NONE", "AES", "TKIPAES"]
+            open_network_handling: >
+              When the selected entry's cipher is NONE, skip the encryption
+              entirely: send auth=OPEN, encrypt=NONE and an empty password
+              string. Do not call GetMetaInfo — no key material is needed.
+            unsupported_marker:
+              value: "Unknown"
+              meaning: >
+                The device cannot express that network's security mode and will
+                never join it. WPA3 appears this way. The remedy is a WPA2
+                compatibility SSID for the duration of setup, not a retry.
+            example: |
+              3
+              HomeNet|6|WPA2PSK|blah|WPA2PSK/AES,
+              OpenGuest|1|OPEN|blah|OPEN/NONE,
+              NewFangled|1|SAE|blah|Unknown,
+        timing:
+          connect_send_count: 2
+          connect_send_gap_ms: 100
+          connect_send_notes: >
+            Send ConnectHomeNetwork twice about 100ms apart. pywemo reports a
+            markedly higher success rate when it is repeated; the reason is not
+            understood, but it is cheap and harmless.
+          status_poll_interval_seconds: 1
+          status_poll_timeout_seconds: 25
+          status_poll_minimum_seconds: 20
+          status_3_extra_wait_seconds: 3
+          reboot_after_reset_seconds: 90
+          notes: >
+            Devices routinely take 10-15 seconds to join, so a poll timeout
+            below 20 seconds produces false failures. Status 3 usually flips to
+            1 within a few more seconds — wait rather than retrying.
+        troubleshooting:
+          - symptom: "ConnectHomeNetwork accepted but NetworkStatus never reaches 1."
+            causes:
+              - "Wrong passphrase."
+              - >
+                Target SSID is 5 GHz. Every Wemo radio is 2.4 GHz only, and a
+                band-steering router advertising one SSID on both bands is the
+                most common cause of an unexplained failure.
+              - >
+                Wrong encryption variant. Sweep all six combinations of
+                method (1, 2, 3) and add_lengths (true, false), in this order:
+                (1, true), (2, false), (3, true), (1, false), (2, true),
+                (3, false). The first three are the documented pairings; the
+                last three are unlikely but cheap to try.
+              - "Weak signal. Some units need a strong signal to complete setup even though they run fine on a weak one afterwards."
+          - symptom: "NetworkStatus returns 2."
+            causes:
+              - "Passphrase is shorter than 8 characters. Terminal — retrying will not help."
+          - symptom: "NetworkStatus sits at 3."
+            causes:
+              - "Handshaking. Wait a few more seconds; 3 usually precedes 1. Not a failure."
+          - symptom: "Target network reports auth mode Unknown in ApList."
+            causes:
+              - "The device cannot express that security mode; WPA3 is the usual cause. Add a WPA2 SSID for the duration of setup."
+          - symptom: "Device is not advertising a Wemo.* AP after a reset."
+            causes:
+              - >
+                On plug-style devices the Restore button must be held THROUGH
+                power-on; pressing it on a running device does nothing. Watch
+                the LED rather than timing the hold.
+          - symptom: "Setup AP is joinable but HTTP times out."
+            causes:
+              - "The client fell back to cellular or another interface. Pin the route to 10.22.22.0/24."
+              - "Wrong port. Probe the port_probe_list rather than assuming 49153."
+          - symptom: "Everything fails repeatedly for no clear reason."
+            causes:
+              - >
+                Genuinely try again — pywemo's own documentation lists this
+                first. Wemo devices sometimes fail to connect and the identical
+                sequence subsequently works.
         steps:
           - action: "Factory reset the device (or call basicevent#ReSetup on a provisioned one) so it re-enters setup mode."
             actor: "user"
@@ -243,6 +449,10 @@ device:
               protocol: "soap"
               service: "urn:Belkin:service:metainfo:1"
               action: "GetMetaInfo"
+            response_fields:
+              - name: "MetaInfo"
+                type: "string"
+                description: "Pipe-delimited; see payload_formats.MetaInfo above."
             expect: "MetaInfo pipe-delimited string; fields 0 and 1 supply the key material."
           - action: "Ask the device to scan for nearby access points."
             actor: "client"
@@ -250,6 +460,10 @@ device:
               protocol: "soap"
               service: "urn:Belkin:service:WiFiSetup:1"
               action: "GetApList"
+            response_fields:
+              - name: "ApList"
+                type: "string"
+                description: "Newline-separated scan results; see payload_formats.ApList above."
             expect: >
               ApList string. The first line is a header and is skipped. Each
               remaining line is pipe-delimited with SSID in column 0, channel
@@ -285,6 +499,12 @@ device:
                   type: "integer"
                   required: true
                   description: "Channel from the ApList entry."
+            response_fields:
+              - name: "PairingStatus"
+                type: "string"
+                description: >
+                  Acknowledgement that the request was accepted, not the join
+                  result. The outcome comes from polling GetNetworkStatus.
             expect: >
               Returns PairingStatus. Send this action twice about 100ms apart —
               pywemo reports a markedly higher success rate when it is repeated,
@@ -296,6 +516,15 @@ device:
               protocol: "soap"
               service: "urn:Belkin:service:WiFiSetup:1"
               action: "GetNetworkStatus"
+            response_fields:
+              - name: "NetworkStatus"
+                type: "string"
+                description: "Join state; see status_codes below."
+            status_codes:
+              "0": "Still trying to connect. Keep polling."
+              "1": "Connected. Terminal success."
+              "2": "Rejected — passphrase shorter than 8 characters. Terminal failure; retrying will not help."
+              "3": "Handshaking. Usually becomes 1 within a few seconds; not a failure."
             expect: >
               NetworkStatus: 0 = still connecting, 1 = connected,
               2 = rejected because the passphrase is shorter than 8
@@ -308,6 +537,10 @@ device:
               protocol: "soap"
               service: "urn:Belkin:service:WiFiSetup:1"
               action: "CloseSetup"
+            response_fields:
+              - name: "status"
+                type: "string"
+                description: "'success' on a clean close."
             expect: >
               Returns status = success. Follow with
               basicevent#SetSetupDoneStatus where present; it is absent on some
@@ -390,6 +623,10 @@ device:
                   ("Factory Restore"), 5 clears WiFi credentials only ("Change
                   Wi-Fi"). Codes were consistent across the devices pywemo has
                   been tested against but are not guaranteed for every model.
+          response_fields:
+            - name: "Reset"
+              type: "string"
+              description: "'success', or 'reset_remote' on at least one device."
           expect: >
             Returns Reset = success; at least one device reports reset_remote
             instead and still resets correctly. Device drops off the LAN and
@@ -756,6 +993,68 @@ soap_common:
   transport: "HTTP POST"
   content_type: "text/xml; charset=\"utf-8\""
   soapaction_format: "\"<serviceType>#<Action>\""
+  request_format:
+    description: >
+      Everything needed to build a Wemo SOAP request byte for byte. Wemo
+      firmware runs a minimal XML parser, so send this shape rather than
+      whatever your XML library produces by default.
+    http:
+      method: "POST"
+      url: "http://<ip>:<port><controlURL from setup.xml>"
+      headers:
+        Content-Type: "text/xml; charset=\"utf-8\""
+        SOAPACTION: "\"<serviceType>#<Action>\"  (note the literal double quotes)"
+    argument_qualification: >
+      CRITICAL: action arguments are UNQUALIFIED. Send <ssid>value</ssid>, not
+      <u:ssid>value</u:ssid>. Only the action element itself carries the u:
+      prefix, and the xmlns:u declaration belongs ON THE ACTION ELEMENT, not on
+      the envelope. Several XML libraries (including Python's ElementTree)
+      hoist namespace declarations to the root element, which is equivalent XML
+      but not what these devices normally receive.
+    escaping: >
+      XML-escape argument values (&, <, >). An SSID containing an ampersand
+      otherwise produces a malformed document. Note that pywemo does not escape,
+      so this is a divergence in our favour rather than a documented device
+      behaviour.
+    template: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:{action} xmlns:u="{serviceType}">
+      {arguments}
+      </u:{action}>
+      </s:Body>
+      </s:Envelope>
+    example:
+      description: "ConnectHomeNetwork as it goes on the wire."
+      body: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+        <s:Body>
+        <u:ConnectHomeNetwork xmlns:u="urn:Belkin:service:WiFiSetup:1">
+        <ssid>HomeNet</ssid>
+        <auth>WPA2PSK</auth>
+        <password>mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c</password>
+        <encrypt>AES</encrypt>
+        <channel>6</channel>
+        </u:ConnectHomeNetwork>
+        </s:Body>
+        </s:Envelope>
+  response_format:
+    description: >
+      Responses are a SOAP envelope whose Body has exactly one child, named
+      <ActionName>Response. That element's direct children are the named return
+      values; take their text content. A Body child named Fault is an error.
+    parse_rule: "envelope -> Body -> first child -> {child.tag: child.text}"
+    example: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+      <s:Body>
+      <u:GetNetworkStatusResponse xmlns:u="urn:Belkin:service:WiFiSetup:1">
+      <NetworkStatus>1</NetworkStatus>
+      </u:GetNetworkStatusResponse>
+      </s:Body>
+      </s:Envelope>
   setup_description:
     method: "GET"
     path: "/setup.xml"
@@ -766,7 +1065,19 @@ soap_common:
       service_type: "urn:Belkin:service:basicevent:1"
       control_url: "/upnp/control/basicevent1"
       event_sub_url: "/upnp/event/basicevent1"
-      actions: ["GetBinaryState", "SetBinaryState"]
+      actions:
+        - "GetBinaryState"
+        - "SetBinaryState"
+        - "ReSetup"
+        - "SetSetupDoneStatus"
+      setup_related_actions:
+        ReSetup: >
+          Takes a Reset argument selecting scope: 1 clears name/icon/rules,
+          2 factory resets, 5 clears WiFi credentials only. Returns Reset =
+          success (or reset_remote on at least one device). See device.setup.rejoin.
+        SetSetupDoneStatus: >
+          Sent after a successful CloseSetup. Absent on some firmware; treat a
+          SOAP fault or missing action as non-fatal.
     metainfo:
       service_type: "urn:Belkin:service:metainfo:1"
       control_url: "/upnp/control/metainfo1"

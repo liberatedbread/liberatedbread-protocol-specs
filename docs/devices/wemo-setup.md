@@ -97,6 +97,27 @@ token varying across firmware: `WeMo.Switch.A1B`, `Wemo.Mini.4A2`,
 `WeMo.Insight.7C4`. Match case-insensitively on `wemo.` rather than on any
 single spelling.
 
+!!! tip "Implementing this yourself?"
+    Work from `device-specs/devices/wemo-devices.yaml` rather than this page.
+    Its `device.setup` block is written to be complete on its own, and it
+    publishes **test vectors** so you can verify your passphrase encryption
+    against known-good values before you go near hardware:
+
+    ```yaml
+    # device.setup.methods[0].softap.credential_encryption.test_vectors
+    input:
+      meta_info: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
+      passphrase: "correct horse battery staple"
+    vectors:
+      - method: 1
+        keydata: "00005E229999K999999900530A"
+        aes_key_hex: "6d27765d242fa465ae5ee33a671d7714"
+        password_argument: "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c"
+    ```
+
+    If your implementation reproduces all three vectors, the crypto is right
+    and any remaining failure is elsewhere in the flow.
+
 ## Provisioning flow
 
 Once the setup AP is up, the device is at **`10.22.22.1`**, serving HTTP on the
@@ -401,4 +422,9 @@ Two caveats worth stating plainly:
 - [ouimeaux](https://github.com/iancmcc/ouimeaux) — pywemo's lineage
 - [Wemo device catalog and control](wemo-devices.md)
 - [Initial Device Setup](../protocols/device-setup.md) — the cross-device patterns
-- Machine-readable spec: `device-specs/devices/wemo-devices.yaml` (`device.setup`)
+- **Machine-readable spec: `device-specs/devices/wemo-devices.yaml`** — this
+  page is the narrative; `device.setup` there is the normative version and is
+  written to be implementable on its own. It carries the SOAP wire format, the
+  `MetaInfo` and `ApList` layouts, the full encryption algorithm with
+  reproducible test vectors, the status codes, timing constants and a
+  troubleshooting table.

@@ -79,6 +79,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   field alignment, and the setup passphrase encryption
 - `scripts/test_wemo_setup_e2e.py` — end-to-end provisioning test against a
   fake Wemo that decrypts the passphrase it is sent
+- `docs/api/spec-format.md` — how to read a device spec, with the `setup` block
+  covered field by field
+- `scripts/test_device_specs.py` — cross-spec consistency checks for conventions
+  the schema cannot express (explicit `verified`, reset procedures with steps,
+  `rejoin` answering the router-replacement question, and so on)
+- Schema documents the well-known `setup` extension blocks — `payload_formats`,
+  `timing`, `troubleshooting`, and a much richer `credential_encryption`
+  including `algorithm_steps`, `variants` and `test_vectors`
+- `wemo-devices.yaml` is now implementable on its own: SOAP wire format,
+  `MetaInfo`/`ApList` payload layouts, the encryption algorithm step by step
+  with reproducible test vectors, timing constants and a troubleshooting table
 - `requirements-dev.txt` and `pyproject.toml` — ruff and pytest configuration
 - CI `lint-and-test` job running `ruff check` and `pytest`
 - Initial project structure
