@@ -14,17 +14,24 @@ access point and takes credentials over the same SOAP 1.1 stack it uses for
 normal control. Nothing in the flow requires Belkin's servers, which is why
 Wemo hardware remains recoverable after the January 2026 shutdown.
 
-!!! warning "Confidence"
-    Service and action names are **high** confidence — they appear in the
-    device's own `setup.xml` service list and in the public
-    [pywemo](https://github.com/pywemo/pywemo) and
-    [wemosetup](https://github.com/vadimkantorov/wemosetup) implementations.
+!!! info "Confidence and provenance"
+    This page and `scripts/wemo_setup.py` follow
+    [pywemo](https://github.com/pywemo/pywemo)'s implementation
+    (`pywemo/ouimeaux_device/__init__.py`, Apache 2.0), which is the maintained
+    reference and has been exercised against real hardware across several
+    device generations. pywemo in turn credits Vadim Kantorov's
+    [wemosetup](https://github.com/vadimkantorov/wemosetup) for the encryption
+    derivation.
 
-    The passphrase encryption derivation and the exact `ApList` field order are
-    **medium** confidence: taken from the public wemosetup implementation and
-    not yet replayed against hardware in this project. `scripts/wemo_setup.py`
-    prints raw device responses so you can check them against this page — if
-    they differ, that is a finding worth filing.
+    Our encryption is byte-identical to pywemo's across all three key
+    variants, and the whole flow is exercised end to end against a fake device
+    that decrypts what the client sends
+    (`scripts/test_wemo_setup_e2e.py`). What has *not* happened yet is a run
+    against real hardware in this project — if you hit something this page gets
+    wrong, that is worth filing.
+
+    **If our script fails on your device, use pywemo.** It is better tested,
+    and it is the same protocol.
 
 ## When you need this
 
@@ -124,37 +131,111 @@ authoritative for the device in front of you.
 ### 2. Read the metadata that keys the passphrase encryption
 
 `urn:Belkin:service:metainfo:1#GetMetaInfo` returns a pipe-delimited
-`MetaInfo` string. Fields 0 and 1 supply the key material:
+`MetaInfo` string of six fields:
+
+| # | Field | Used for |
+|---|---|---|
+| 0 | MAC address | Key material |
+| 1 | Serial number | Key material |
+| 2 | Device SKU | — |
+| 3 | Firmware version | Diagnostics |
+| 4 | **Setup AP SSID** | The device tells you its own AP name |
+| 5 | Model name | — |
+
+Note the order: field 0 is the **MAC**, field 1 the **serial**. Swapping them
+produces a valid-looking blob that the device silently rejects.
+
+Three key layouts exist, and which one a device wants depends on its firmware
+(see [Encryption variants](#encryption-variants)):
 
 ```text
-keydata = meta[0][0:6] + meta[1] + meta[0][6:12]
-salt    = keydata[0:8]      # first 8 bytes
-iv      = keydata[0:16]     # first 16 bytes
+method 1:  keydata = mac[0:6] + serial + mac[6:12]
+method 2:  keydata = mac[0:6] + serial + mac[6:12] + "b3{8t;80dIN{ra83eC1s?M70?683@2Yf"
+method 3:  keydata = mac[0:3] + mac[9:12] + serial
+                     + "b2Ujb3Rtb24mY3ZEbmlhaXBBZGFiT25v" + mac[6:9] + mac[3:6]
+
+salt = keydata[0:8]      # first 8 bytes
+iv   = keydata[0:16]     # first 16 bytes
 ```
 
 ### 3. Ask the device what it can see
 
 `urn:Belkin:service:WiFiSetup:1#GetApList` returns an `ApList` string, one
-entry per line, carrying the SSID, channel, auth mode, cipher and signal
-strength. Use the device's own values verbatim in the next step — a network the
-device can see will still be rejected if the auth string does not match its
-vocabulary.
+entry per line. **The first line is a header and must be skipped.** Each
+remaining line is pipe-delimited, may have a trailing comma, and is laid out
+with the SSID first, the channel second, and the auth mode and cipher joined by
+a slash in the **last** column:
+
+```text
+3
+HomeNet|6|WPA2PSK|...|WPA2PSK/AES,
+OpenGuest|1|OPEN|...|OPEN/NONE,
+NewFangled|1|SAE|...|Unknown,
+```
+
+Split the last column on `/` to get the `auth` and `encrypt` arguments. Two
+things to check before going further:
+
+- The device only accepts ciphers `NONE`, `AES` and `TKIPAES`.
+- An auth mode of `Unknown` means the device cannot express that network's
+  security — **WPA3 shows up this way**, and no amount of retrying will help.
+  Add a WPA2 compatibility SSID for the duration of setup.
+
+Use the device's own strings verbatim in the next step. A network the device
+can see will still be rejected if the auth string does not match its vocabulary.
 
 ### 4. Encrypt the passphrase and send the credentials
 
 The passphrase is AES-128-CBC encrypted with a key derived from the device
-metadata, using OpenSSL's legacy MD5-based `EVP_BytesToKey` derivation, then
-encoded in a Wemo-specific way:
+metadata:
 
-1. Encrypt with `aes-128-cbc`, `-md md5`, the salt and IV above, and `keydata`
-   as the passphrase.
-2. Strip OpenSSL's 16-byte `Salted__` + salt header from the ciphertext.
-3. Base64-encode the remainder.
-4. Append the hex-encoded length of that base64 string, then the hex-encoded
-   length of the original plaintext passphrase.
+1. Derive the key as `MD5(keydata + salt)[:16]`, with the IV taken from
+   `keydata[0:16]`. This is exactly what OpenSSL's legacy `EVP_BytesToKey`
+   produces for AES-128 when the IV is supplied explicitly, so
+   `openssl enc -aes-128-cbc -md md5 -S <salt> -iv <iv> -pass pass:<keydata>`
+   reproduces it byte for byte.
+2. PKCS#7-pad and encrypt.
+3. Base64-encode the ciphertext.
+4. For methods 1 and 3, append four hex digits: the length of that base64
+   string, then the length of the plaintext passphrase, **each zero-padded to
+   exactly two digits**. Method 2 appends nothing.
+
+!!! warning "Two easy ways to get this wrong"
+    - **Zero-pad the lengths.** A passphrase of 8 characters contributes `08`,
+      not `8`. A single digit produces a blob the device rejects without
+      explanation.
+    - **Strip the OpenSSL header conditionally.** OpenSSL 1.x writes a
+      `Salted__` + 8-byte-salt header even when the salt is given with `-S`;
+      OpenSSL 3.x does not. Slicing 16 bytes unconditionally — as the older
+      published scripts do — corrupts the credential on any modern system.
 
 Then call `ConnectHomeNetwork` with `ssid`, `auth`, `password` (the blob above),
-`encrypt` and `channel`.
+`encrypt` and `channel`. **Send it twice**, about 100 ms apart: pywemo notes
+the success rate is markedly higher, and the reason is not understood.
+
+For an open network, skip the encryption entirely: send `auth=OPEN`,
+`encrypt=NONE` and an empty `password`.
+
+Wemo rejects passphrases shorter than 8 characters (reported as network
+status 2).
+
+#### Encryption variants
+
+Three encryption methods exist across firmware generations. Pick one from the
+non-standard elements Belkin adds to `setup.xml`:
+
+| `setup.xml` contains | Method | Append lengths |
+|---|---|---|
+| `rtos=1` and not `iot=1` | 2 | No |
+| anything else | 1 | Yes |
+
+pywemo notes that the Wemo app's own logic (`binaryOption=1` → method 3,
+`new_algo=1` → method 2) matches real hardware *less* often than keying off
+`rtos`/`iot`, so the table above is what to implement.
+
+If a connect attempt fails, the variant is the first thing to vary — there are
+six combinations, and `wemo_setup.py` exposes them with `--encrypt-method` and
+`--add-lengths` / `--no-add-lengths`.
 
 !!! danger "This is obfuscation, not encryption"
     Every input to the key derivation comes from `GetMetaInfo`, which the
@@ -166,15 +247,28 @@ Then call `ConnectHomeNetwork` with `ssid`, `auth`, `password` (the blob above),
 
 ### 5. Poll the result
 
-`GetNetworkStatus` returns `NetworkStatus`; `1` indicates a successful join.
-Poll it rather than assuming — without this step you cannot tell a wrong
-passphrase from a slow DHCP lease, and the device is about to become
-unreachable either way.
+`ConnectHomeNetwork` returns a `PairingStatus`, but the outcome comes from
+polling `GetNetworkStatus`:
+
+| `NetworkStatus` | Meaning |
+|---|---|
+| `0` | Still trying to connect |
+| `1` | Connected |
+| `2` | Rejected — passphrase shorter than 8 characters |
+| `3` | Handshaking; usually becomes `1` within a few seconds |
+
+Poll rather than assuming. Without this step you cannot tell a wrong passphrase
+from a slow DHCP lease, and the device is about to become unreachable either
+way. Status `3` is not a failure — give it a few more seconds before retrying.
 
 ### 6. Close setup and rediscover
 
-`CloseSetup` drops the setup AP and moves the device onto your network. Rejoin
-your own WiFi and rediscover by SSDP — the device now has a completely
+`CloseSetup` drops the setup AP and moves the device onto your network; it
+returns `status`, which should be `success`. On devices that have it, follow
+with `basicevent#SetSetupDoneStatus` — it is absent on some firmware, and its
+absence is not an error.
+
+Rejoin your own WiFi and rediscover by SSDP. The device now has a completely
 different address, so match on UDN, serial or MAC, never on IP:
 
 ```bash
@@ -188,22 +282,42 @@ default** — every subcommand prints the SOAP it would send and stops there
 unless you pass `--execute`.
 
 ```bash
-# Confirm you are on the setup AP and the device is answering
+# Confirm you are on the setup AP. Also reports which encryption variant
+# this device's firmware calls for.
 python scripts/wemo_setup.py info --execute
 
 # See the networks the device can find (prints the raw ApList too)
 python scripts/wemo_setup.py list-aps --execute
 
-# Hand over credentials. Values come from the list-aps output.
-python scripts/wemo_setup.py connect \
-    --ssid "HomeNetwork" --auth WPA2PSK --encrypt AES --channel 6 --execute
+# Hand over credentials. Auth mode, cipher and channel are taken from the
+# device's own scan results — you only name the network.
+python scripts/wemo_setup.py connect --ssid "HomeNetwork" --execute
+```
 
-# Check the join, then release the device onto your network
-python scripts/wemo_setup.py status --execute
-python scripts/wemo_setup.py close --execute
+`connect` runs the whole sequence: scan, key material, credentials (sent
+twice), status polling, `CloseSetup` and `SetSetupDoneStatus`. The other
+subcommands are for picking apart a failure:
 
-# Push a device that is still on the old network back into setup mode
-python scripts/wemo_setup.py resetup --device 192.168.1.42:49153 --execute
+```bash
+python scripts/wemo_setup.py status --execute   # decode the current NetworkStatus
+python scripts/wemo_setup.py close --execute    # release the device manually
+
+# Push a device that is still on your LAN back into setup mode.
+# --wifi is the app's "Change Wi-Fi"; --data and --factory are also available.
+python scripts/wemo_setup.py reset --wifi --device 192.168.1.42 --execute
+```
+
+If a connect attempt fails, the encryption variant is the first thing to vary.
+There are six combinations; try them in this order:
+
+```bash
+python scripts/wemo_setup.py connect --ssid HomeNetwork --execute \
+    --encrypt-method 1 --add-lengths        # default for most devices
+python scripts/wemo_setup.py connect --ssid HomeNetwork --execute \
+    --encrypt-method 2 --no-add-lengths
+python scripts/wemo_setup.py connect --ssid HomeNetwork --execute \
+    --encrypt-method 3 --add-lengths
+# then the remaining three combinations
 ```
 
 The passphrase is read from the `WEMO_WIFI_PASSWORD` environment variable, or
@@ -215,21 +329,50 @@ Encryption is performed by the `openssl` command-line tool, which must be on
 your `PATH`. Python's standard library has no AES implementation, and this
 repository's tooling deliberately has no third-party runtime dependencies.
 
+### Or just use pywemo
+
+pywemo does all of the above and is tested against far more hardware than we
+are. If you only want the device on your network, this is the faster path:
+
+```bash
+pip install pywemo
+python - <<'EOF'
+import pywemo
+url = pywemo.setup_url_for_address("10.22.22.1")
+device = pywemo.discovery.device_from_description(url)
+print(device)
+print(device.setup(ssid="HomeNetwork", password="secret"))   # ('1', 'success')
+EOF
+```
+
 ## Rebinding to a new network
 
 `urn:Belkin:service:basicevent:1#ReSetup` pushes a provisioned device back into
 setup mode over the LAN, without a physical reset. This is the answer to "my
 router changed and my Wemo is in the ceiling".
 
+It takes a `Reset` argument that selects the scope, matching the three options
+the Wemo app used to offer:
+
+| `Reset` | Clears | Wemo app wording | Tool flag |
+|---:|---|---|---|
+| `1` | Name, icon and rules | Clear Personalized Info | `--data` |
+| `2` | Everything, including WiFi | Factory Restore | `--factory` |
+| `5` | WiFi credentials only | Change Wi-Fi | `--wifi` |
+
 ```bash
-python scripts/wemo_setup.py resetup --device 192.168.1.42:49153 --execute
+python scripts/wemo_setup.py reset --wifi --device 192.168.1.42 --execute
 ```
+
+A successful reset returns `success`; at least one device is reported to return
+`reset_remote` instead and still reset correctly.
 
 Two caveats worth stating plainly:
 
-- **It clears the stored credentials immediately.** If the reprovisioning that
-  follows fails, the device is sitting in setup mode, not back on the old
-  network. Have the new SSID and passphrase to hand before you run it.
+- **It clears the stored credentials immediately** (with `--wifi` or
+  `--factory`). If the reprovisioning that follows fails, the device is sitting
+  in setup mode, not back on the old network. Have the new SSID and passphrase
+  to hand before you run it.
 - **It only works while the device is reachable.** It is a LAN call. Once the
   old network is gone, so is this option.
 
@@ -239,7 +382,12 @@ Two caveats worth stating plainly:
 |---|---|
 | No `Wemo.*` network after a reset | Button was not held *through* power-on (plug devices), or the hold was too short. Watch the LED, not the clock. |
 | `ConnectHomeNetwork` accepted, `GetNetworkStatus` never reaches 1 | Wrong passphrase, or the SSID is 5 GHz-only. Every Wemo radio is 2.4 GHz. |
+| `NetworkStatus` returns 2 | Passphrase is shorter than 8 characters — a firmware limit, not a bug. |
+| `NetworkStatus` sits at 3 | Handshaking. Wait a few more seconds before retrying; 3 usually precedes success. |
+| Target network shows `Unknown` auth in `list-aps` | The device cannot express that security mode. WPA3 is the usual cause; add a WPA2 SSID for setup. |
+| Everything looks right but the join always fails | Wrong encryption variant. Work through the six `--encrypt-method` / `--add-lengths` combinations. |
 | Join fails on a network the device listed | `auth`/`encrypt`/`channel` do not match the `ApList` entry — send back the device's own strings verbatim. |
+| Fails repeatedly for no clear reason | Genuinely try again — pywemo's own docs list this first. Move the device closer to the AP; some units need a strong signal to complete setup even though they run fine on a weak one. |
 | Setup AP visible but HTTP times out | Client fell back to cellular or another interface. Pin the route to the 10.22.22.0/24 subnet. |
 | Device joins, then never appears in SSDP | Client AP isolation, or a router that blocks multicast between wireless clients. |
 | Device appears, then disappears, on a different port | Normal. Wemo ports move across 49152–49159; rediscover rather than caching the port. |
