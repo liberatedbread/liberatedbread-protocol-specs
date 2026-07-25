@@ -31,6 +31,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Optional
+from xml.sax.saxutils import escape
 from urllib.error import URLError
 
 # ── UPnP SOAP constants ──────────────────────────────────────────────────────
@@ -50,46 +51,59 @@ CONTROL_BASICEVENT = "/upnp/control/basicevent1"
 CONTROL_INSIGHT = "/upnp/control/insight1"
 
 
-def build_soap_envelope(
+#: Request body template, matching the wire format pywemo and ouimeaux send.
+#: The service namespace is declared on the action element rather than the
+#: envelope. ElementTree hoists such declarations to the root, which is
+#: equivalent XML but not byte-identical to what Wemo firmware normally
+#: receives — and these devices run famously crude XML parsers, so this stays
+#: as a literal template.
+REQUEST_TEMPLATE = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<s:Envelope xmlns:s="{envelope_ns}" s:encodingStyle="{encoding_ns}">\n'
+    "<s:Body>\n"
+    '<u:{action} xmlns:u="{service}">\n'
+    "{args}\n"
+    "</u:{action}>\n"
+    "</s:Body>\n"
+    "</s:Envelope>\n"
+)
+
+
+def build_soap_body(
     service_type: str,
     action: str,
-    body_elements: list[ET.Element],
-) -> ET.Element:
-    """Build a SOAP 1.1 envelope for a UPnP action.
+    arguments: Optional[dict[str, str]] = None,
+) -> bytes:
+    """Build the SOAP 1.1 request body for a UPnP action.
+
+    Action arguments are *unqualified* — ``<BinaryState>1</BinaryState>``, not
+    ``<u:BinaryState>``. pywemo, ouimeaux and the Wemo app all send them that
+    way; putting them in the service namespace is a plausible-looking way to
+    be silently ignored by the device.
+
+    Values are XML-escaped. pywemo does not escape, which means an SSID
+    containing ``&`` produces a malformed document; escaping is both correct
+    and what any XML parser will decode back to the original string.
 
     Args:
-        service_type: The UPnP service URN (e.g. ``urn:Belkin:service:basicevent:1``).
-        action: The SOAP action name (e.g. ``SetBinaryState``).
-        body_elements: Child elements to place inside the action body element.
+        service_type: UPnP service URN, e.g. ``urn:Belkin:service:basicevent:1``.
+        action: SOAP action name, e.g. ``SetBinaryState``.
+        arguments: Ordered action arguments.
 
     Returns:
-        An ``xml.etree.ElementTree.Element`` representing the full SOAP envelope.
+        UTF-8 encoded request body.
     """
-    ET.register_namespace("s", SOAP_ENVELOPE_NS)
-    ET.register_namespace("u", service_type)
-
-    envelope = ET.Element(f"{{{SOAP_ENVELOPE_NS}}}Envelope")
-    envelope.set(
-        f"{{{SOAP_ENVELOPE_NS}}}encodingStyle",
-        SOAP_ENCODING_NS,
+    args = "\n".join(
+        f"<{name}>{escape(value)}</{name}>"
+        for name, value in (arguments or {}).items()
     )
-
-    body = ET.SubElement(envelope, f"{{{SOAP_ENVELOPE_NS}}}Body")
-    action_el = ET.SubElement(body, f"{{{service_type}}}{action}")
-
-    for child in body_elements:
-        action_el.append(child)
-
-    return envelope
-
-
-def envelope_to_bytes(envelope: ET.Element) -> bytes:
-    """Serialize a SOAP envelope Element to UTF-8 bytes for the HTTP body.
-
-    Includes the XML declaration, which UPnP control requests are expected to
-    carry and which Wemo devices accept.
-    """
-    return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
+    return REQUEST_TEMPLATE.format(
+        envelope_ns=SOAP_ENVELOPE_NS,
+        encoding_ns=SOAP_ENCODING_NS,
+        action=action,
+        service=service_type,
+        args=args,
+    ).encode("utf-8")
 
 
 def soapaction_header(service_type: str, action: str) -> str:
@@ -103,73 +117,65 @@ def soapaction_header(service_type: str, action: str) -> str:
 # ── Wemo command builders ────────────────────────────────────────────────────
 
 
-def build_set_binary_state(binary_state: int) -> tuple[ET.Element, str, str]:
-    """Build a SetBinaryState SOAP envelope.
+def build_set_binary_state(binary_state: int) -> tuple[bytes, str, str]:
+    """Build a SetBinaryState request.
 
     Args:
         binary_state: 1 for on, 0 for off.
 
     Returns:
-        Tuple of (envelope Element, service_type, action_name).
+        Tuple of (request body, service_type, action_name).
     """
-    binary_el = ET.Element(f"{{{SERVICE_BASICEVENT}}}BinaryState")
-    binary_el.text = str(binary_state)
-
-    envelope = build_soap_envelope(
-        SERVICE_BASICEVENT,
-        "SetBinaryState",
-        [binary_el],
+    body = build_soap_body(
+        SERVICE_BASICEVENT, "SetBinaryState", {"BinaryState": str(binary_state)}
     )
-    return envelope, SERVICE_BASICEVENT, "SetBinaryState"
+    return body, SERVICE_BASICEVENT, "SetBinaryState"
 
 
-def build_get_binary_state() -> tuple[ET.Element, str, str]:
-    """Build a GetBinaryState SOAP envelope.
-
-    Returns:
-        Tuple of (envelope Element, service_type, action_name).
-    """
-    envelope = build_soap_envelope(
+def build_get_binary_state() -> tuple[bytes, str, str]:
+    """Build a GetBinaryState request."""
+    return (
+        build_soap_body(SERVICE_BASICEVENT, "GetBinaryState"),
         SERVICE_BASICEVENT,
         "GetBinaryState",
-        [],
     )
-    return envelope, SERVICE_BASICEVENT, "GetBinaryState"
 
 
-def build_get_insight_params() -> tuple[ET.Element, str, str]:
-    """Build a GetInsightParams SOAP envelope.
-
-    Returns:
-        Tuple of (envelope Element, service_type, action_name).
-    """
-    envelope = build_soap_envelope(
+def build_get_insight_params() -> tuple[bytes, str, str]:
+    """Build a GetInsightParams request."""
+    return (
+        build_soap_body(SERVICE_INSIGHT, "GetInsightParams"),
         SERVICE_INSIGHT,
         "GetInsightParams",
-        [],
     )
-    return envelope, SERVICE_INSIGHT, "GetInsightParams"
 
 
-def build_get_meta_info() -> tuple[ET.Element, str, str]:
-    """Build a GetMetaInfo SOAP envelope."""
-    envelope = build_soap_envelope(SERVICE_METAINFO, "GetMetaInfo", [])
-    return envelope, SERVICE_METAINFO, "GetMetaInfo"
+def build_get_meta_info() -> tuple[bytes, str, str]:
+    """Build a GetMetaInfo request."""
+    return (
+        build_soap_body(SERVICE_METAINFO, "GetMetaInfo"),
+        SERVICE_METAINFO,
+        "GetMetaInfo",
+    )
 
 
-def build_time_sync() -> tuple[ET.Element, str, str]:
-    """Build a TimeSync SOAP envelope with current UTC timestamp."""
-    utc_el = ET.Element(f"{{{SERVICE_TIMESYNC}}}UTC")
-    utc_el.text = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+def build_time_sync() -> tuple[bytes, str, str]:
+    """Build a TimeSync request carrying the current UTC timestamp."""
+    body = build_soap_body(
+        SERVICE_TIMESYNC,
+        "TimeSync",
+        {"UTC": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")},
+    )
+    return body, SERVICE_TIMESYNC, "TimeSync"
 
-    envelope = build_soap_envelope(SERVICE_TIMESYNC, "TimeSync", [utc_el])
-    return envelope, SERVICE_TIMESYNC, "TimeSync"
 
-
-def build_get_device_information() -> tuple[ET.Element, str, str]:
-    """Build a GetDeviceInformation SOAP envelope."""
-    envelope = build_soap_envelope(SERVICE_DEVICEINF, "GetDeviceInformation", [])
-    return envelope, SERVICE_DEVICEINF, "GetDeviceInformation"
+def build_get_device_information() -> tuple[bytes, str, str]:
+    """Build a GetDeviceInformation request."""
+    return (
+        build_soap_body(SERVICE_DEVICEINF, "GetDeviceInformation"),
+        SERVICE_DEVICEINF,
+        "GetDeviceInformation",
+    )
 
 
 # ── SOAP response parsing ────────────────────────────────────────────────────
@@ -239,19 +245,19 @@ def parse_soap_values(xml_bytes: bytes) -> dict[str, str]:
 
 def post_soap(
     device_addr: str,
-    envelope: ET.Element,
+    body: bytes,
     service_type: str,
     action: str,
     control_path: str,
     timeout: int = 10,
 ) -> bytes:
-    """POST a SOAP envelope to a Wemo device and return the raw response body.
+    """POST a SOAP request to a Wemo device and return the raw response body.
 
     Raises ``URLError`` (or ``HTTPError``, its subclass) on transport failure.
     """
     req = urllib.request.Request(
         f"http://{device_addr}{control_path}",
-        data=envelope_to_bytes(envelope),
+        data=body,
         headers={
             "Content-Type": 'text/xml; charset="utf-8"',
             "SOAPACTION": soapaction_header(service_type, action),
@@ -307,7 +313,7 @@ def parse_insight_params(raw: str) -> dict[str, str]:
 
 def send_soap(
     device_addr: str,
-    envelope: ET.Element,
+    body_bytes: bytes,
     service_type: str,
     action: str,
     control_path: str,
@@ -318,15 +324,14 @@ def send_soap(
 
     Args:
         device_addr: IP:port of the device, e.g. ``192.168.1.42:49153``.
-        envelope: SOAP envelope XML Element.
+        body_bytes: Serialized SOAP request body.
         service_type: UPnP service URN.
         action: SOAP action name.
         control_path: Control URL path on the device.
-        dry_run: If True, print the envelope instead of sending.
+        dry_run: If True, print the request instead of sending.
         timeout: HTTP timeout in seconds.
     """
     soapaction = soapaction_header(service_type, action)
-    body_bytes = envelope_to_bytes(envelope)
 
     url = f"http://{device_addr}{control_path}"
 
@@ -347,7 +352,7 @@ def send_soap(
     try:
         resp_body = post_soap(
             device_addr=device_addr,
-            envelope=envelope,
+            body=body_bytes,
             service_type=service_type,
             action=action,
             control_path=control_path,
@@ -427,26 +432,26 @@ Examples:
 
     # Build the SOAP envelope.
     if args.command == "on":
-        envelope, svc_type, action = build_set_binary_state(1)
+        body, svc_type, action = build_set_binary_state(1)
     elif args.command == "off":
-        envelope, svc_type, action = build_set_binary_state(0)
+        body, svc_type, action = build_set_binary_state(0)
     elif args.command == "state":
-        envelope, svc_type, action = build_get_binary_state()
+        body, svc_type, action = build_get_binary_state()
     elif args.command == "insight":
-        envelope, svc_type, action = build_get_insight_params()
+        body, svc_type, action = build_get_insight_params()
     elif args.command == "metainfo":
-        envelope, svc_type, action = build_get_meta_info()
+        body, svc_type, action = build_get_meta_info()
     elif args.command == "timesync":
-        envelope, svc_type, action = build_time_sync()
+        body, svc_type, action = build_time_sync()
     elif args.command == "info":
-        envelope, svc_type, action = build_get_device_information()
+        body, svc_type, action = build_get_device_information()
     else:
         print(f"Unknown command: {args.command}", file=sys.stderr)
         return 1
 
     send_soap(
         device_addr=args.device,
-        envelope=envelope,
+        body_bytes=body,
         service_type=svc_type,
         action=action,
         control_path=control_path,

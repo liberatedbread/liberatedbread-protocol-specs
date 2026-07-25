@@ -87,8 +87,19 @@ class WemoDevice:
     udn: str = ""
     usn: str = ""
     services: list[WemoService] = field(default_factory=list)
+    #: Belkin's non-standard extension elements inside <device>, e.g.
+    #: firmwareVersion, rtos, iot, binaryOption, new_algo. These select the
+    #: WiFi-setup password encryption variant — see scripts/wemo_setup.py.
+    config_extras: dict[str, str] = field(default_factory=dict)
     raw_ssdp_response: str = ""
     fetch_error: Optional[str] = None
+
+    def service_by_type(self, service_type: str) -> Optional[WemoService]:
+        """Return the advertised service with *service_type*, if present."""
+        for service in self.services:
+            if service.service_type == service_type:
+                return service
+        return None
 
 
 def build_msearch_packet(st: str, mx: int = SSDP_MX) -> bytes:
@@ -259,6 +270,35 @@ def parse_setup_xml(xml_bytes: bytes) -> Optional[WemoDevice]:
         udn=_child_text(device_el, "UDN"),
     )
 
+    # Belkin adds non-standard elements alongside the UPnP ones. They are not
+    # decoration: rtos/iot/binaryOption/new_algo select which password
+    # encryption variant the device expects during WiFi setup.
+    standard_tags = {
+        "deviceType",
+        "friendlyName",
+        "manufacturer",
+        "manufacturerURL",
+        "modelDescription",
+        "modelName",
+        "modelNumber",
+        "modelURL",
+        "serialNumber",
+        "UDN",
+        "UPC",
+        "macAddress",
+        "iconList",
+        "serviceList",
+        "deviceList",
+        "presentationURL",
+    }
+    for child in device_el:
+        tag = _local_tag(child.tag)
+        if tag in standard_tags:
+            continue
+        text = (child.text or "").strip()
+        if text:
+            device.config_extras[tag] = text
+
     # Parse service list. Devices vary in whether they namespace child
     # elements, so match on the local tag name rather than on a namespace.
     service_list_el = _find_child(device_el, "serviceList")
@@ -280,6 +320,45 @@ def parse_setup_xml(xml_bytes: bytes) -> Optional[WemoDevice]:
     return device
 
 
+def probe_port(host: str, ports: Optional[list[int]] = None) -> Optional[int]:
+    """Find the port a Wemo device is currently serving /setup.xml on.
+
+    Wemo ports move across 49151-49159 after a power cycle, so the port is
+    never identity — probe for it. Returns None if nothing answers.
+    """
+    for port in ports or PROBE_PORTS:
+        xml_data = fetch_setup_xml(f"http://{host}:{port}/setup.xml", timeout=2)
+        if xml_data is not None and parse_setup_xml(xml_data) is not None:
+            return port
+    return None
+
+
+def device_at(host: str, port: Optional[int] = None) -> Optional[WemoDevice]:
+    """Fetch and parse the description of the Wemo device at *host*.
+
+    Probes the known port list when *port* is not given. Returns None when no
+    Wemo device answers.
+    """
+    if port is None:
+        port = probe_port(host)
+        if port is None:
+            return None
+
+    url = f"http://{host}:{port}/setup.xml"
+    xml_data = fetch_setup_xml(url)
+    if xml_data is None:
+        return None
+
+    device = parse_setup_xml(xml_data)
+    if device is None:
+        return None
+
+    device.location_url = url
+    device.ip = host
+    device.port = port
+    return device
+
+
 def _merge_parsed(device: WemoDevice, parsed: WemoDevice) -> None:
     """Copy description fields from a parsed setup.xml onto a discovered device."""
     device.device_type = parsed.device_type
@@ -291,6 +370,7 @@ def _merge_parsed(device: WemoDevice, parsed: WemoDevice) -> None:
     device.mac_address = parsed.mac_address
     device.udn = parsed.udn
     device.services = parsed.services
+    device.config_extras = parsed.config_extras
 
 
 def _fetch_description(device: WemoDevice, probe_ports: bool) -> None:

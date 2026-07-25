@@ -71,9 +71,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     WiFi (SoftAP) and BLE devices
   - `docs/devices/wemo-setup.md` — Wemo factory reset, provisioning over the
     device's setup AP, and rebinding to a new network via `ReSetup`
-  - `scripts/wemo_setup.py` — dry-run-by-default Wemo provisioning client
+  - `scripts/wemo_setup.py` — dry-run-by-default Wemo provisioning client,
+    implementing pywemo's protocol: all three passphrase encryption variants
+    with firmware-based detection and manual override, ApList parsing, the
+    documented network status codes, and `ReSetup` scope codes
 - `scripts/test_wemo.py` — tests for Wemo discovery parsing, InsightParams
   field alignment, and the setup passphrase encryption
+- `scripts/test_wemo_setup_e2e.py` — end-to-end provisioning test against a
+  fake Wemo that decrypts the passphrase it is sent
 - `requirements-dev.txt` and `pyproject.toml` — ruff and pytest configuration
 - CI `lint-and-test` job running `ruff check` and `pytest`
 - Initial project structure
@@ -109,3 +114,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   examples shared one top-level key and collided
 - Device specs: removed `local_name_prefix: ""` values, which match every
   BLE device when used as a scan filter
+- Wemo SOAP requests put action arguments in the service namespace
+  (`<u:BinaryState>`); UPnP arguments are unqualified, and the request body now
+  matches the wire format pywemo and ouimeaux send
+- Wemo setup: the passphrase length suffix was not zero-padded, so any length
+  below 16 produced a blob the device rejects; MetaInfo field order was
+  documented backwards (field 0 is the MAC, field 1 the serial); only one of
+  the three encryption variants was implemented; `ReSetup` was called without
+  its required `Reset` scope argument; and `ApList` parsing did not skip the
+  header line or read the auth/cipher pair from the last column

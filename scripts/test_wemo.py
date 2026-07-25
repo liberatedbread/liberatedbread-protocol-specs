@@ -172,33 +172,124 @@ def test_parse_soap_values_on_garbage():
     assert wemo_control.parse_soap_values(b"<not-soap/>") == {}
 
 
-def test_soap_envelope_carries_action_and_arguments():
-    envelope = wemo_setup.build_action(
+def test_soap_body_matches_the_reference_wire_format():
+    """The namespace goes on the action element, arguments are unqualified.
+
+    ElementTree hoists namespace declarations to the root, which is equivalent
+    XML but not what Wemo firmware normally receives; these devices run crude
+    parsers, so the wire format is pinned to what pywemo and ouimeaux send.
+    """
+    body = wemo_control.build_soap_body(
         wemo_control.SERVICE_WIFI,
         "ConnectHomeNetwork",
         {"ssid": "HomeNet", "channel": "6"},
+    ).decode("utf-8")
+
+    assert '<u:ConnectHomeNetwork xmlns:u="urn:Belkin:service:WiFiSetup:1">' in body
+    assert "<ssid>HomeNet</ssid>" in body
+    assert "<channel>6</channel>" in body
+    assert "u:ssid" not in body
+    assert body.startswith('<?xml version="1.0" encoding="utf-8"?>')
+
+
+def test_soap_body_escapes_argument_values():
+    """An SSID containing & must not produce a malformed document."""
+    body = wemo_control.build_soap_body(
+        wemo_control.SERVICE_WIFI, "ConnectHomeNetwork", {"ssid": "Ben & Jerry"}
     )
-    body = wemo_control.envelope_to_bytes(envelope).decode("utf-8")
-    assert "ConnectHomeNetwork" in body
-    assert ">HomeNet<" in body
-    assert ">6<" in body
+    assert b"<ssid>Ben &amp; Jerry</ssid>" in body
+    # Must still parse.
+    import xml.etree.ElementTree as ET
+
+    ET.fromstring(body)
 
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
-
-def test_build_key_data_layout():
-    """keydata = meta[0][0:6] + meta[1] + meta[0][6:12]."""
-    key_data = wemo_setup.build_key_data("221517K0101769|94103E36AF15|Wemo Mini")
-    assert key_data == "221517" + "94103E36AF15" + "K01017"
-    assert len(key_data) >= 16  # enough for the 16-byte IV
+META_INFO = "94103E36AF15|221517K0101769|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
 
 
-def test_build_key_data_rejects_short_metainfo():
+def test_meta_info_field_order():
+    """Field 0 is the MAC and field 1 the serial — not the other way round.
+
+    Getting this backwards silently produces a valid-looking but undecryptable
+    passphrase, so it is worth pinning.
+    """
+    meta = wemo_setup.MetaInfo.parse(META_INFO)
+    assert meta.mac == "94103E36AF15"
+    assert meta.serial_number == "221517K0101769"
+    assert meta.firmware_version == "WeMo_US_2.00.11408"
+    assert meta.access_point_ssid == "Wemo.Mini.4A2"
+
+
+def test_meta_info_rejects_short_string():
     with pytest.raises(wemo_setup.SetupError):
-        wemo_setup.build_key_data("tooshort")
+        wemo_setup.MetaInfo.parse("94103E36AF15|221517K0101769")
+
+
+def test_build_key_data_variants():
+    """The three key layouts, as implemented by pywemo."""
+    meta = wemo_setup.MetaInfo.parse(META_INFO)
+    mac, serial = meta.mac, meta.serial_number
+
+    assert wemo_setup.build_key_data(meta, 1) == mac[:6] + serial + mac[6:12]
+    assert wemo_setup.build_key_data(meta, 2) == (
+        mac[:6] + serial + mac[6:12] + wemo_setup.METHOD2_KEY_SUFFIX
+    )
+    assert wemo_setup.build_key_data(meta, 3) == (
+        mac[:3]
+        + mac[9:12]
+        + serial
+        + wemo_setup.METHOD3_KEY_EXTRA
+        + mac[6:9]
+        + mac[3:6]
+    )
+
+
+def test_build_key_data_rejects_unknown_method():
+    meta = wemo_setup.MetaInfo.parse(META_INFO)
     with pytest.raises(wemo_setup.SetupError):
-        wemo_setup.build_key_data("short|AB")
+        wemo_setup.build_key_data(meta, 4)
+
+
+def test_detect_encryption_method():
+    """rtos without iot selects method 2, which omits the length suffix."""
+
+    def device(**extras):
+        return wemo_discover.WemoDevice(
+            location_url="", ip="10.22.22.1", port=49153, config_extras=extras
+        )
+
+    assert wemo_setup.detect_encryption_method(device()) == (1, True)
+    assert wemo_setup.detect_encryption_method(device(rtos="1")) == (2, False)
+    assert wemo_setup.detect_encryption_method(device(rtos="1", iot="1")) == (1, True)
+    assert wemo_setup.detect_encryption_method(device(iot="1")) == (1, True)
+
+
+def test_parse_ap_list_skips_header_and_splits_auth():
+    """SSID is column 0, channel column 1, and AUTH/CIPHER is the LAST column."""
+    ap_list = (
+        "3\n"
+        "HomeNet|6|WPA2PSK|blah|WPA2PSK/AES,\n"
+        "OpenGuest|11|OPEN|blah|OPEN/NONE,\n"
+        "NewFangled|1|SAE|blah|Unknown,\n"
+    )
+    aps = wemo_setup.parse_ap_list(ap_list)
+
+    assert [ap.ssid for ap in aps] == ["HomeNet", "OpenGuest", "NewFangled"]
+
+    home = aps[0]
+    assert (home.channel, home.auth_mode, home.encryption) == ("6", "WPA2PSK", "AES")
+    assert home.supported
+
+    assert aps[1].encryption == "NONE" and aps[1].supported
+    # WPA3 and anything else the device cannot express comes back as Unknown.
+    assert aps[2].auth_mode == "Unknown" and not aps[2].supported
+
+
+def test_parse_ap_list_ignores_junk_lines():
+    assert wemo_setup.parse_ap_list("") == []
+    assert wemo_setup.parse_ap_list("1\n\n   \ngarbage-no-pipe\n") == []
 
 
 requires_openssl = pytest.mark.skipif(
@@ -214,25 +305,11 @@ def test_encrypt_wifi_password_round_trips():
     OpenSSL 1.x emits a "Salted__" prefix even when -S is given, OpenSSL 3.x
     does not, and slicing 16 bytes unconditionally corrupts the output on 3.x.
     """
-    key_data = wemo_setup.build_key_data("221517K0101769|94103E36AF15|Wemo Mini")
+    meta = wemo_setup.MetaInfo.parse(META_INFO)
+    key_data = wemo_setup.build_key_data(meta, 1)
     password = "correct horse battery"
 
-    blob = wemo_setup.encrypt_wifi_password(password, key_data)
-
-    # Suffix is hex(len(base64)) followed by hex(len(plaintext)).
-    plaintext_len_hex = f"{len(password):x}"
-    assert blob.endswith(plaintext_len_hex)
-    remainder = blob[: -len(plaintext_len_hex)]
-
-    encoded = next(
-        (
-            remainder[:-n]
-            for n in range(1, 5)
-            if f"{len(remainder[:-n]):x}" == remainder[-n:]
-        ),
-        None,
-    )
-    assert encoded is not None, f"no self-consistent length suffix in {remainder!r}"
+    encoded = wemo_setup.encrypt_wifi_password(password, key_data, add_lengths=False)
 
     proc = subprocess.run(
         [
@@ -258,31 +335,62 @@ def test_encrypt_wifi_password_round_trips():
 
 
 @requires_openssl
+def test_encrypt_wifi_password_length_suffix_is_zero_padded():
+    """Wemo expects exactly four hex digits: xxyy, both zero-padded.
+
+    Regression test: emitting a single digit for a length below 16 produces a
+    blob the device silently rejects.
+    """
+    meta = wemo_setup.MetaInfo.parse(META_INFO)
+    key_data = wemo_setup.build_key_data(meta, 1)
+    password = "8charact"  # length 8 -> "08", not "8"
+
+    bare = wemo_setup.encrypt_wifi_password(password, key_data, add_lengths=False)
+    suffixed = wemo_setup.encrypt_wifi_password(password, key_data, add_lengths=True)
+
+    assert suffixed == f"{bare}{len(bare):02x}08"
+    assert len(suffixed) == len(bare) + 4
+
+
+@requires_openssl
 def test_encrypt_wifi_password_is_deterministic():
     """Same passphrase and key material must produce the same blob.
 
     The device derives its key from fixed metadata, so a random salt or IV
     would make the credential undecryptable on the device side.
     """
-    key_data = wemo_setup.build_key_data("221517K0101769|94103E36AF15|Wemo Mini")
-    first = wemo_setup.encrypt_wifi_password("hunter2", key_data)
-    second = wemo_setup.encrypt_wifi_password("hunter2", key_data)
+    meta = wemo_setup.MetaInfo.parse(META_INFO)
+    key_data = wemo_setup.build_key_data(meta, 1)
+    first = wemo_setup.encrypt_wifi_password("hunter2!", key_data, True)
+    second = wemo_setup.encrypt_wifi_password("hunter2!", key_data, True)
     assert first == second
+
+
+@requires_openssl
+def test_encrypt_wifi_password_rejects_overlong_password():
+    meta = wemo_setup.MetaInfo.parse(META_INFO)
+    key_data = wemo_setup.build_key_data(meta, 1)
+    with pytest.raises(wemo_setup.SetupError):
+        wemo_setup.encrypt_wifi_password("x" * 256, key_data, add_lengths=True)
 
 
 def test_dry_run_never_prints_the_passphrase(capsys):
     """Redacted arguments must not reach stdout, even in dry-run output."""
-    wemo_setup.call(
-        device_addr="10.22.22.1:49153",
-        service_type=wemo_control.SERVICE_WIFI,
-        action="ConnectHomeNetwork",
-        control_path="/upnp/control/WiFiSetup1",
+    client = wemo_setup.Client("10.22.22.1", execute=False)
+    client.call(
+        wemo_control.SERVICE_WIFI,
+        "ConnectHomeNetwork",
         arguments={"ssid": "HomeNet", "password": "s3cr3t-passphrase"},
         redact={"password": wemo_setup.PASSWORD_PLACEHOLDER},
-        execute=False,
     )
     out = capsys.readouterr().out
     assert "s3cr3t-passphrase" not in out
     assert wemo_setup.PASSWORD_PLACEHOLDER in out
     assert "HomeNet" in out
     assert "DRY RUN" in out
+
+
+def test_reset_codes_match_the_app_wording():
+    assert wemo_setup.RESET_CODES["data"][0] == 1
+    assert wemo_setup.RESET_CODES["factory"][0] == 2
+    assert wemo_setup.RESET_CODES["wifi"][0] == 5
