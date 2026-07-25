@@ -63,6 +63,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `704 8D 01 <b1> <b2> <b3>`, a 24-bit big-endian value in kilometres, with
   `5E 01` -> `704 DE` flagging a TFT dash and selecting which mile divisor
   (1.60934 vs 1.6099895) the tool applies
+- Initial device setup (provisioning) coverage:
+  - `device.setup` block in `device-specs/schema.json` — onboarding methods,
+    factory reset procedures, rebinding, and credential handling
+  - `device.setup` populated for all 27 device specs
+  - `docs/protocols/device-setup.md` — cross-device onboarding patterns for
+    WiFi (SoftAP) and BLE devices
+  - `docs/devices/wemo-setup.md` — Wemo factory reset, provisioning over the
+    device's setup AP, and rebinding to a new network via `ReSetup`
+  - `scripts/wemo_setup.py` — dry-run-by-default Wemo provisioning client
+- `scripts/test_wemo.py` — tests for Wemo discovery parsing, InsightParams
+  field alignment, and the setup passphrase encryption
+- `requirements-dev.txt` and `pyproject.toml` — ruff and pytest configuration
+- CI `lint-and-test` job running `ruff check` and `pytest`
 - Initial project structure
 - Device documentation template
 - Getting started guides
@@ -81,3 +94,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - LEDs2Rave4 / Lunchbox Dream LED docs now map each product generation to its design app
   (LED CHORD → SPOTLED → iLEDColor) and document the SPOTLED framed BLE protocol on `0xFF20`,
   corroborated against `python-spotled`
+### Fixed
+
+- `wemo_control.py`: `InsightParams` parsing omitted the `wifipower` field,
+  shifting every power reading one column left
+- `wemo_discover.py`: removed a dead service-parsing loop, added Belkin/Wemo
+  filtering (`ssdp:all` made every UPnP responder appear as a Wemo device), and
+  wired up the previously unused port-fallback probe list
+- `test_build_index.py`: hardcoded device list had rotted into a failing test
+- `mkdocs.yml`: ten device pages existed but were missing from the nav
+- `docs/devices/wifi-discovery.md`: content appeared above the page title
+- `docs/devices/vector-robot.md`: corrected the repository URL and a heading level
+- `docs/devices/discovery.yaml`: split into separate YAML documents; the four
+  examples shared one top-level key and collided
+- Device specs: removed `local_name_prefix: ""` values, which match every
+  BLE device when used as a scan filter

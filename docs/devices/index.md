@@ -46,3 +46,43 @@ A catalog of IoT devices we've documented (or are documenting).
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Generic / ScanTool / Vgate |
 | [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | Triumph Motorcycles |
 | [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | BMW Motorrad |
+The **Setup** column records how a factory-fresh device is provisioned, and how
+well that flow is understood. The full machine-readable version lives in each
+spec's `device.setup` block; the patterns are explained in
+[Initial Device Setup](../protocols/device-setup.md).
+
+## Devices
+
+| Device | Protocol | Status | Setup | Manufacturer |
+|--------|----------|--------|-------|-------------|
+| [Ember Mug](ember-mug.md) | BLE | Complete | None needed | Ember Technologies |
+| [Bluetooth LED Name Badge](bluetooth-led-name-badge.md) | BLE | Complete | None needed | Generic (multiple vendors) |
+| [iDotMatrix](idotmatrix.md) | BLE | Complete | None needed | iDotMatrix / LedHun |
+| [LEDs2Rave4 Lunchbox LED](leds2rave4-lunchbox-led.md) | BLE | Complete | None needed | SP LED (SP107E / SP110E) |
+| [Shining Mask](shining-mask.md) | BLE | Complete | None needed | Shenzhen Shining Bright Technology |
+| [PAX Vape](pax-vape.md) | BLE | Complete | None needed | PAX Labs |
+| [Shining Glasses](shining-glasses.md) | BLE | Complete | None needed | Shenzhen Shining Bright Technology |
+| [Magic Display](magic-display.md) | BLE | Complete | None needed | tirohk / AiTURE |
+| [Chef iQ Sense](chef-iq-sense.md) | BLE + Wi-Fi | Complete | BLE provisioning (medium) | Chefman / Chef iQ |
+| [AUTOBABA LED Backpack](autobaba-led-backpack.md) | BLE + Wi-Fi | Complete | None needed | LOY SPACE / popled.cn |
+| [Nyan BT Image Controller](nyan-bt-image-controller.md) | BLE | Complete | None needed | NYAN GEAR / LOY SPACE |
+| [MoTool Slacker](motool-slacker.md) | BLE | In Progress | None needed | MoTool |
+| [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | None needed | AdMore Lighting Inc. |
+| [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
+| [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
+| [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
+| [Roku External Control Protocol](roku-ecp.md) | WiFi | Complete | On-device UI (high) | Roku / TCL |
+| [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
+| [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
+| [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
+| [LIFX Z](lifx-z.md) | WiFi | Complete | SoftAP, uncaptured (low) | LIFX |
+| [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
+| [Rachio Controller](rachio-controller.md) | WiFi | Research | Uncaptured (low) | Rachio |
+| [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
+
+## Guides
+
+- [WiFi Discovery](wifi-discovery.md) — finding devices already on the network
+- [Wemo Setup, Factory Reset and Rebinding](wemo-setup.md) — the worked provisioning example
+- [Frigidaire Local API Audit](frigidaire-local-api-audit.md) — why some devices cannot be rescued
+- [Initial Device Setup](../protocols/device-setup.md) — provisioning patterns across devices

@@ -20,7 +20,6 @@ import socket
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Fix sys.path: omnigent's Python 3.12 site-packages may shadow our venv
@@ -135,7 +134,7 @@ def print_text(robots: dict[str, VectorRobot]) -> None:
         print(f"  Port:       {robot.port}")
         print(f"  Serial:     {robot.serial or '(not advertised)'}")
         if robot.txt:
-            print(f"  TXT records:")
+            print("  TXT records:")
             for k, v in sorted(robot.txt.items()):
                 print(f"    {k}: {v}")
         print()
@@ -183,12 +182,15 @@ def main() -> None:
     listener = VectorListener()
     zc = Zeroconf()
 
+    browser = None
     try:
         browser = ServiceBrowser(zc, MDNS_SERVICE_TYPE, listener)
         time.sleep(args.timeout)
     except KeyboardInterrupt:
         print("\nScan interrupted.", file=sys.stderr)
     finally:
+        if browser is not None:
+            browser.cancel()
         zc.close()
 
     if args.json:

@@ -67,7 +67,9 @@ device:
         - "modelName"
         - "modelNumber"
         - "serviceList"
-    ssid_prefix: "WeMo.Setup."
+    ssid_prefix: "Wemo."
+    ssid_prefix_match: "case_insensitive"
+    ssid_examples: ["WeMo.Switch.A1B", "Wemo.Mini.4A2", "WeMo.Insight.7C4", "WeMo.Lightswitch.0F3"]
     default_port: 49153
     port_probe_list: [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
     discovery_order:
@@ -137,6 +139,208 @@ device:
       stable_keys: ["udn", "serial", "mac"]
       display: "friendlyName"
     static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Wemo devices ship unprovisioned and cannot be discovered by SSDP until
+      they hold WiFi credentials. Provisioning is entirely local: the device
+      hosts an open setup AP and accepts the home network credentials over the
+      same SOAP 1.1 stack used for normal control. The Belkin cloud is not
+      required at any point, which is why Wemo hardware remains recoverable
+      after the January 2026 cloud shutdown.
+
+      CONFIDENCE: the service/action names are HIGH (they appear in the device
+      setup.xml service list and in the public pywemo and wemosetup
+      implementations). The passphrase encryption derivation and the exact
+      ApList field order are MEDIUM — taken from the public wemosetup
+      implementation and not yet replayed against hardware in this project.
+      Always read the WiFiSetup controlURL from setup.xml rather than assuming
+      a path: both /upnp/control/WiFiSetup1 and /upnp/control/wifi1 have been
+      reported across firmware generations.
+    methods:
+      - type: "softap_soap"
+        verified: false
+        description: >
+          Join the device's own setup AP and drive the WiFiSetup SOAP service.
+          This is the only known way to give a Wemo device WiFi credentials
+          without the (now defunct) Belkin app.
+        softap:
+          ssid_prefix: "Wemo."
+          ssid_examples: ["WeMo.Switch.A1B", "Wemo.Mini.4A2", "WeMo.Insight.7C4"]
+          open_network: true
+          gateway_ip: "10.22.22.1"
+          port: 49153
+          credential_encryption:
+            algorithm: "aes-128-cbc"
+            key_derivation: >
+              Key material is built from the MetaInfo string returned by
+              metainfo#GetMetaInfo, split on '|': keydata =
+              meta[0][0:6] + meta[1] + meta[0][6:12]. The first 8 bytes of
+              keydata are the salt and the first 16 bytes are the IV; keydata
+              itself is the OpenSSL passphrase, run through the legacy
+              EVP_BytesToKey MD5 derivation.
+            encoding: >
+              base64 of the ciphertext with OpenSSL's 16-byte "Salted__"+salt
+              header removed, followed by the hex-encoded length of that base64
+              string and the hex-encoded length of the plaintext passphrase.
+            notes: >
+              Derived from the public wemosetup implementation. The scheme
+              protects the passphrase from a passive listener on the open setup
+              AP, but the key is derived entirely from device metadata that the
+              device hands out unauthenticated, so it is obfuscation rather
+              than a trust boundary.
+        steps:
+          - action: "Factory reset the device (or call basicevent#ReSetup on a provisioned one) so it re-enters setup mode."
+            actor: "user"
+            expect: "Device starts advertising an open Wemo.* WiFi network."
+          - action: "Join the device's setup AP from the provisioning client."
+            actor: "user"
+            expect: "Client receives a 10.22.22.x address with 10.22.22.1 as gateway."
+          - action: "Fetch the device description and resolve service control URLs."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "GET http://10.22.22.1:49153/setup.xml"
+            expect: "serviceList contains urn:Belkin:service:WiFiSetup:1 and urn:Belkin:service:metainfo:1."
+          - action: "Read device metadata used to derive the passphrase encryption key."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:metainfo:1"
+              action: "GetMetaInfo"
+            expect: "MetaInfo pipe-delimited string; fields 0 and 1 supply the key material."
+          - action: "Ask the device to scan for nearby access points."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "GetApList"
+            expect: "ApList string, one entry per line, carrying SSID, channel, auth mode, cipher and signal."
+            timeout_seconds: 20
+          - action: "Encrypt the home network passphrase and hand the device its credentials."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "ConnectHomeNetwork"
+              arguments:
+                - name: "ssid"
+                  type: "string"
+                  required: true
+                  description: "Target network SSID, exactly as reported by GetApList."
+                - name: "auth"
+                  type: "string"
+                  required: true
+                  description: "Auth mode from the ApList entry, e.g. WPA2PSK."
+                - name: "password"
+                  type: "string"
+                  required: true
+                  description: "Encrypted passphrase blob (see credential_encryption)."
+                - name: "encrypt"
+                  type: "string"
+                  required: true
+                  description: "Cipher from the ApList entry, e.g. AES."
+                - name: "channel"
+                  type: "integer"
+                  required: true
+                  description: "Channel from the ApList entry."
+          - action: "Poll the join result until the device reports a connected state."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "GetNetworkStatus"
+            expect: "NetworkStatus of 1 indicates a successful join; anything else means the credentials were rejected."
+            timeout_seconds: 30
+          - action: "Close setup mode so the device leaves its AP and joins the home network."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "CloseSetup"
+            expect: "Setup AP disappears; the client can rejoin its normal network."
+          - action: "Rediscover the device on the home LAN by SSDP and confirm control."
+            actor: "client"
+            request:
+              protocol: "ssdp"
+              action: "M-SEARCH ST: urn:Belkin:service:basicevent:1"
+            expect: "Device answers with a LOCATION URL; basicevent#GetBinaryState succeeds."
+            timeout_seconds: 90
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears the stored WiFi credentials, friendly name, rules/timers and any
+        cloud/account association, and returns the device to setup mode. The
+        UDN, serial number and MAC address are hardware identity and survive a
+        reset, so a device keeps its stable discovery keys across reprovisioning.
+      procedures:
+        - name: "Restore button held while power is applied (plug-style devices)"
+          applies_to: ["F7C063", "WSP080", "F7C029", "WSP090"]
+          hold_seconds: 5
+          indicator: "Status LED blinks, then the device reboots into setup mode and starts advertising its Wemo.* AP."
+          steps:
+            - action: "Unplug the device from the outlet."
+              actor: "user"
+            - action: "Press and hold the Restore button, then plug the device back in while still holding."
+              actor: "user"
+            - action: "Keep holding for about 5 seconds after power is applied, then release."
+              actor: "user"
+            - action: "Wait up to 90 seconds for the device to finish rebooting."
+              actor: "device"
+              timeout_seconds: 90
+              expect: "An open Wemo.* network appears in the client's WiFi scan."
+        - name: "Restore button held on a mains-powered in-wall device"
+          applies_to: ["F7C030/F7C027/F7C076", "F7C059", "WDS060"]
+          hold_seconds: 10
+          indicator: "Status LED cycles, then the device reboots into setup mode."
+          steps:
+            - action: "Leave the switch powered at the breaker."
+              actor: "user"
+            - action: "Press and hold the Restore button on the device body for about 10 seconds until the LED changes pattern."
+              actor: "user"
+              notes: "In-wall units cannot be reset by cycling power at the breaker alone; the button must be held."
+            - action: "Wait up to 90 seconds for the device to reboot into setup mode."
+              actor: "device"
+              timeout_seconds: 90
+      notes: >
+        Hold times are vendor-documented and vary by generation; treat them as
+        a starting point and watch the LED rather than the clock. The reliable
+        confirmation that a reset worked is the reappearance of the open
+        Wemo.* setup AP.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A provisioned Wemo device can be pushed back into setup mode over the
+        LAN with basicevent#ReSetup, which avoids a physical factory reset when
+        the device is still reachable on the old network — useful when the
+        router is being replaced but the device is not. If the old network is
+        already gone, the device is unreachable and a physical factory reset is
+        the only path. Note that ReSetup clears the stored credentials, so a
+        failed reprovisioning leaves the device in setup mode, not on the old
+        network.
+      steps:
+        - action: "While the device is still reachable on the old network, send basicevent#ReSetup."
+          actor: "client"
+          request:
+            protocol: "soap"
+            service: "urn:Belkin:service:basicevent:1"
+            action: "ReSetup"
+          expect: "Device drops off the LAN and starts advertising its Wemo.* setup AP."
+        - action: "Run the softap_soap provisioning flow against the new network."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Home network SSID and passphrase"
+        - "Friendly name and local rules/timers"
+      issued_to_client: []
+      notes: >
+        No token or certificate is issued to the client: post-setup control is
+        unauthenticated SOAP to anyone on the LAN. Treat network segmentation,
+        not device auth, as the security control for Wemo hardware.
 
   variants:
     - model: "F7C063"
@@ -508,8 +712,13 @@ soap_common:
       actions: ["GetTime", "TimeSync", "GetDeviceTime"]
     wifi_setup:
       service_type: "urn:Belkin:service:WiFiSetup:1"
-      control_url: "/upnp/control/wifi1"
+      control_url: "/upnp/control/WiFiSetup1"
+      control_url_alternates: ["/upnp/control/wifi1"]
       actions: ["GetApList", "ConnectHomeNetwork", "GetNetworkStatus", "CloseSetup"]
+      availability: >
+        Present on the setup AP. Always resolve the controlURL from the
+        serviceList in setup.xml; the path spelling differs across firmware
+        generations.
 
 http_endpoints:
   - method: "GET"

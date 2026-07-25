@@ -1,10 +1,7 @@
 """Tests for merge_voter.py — vote parsing, scoring, merge thresholds."""
 
-import json
 import logging
-from pathlib import Path
 
-import pytest
 
 from merge_voter import (
     MergeDecision,
@@ -82,7 +79,6 @@ class TestTiebreaker:
     """Verify that equal-score candidates are resolved by vote count."""
 
     def test_higher_vote_count_wins_tie(self):
-        from merge_voter import cross_check_and_vote, MergeDecision, Vote
         # We can't easily call cross_check_and_vote without API calls,
         # so test the tiebreaker logic directly by inspecting the scoring code.
         # Build candidate_scores mimicking what the function computes:
@@ -159,7 +155,7 @@ class TestAutoMergeWinner:
 
         d = self._make_decision()
         # Won't actually git commit (no git repo at tmp_root), but should copy files
-        result = auto_merge_winner(d, tmp_root)
+        auto_merge_winner(d, tmp_root)
 
         dst = tmp_root / "device-specs" / "devices" / "test-device.yaml"
         assert dst.exists()

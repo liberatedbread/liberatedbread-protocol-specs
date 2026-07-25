@@ -15,7 +15,6 @@ then generates a comprehensive VERIFICATION_REFERENCE.md with:
 
 import csv
 import re
-import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -107,9 +106,8 @@ def parse_metadata_section(text: str) -> dict:
     lines = block.split("\n")
     pkg_content_lines: list[str] = []
     in_pkg_section = False
-    pkg_header_line = None
 
-    for idx, line in enumerate(lines):
+    for line in lines:
         stripped = line.strip()
 
         # Detect top-level metadata headers: lines starting with "- " at col 0
@@ -125,7 +123,6 @@ def parse_metadata_section(text: str) -> dict:
             )
             if pkg_match:
                 in_pkg_section = True
-                pkg_header_line = idx
                 val = pkg_match.group(1).strip()
                 if val:
                     pkg_content_lines.append(val)
@@ -225,7 +222,7 @@ def extract_apk_method(text: str) -> str:
 
 def extract_apk_collected(text: str, package_ids: list[str]) -> str:
     """Determine if APK has been collected.
-    
+
     Priority:
     1. Filesystem check: if .apk/.xapk exists in apkeep dir → YES
     2. Evidence checklist: if [x] with APK-related content → YES
@@ -686,7 +683,7 @@ def main() -> None:
     for pkg, targets in sorted(csv_families.items()):
         if len(targets) >= 2 and pkg not in shared:
             lines.append(f"- **`{pkg}`** ({len(targets)} targets in CSV): {', '.join(sorted(targets))}")
-            lines.append(f"  - (Not yet captured as shared package_id in target doc metadata)")
+            lines.append("  - (Not yet captured as shared package_id in target doc metadata)")
             lines.append("")
 
     lines.append("")
