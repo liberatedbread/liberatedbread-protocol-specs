@@ -8,11 +8,19 @@ transport it speaks, which ECU addresses respond, and which ReadDataByIdentifier
 DIDs return data. That last sweep is how you locate values such as an odometer or a
 service-due distance before anyone works out how to change them.
 
-Only services that read are ever sent: 0x22 (ReadDataByIdentifier), 0x09 (vehicle info)
-and 0x10 0x03 (enter extended session, when --extended is given). Nothing in here writes
-a value, starts a routine or resets an ECU, and the sweep deliberately refuses to touch
-RoutineControl (0x31) — "start routine" identifiers execute whatever they name, so they
-are only ever invoked from a captured, understood trace.
+Discovery is read-only: 0x22 (ReadDataByIdentifier), 0x09 (vehicle info) and 0x10 0x03
+(enter extended session, when --extended is given). The DID sweep deliberately refuses to
+touch RoutineControl (0x31) — "start routine" identifiers execute whatever they name, so
+they are only ever invoked from a captured, understood trace.
+
+Two vehicle-specific modes go further, because clearing a service reminder after doing the
+service is the point of this repo:
+
+* ``--triumph-sia`` / ``--triumph-reset`` — Triumph instrument cluster (CAN 0x701/0x704)
+* ``--bmw-scan`` / ``--bmw-module`` — BMW D-CAN modules via the 0x6F1 addressing scheme
+
+Only ``--triumph-reset`` writes, and it refuses to run without ``--yes-write``. It reads
+the current state before and after, so a mistake is visible immediately.
 
 SAFETY: vehicles are safety-critical. Run this on a vehicle you own, stationary, on a
 stand or with the parking brake set, engine off and ignition on. Never while anyone is
@@ -253,6 +261,132 @@ def sweep_dids(
     return hits
 
 
+# ---------------------------------------------------------------------------
+# Vehicle-specific helpers.
+#
+# These implement the two protocols documented under docs/devices/. Both are
+# derived from vendor tool binaries and have NOT yet been confirmed against a
+# bike, so treat the first run as the confirmation.
+# ---------------------------------------------------------------------------
+
+
+def triumph_cluster_init(elm: Elm327) -> None:
+    """Set up the Triumph instrument-cluster stack: 11-bit CAN 0x701 -> 0x704.
+
+    Auto-formatting and flow control OFF — this stack is raw frames, not ISO-TP.
+    Headers ON because the reply is matched on its `704 ` prefix.
+    """
+    for cmd in ("ATWS", "ATE0", "ATL0", "ATH1", "ATTP6",
+                "ATCAF0", "ATCFC0", "ATSH701", "ATCRA704", "ATST7F"):
+        elm.command(cmd)
+
+
+def triumph_read_sia(elm: Elm327) -> dict[str, object]:
+    """Read Triumph cluster state. Read-only.
+
+    `0D 01` answers `704 8D 01 <b1> <b2> <b3>` where the three bytes are a 24-bit
+    big-endian odometer in KILOMETRES. `5E 01` answers `704 DE` on TFT-dash bikes,
+    which selects which mile divisor the tool uses (1.60934 vs 1.6099895 — the
+    source of the ~1 mile discrepancy owners see between tool and dash).
+    """
+    out: dict[str, object] = {}
+    reply = elm.command("0D01", delay=0.4)
+    out["raw_odo_reply"] = reply.replace("\r", " ").strip()
+    frames = parse_response(reply)
+    for data in frames:
+        # 8D 01 <b1> <b2> <b3>, with or without a leading header byte.
+        for off in (0, 1):
+            if len(data) >= off + 5 and data[off] == 0x8D and data[off + 1] == 0x01:
+                km = (data[off + 2] << 16) | (data[off + 3] << 8) | data[off + 4]
+                out["odometer_km"] = km
+                out["odometer_miles"] = round(km / 1.60934, 1)
+                break
+    tft = elm.command("5E01", delay=0.4)
+    out["tft_dash"] = "DE" in tft.upper()
+    return out
+
+
+def triumph_service_reset(elm: Elm327, distance: int, units: str) -> dict[str, object]:
+    """Reset the Triumph service interval. THIS WRITES.
+
+    `33 <km/100>` or `34 <miles/100>`; success is a reply beginning `704 B3`/`704 B4`.
+    The value is divided by 100, so only multiples of 100 are expressible.
+    """
+    if distance % 100:
+        raise SystemExit(f"interval must be a multiple of 100 (got {distance})")
+    scaled = distance // 100
+    if not 1 <= scaled <= 0xFF:
+        raise SystemExit(f"interval {distance} does not fit the one-byte field")
+    opcode = "33" if units == "km" else "34"
+    reply = elm.command(f"{opcode}{scaled:02X}", delay=1.0)
+    upper = reply.upper()
+    return {
+        "request": f"{opcode} {scaled:02X}",
+        "reply": reply.replace("\r", " ").strip(),
+        "ok": "B3" in upper or "B4" in upper,
+    }
+
+
+def bmw_module_init(elm: Elm327, addr: int) -> None:
+    """Set up BMW D-CAN for one module address: tester 0x6F1, replies on 0x600+addr."""
+    for cmd in ("ATWS", "ATE0", "ATL0", "ATH1", "ATSPB", "ATPBC101",
+                "ATSH6F1", "ATFCSH6F1", f"ATFCSD{addr:02X}300008", "ATFCSM1",
+                f"ATCEA{addr:02X}", "ATCM7FF", f"ATCF6{addr:02X}", "ATST90", "ATBI"):
+        elm.command(cmd)
+
+
+def bmw_scan_modules(elm: Elm327, addresses: range, verbose: bool) -> list[dict[str, object]]:
+    """Sweep BMW module addresses and report which answer. Read-only.
+
+    MotoScan's module addresses are not published, so find them: for each address,
+    set up the 6F1 stack and ask for the standard VIN DID. Anything that answers —
+    positively or with a negative response code — is a live module.
+    """
+    found = []
+    for addr in addresses:
+        bmw_module_init(elm, addr)
+        verdict = classify(parse_response(elm.command("22F190", delay=0.3)), 0x22)
+        if verdict["result"] == "no_response":
+            continue
+        entry = {"address": f"0x{addr:02X}", "reply_id": f"0x{0x600 + addr:03X}", **verdict}
+        found.append(entry)
+        if verbose:
+            print(f"  module {entry}", file=sys.stderr)
+    return found
+
+
+def bmw_read_service(elm: Elm327) -> dict[str, object]:
+    """Read BMW service state from the currently addressed module. Read-only.
+
+    Payload starts at offset 3 in every reply.
+    """
+    out: dict[str, object] = {}
+    for name, req, length in (
+        ("odometer_km", "22E119", 7),
+        ("clock", "22E12B", 10),
+        ("service_date", "22E12C", 7),
+        ("service_distance_km", "22E12D", 5),
+    ):
+        frames = parse_response(elm.command(req, delay=0.4))
+        data = next((f for f in frames if len(f) >= length), None)
+        if data is None:
+            out[name] = None
+            continue
+        body = data[3:]
+        if name == "odometer_km":
+            out[name] = int.from_bytes(bytes(body[:4]), "big")
+        elif name == "service_distance_km":
+            out[name] = int.from_bytes(bytes(body[:2]), "big")
+        elif name == "service_date":
+            out[name] = f"{body[0]:02d}.{body[1]:02d}.{(body[2] << 8) | body[3]:04d}"
+        else:
+            out[name] = (
+                f"{body[3]:02d}.{body[4]:02d}.{(body[5] << 8) | body[6]:04d} "
+                f"{body[0]:02d}:{body[1]:02d}:{body[2]:02d}"
+            )
+    return out
+
+
 def parse_range(text: str) -> tuple[int, int]:
     """Parse '0xF180-0xF1FF' or a single '0xF190' into an inclusive range."""
     if "-" in text:
@@ -294,6 +428,35 @@ def main() -> None:
     parser.add_argument(
         "--scan-delay", type=float, default=0.15, help="Delay between sweep requests (s)"
     )
+    parser.add_argument(
+        "--triumph-sia",
+        action="store_true",
+        help="Read Triumph cluster state (odometer, TFT dash). Read-only.",
+    )
+    parser.add_argument(
+        "--triumph-reset",
+        metavar="DISTANCE",
+        type=int,
+        help="Reset the Triumph service interval to DISTANCE (multiple of 100). WRITES; needs --yes-write.",
+    )
+    parser.add_argument(
+        "--units", choices=["km", "miles"], default="km", help="Units for --triumph-reset"
+    )
+    parser.add_argument(
+        "--bmw-scan",
+        metavar="RANGE",
+        help="Sweep BMW module addresses, e.g. 0x00-0x7F. Read-only.",
+    )
+    parser.add_argument(
+        "--bmw-module",
+        metavar="ADDR",
+        help="Address a single BMW module (e.g. 0x60) and read its service state. Read-only.",
+    )
+    parser.add_argument(
+        "--yes-write",
+        action="store_true",
+        help="Confirm you intend to write to the vehicle. Required for any write.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON")
     parser.add_argument("--verbose", action="store_true", help="Echo the adapter dialogue")
     args = parser.parse_args()
@@ -301,6 +464,35 @@ def main() -> None:
     elm = Elm327(args.port, args.baud, args.timeout, args.verbose)
     report: dict[str, object] = {}
     try:
+        # Vehicle-specific modes drive their own init and return early.
+        if args.triumph_sia or args.triumph_reset is not None:
+            elm.command("ATZ", delay=1.0)
+            triumph_cluster_init(elm)
+            report["before"] = triumph_read_sia(elm)
+            if args.triumph_reset is not None:
+                if not args.yes_write:
+                    raise SystemExit(
+                        "--triumph-reset writes to the cluster. Re-run with --yes-write "
+                        "once the owner has agreed and the values above are recorded."
+                    )
+                report["reset"] = triumph_service_reset(elm, args.triumph_reset, args.units)
+                report["after"] = triumph_read_sia(elm)
+            print(json.dumps(report, indent=2))
+            return
+
+        if args.bmw_scan or args.bmw_module:
+            elm.command("ATZ", delay=1.0)
+            if args.bmw_scan:
+                lo, hi = parse_range(args.bmw_scan)
+                report["modules"] = bmw_scan_modules(elm, range(lo, hi + 1), args.verbose)
+            if args.bmw_module:
+                addr = int(args.bmw_module, 16)
+                bmw_module_init(elm, addr)
+                report["module"] = f"0x{addr:02X}"
+                report["service"] = bmw_read_service(elm)
+            print(json.dumps(report, indent=2))
+            return
+
         report["adapter"] = elm.init(args.protocol)
         ecus = args.ecu or DEFAULT_ECUS
         report["ecus"] = [probe_ecu(elm, ecu, args.extended) for ecu in ecus]

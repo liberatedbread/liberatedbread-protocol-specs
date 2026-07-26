@@ -26,8 +26,9 @@ instrument cluster** — not a UDS request to the engine ECU at all. See
     repair-café volunteer needs after doing the service. Stationary bike, engine off,
     ignition on, owner's consent, and read the current values back first.
 
-    Out of scope: ECU flashing, odometer alteration, immobiliser changes. The ABS bleed
-    documented below is a brake procedure — follow the service manual. See
+    Flagged `advanced`, not excluded: the immobiliser and TPMS writes, and the ABS bleed
+    (a brake procedure — follow the service manual). They are here because an old bike
+    needs them. Don't falsify a recorded odometer. See
     [Working a repair café](../protocols/obd2-common.md#working-a-repair-cafe).
 
 ## Hardware
@@ -231,13 +232,42 @@ rider can set it from the instrument menu, which is usually the easier route.
 
 Sent in sequence on the same `0x701`/`0x704` stack after connecting:
 
-| Request | Reply seen | Meaning |
-|---------|-----------|---------|
-| `0D 01` | `704 8D 01 …` | SIA/odometer record (data parsed from byte 6 onward) |
-| `5E 01` | `704 DE …` | Cluster probe — TuneECU uses this as its connect handshake for this stack |
+| Request | Reply | Meaning |
+|---------|-------|---------|
+| `0D 01` | `704 8D 01 <b1> <b2> <b3>` | **Odometer**, 24-bit big-endian, **kilometres** |
+| `5E 01` | `704 DE` / `NO DATA` | **TFT dash present?** — selects the mile divisor |
 | `47 01` | — | Further record (TigerTool only) |
 | `6E 76` | — | Further record (TigerTool only) |
 | `6E 74` | — | Further record (TigerTool only) |
+
+Both are now decoded from TigerTool's own parsers rather than guessed:
+
+- The odometer handler takes characters 11–12, 14–15 and 17–18 of the header-prefixed
+  reply — i.e. the three bytes after `8D 01` — concatenates them and reads the result as
+  hex. So `704 8D 01 01 5F 90` is 0x015F90 = 89,998 km.
+- The raw value is **kilometres**. Miles are produced by dividing by `1.60934`, or by
+  `1.6099895` when the TFT flag from `5E 01` is clear. Two divisors in one binary is
+  exactly the "different conversion factors and rounding across the Triumph model range"
+  the TigerTool manual warns about, and it is why tool and dash can disagree by a mile.
+- Bit 0 of the settings value selects miles over km, and the tool keeps **separate default
+  service intervals** for each unit.
+
+### Doing it without the vendor tool
+
+`scripts/obd_discover.py` now speaks this stack:
+
+```bash
+# Read cluster state — odometer, TFT flag. Read-only.
+python scripts/obd_discover.py --port /dev/rfcomm0 --triumph-sia
+
+# Reset the service interval. Reads before and after; refuses without --yes-write.
+python scripts/obd_discover.py --port /dev/rfcomm0 \
+    --triumph-reset 10000 --units km --yes-write
+```
+
+The reset validates what the wire format can express — a multiple of 100 that fits one
+byte — and reports the `704 B3`/`704 B4` acknowledgement, so a failed write is visible
+rather than silent.
 
 Field-level decoding of these replies is the obvious next piece of work; the tool displays
 odometer, distance-to-service and service date from them.
