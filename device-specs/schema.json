@@ -8,12 +8,29 @@
   "anyOf": [
     { "required": ["services"] },
     { "required": ["http_endpoints"] },
-    { "required": ["mqtt_topics"] }
+    { "required": ["mqtt_topics"] },
+    { "required": ["obd"] }
   ],
   "$defs": {
     "uuid": {
       "type": "string",
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "hex_bytes": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f?]{2}( [0-9A-Fa-f?]{2})*$",
+      "description": "Space-separated hex byte sequence, e.g. '22 F1 90'. A '??' byte is an unknown/placeholder position. Automotive traces are conventionally written this way, so OBD payloads use hex strings rather than the integer arrays used for BLE writes."
+    },
+    "can_id": {
+      "type": "string",
+      "pattern": "^0x[0-9A-Fa-f]{3,8}$",
+      "description": "CAN identifier in hex, e.g. '0x7E0' (11-bit) or '0x18DAF110' (29-bit)."
+    },
+    "verification": {
+      "type": "string",
+      "enum": ["confirmed", "reported", "hypothesis"],
+      "description": "How much weight this fact carries. 'confirmed' = observed in our own capture or read back from the device; 'reported' = stated by vendor/community documentation but not reproduced here; 'hypothesis' = inferred and not yet tested. Anything not 'confirmed' must not be executed against a vehicle without review.",
+      "default": "hypothesis"
     },
     "initialization": {
       "type": "array",
@@ -107,8 +124,8 @@
         },
         "protocol": {
           "type": "string",
-          "enum": ["ble", "wifi", "zigbee", "zwave"],
-          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum."
+          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2"],
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); the mobile Rust Protocol enum does NOT yet consume it, so such specs are documentation/tooling targets rather than mobile-app targets today."
         },
         "notes": {
           "type": "string",
@@ -725,6 +742,168 @@
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "obd": {
+      "type": "object",
+      "description": "Diagnostic access for devices reached through a vehicle diagnostic connector (OBD-II / UDS) rather than a radio. Vehicles are safety-critical: entries here describe read paths and owner-facing maintenance functions only, and any request whose `verification` is not 'confirmed' must be treated as untested.",
+      "required": ["transport"],
+      "properties": {
+        "connector": {
+          "type": "object",
+          "description": "Physical diagnostic socket on the vehicle.",
+          "properties": {
+            "standard": {
+              "type": "string",
+              "enum": ["sae-j1962", "iso-19689", "proprietary"],
+              "description": "Connector standard: 16-pin automotive (sae-j1962), 6-pin Euro 5 motorcycle (iso-19689), or vendor-specific."
+            },
+            "location": {
+              "type": "string",
+              "description": "Where the socket is on the vehicle, e.g. 'under the pillion seat'."
+            },
+            "model_years": {
+              "type": "string",
+              "description": "Which model years use this connector, when a vehicle changed connectors mid-life."
+            },
+            "pins": {
+              "type": "array",
+              "description": "Pin assignments that matter for diagnostics.",
+              "items": {
+                "type": "object",
+                "required": ["pin", "signal"],
+                "properties": {
+                  "pin": { "type": "integer", "minimum": 1 },
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal on this pin, e.g. 'CAN-H', 'CAN-L', 'K-line', 'ground', 'battery +12V'."
+                  },
+                  "verification": { "$ref": "#/$defs/verification" }
+                }
+              }
+            }
+          }
+        },
+        "transport": {
+          "type": "object",
+          "description": "Link and transport layer used to reach the ECU.",
+          "required": ["standard"],
+          "properties": {
+            "standard": {
+              "type": "string",
+              "enum": ["iso15765-4", "iso9141-2", "iso14230-4", "sae-j1850-pwm", "sae-j1850-vpw"],
+              "description": "Diagnostic link standard. 'iso15765-4' is CAN with ISO-TP segmentation."
+            },
+            "bitrate": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Bus bitrate in bit/s (500000 for the usual OBD-II CAN variant)."
+            },
+            "addressing": {
+              "type": "string",
+              "enum": ["11bit", "29bit"],
+              "description": "CAN identifier width."
+            },
+            "request_id": { "$ref": "#/$defs/can_id" },
+            "response_id": { "$ref": "#/$defs/can_id" },
+            "functional_id": {
+              "$ref": "#/$defs/can_id",
+              "description": "Functional broadcast request ID (0x7DF on standard OBD-II)."
+            },
+            "tester_present_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Interval at which TesterPresent (3E 00) must be sent to hold a non-default session."
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "adapter_requirements": {
+          "type": "array",
+          "description": "Adapter constraints observed in practice, e.g. functions that only work with an STN-chipset adapter because they need multi-frame ISO-TP with custom headers.",
+          "items": { "type": "string" }
+        },
+        "ecus": {
+          "type": "array",
+          "description": "Nodes on the diagnostic bus and which data each owns. Knowing the owner matters when a value displayed on one module is stored in another.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "request_id": { "$ref": "#/$defs/can_id" },
+              "response_id": { "$ref": "#/$defs/can_id" },
+              "owns": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Data this node is believed to store, e.g. 'odometer', 'service interval'."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "requests": {
+          "type": "array",
+          "description": "Diagnostic requests, including hypotheses that have not been captured yet. Every entry carries its own `verification` so unproven candidates can be recorded without being mistaken for facts.",
+          "items": {
+            "type": "object",
+            "required": ["name", "verification"],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "service": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{2}$",
+                "description": "UDS/OBD service byte in hex, e.g. '22' (ReadDataByIdentifier), '31' (RoutineControl)."
+              },
+              "request": { "$ref": "#/$defs/hex_bytes" },
+              "expected_response": { "$ref": "#/$defs/hex_bytes" },
+              "prerequisites": {
+                "type": "array",
+                "description": "Ordered requests that must succeed first (session control, security access).",
+                "items": { "$ref": "#/$defs/hex_bytes" }
+              },
+              "security_access_required": {
+                "type": "boolean",
+                "description": "Whether a SecurityAccess (27) seed/key exchange is needed before this request is accepted."
+              },
+              "writes": {
+                "type": "boolean",
+                "default": false,
+                "description": "True if this request mutates vehicle state. Consumers should gate these behind explicit confirmation."
+              },
+              "verification": { "$ref": "#/$defs/verification" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "data_identifiers": {
+          "type": "array",
+          "description": "Known or suspected ReadDataByIdentifier (22) DIDs and how to decode them.",
+          "items": {
+            "type": "object",
+            "required": ["did", "name", "verification"],
+            "properties": {
+              "did": {
+                "type": "string",
+                "pattern": "^0x[0-9A-Fa-f]{4}$",
+                "description": "Two-byte data identifier in hex, e.g. '0xF190'."
+              },
+              "name": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["bool", "uint8", "uint16", "uint32", "bytes", "string", "date"],
+                "description": "How the response payload decodes."
+              },
+              "unit": { "type": "string" },
+              "scale": {
+                "type": "number",
+                "description": "Multiplier applied to the raw value to get `unit`."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
             }
           }
         }
