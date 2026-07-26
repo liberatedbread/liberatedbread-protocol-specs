@@ -172,8 +172,9 @@ Both write commands are declared in the spec with `advanced: true`:
 | `write_parameter` | Generic register write — current limits, regen, speed limiting |
 | `system_command` | Controller-level operations: calibration, data gather, reset |
 
-!!! danger "Advanced — read this before writing anything"
-    These opcodes are documented and usable, but they retune a **road-going vehicle**:
+!!! warning "Advanced — read this before writing anything"
+    These opcodes are documented and meant to be usable. They also retune a **road-going
+    vehicle**, so here is what you are taking on:
 
     - **Confirm before trusting.** The frame *shape* is MEDIUM confidence (derived from
       community RE). Exact per-parameter payload encodings and **CRC byte order are
@@ -185,8 +186,8 @@ Both write commands are declared in the spec with `advanced: true`:
       invalidate insurance.** Documented because it is your vehicle and your call —
       but make it knowingly.
 
-    Writes are excluded from autodetection: discovery stays scan-and-read only.
-    Consumers must gate these behind an explicit opt-in, not a default UI.
+    Writes are excluded from autodetection: discovery stays scan-and-read only. Consumers
+    should keep these available behind a deliberate action — a signpost, not a gate.
 
 ## Confirming what your scooter actually runs
 
