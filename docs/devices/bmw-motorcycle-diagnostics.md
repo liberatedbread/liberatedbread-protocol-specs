@@ -233,6 +233,23 @@ Also recovered from the same code:
 - Utility identifiers `UTIL_UDS_BMSX_ADAPTION_RESET` and `UTIL_UDS_BMSX_ADAPTION_EARN_DONE`
   for engine adaption resets.
 
+## The shortcut we have not taken: the SGBDs
+
+Everything above was recovered by hand from a shipped app. BMW already describes these
+modules formally, in EDIABAS SGBD files — `KOMBI.prg` and friends, selected by `.grp`
+group files. The result names in MotoScan's embedded database are SGBD result names, which
+means the cluster SGBD defines, authoritatively:
+
+- the module address (the `<aa>` this page still lists as unknown)
+- the job that each frame implements, and the results it returns
+- scaling and units for every result, rather than the offsets decoded here
+- DTC text
+
+Anyone with a licensed EDIABAS/INPA/ISTA installation has these files already. Reading
+`KOMBI.prg` would settle the open questions faster than another capture, and the spec now
+has `description_files` entries ready to record exactly which file answered what. The
+files are vendor copyright — reference them, never redistribute them.
+
 ## What is still unknown
 
 1. **Module addresses** — the `<aa>` values MotoScan probes for each ECU.
