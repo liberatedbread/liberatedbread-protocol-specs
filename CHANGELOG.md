@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   advanced-stn, native-can), and per-request `command_class` (basic vs advanced)
   with a `requires` capability list, so a consumer can tell before connecting
   whether a given adapter can run a given command
+- BMW motorcycle / MotoScan target starter (`de.wgsoft.motoscan`) — the same
+  service-interval-reset problem as the Triumph work, with an analysis plan and the
+  observation that the app vendor also makes the UCSI-2100 adapter whose 255-byte
+  message support exists because BMW's protocols need it
 - Named OBD-II adapter coverage: UniCarScan UCSI-2100, OBDLink MX and OBDLink MX+,
   with per-model capability profiles, plus an `alt_can_bus` capability (Ford MS-CAN /
   GM SW-CAN) and a tool-requirement matrix covering FORScan, TuneECU, TigerTool,
