@@ -1,0 +1,128 @@
+# Nanjing Fardriver ND-series motor controller device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Fardriver ND-series Motor Controller"
+  manufacturer: "Nanjing Fardriver Controller Co."
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    Sine-wave (FOC) brushless motor controller used across the Chinese
+    light-EV supply chain: QS Motor hub-motor kits, e-motorcycle builds, and
+    classic-scooter EV conversions. Reached over BLE by the vendor "FarDriver"
+    Android app, which shows live speed / pack voltage / current / RPM /
+    temperatures / SOC and writes tunable parameters (gear-mode curves, speed
+    limit, regen, throttle response). This is the "connected by app" layer on
+    app-tethered scooter conversions, so it is the local-first target: a rider
+    dashboard and a mode switch that do not depend on a vendor app.
+
+    TELEMETRY FRAMING (derived, community-corroborated, CONFIDENCE MEDIUM-HIGH):
+    the controller free-runs 16-byte status frames as BLE notifications.
+    Layout: byte 0 = 0xAA magic; byte 1 = 6-bit block ID + 2-bit flags;
+    bytes 2..13 = 12 payload bytes; bytes 14..15 = CRC16. When the ID field is
+    < 0x37 it indexes a 55-entry table of flash addresses spanning 0x00..0xFA;
+    the payload is the mirror of that region. Reassembling frames yields a
+    512-byte (0x200) device-memory image from which the fields below are
+    decoded by struct offset -- these are offsets into that reassembled image,
+    NOT offsets into a single frame. Frames rotate through nearly all
+    addresses, with hot blocks repeated every 3-4 frames.
+    CRC16: poly 0x8005, init 0x7F3C, refin true, refout true, xorout false
+    (implemented vendor-side as a dual hi/lo lookup table seeded a=0x3C,
+    b=0x7F). Writes use a shorter variable-length form (typically 8 bytes)
+    with flags=1: magic, length, address pair, payload, CRC.
+
+    FLAG (per-unit, must be confirmed on YOUR controller): the BLE service and
+    characteristic UUIDs are NOT constant across units. Fardriver controllers
+    ship with different bolt-on BLE bridge modules, so the transport UUIDs vary
+    by module even when the framing above is identical. The UUIDs recorded in
+    this spec are the commonly observed HM-10-style pair and are a STARTING
+    POINT, not a guarantee -- confirm with an nRF Connect scan before trusting
+    them. CONFIDENCE: framing/CRC MEDIUM-HIGH; field offsets MEDIUM;
+    UUIDs LOW (per-unit).
+
+    FLAG (write path deliberately unspecified): no parameter-write opcodes are
+    enumerated here. Writes to this device change speed limiting, regen and
+    current limits on a road-going vehicle. Read/telemetry decode is the
+    supported scope; anything that writes must be captured and validated
+    per-unit by the owner, on a stand, and is explicitly out of scope for
+    autodetection. Do not infer or invent write opcodes.
+
+    VEHICLE CONTEXT: documented because it is the app layer behind
+    app-connected classic-scooter EV conversion kits (e.g. Retrospective
+    Classic "Project:E" Vespa/Lambretta conversions, 72 V / 4 kW hub motor,
+    keyless ignition, "connected by app"). Those vendors publish no app name
+    and no controller brand, so the specific pairing is INFERRED from the
+    kit's published bill of materials (sine-wave controller, QS-style 4 kW hub
+    motor, app-adjustable speed restriction/derestriction) matching the
+    Fardriver ND-series feature set. CONFIDENCE on the vendor attribution:
+    MEDIUM. Confirm per-scooter with a BLE scan -- see the device doc page for
+    the confirmation procedure and for the Votol EM-series alternative.
+  identification:
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "service_uuid"
+    static_ip_required: false
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Fardriver BLE Bridge Service"
+    characteristics:
+      - uuid: "0000ffec-0000-1000-8000-00805f9b34fb"
+        name: "Telemetry Notify"
+        properties: ["notify"]
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Serial Data"
+        properties: ["read", "write", "write_without_response", "notify"]
+
+entities:
+  - platform: "sensor"
+    name: "Pack Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Line Current"
+    device_class: "current"
+    unit: "A"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Battery State of Charge"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Motor RPM"
+    unit: "rpm"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Vehicle Speed"
+    device_class: "speed"
+    unit: "km/h"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Controller Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Motor Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Throttle Depth"
+    unit: "%"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Ride Mode"
+    state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
