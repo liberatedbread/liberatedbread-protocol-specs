@@ -1,7 +1,10 @@
 # Triumph Tiger 900 — Device Specification
-# Status: Research — transport confirmed from public tool documentation; the service
-#         interval reset request itself has NOT been captured. Every candidate request
-#         below is marked `verification: hypothesis` for that reason.
+# Status: In Progress — the service interval reset message and most of the surrounding
+#         diagnostic surface were recovered by static analysis of TigerTool V3.51
+#         (freeware, SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79):
+#         Delphi literal extraction plus x86 disassembly of the request builders and
+#         response matchers. Derived from a tool binary, NOT yet reproduced on a bike,
+#         so these carry `verification: reported` rather than `confirmed`.
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 
@@ -25,11 +28,19 @@ device:
     the odometer and the service values are stored in the instrument cluster in kilometres,
     which is why the owning ECU still has to be established.
 
-    CONFIDENCE: connector types, transport family, storage location, interval granularity
-    and adapter requirements are all from vendor tool documentation (verification:
-    reported). The request bytes are inferred from the shape of the tool UIs and from the
-    fact that DTC reads work on clone adapters while the reset does not (verification:
-    hypothesis). Nothing here has been executed against a bike.
+    The reset is NOT a UDS request to the engine ECU. It goes to the instrument cluster on
+    CAN 0x701 as a two-byte proprietary frame, 21 <km/100> or 22 <miles/100> — which is
+    why every tool's UI only offers intervals in multiples of 100: the wire format cannot
+    express anything else.
+
+    Four separate stacks are in play. Engine ECU speaks UDS over 29-bit CAN (18 DA D5 F1).
+    Instrument cluster and immobiliser speak a proprietary raw-frame protocol on 11-bit
+    0x701/0x704 and 0x604/0x602 with ISO-TP formatting switched OFF. ABS speaks KWP2000
+    over K-line with ISO init address 0x43.
+
+    CONFIDENCE: everything is derived from TigerTool V3.51's own code paths (verification:
+    reported). Nothing here has been executed against a bike, and the reply field layouts
+    for the SIA query opcodes are not yet decoded.
 
     SAFETY: vehicles are safety-critical. Read-only work on a stationary, owned bike on a
     stand with the engine off. No writes to ABS, immobiliser or engine-map memory.
@@ -51,13 +62,16 @@ obd:
   connector:
     standard: "sae-j1962"
     location: "under the pillion seat"
-    model_years: "2020–2023 (MY2024+ Gen 2 bikes use the 6-pin ISO 19689 connector)"
+    model_years: "2020–2023 (MY2024+ Gen 2 bikes use the 6-pin ISO 19689 connector and are NOT covered by these findings)"
     pins:
       - pin: 6
         signal: "CAN-H"
         verification: "reported"
       - pin: 14
         signal: "CAN-L"
+        verification: "reported"
+      - pin: 7
+        signal: "K-line (ABS and engine-ECU ping stack)"
         verification: "reported"
       - pin: 16
         signal: "battery +12V"
@@ -66,151 +80,406 @@ obd:
         signal: "chassis ground"
         verification: "reported"
 
+  # The bike presents more than one stack. This block describes the cluster stack, where
+  # the service interval lives; per-ECU addressing for the others is under `ecus`.
   transport:
     standard: "iso15765-4"
     bitrate: 500000
     addressing: "11bit"
-    request_id: "0x7E0"
-    response_id: "0x7E8"
-    functional_id: "0x7DF"
-    tester_present_ms: 2000
-    verification: "hypothesis"
+    request_id: "0x701"
+    response_id: "0x704"
+    verification: "reported"
+    notes: >
+      ELM327 setup used by TigerTool for this stack: AT TP6, AT E0, AT H1, AT L0, AT CFC0,
+      AT CAF0, AT SH701, AT CRA704, AT ST7F. CAF0 and CFC0 mean auto-formatting and flow
+      control are OFF — frames are raw and short, first byte is an opcode, and there is no
+      ISO-TP layer at all on this stack.
 
   adapter_requirements:
-    - "DTC read (single-frame OBD-II mode 03) works with generic ELM327 clones."
+    - "Raw frame transmit (ATCAF0) and arbitrary headers/filters (ATSH/ATCRA) are mandatory — this is not legislated OBD-II."
+    - "Session switches between 11-bit CAN, 29-bit CAN and K-line, so the adapter must handle protocol changes mid-session."
+    - "K-line functions additionally need a custom ISO init address (ATIIA43)."
     - >
-      Service interval reset requires an OBDLink LX/MX (STN chipset) on many Triumph
-      models; TuneECU documents it as mandatory for Tiger 1200 MY2022+. The split between
-      what works and what does not points at multi-frame ISO-TP and custom request
-      headers, which clone ELM327 firmware handles unreliably.
+      This is the real reason clone ELM327 firmware fails while DTC reads succeed: it never
+      reaches a payload, failing at the first ATCAF0 or ATCRA.
 
   ecus:
-    - name: "Engine ECU (Keihin)"
-      request_id: "0x7E0"
-      response_id: "0x7E8"
-      owns:
-        - "diagnostic trouble codes"
-        - "live sensor data"
-      verification: "hypothesis"
     - name: "Instrument cluster"
+      request_id: "0x701"
+      response_id: "0x704"
       owns:
+        - "service interval (distance)"
+        - "service date"
         - "odometer (kilometres)"
-        - "service interval"
-        - "service-due distance"
-        - "service-due date"
+        - "instrument menu and unit settings"
+      verification: "reported"
+    - name: "Engine ECU (Keihin) — UDS"
+      request_id: "0x18DAD5F1"
+      response_id: "0x18DAF1D5"
+      owns:
+        - "ECU identity (tune, cal/build, serial, VIN)"
+        - "diagnostic trouble codes"
+        - "throttle balance MAP data"
       verification: "reported"
       notes: >
-        TigerTool states all odometer values are stored in the instruments. Whether the
-        cluster is addressed directly from the diagnostic connector or gatewayed via the
-        engine ECU is unresolved and is the first thing a capture should settle.
-    - name: "ABS modulator"
-      owns: ["ABS DTCs"]
+        29-bit addressing, target 0xD5, source (tester) 0xF1. Functional broadcast is
+        0x18DB33F1. A second ECU answers on 0x18DAF1D6 (address 0xD6) during tune checks.
+    - name: "Engine + ABS ECU — K-line (KWP2000)"
+      owns:
+        - "ECU ping / keepalive"
+        - "security access (seed/key)"
+        - "ABS DTCs"
+        - "ABS brake bleed"
       verification: "reported"
-    - name: "Immobiliser"
-      owns: ["TPMS sensor IDs", "TPMS live data"]
+      notes: >
+        KWP2000 header 68 6A F1 (target 0x6A, source 0xF1) via AT SH 68 6A F1 and AT TP3.
+        ABS additionally requires AT IIA43 (ISO init address 0x43).
+    - name: "Immobiliser (also carries TPMS)"
+      request_id: "0x604"
+      response_id: "0x602"
+      owns:
+        - "immobiliser DTCs"
+        - "TPMS enable state"
+        - "TPMS sensor IDs"
+        - "live TPMS data (broadcast on 0x600)"
       verification: "reported"
 
   requests:
-    - name: "read_vin"
-      description: "Standard OBD-II vehicle information request; useful as a first liveness check."
+    # ---- The service interval reset ----
+    - name: "reset_service_interval_km"
+      description: >
+        Reset the service interval, distance in kilometres. The value byte is the interval
+        DIVIDED BY 100 — the reason every tool UI only offers multiples of 100. 10000 km,
+        the Tiger 800/900/Sport ceiling, is 100 = 0x64.
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "21 ??"
+      expected_response: "B4"
+      writes: true
+      verification: "reported"
+      notes: >
+        Sent on CAN 0x701. Success is a frame on 0x704 beginning B4 (TigerTool also accepts
+        B3); a reply beginning 00 is the no-data/error case. No diagnostic session and no
+        security access precede it.
+    - name: "reset_service_interval_miles"
+      description: "Reset the service interval, distance in miles. Value byte is miles/100 (6000 mi = 60 = 0x3C)."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "22 ??"
+      expected_response: "B4"
+      writes: true
+      verification: "reported"
+    - name: "reset_service_date"
+      description: "Reset the service-due date. Two data bytes are a 16-bit date word plus one, split high/low; the epoch and the third byte are not yet decoded."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "5C ?? ?? ??"
+      expected_response: "DC"
+      writes: true
+      verification: "reported"
+
+    # ---- Reading service and odometer state ----
+    - name: "sia_query_1"
+      description: "First SIA/odometer record. Reply data begins at byte 6 of the header-prefixed response."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "0D 01"
+      expected_response: "8D 01 ??"
+      writes: false
+      verification: "reported"
+    - name: "sia_query_2"
+      description: "Second SIA/odometer record."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "47 01"
+      writes: false
+      verification: "reported"
+    - name: "sia_query_3"
+      description: "Third SIA/odometer record."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "5E 01"
+      writes: false
+      verification: "reported"
+    - name: "sia_query_4"
+      description: "Fourth SIA/odometer record."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "6E 76"
+      writes: false
+      verification: "reported"
+    - name: "sia_query_5"
+      description: "Fifth SIA/odometer record."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "6E 74"
+      writes: false
+      verification: "reported"
+
+    # ---- Instrument menu / units ----
+    - name: "set_odo_units"
+      description: "Set odometer units (miles/km) in the instruments."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "30 ??"
+      expected_response: "B0"
+      writes: true
+      verification: "reported"
+    - name: "set_tpms_menu"
+      description: "Enable or disable the TPMS menu item in the instruments."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "31 ??"
+      expected_response: "B1"
+      writes: true
+      verification: "reported"
+    - name: "set_abs_menu"
+      description: "Enable or disable the ABS menu item in the instruments."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "32 ??"
+      expected_response: "B2"
+      writes: true
+      verification: "reported"
+
+    # ---- Engine ECU, UDS over 29-bit CAN ----
+    - name: "read_ecu_identity"
+      description: "ECU identity block read on connect: tune, tune count, cal/build, tune date, serial, VIN."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "22"
+      request: "03 22 F1 90"
+      expected_response: "62 F1 90 ??"
+      writes: false
+      verification: "reported"
+      notes: "Same shape for F1A0, F1A7, F1AE, F1A2, F199, F18C. See data_identifiers."
+    - name: "read_calibration_id"
+      description: "OBD-II mode 09 PID 04, sent functionally to 0x18DB33F1."
       command_class: "basic"
-      requires: ["single_frame", "multiframe_rx"]
+      requires: ["single_frame", "custom_headers"]
       service: "09"
-      request: "09 02"
-      expected_response: "49 02 ??"
+      request: "02 09 04"
       writes: false
-      verification: "hypothesis"
-      notes: "Standard SAE J1979; not confirmed as supported by this ECU."
-
-    - name: "enter_extended_session"
-      description: "Extended diagnostic session, expected prerequisite for any maintenance function."
+      verification: "reported"
+    - name: "read_dtc_count"
+      description: "UDS ReadDTCInformation, reportNumberOfDTCByStatusMask, mask 0x08 (confirmed)."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx"]
+      service: "19"
+      request: "03 19 01 08"
+      expected_response: "59 01 ??"
+      writes: false
+      verification: "reported"
+    - name: "read_dtc_list"
+      description: "UDS ReadDTCInformation, reportDTCByStatusMask, mask 0x08."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx"]
+      service: "19"
+      request: "03 19 02 08"
+      expected_response: "59 02 ??"
+      writes: false
+      verification: "reported"
+    - name: "clear_dtcs"
+      description: "UDS ClearDiagnosticInformation, all groups. Clears DTCs and the MIL."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_tx", "flow_control"]
+      service: "14"
+      request: "04 14 FF FF FF"
+      expected_response: "44"
+      writes: true
+      verification: "reported"
+      notes: "May answer 03 7F 14 78 (responsePending) first."
+    - name: "security_access_seed"
+      description: "SecurityAccess level 3 — request seed. Gates throttle-balance reads; NOT required for the service reset."
       command_class: "advanced"
       requires: ["custom_headers"]
-      service: "10"
-      request: "10 03"
-      expected_response: "50 03"
+      service: "27"
+      request: "27 03"
+      expected_response: "67 03 ??"
       writes: false
-      verification: "hypothesis"
-      notes: >
-        Inferred from TigerTool's documented behaviour that a failed service reset can
-        leave the ECU refusing further diagnostic functions until the tool reconnects —
-        the signature of a session that ended.
-
-    - name: "tester_present"
-      description: "Keepalive so a non-default session does not time out."
+      verification: "reported"
+    - name: "security_access_key"
+      description: "SecurityAccess level 4 — send key."
       command_class: "advanced"
       requires: ["custom_headers"]
-      service: "3E"
-      request: "3E 00"
-      expected_response: "7E 00"
+      service: "27"
+      request: "27 04 ??"
+      expected_response: "67 04"
       writes: false
-      verification: "hypothesis"
+      verification: "reported"
 
-    - name: "service_reset_h1_routine_control"
-      description: "H1: service interval reset as a UDS routine."
+    # ---- ABS, KWP2000 over K-line ----
+    - name: "abs_read_identity"
+      description: "ABS ECU identity."
       command_class: "advanced"
-      requires: ["custom_headers", "multiframe_tx", "flow_control"]
-      service: "31"
-      request: "31 01 ?? ??"
-      expected_response: "71 01 ?? ??"
-      prerequisites: ["10 03"]
-      security_access_required: false
+      requires: ["custom_headers", "raw_frames"]
+      request: "A0"
+      writes: false
+      verification: "reported"
+    - name: "abs_read_dtcs"
+      description: "KWP2000 readDiagnosticTroubleCodesByStatus."
+      command_class: "advanced"
+      requires: ["custom_headers", "raw_frames"]
+      service: "13"
+      request: "13 40 FF"
+      expected_response: "53 ??"
+      writes: false
+      verification: "reported"
+    - name: "abs_clear_dtcs"
+      description: "KWP2000 clearDiagnosticInformation on the ABS modulator."
+      command_class: "advanced"
+      requires: ["custom_headers", "raw_frames"]
+      service: "14"
+      request: "14 00 00"
+      expected_response: "54 00 00"
       writes: true
-      verification: "hypothesis"
-      notes: >
-        Highest-ranked candidate. 'Reset' functions are conventionally routines, and a
-        routine that tears down the session explains the observed post-failure lockout.
-        The routine identifier is unknown. DO NOT sweep RoutineControl identifiers against
-        a vehicle — 31 01 executes whatever it names.
+      verification: "reported"
+    - name: "abs_bleed_start"
+      description: "Start the ABS modulator bleed cycle. Brake-system function — do not run outside an actual brake service."
+      command_class: "advanced"
+      requires: ["custom_headers", "raw_frames"]
+      request: "A1 01 FF"
+      expected_response: "E1 01 FF"
+      writes: true
+      verification: "reported"
+    - name: "abs_bleed_status"
+      description: "Poll bleed state. E1 B0 00 = idle, E1 B0 01 = running."
+      command_class: "advanced"
+      requires: ["custom_headers", "raw_frames"]
+      request: "A1 B0 FF"
+      expected_response: "E1 B0 ??"
+      writes: false
+      verification: "reported"
+    - name: "abs_bleed_stop"
+      description: "Stop the bleed cycle."
+      command_class: "advanced"
+      requires: ["custom_headers", "raw_frames"]
+      request: "A1 01 00"
+      expected_response: "E1 01 00"
+      writes: true
+      verification: "reported"
 
-    - name: "service_reset_h2_write_data_by_identifier"
-      description: "H2: service interval reset as a value write of the service-due distance."
+    # ---- Immobiliser / TPMS ----
+    - name: "immobiliser_identify"
+      description: "Identify the immobiliser; reply carries the type byte."
       command_class: "advanced"
-      requires: ["custom_headers", "multiframe_tx", "flow_control"]
-      service: "2E"
-      request: "2E ?? ?? ?? ??"
-      expected_response: "6E ?? ??"
-      prerequisites: ["10 03"]
-      security_access_required: false
-      writes: true
-      verification: "hypothesis"
-      notes: >
-        The tool UI is 'pick a number, then validate', which is the shape of a value
-        write. Distance is expected to be kilometres as a scaled integer: the documented
-        100-unit granularity and the 10000 km ceiling for Tiger 800/900/Sport fit a uint16
-        comfortably. A second write may carry the service date — TuneECU requires the
-        bike's clock and date to be set correctly before the reset runs.
-
-    - name: "service_reset_h4_kwp2000_write_local_id"
-      description: "H4: KWP2000 writeDataByLocalIdentifier dialect carried over from the ISO 9141 ECUs."
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "00"
+      expected_response: "0B ??"
+      writes: false
+      verification: "reported"
+    - name: "immobiliser_access"
+      description: "Immobiliser access request issued before DTC and TPMS operations."
       command_class: "advanced"
-      requires: ["custom_headers", "multiframe_tx", "flow_control"]
-      service: "3B"
-      request: "3B ?? ?? ??"
-      expected_response: "7B ??"
-      prerequisites: ["10 03"]
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "02 18 E2 31 02"
+      writes: false
+      verification: "reported"
+    - name: "immobiliser_read_dtcs"
+      description: "Read immobiliser/TPMS DTCs."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "40"
+      expected_response: "40 00"
+      writes: false
+      verification: "reported"
+    - name: "immobiliser_erase_dtcs"
+      description: "Erase immobiliser/TPMS DTCs."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "41 FF FF FF FF"
+      expected_response: "41 00"
       writes: true
-      verification: "hypothesis"
-      notes: >
-        Lower probability, but Triumph's earlier ECUs (Mk1 Tiger 800 family) combined
-        ISO 9141-2 with CAN, so a vendor dialect could have survived the move to CAN.
+      verification: "reported"
+    - name: "tpms_read_state"
+      description: "Read TPMS enabled/disabled state."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "0A"
+      expected_response: "0A ??"
+      writes: false
+      verification: "reported"
+    - name: "tpms_set_state"
+      description: "Enable/disable TPMS. 03/04 opcodes with 00 or 10 as the value."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "03 ??"
+      expected_response: "03 ??"
+      writes: true
+      verification: "reported"
+    - name: "tpms_write_sensor_id"
+      description: "Program a TPMS sensor ID (8 hex digits) into the immobiliser."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "09 00 00 ?? ?? ?? 01 19"
+      expected_response: "09"
+      writes: true
+      verification: "reported"
+    - name: "tpms_live_monitor"
+      description: "Passive listen for live TPMS pressure/temperature broadcasts (ATCRA600 + ATMA)."
+      command_class: "advanced"
+      requires: ["custom_headers", "monitor_all"]
+      writes: false
+      verification: "reported"
 
   data_identifiers:
     - did: "0xF190"
-      name: "VIN (standard UDS DID)"
+      name: "VIN"
       type: "string"
-      verification: "hypothesis"
-    - did: "0x0000"
-      name: "odometer (kilometres) — DID unknown"
-      type: "uint32"
-      unit: "km"
-      verification: "hypothesis"
-    - did: "0x0000"
-      name: "service-due distance (kilometres) — DID unknown"
-      type: "uint16"
-      unit: "km"
-      verification: "hypothesis"
-    - did: "0x0000"
-      name: "service-due date — DID unknown"
+      verification: "reported"
+    - did: "0xF18C"
+      name: "ECU serial number"
+      type: "string"
+      verification: "reported"
+    - did: "0xF1A0"
+      name: "Tune number"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF1A7"
+      name: "Tune number (second variant)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF1AE"
+      name: "Tune count"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF1A2"
+      name: "Cal / build number"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF199"
+      name: "Tune date"
       type: "date"
-      verification: "hypothesis"
+      verification: "reported"
+    - did: "0x0003"
+      name: "Throttle balance MAP sensor (bank 0)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0x0017"
+      name: "Throttle balance MAP sensor (bank 0)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0x0031"
+      name: "Throttle balance MAP sensor (bank 0)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0x0033"
+      name: "Throttle balance MAP sensor (bank 0)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0x0103"
+      name: "Throttle balance MAP sensor (bank 1)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0x0117"
+      name: "Throttle balance MAP sensor (bank 1)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0x0131"
+      name: "Throttle balance MAP sensor (bank 1)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0x0133"
+      name: "Throttle balance MAP sensor (bank 1)"
+      type: "bytes"
+      verification: "reported"

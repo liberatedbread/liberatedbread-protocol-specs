@@ -41,9 +41,12 @@
 ## Device discovery signals
 - OBD / CAN:
   - connector: SAE J1962 (2020-2023) / ISO 19689 6-pin (MY2024+), under the pillion seat
-  - bus: ISO 15765-4, expected 11-bit at 500 kbit/s (to be confirmed by capture)
-  - expected physical addressing: 0x7E0 request / 0x7E8 response (unconfirmed for Triumph)
-  - functional broadcast: 0x7DF (emissions modes only)
+  - instrument cluster: 11-bit CAN 500 kbit/s, request 0x701 -> response 0x704
+  - immobiliser/TPMS: 11-bit CAN, request 0x604 -> response 0x602, broadcast 0x600
+  - engine ECU: 29-bit CAN, 18 DA D5 F1 -> 18 DA F1 D5, functional 18 DB 33 F1
+  - ABS + ECU ping: K-line, KWP2000 header 68 6A F1, ISO init address 0x43
+  - NOT 0x7E0/0x7E8 -- the standard OBD-II physical addresses are not where the
+    owner-facing functions live
 - Bluetooth (tool side, not the bike):
   - OBDLink LX/MX adapter, RFCOMM/SPP, ASCII ELM327 command set
 
@@ -55,7 +58,9 @@
   service can clear their own reminder without a dealer visit or a paid tool.
 
 ## First experiments (do these first)
-0) APK static analysis of `com.tuneecu_lite` (free build, so `apkeep -a com.tuneecu_lite`
+0) DONE -- static analysis of TigerTool V3.51 (freeware Windows binary) recovered the
+   reset message and most of the surrounding surface; see Protocol findings below.
+0b) APK static analysis of `com.tuneecu_lite` (free build, so `apkeep -a com.tuneecu_lite`
    or `scripts/pull_apks_adb.sh` are both legitimate). Run
    `scripts/run_static_target.sh triumph-tiger-900` and grep the decompile for:
    - ELM327 setup strings: `ATSP`, `ATSH`, `ATCRA`, `ATFC`, `ATCAF`
@@ -75,20 +80,39 @@
 4) Determine whether the service data is owned by the engine ECU or the instrument
    cluster, and whether the cluster has its own diagnostic address.
 
-## Protocol hypotheses (to validate)
-- Session: `10 03` extended diagnostic session before the reset; `3E 00` keepalive.
-- Security: possible SecurityAccess `27 01`/`27 02` seed/key -- region-locked ECUs are
-  reported on some liquid-cooled Triumphs.
-- Reset message, ranked:
-  - H1 RoutineControl `31 01 <RID> [interval]` -> `71 01 <RID>`
-  - H2 WriteDataByIdentifier `2E <DID> <km u16>` -> `6E <DID>`
-  - H3 H2 plus a second write carrying the service date
-  - H4 KWP2000 `3B <LID> <data>` dialect carried over from the ISO 9141 ECUs
-- Payload encoding: distance almost certainly kilometres as a scaled integer (100-unit
-  granularity, 10000 km ceiling fits a uint16 comfortably).
-- Timing constraints: multi-frame ISO-TP with flow control -- the adapter requirement is
-  the evidence.
-- Model-year split: 2020-2023 and MY2024+ must be validated separately.
+## Protocol findings (TigerTool V3.51 static analysis)
+All four earlier hypotheses were wrong in an instructive way: the reset is not UDS, and it
+does not target the engine ECU at all.
+
+- Reset service interval: `21 <km/100>` or `22 <miles/100>` on CAN 0x701 (instrument
+  cluster), success reply `704 B4` (`B3` also accepted). No diagnostic session, no security
+  access. The value is divided by 100 -- which is exactly why every tool UI restricts
+  intervals to multiples of 100.
+- Reset service date: `5C <x> <hi> <lo>` -> `704 DC`. Date word is incremented and split
+  high/low; epoch and the third byte still undecoded.
+- SIA/odometer reads: `0D 01` -> `704 8D 01 ...`, then `47 01`, `5E 01`, `6E 76`, `6E 74`.
+  Reply field layouts NOT yet decoded -- highest-value remaining work.
+- Instrument menu: `30 <v>` ODO units -> `B0`, `31 <v>` TPMS menu -> `B1`, `32 <v>` ABS
+  menu -> `B2`; an unexplained `B3` implies a `33 <v>` setting.
+- Cluster stack setup: AT TP6, AT E0, AT H1, AT L0, AT CFC0, AT CAF0, AT SH701, AT CRA704,
+  AT ST7F. Auto-formatting and flow control OFF -- raw frames, no ISO-TP on this stack.
+- Engine ECU is UDS over 29-bit CAN: header 18 DA D5 F1, replies 18 DA F1 D5, functional
+  18 DB 33 F1. DIDs F190 VIN, F18C serial, F1A0/F1A7 tune, F1AE tune count, F1A2 cal/build,
+  F199 tune date. DTCs via 19 01 08 / 19 02 08, clear via 14 FF FF FF.
+- ABS is KWP2000 over K-line: header 68 6A F1, ISO init address 0x43 (AT IIA43). A0
+  identity, 13 40 FF read DTCs, 14 00 00 clear, A1 01 FF / A1 B0 FF / A1 01 00 bleed.
+- Immobiliser/TPMS on CAN 0x604 -> 0x602, live broadcast on 0x600 (AT CRA600 + AT MA).
+- SecurityAccess 27 03 / 27 04 exists but gates throttle balance, not the service reset.
+- Model-year split: all of the above is 2020-2023 only. TigerTool does not connect to Gen 2
+  (MY2024+), so that variant still needs its own capture.
+
+## Still open
+- Field layouts of the five SIA query replies (odometer, distance-to-service, date).
+- The `5C` date-reset epoch and its third byte.
+- The `33 <v>` instrument setting implied by the unexplained `B3` acknowledgement.
+- Immobiliser/TPMS opcode space beyond the handful TigerTool uses.
+- Whether these opcodes are shared across Triumph's wider range (cross-check TuneECU).
+- Everything about MY2024+ Gen 2.
 
 ## Control surface inventory (what the replacement app must support)
 - Adapter connect + protocol selection (ISO 15765-4, 11-bit, 500 kbit/s)
@@ -99,6 +123,8 @@
 - Clear error reporting when the ECU refuses (map UDS NRCs to plain language)
 
 ## Evidence checklist
+- TigerTool V3.51 SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79: DONE
+- Hardware confirmation of `21 <km/100>` with read-back: pending
 - TuneECU Lite APK hash + version code: pending
 - Decompile grep results for ELM327 setup strings and UDS service bytes: pending
 - btsnoop HCI log of a vendor tool reset: pending
