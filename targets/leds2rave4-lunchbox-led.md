@@ -5,6 +5,7 @@
 - app package_id(s) — **one per product generation, not interchangeable**:
   - com.spled.pzse (LED CHORD) — Dream LED Skin v1, SP107E controller
   - com.led.spotled (SPOTLED) — Dream LED Skin 2.0 and early Dream Skin 3.0 / DreamPanel v3
+    (protocol mapped; tracked as its own family in `targets/spotled-led-panel.md`)
   - com.led.iledcolor (iLEDColor) — recent and future DreamPanel v3 board revisions
     (tracked separately in `targets/iledcolor-led-panel.md`)
 - device class: programmable LED skin / matrix panel for hydration packs and backpacks

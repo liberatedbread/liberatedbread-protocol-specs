@@ -85,10 +85,9 @@ today and its protocol is undocumented. Live HCI capture is required.
 
 ### v2/v3 — SPOTLED framed protocol
 
-Confirmed against the [`python-spotled`](https://github.com/iwalton3/python-spotled) library, an
-independent clean-room reimplementation built from BLE sniffing.
-
-#### BLE Services
+These panels are members of the wider SPOTLED family, which spans many unrelated resellers.
+**The full protocol is documented in [SPOTLED LED Panels](spotled-led-panel.md)** — that page is
+canonical; this section is a summary of what applies to a Lunchbox panel.
 
 | UUID | Name | Description |
 |------|------|-------------|
@@ -96,74 +95,17 @@ independent clean-room reimplementation built from BLE sniffing.
 | `0000ff21-0000-1000-8000-00805f9b34fb` | Command | Control commands, notifications |
 | `0000ff22-0000-1000-8000-00805f9b34fb` | Data | Bulk payload channel |
 
-#### Command frame (written to `0xFF21`)
+The essentials for a Lunchbox panel:
 
-| Offset | Length | Description |
-|--------|--------|-------------|
-| 0 | 1 | Frame length |
-| 1 | 1 | Command ID |
-| 2 | 2 | Serial number (uint16 BE) |
-| 4 | 2 | Command type (uint16 BE) |
-| 6 | 4 | Command length (uint32 BE) |
-
-| Command | ID | Length | Description |
-|---------|----|--------|-------------|
-| SendingDataStart | `0x01` | 10 | Announce an incoming data payload |
-| SendingDataFinish | `0x03` | 10 | Payload fully transmitted |
-| GetVersion | `0x10` | 4 | Device type + device/software revision |
-| GetDisplayInfo | `0x12` | 4 | Width, height, color depth, frame limit, brightness, font info |
-| GetBufferSize | `0x14` | 4 | Device data buffer size |
-
-#### Data frame (written to `0xFF22`)
-
-Payloads are wrapped in a 15-byte header, then the serialized content:
-
-| Offset | Length | Description |
-|--------|--------|-------------|
-| 0 | 4 | Header length (always 15) |
-| 4 | 2 | Command type (`0x8004` for data) |
-| 6 | 4 | Serial number (uint32 BE) |
-| 10 | 4 | Content length (uint32 BE) |
-| 14 | 1 | Checksum |
-| 15+ | varies | Content (one or more typed records) |
-
-Checksum: sum of the covered bytes; if the sum exceeds `0xFF` it is negated (`(~sum) + 1`) before
-truncation to one byte.
-
-#### Content record types
-
-Each record is `[uint32 length][uint16 type][fields...][checksum]`.
-
-| Type | Name | Payload |
-|------|------|---------|
-| `2` | Color | RGB color entry |
-| `3` | Character | Single unicode codepoint |
-| `4` | Text | Char count, per-char glyph + color, effect record |
-| `5` | Font | Count + font character glyphs |
-| `7` | Time | Per-frame display time |
-| `8` | Effect | Display mode (see effect table) |
-| `9` | Speed | Animation speed |
-| `10` | NumberBar | Music-visualizer bar heights |
-| `11` | Animation | Frame count (max 20) + frames + time + speed + effect |
-| `13` | FontCharacter | Width, height, codepoint, glyph bitmap |
-| `14` | Brightness | 0–100 |
-| `15` | ScreenMode | 0 normal, 1 upside-down, 2 mirror, 3 mirror + upside-down |
-| `96` | Frame | Width, height, color depth (1 = mono, 24 = RGB), bitmap |
-
-Effects (`type 8`): `0` none, `1` scroll up, `2` scroll down, `3` scroll left, `4` scroll right,
-`5` stack, `6` expand, `7` laser.
-
-#### Responses (notifications on `0xFF21`)
-
-| Response | Type | Meaning |
-|----------|------|---------|
-| SendingData | `2` | Serial number + error code + command type |
-| ContinueSending | `255` | Device drained its buffer; resume from the given offset |
-| PauseSending | — | Read error, almost always a bad MTU (chunks too large or too small) |
-| DisplayInfo | — | `width`, `height`, `color_depth` (16 mono / 255 RGB), `frame_limit`, `brightness`, `font_info` |
-
-Flow control is device-driven: the panel emits a `ContinueSending` response after processing
-roughly every 6 data commands, and the host resumes from the returned offset.
+- Bootstrap by enabling notifications, then `GetBufferSize` (`04 14 00 00`) and `GetDisplayInfo`
+  (`04 12 00 00`). Both are required — chunk pacing and rendering depend on them.
+- **Query geometry, never assume it.** `GetDisplayInfo` returns real width, height, color depth
+  (16 mono / 255 RGB), frame limit and brightness. The 2048-LED figure on the v3 box is marketing.
+- Content is uploaded to `0xFF22` as bitmap frames wrapped in a 15-byte header plus typed records
+  (brightness is record type 14, screen mode 15, animation frames 96).
+- Uploads are gated by the device: write `MTU − 3` byte chunks and resume from the offset carried
+  by each `ContinueSending` notification. A `PauseSending` response means a bad MTU — chunks too
+  large *or* too small.
 
 ### v1 — SP107E / SP110E SPI controllers
 
@@ -232,6 +174,7 @@ advertised name.
 - [Lunchbox Packs — How to set up your Dream LED Skin 2.0 (SPOTLED)](https://www.lunchboxpacks.com/blogs/resources/how-to-set-up-your-dream-led-skin-2-0)
 - [LEDs 2 RAVE 4 — DreamSkin v3: The DreamPanel](https://leds2rave4.com/products/dreamskin-v3-the-dreampanel)
 - [LEDs 2 RAVE 4 — New batch of V3's now use iLEDColor app](https://leds2rave4.com/blogs/animated-gifs/new-batch-of-v3-s-now-use-iledcolor-app)
+- [SPOTLED LED Panels](spotled-led-panel.md) — canonical SPOTLED protocol reference
 - [`python-spotled` — reverse-engineered SPOTLED BLE library](https://github.com/iwalton3/python-spotled)
 - [Google Play — SPOTLED](https://play.google.com/store/apps/details?id=com.led.spotled)
 - [App Store — iLEDColor](https://apps.apple.com/us/app/iledcolor/id6737223690)

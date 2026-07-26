@@ -28,7 +28,7 @@ listed on the product page (or the app already installed on the owner's phone) b
 
 | App | Android package | Device family | Transport | Protocol doc |
 |-----|-----------------|---------------|-----------|--------------|
-| SPOTLED | `com.led.spotled` | Matrix panels for packs, hats, badges; Lunchbox Dream Skin 2.0/3.0 | BLE | [LEDs2Rave4 / Lunchbox](leds2rave4-lunchbox-led.md) |
+| SPOTLED | `com.led.spotled` | Matrix panels for packs, hats, badges, banner signs; Lunchbox Dream Skin 2.0/3.0 | BLE | [SPOTLED LED Panels](spotled-led-panel.md) |
 | LED CHORD | `com.spled.pzse` | SP107E/SP110E SPI pixel controllers; Lunchbox Dream Skin v1 | BLE | [LEDs2Rave4 / Lunchbox](leds2rave4-lunchbox-led.md) |
 | LOY SPACE | `com.yskd.loywf` | Full-color LED backpack screens (popled.cn platform) | BLE + Wi-Fi | [AUTOBABA LED Backpack](autobaba-led-backpack.md) |
 | NYAN GEAR | `com.nyan.gear` | BLE-only white-label reskin of the LOY SPACE platform | BLE | [Nyan BT Image Controller](nyan-bt-image-controller.md) |
@@ -64,9 +64,11 @@ link would fold an entire second app into an already-documented protocol.
 ### SPOTLED / iLEDColor cluster
 
 Both are matrix-panel design apps in the same product niche, and both have shipped on Lunchbox
-DreamPanel hardware. Whether they share a wire protocol is unknown and worth a direct test: a
-DreamPanel v3 that pairs with iLEDColor should be probed for the SPOTLED `0xFF20` service before
-assuming a new protocol.
+DreamPanel hardware. [SPOTLED is fully mapped](spotled-led-panel.md) and spans products from
+dozens of unrelated resellers — hats, badges, chest panels, banner signs — so the `0xFF20` service
+is worth probing on any unknown wearable matrix panel. Whether iLEDColor shares that wire protocol
+is unknown and worth a direct test: a DreamPanel v3 that pairs with iLEDColor should be probed for
+`0xFF20` before assuming a new protocol.
 
 ### Quintic QPP cluster
 
