@@ -152,7 +152,7 @@ whether a given function will work. Four tiers:
 |-------|----------|-------------------|---------------|
 | `basic-clone` | Cloned firmware, usually badged "ELM327 v2.1" | `single_frame` | Multi-frame transmit, client flow control, sometimes `ATCAF0` |
 | `standards-elm327` | Genuine ELM327 v1.4/1.5 | `single_frame`, `multiframe_rx`, `custom_headers` | Multi-frame transmit and tight timing are firmware-dependent |
-| `advanced-stn` | STN110/STN2120 — OBDLink LX / MX+ / CX | adds `multiframe_tx`, `flow_control`, `raw_frames`, ST commands | Little; this is what vendor tools name when a function must work |
+| `advanced-stn` | OBDLink LX / MX / MX+ / CX (STN11xx–STN22xx), UniCarScan UCSI-2100 (Cortex-M0) | adds `multiframe_tx`, `flow_control`, `raw_frames`, ST commands | Little; this is what vendor tools name when a function must work |
 | `native-can` | SocketCAN, CANable, PCAN, Kvaser | adds `monitor_all`, `non_standard_bitrate` | Nothing — no AT layer between you and the bus |
 
 The capability tokens are the useful part. A request declares what it `requires`, an
@@ -168,6 +168,7 @@ command?" before connecting rather than failing halfway through a write:
 | `custom_headers` | Arbitrary request/filter IDs (`ATSH`/`ATCRA`) |
 | `raw_frames` | Auto-formatting off (`ATCAF0`); client does its own ISO-TP |
 | `monitor_all` | Passive bus sniffing (`ATMA`) |
+| `alt_can_bus` | Manufacturer buses on non-standard pins — Ford MS-CAN, GM SW-CAN. Only the OBDLink MX / MX+ / EX provide it, and FORScan needs it for body and chassis modules |
 | `non_standard_bitrate` | Buses outside the legislated OBD-II rates |
 
 ### 3. Basic or advanced? (`command_class` per request)
