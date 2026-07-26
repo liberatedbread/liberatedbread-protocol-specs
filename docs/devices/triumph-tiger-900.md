@@ -17,7 +17,7 @@ The transport underneath is ordinary and open — CAN on a standard diagnostic c
 The reset itself is a manufacturer-specific request on top of it. See
 [Common OBD-II patterns](../protocols/obd2-common.md) for the general layer cake.
 
-**The reset message is `21 <km/100>` (or `22 <miles/100>`) sent on CAN ID `0x701` to the
+**The reset message is `33 <km/100>` (or `34 <miles/100>`) sent on CAN ID `0x701` to the
 instrument cluster** — not a UDS request to the engine ECU at all. See
 [Protocol Summary](#protocol-summary) for that and the rest of the recovered surface.
 
@@ -102,15 +102,16 @@ the *shape* of the message even without having captured it.
 
 ## Protocol Summary
 
-**The service interval reset message is now known.** It was recovered by static analysis
-of TigerTool V3.51 (`TigerTool.exe`, SHA-256 `3c7270ef…`), which its author distributes
-free of charge — a Delphi Win32 binary whose ELM327 command strings and CAN payloads are
-plain string constants, cross-checked against the surrounding x86.
+**The service interval reset message is now known, and confirmed by two independent
+tools.** It was recovered from TigerTool V3.51 (`TigerTool.exe`, SHA-256 `3c7270ef…`, a
+Delphi Win32 binary distributed free by its author) and then independently corroborated by
+decompiling TuneECU 23 (`TuneECU.apk`, SHA-256 `f7242946…`, from the author's own update
+URL). Both build the same command with the same scaling, from entirely separate codebases.
 
 !!! note "Verification level"
-    Everything below is **derived from a third-party tool binary, not yet reproduced on a
-    bike.** It is recorded as `verification: reported` in the spec. Confirming it against
-    hardware — and reading the values back — is the remaining work.
+    Everything below is **derived from tool binaries, not yet reproduced on a bike.** It is
+    recorded as `verification: reported` in the spec. Confirming it against hardware — and
+    reading the values back — is the remaining work.
 
 TigerTool covers Tiger 800, 900, Sport, Explorer/1200 and Trophy, so this surface is
 almost certainly not Tiger-900-specific. It does **not** cover Gen 2 (MY2024+) bikes,
@@ -147,27 +148,38 @@ AT CAF0                    auto-formatting off — raw frames
 AT SH701                   transmit on 0x701
 AT CRA704                  receive only 0x704
 AT ST7F                    long timeout (~508 ms) for the reset
-21 <n>                     RESET SERVICE INTERVAL, distance in KILOMETRES
+33 <n>                     RESET SERVICE INTERVAL, distance in KILOMETRES
    or
-22 <n>                     RESET SERVICE INTERVAL, distance in MILES
+34 <n>                     RESET SERVICE INTERVAL, distance in MILES
 ```
 
 **`<n>` is the service interval divided by 100, as a single byte.** That one detail
 explains the constraint every tool's UI enforces: intervals are settable only in multiples
 of 100 because the wire format cannot express anything else. The documented ceilings fit a
-single byte exactly — 10000 km → `21 64`, 6000 miles → `22 3C`.
+single byte exactly — 10000 km → `33 64`, 6000 miles → `34 3C`.
 
-The success reply is a frame on `0x704` beginning `B4` or `B3`; TigerTool matches the
-first six characters of the header-prefixed reply (`704 B4` / `704 B3`). A reply beginning
-`704 00` is the no-data/error case.
+TuneECU builds it in one line, which is as direct a confirmation as this gets:
+
+```java
+rb = (i15 == 0 ? "33" : "34")
+       .concat(String.format("%02x", Integer.valueOf((i15 == 0 ? iArr[0] : iArr[5]) / 100)));
+```
+
+TigerTool arrives at the same bytes by a different route — `mov bl, 0x21` (decimal 33)
+rendered through Delphi's `IntToStr`, so the opcode on the wire is `33`; the miles branch
+sets `0x22` = decimal 34. The two tools agree on both the opcode and the `/100` scaling.
+
+The success reply is a frame on `0x704` beginning `B3` or `B4` — the request opcode with
+bit 7 set, which holds for **every** command on this stack. A reply beginning `704 00` is
+the no-data/error case.
 
 The date reset is a separate command on the same stack: `5C <x> <hi> <lo>`, where the
 16-bit date word is incremented and split across two bytes, answered by `704 DC`.
 
 | Function | Request | Success reply |
 |----------|---------|---------------|
-| Reset service interval (km) | `21 <km/100>` | `704 B4` / `704 B3` |
-| Reset service interval (miles) | `22 <miles/100>` | `704 B4` / `704 B3` |
+| Reset service interval (km) | `33 <km/100>` | `704 B3` |
+| Reset service interval (miles) | `34 <miles/100>` | `704 B4` |
 | Reset service date | `5C <x> <hi> <lo>` | `704 DC` |
 
 ### Reading the current service and odometer values
@@ -176,11 +188,11 @@ Sent in sequence on the same `0x701`/`0x704` stack after connecting:
 
 | Request | Reply seen | Meaning |
 |---------|-----------|---------|
-| `0D 01` | `704 8D 01 …` | First SIA/odometer record (data parsed from byte 6 onward) |
-| `47 01` | — | Second record |
-| `5E 01` | — | Third record |
-| `6E 76` | — | Fourth record |
-| `6E 74` | — | Fifth record |
+| `0D 01` | `704 8D 01 …` | SIA/odometer record (data parsed from byte 6 onward) |
+| `5E 01` | `704 DE …` | Cluster probe — TuneECU uses this as its connect handshake for this stack |
+| `47 01` | — | Further record (TigerTool only) |
+| `6E 76` | — | Further record (TigerTool only) |
+| `6E 74` | — | Further record (TigerTool only) |
 
 Field-level decoding of these replies is the obvious next piece of work; the tool displays
 odometer, distance-to-service and service date from them.
@@ -191,10 +203,15 @@ Same stack. Each is opcode + one value byte, and each has its own acknowledgemen
 
 | Request | Sets | Success reply |
 |---------|------|---------------|
-| `30 <v>` | Odometer units (miles/km) | `704 B0` |
-| `31 <v>` | TPMS menu item enable/disable | `704 B1` |
-| `32 <v>` | ABS menu item enable/disable | `704 B2` |
-| `33 <v>` (inferred from the reply table) | A further unit setting | `704 B3` |
+| `30 00` / `30 06` | Odometer units (miles/km) | `704 B0 00` |
+| `31 00` / `31 01` | TPMS menu item enable/disable | `704 B1 00` / `704 B1 01` |
+| `32 00` / `32 01` | ABS menu item enable/disable | `704 B2 0…` |
+| `40 00` / `40 01` | Further instrument option | `704 C0 …` |
+| `41 00` / `41 01` | Further instrument option | `704 C1 …` |
+
+The `33`/`34` service-interval commands share this opcode space, which is why the earlier
+guess that `704 B3` implied an unknown `33 <v>` *setting* was half-right: `33` is real, but
+it is the kilometre variant of the reset itself.
 
 ### Engine ECU — UDS over 29-bit CAN
 
@@ -265,6 +282,39 @@ mid-session, and drops to **K-line with a custom ISO init address** for ABS. Clo
 firmware that only implements the legislated OBD-II happy path fails at the first
 `AT CAF0` or `AT CRA`, long before any payload is sent.
 
+### What TuneECU adds
+
+The TuneECU decompile confirms the cluster protocol byte-for-byte and widens the map. Its
+per-stack ELM327 init sequences are declared as plain arrays, each ending in the probe it
+uses to detect that stack:
+
+| Stack | Init sequence (abridged) | Probe |
+|-------|--------------------------|-------|
+| Instrument cluster | `ATTP6 ATCAF0 ATCFC0 ATCRA704 ATSH701` | `5E01` |
+| Immobiliser / TPMS | `ATTP6 ATCAF0 ATCFC0 ATCRA602 ATSH604`, `ATAT0 ATSTFF` | `0B00` |
+| Live TPMS listen | `ATTP6 ATCAF0 ATCFC0 ATCRA600`, `ATST50` | `0D` |
+| Engine ECU `0xD5` | `ATTP7 ATCP18 ATSHDAD5F1 ATCAF0 ATCFC1`, `STPTO 160 STCSEGT1` | `020100` |
+| Engine ECU `0xD5` (protocol B) | `ATPB0101 ATSPB ATSH18DAD5F1 ATFCSH18DAD5F1 ATFCSD300008 ATFCSM1 ATCM1FFFFF00 ATCF18DAF1D5` | `020100` |
+| ECU `0xC1` | `ATTP7 ATCP18 ATSHDAC1F1`, `STCSEGT1` | `021003` |
+| ECU `0xC8` | `ATTP7 ATCP18 ATSHDAC8F1` | `021003` |
+| Standard OBD-II | `ATPBE101 ATSPB ATCRA7E8 ATSH7E0` | `021001` |
+| Node `0x780` | `ATPBE101 ATSPB ATCRA781 ATSH780` | `021003` |
+| K-line / ISO 9141 | `ATTP5 ATSH81D5F5` / `ATSH8010F1` / `ATSH8101F1` / `ATSH8111F1` | `81` (StartCommunication), `20` (StopCommunication) |
+| ABS (K-line) | `ATTP3 ATIIA43 ATSH686AF1`, `ATST32` | — |
+| Functional broadcast | `ATTP7 ATCP18 ATSHDB33F1` | `020100` |
+
+Notable additions beyond what TigerTool exposes:
+
+- **Two more engine-side ECUs**, `0xC1` and `0xC8`, both probed with a UDS
+  `10 03` extended session — so a session *does* exist on this platform, just not in front
+  of the service reset.
+- **`ATSPB` with `ATPB0101` / `ATPBE101`** — the ELM327 user-defined protocol, meaning
+  TuneECU configures CAN parameters directly rather than relying on the numbered protocols.
+  Another thing clone firmware will not do.
+- **A node at `0x780`/`0x781`** not seen in TigerTool.
+- **`ATIIAD5`** — a second ISO init address alongside the ABS module's `0x43`.
+- `02 3E 80` TesterPresent (suppress-positive-response) as the CAN keepalive.
+
 ### Community-reported broadcast CAN IDs (different bus traffic, for orientation)
 
 Reverse-engineering threads on the Triumph 675 forums list ECU→cluster broadcast IDs.
@@ -334,9 +384,10 @@ The message is known; proving it and decoding the rest is what remains.
 - [x] Public tool documentation review (TigerTool V3.0 instructions, TuneECU guide)
 - [x] Static analysis of TigerTool V3.51 — Delphi literal-table extraction plus x86
       disassembly (capstone) of the request builders and response matchers
+- [x] Decompile of TuneECU 23 (jadx via the Maven-published jadx-core) — independent
+      confirmation of the reset command and a wider stack map
 - [ ] Hardware confirmation of the reset on a bike, with read-back
 - [ ] Field decoding of the SIA query replies
-- [ ] APK static analysis of TuneECU Lite (`com.tuneecu_lite`) for cross-model coverage
 - [ ] btsnoop HCI capture for the MY2024+ Gen 2 variant
 
 ## References
@@ -345,6 +396,7 @@ The message is known; proving it and decoding the rest is what remains.
 - [TigerTool V3.51 download — free for non-commercial use](https://www.bmdiag.co.uk/bmdiag-obd-interface-for-triumph-tiger-tool)
 - [TuneECU basic guide — supported adapters and models](https://tuneecu.fr/docs/_en/Basic_guide.html)
 - [TuneECU — Android-only, Windows freeware discontinued](https://tuneecu.net/)
+- [TuneECU 23 APK — author's own distribution URL](https://tuneecu.fr/update/23/TuneECU.apk)
 - [TuneECU Lite (free diagnosis and test build, `com.tuneecu_lite`)](https://apkcombo.com/tuneecu-lite/com.tuneecu_lite/)
 - [Gen 2 Tiger 900 uses the 6-pin Euro 5 (ISO 19689) connector](https://www.tiger800.co.uk/index.php?topic=32836.0)
 - [TigerTool and the service wrench on Tiger 800/900](https://www.tiger800.co.uk/index.php?topic=27014.0)
