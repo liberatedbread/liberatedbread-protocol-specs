@@ -18,7 +18,25 @@ adb get-state >/dev/null 2>&1 || {
   exit 1
 }
 
-mapfile -t PKGS < <(awk -F, 'NR>1 && $1!="" {print $1}' "$TARGETS_CSV" | sort -u)
+# Package list: explicit args win, otherwise try every package in targets.csv.
+# Placeholder package ids (TBD / N/A) can never be installed, so drop them.
+if [[ "$#" -gt 0 ]]; then
+  mapfile -t PKGS < <(printf "%s\n" "$@" | sort -u)
+else
+  if [[ ! -f "$TARGETS_CSV" ]]; then
+    echo "ERROR: targets.csv not found at: $TARGETS_CSV"
+    exit 1
+  fi
+  mapfile -t PKGS < <(
+    awk -F, 'NR>1 && $1!="" && $1!="TBD" && $1!="N/A" {print $1}' "$TARGETS_CSV" | sort -u
+  )
+fi
+
+if [[ "${#PKGS[@]}" -eq 0 ]]; then
+  echo "ERROR: no packages to pull."
+  echo "Usage: $0 [package_id ...]   # no args = every package in targets.csv"
+  exit 1
+fi
 
 for pkg in "${PKGS[@]}"; do
   echo "[adb] package: $pkg"
