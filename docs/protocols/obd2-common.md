@@ -130,14 +130,62 @@ most of what you need while probing.
 Finding the function means finding which of those last two it is, and with which
 identifier. That is a search problem, not a cryptography problem.
 
-## Adapters
+## Classifying OBD-II devices
 
-| Adapter | Chipset | Notes |
-|---------|---------|-------|
-| OBDLink LX / MX+ | STN110/STN2120 | Correct multi-frame TX and flow control; the adapter vendor tools name explicitly |
-| Vgate vLinker MC+ | ELM327 v4.3.2-class | Reported working for some vendor tools, not all functions |
-| Generic "ELM327 v1.5" clone | Cloned firmware | Fine for mode `01`/`03`; unreliable for multi-frame UDS writes |
-| SocketCAN interface (CANable, Kvaser, PCAN) | Native CAN | Best for research — full frame visibility, no AT-command layer in the way |
+Two questions decide everything about an OBD-II device spec, so both are explicit fields
+in `device-specs/schema.json`.
+
+### 1. What is the device? (`obd.role`)
+
+| Role | Meaning | Example |
+|------|---------|---------|
+| `vehicle` | The thing being diagnosed | [Triumph Tiger 900](../devices/triumph-tiger-900.md) |
+| `adapter` | The dongle bridging a host to the connector | [OBD-II Bluetooth adapters](../devices/obd2-bluetooth-adapter.md) |
+| `module` | A single ECU or accessory documented on its own | An ABS modulator, a TPMS receiver |
+
+### 2. What can the adapter do? (`obd.adapter_profile.class`)
+
+Adapters are not interchangeable, and "it connected" tells you almost nothing about
+whether a given function will work. Four tiers:
+
+| Class | Hardware | Reliably provides | Falls over on |
+|-------|----------|-------------------|---------------|
+| `basic-clone` | Cloned firmware, usually badged "ELM327 v2.1" | `single_frame` | Multi-frame transmit, client flow control, sometimes `ATCAF0` |
+| `standards-elm327` | Genuine ELM327 v1.4/1.5 | `single_frame`, `multiframe_rx`, `custom_headers` | Multi-frame transmit and tight timing are firmware-dependent |
+| `advanced-stn` | STN110/STN2120 — OBDLink LX / MX+ / CX | adds `multiframe_tx`, `flow_control`, `raw_frames`, ST commands | Little; this is what vendor tools name when a function must work |
+| `native-can` | SocketCAN, CANable, PCAN, Kvaser | adds `monitor_all`, `non_standard_bitrate` | Nothing — no AT layer between you and the bus |
+
+The capability tokens are the useful part. A request declares what it `requires`, an
+adapter declares what it `provides`, and a consumer can answer "will this dongle run this
+command?" before connecting rather than failing halfway through a write:
+
+| Capability | Meaning |
+|------------|---------|
+| `single_frame` | Payloads of 7 bytes or fewer |
+| `multiframe_rx` | Reassembling segmented replies (ISO 15765-2) |
+| `multiframe_tx` | **Sending** segmented requests — where clone firmware fails |
+| `flow_control` | Client-supplied flow control (`ATFCSH`/`ATFCSD`/`ATFCSM`) |
+| `custom_headers` | Arbitrary request/filter IDs (`ATSH`/`ATCRA`) |
+| `raw_frames` | Auto-formatting off (`ATCAF0`); client does its own ISO-TP |
+| `monitor_all` | Passive bus sniffing (`ATMA`) |
+| `non_standard_bitrate` | Buses outside the legislated OBD-II rates |
+
+### 3. Basic or advanced? (`command_class` per request)
+
+| Class | What it covers | Adapter needed |
+|-------|----------------|----------------|
+| `basic` | Legislated OBD-II — SAE J1979 modes `01`, `03`, `09`. Single-frame, no session, no security. | Anything, clones included |
+| `advanced` | Everything else: UDS and manufacturer dialects, non-default sessions, security access, custom headers, multi-frame, and every write. | `advanced-stn` in practice |
+
+The schema defaults `command_class` to `advanced`, so an unclassified request is never
+assumed to be the harmless kind.
+
+**This split is a diagnostic tool in itself.** When a vendor accepts any adapter for
+reading codes but names a specific one for a maintenance function, they have told you the
+function is `advanced` — multi-frame, custom-headered, or session-gated — before you have
+captured a single byte. That inference is what pins down the shape of the
+[Tiger 900 service reset](../devices/triumph-tiger-900.md) despite the bytes still being
+unknown.
 
 Useful ELM327/STN AT commands when probing:
 

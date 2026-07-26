@@ -129,6 +129,7 @@ device:
   protocol: "obd2"
 
 obd:
+  role: "vehicle"                # vehicle | adapter | module
   connector:
     standard: "sae-j1962"        # or iso-19689 (6-pin Euro 5 motorcycle), proprietary
     location: "under the pillion seat"
@@ -141,6 +142,8 @@ obd:
     verification: "confirmed"
   requests:
     - name: "read_vin_did"
+      command_class: "advanced"  # basic = legislated OBD-II; advanced = UDS/manufacturer
+      requires: ["custom_headers", "multiframe_rx"]
       service: "22"
       request: "22 F1 90"
       expected_response: "62 F1 90 ??"
@@ -148,7 +151,36 @@ obd:
       verification: "confirmed"
 ```
 
-Two conventions differ from the BLE blocks, on purpose:
+### Device categories
+
+`obd.role` says what the device is on the diagnostic link — `vehicle` (the thing being
+diagnosed), `adapter` (the dongle bridging a host to the connector), or `module` (a single
+ECU documented on its own).
+
+An `adapter` also carries an `adapter_profile` classifying what it can actually do:
+
+| Class | Hardware | Adds |
+|-------|----------|------|
+| `basic-clone` | Cloned "ELM327 v2.1" firmware | `single_frame` only |
+| `standards-elm327` | Genuine ELM327 v1.4/1.5 | `multiframe_rx`, `custom_headers` |
+| `advanced-stn` | STN chipset (OBDLink LX/MX+/CX) | `multiframe_tx`, `flow_control`, `raw_frames` |
+| `native-can` | SocketCAN, PCAN, Kvaser | `monitor_all`, `non_standard_bitrate` |
+
+### Basic vs advanced commands
+
+Each request carries `command_class` and a `requires` list of capability tokens:
+
+- `basic` — legislated OBD-II (SAE J1979 modes), single-frame, no session or security
+  prerequisite. Works on essentially any adapter.
+- `advanced` — UDS or a manufacturer dialect: non-default session, security access,
+  custom headers, multi-frame, or any write. Needs a capable adapter.
+
+`command_class` defaults to `advanced`, so an unclassified request is never assumed to be
+the safe kind. Matching a request's `requires` against an adapter's
+`adapter_profile.capabilities` answers "can this dongle run this command?" before
+connecting, instead of failing halfway through a write.
+
+Two further conventions differ from the BLE blocks, on purpose:
 
 - **Byte sequences are hex strings** (`"22 F1 90"`), not integer arrays, matching how
   automotive traces are conventionally written. `??` marks an unknown byte position.
