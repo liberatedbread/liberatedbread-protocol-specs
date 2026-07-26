@@ -2,7 +2,8 @@
 
 ## Target metadata
 - target_id: triumph-tiger-900
-- app package_id(s): TBD (TuneECU Android; TigerTool and DealerTool are Windows-only)
+- app package_id(s): com.tuneecu_lite (free "diagnosis and test" build), com.tuneecu
+  (paid full app, Alain Fontaine). TigerTool and DealerTool are Windows-only.
 - device class: motorcycle ECU / instrument cluster diagnostics
 - transport(s): OBD-II connector, ISO 15765-4 (CAN); Bluetooth SPP between phone app and OBD adapter
 - local-only viability: high -- the diagnostic bus is entirely local; the gate is a closed
@@ -24,6 +25,18 @@
 - A failed reset can lock out further diagnostic functions until the tool reconnects.
 - TuneECU requires the bike's clock/date to be set before running the reset.
 - TigerTool does not connect to Gen 2 (MY2024+) bikes -- Triumph relocated ECU data.
+- TuneECU ships two Android builds: `com.tuneecu` (paid) and `com.tuneecu_lite` (free,
+  "diagnosis and test of the ECU", no remapping). The Lite build is the clean
+  static-analysis lead: it is distributed free, and diagnosis/test is exactly the code
+  path that carries the Triumph dialect.
+- TuneECU Lite's own listing states clone ELM327 v2.1 adapters do not work and a genuine
+  v1.4/1.5 is required -- independent corroboration that the vendor traffic depends on
+  correct adapter behaviour rather than on anything exotic in the bike.
+- The Windows TuneECU (freeware, ISO 9141-era Triumph ECUs) is discontinued and no longer
+  distributed by the author; support is Android-only.
+- TuneECU's published documentation is UI-level only. The official Android description PDF
+  is a scanned image with no text layer, and the online guide covers adapters and model
+  support without any message-level detail. The bytes are in the app, not the manual.
 
 ## Device discovery signals
 - OBD / CAN:
@@ -42,9 +55,19 @@
   service can clear their own reminder without a dealer visit or a paid tool.
 
 ## First experiments (do these first)
+0) APK static analysis of `com.tuneecu_lite` (free build, so `apkeep -a com.tuneecu_lite`
+   or `scripts/pull_apks_adb.sh` are both legitimate). Run
+   `scripts/run_static_target.sh triumph-tiger-900` and grep the decompile for:
+   - ELM327 setup strings: `ATSP`, `ATSH`, `ATCRA`, `ATFC`, `ATCAF`
+   - service bytes and their positive responses: `31 01`/`71`, `2E`/`6E`, `22`/`62`,
+     `10 03`/`50`, `27 01`/`67`, `3B`/`7B`
+   - resource strings around the adjustments UI: "Reset", "Service", "Interval", "SIA",
+     "Validate", plus the km/miles selector
+   - byte-array literals near those strings, and any per-model table keyed on ECU id
+   Analyse `com.tuneecu` (paid) only from a copy the researcher owns.
 1) btsnoop HCI capture of a vendor Android tool performing one service reset against an
    owned bike; the ELM327 protocol is ASCII so the request appears in clear text in the
-   RFCOMM stream.
+   RFCOMM stream. This confirms whatever the decompile suggests.
 2) Passive CAN log at the diagnostic connector (`candump -L can0`) across the same
    operation; diff idle traffic against reset traffic.
 3) Read-only UDS DID sweep with `scripts/obd_discover.py` to map which identifiers hold
@@ -76,6 +99,8 @@
 - Clear error reporting when the ECU refuses (map UDS NRCs to plain language)
 
 ## Evidence checklist
+- TuneECU Lite APK hash + version code: pending
+- Decompile grep results for ELM327 setup strings and UDS service bytes: pending
 - btsnoop HCI log of a vendor tool reset: pending
 - CAN capture (candump / SavvyCAN) of the same operation: pending
 - DID sweep output: pending

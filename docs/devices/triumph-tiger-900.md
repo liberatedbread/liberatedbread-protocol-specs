@@ -151,28 +151,61 @@ are noted only so a capture is not misread as diagnostic traffic:
 | `0x550` | Coolant bar graph, warning light |
 | `0x570` | Coolant temperature |
 
+### Where the answer actually is
+
+TuneECU is the most likely place to recover the message, and its published documentation
+is not it: the online guide is an adapter/model compatibility matrix, and the official
+Android description PDF is a scanned image with no text layer. Neither carries anything
+below the UI level.
+
+The app itself is a different matter, and there is a clean route into it:
+
+| Build | Package | Cost | Function |
+|-------|---------|------|----------|
+| TuneECU | `com.tuneecu` | Paid | Remapping **plus** diagnosis, tests and adjustments (where Reset Service Interval lives) |
+| TuneECU Lite | `com.tuneecu_lite` | Free | "Diagnosis and test of the ECU" — no remapping |
+
+The Lite build is distributed free, and diagnosis/test is exactly the code path that
+carries the Triumph dialect, so it is the clean-room static-analysis lead:
+`apkeep -a com.tuneecu_lite`, then `scripts/run_static_target.sh triumph-tiger-900`, then
+grep for ELM327 setup strings (`ATSP`, `ATSH`, `ATCRA`, `ATFC`) and UDS service bytes
+(`31 01`, `2E`, `22`, `10 03`, `27 01`, `3B`) near the adjustments-screen strings. The
+paid build should only be analysed from a copy the researcher owns.
+
+One corroborating detail from the Lite listing: it requires a genuine ELM327 v1.4/1.5 and
+states that clone v2.1 adapters do not work. That is the same adapter-sensitivity seen in
+the full app's service-reset requirement, and it points at frame handling and timing
+rather than anything exotic on the bike.
+
+The Windows TuneECU — freeware, and the one that covered the ISO 9141-era Triumph ECUs —
+is discontinued and no longer distributed by its author, so it is not a route in.
+
 ## Next Steps
 
-1. **btsnoop capture (cheapest, no CAN hardware).** Android *Developer options → Enable
+1. **Static analysis of TuneECU Lite.** Free build, so fetching it needs no purchase;
+   `scripts/run_static_target.sh triumph-tiger-900` plus the greps above. If the request
+   is constructed from string constants it will fall out here.
+2. **btsnoop capture (cheapest live confirmation, no CAN hardware).** Android *Developer options → Enable
    Bluetooth HCI snoop log*, run one vendor-tool service reset against an owned bike, pull
    `btsnoop_hci.log`, open in Wireshark, follow the RFCOMM stream. The ELM327 protocol is
    ASCII, so the `ATSH`/`ATFC` setup **and** the hex request appear in clear text. This
    answers H1–H4 outright in a single capture.
-2. **Passive CAN log.** T-tap CAN-H/CAN-L at the connector, `candump -L`, filter to the
+3. **Passive CAN log.** T-tap CAN-H/CAN-L at the connector, `candump -L`, filter to the
    physical request/response pair, run the reset, diff.
-3. **Read-only DID sweep.** `22 <DID>` across the manufacturer range with the bike
+4. **Read-only DID sweep.** `22 <DID>` across the manufacturer range with the bike
    stationary; record every DID answering `62`. Look for a km odometer, a service-due
    distance that is a multiple of 100, and a packed date. `scripts/obd_discover.py` does
    this — read-only, no writes.
-4. **Confirm the addressing.** Establish whether the service data is read from the engine
+5. **Confirm the addressing.** Establish whether the service data is read from the engine
    ECU's address or from a separate cluster address, and whether the cluster is reachable
    directly from the diagnostic connector.
-5. **Model-year split.** Repeat 1–4 on a MY2024+ Gen 2 bike; do not assume the 2020–2023
+6. **Model-year split.** Repeat 1–5 on a MY2024+ Gen 2 bike; do not assume the 2020–2023
    findings carry over, since TigerTool's failure there indicates relocated data.
 
 ## Tools Used
 
 - [x] Public tool documentation review (TigerTool V3.0 instructions, TuneECU guide)
+- [ ] APK static analysis of TuneECU Lite (`com.tuneecu_lite`)
 - [ ] btsnoop HCI capture of a vendor tool performing the reset
 - [ ] Passive CAN capture at the diagnostic connector
 - [ ] Read-only UDS DID sweep (`scripts/obd_discover.py`)
@@ -181,6 +214,8 @@ are noted only so a capture is not misread as diagnostic traffic:
 
 - [TigerTool V3.0 instructions (bmdiag.co.uk)](https://www.bmdiag.co.uk/user/tiger%20tool/TigerTool%20V3.0%20Instructions.pdf)
 - [TuneECU basic guide — supported adapters and models](https://tuneecu.fr/docs/_en/Basic_guide.html)
+- [TuneECU — Android-only, Windows freeware discontinued](https://tuneecu.net/)
+- [TuneECU Lite (free diagnosis and test build, `com.tuneecu_lite`)](https://apkcombo.com/tuneecu-lite/com.tuneecu_lite/)
 - [Gen 2 Tiger 900 uses the 6-pin Euro 5 (ISO 19689) connector](https://www.tiger800.co.uk/index.php?topic=32836.0)
 - [TigerTool and the service wrench on Tiger 800/900](https://www.tiger800.co.uk/index.php?topic=27014.0)
 - [ISO 19689:2016 — motorcycle diagnostic connector](https://www.iso.org/standard/66030.html)
