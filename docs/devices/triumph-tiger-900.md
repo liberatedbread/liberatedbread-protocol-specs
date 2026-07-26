@@ -91,9 +91,13 @@ reading:
 
 | Adapter | DTC read | Service reset |
 |---------|----------|---------------|
-| OBDLink LX / MX+ (STN chipset) | Yes | Yes |
-| UniCarScan UCSI-2100, Vgate vLinker MC+ | Yes | Model-dependent |
+| OBDLink LX / MX / MX+ (STN chipset) | Yes | Yes |
+| UniCarScan UCSI-2100 (Cortex-M0, 255-byte messages) | Yes | Yes |
+| Vgate vLinker MC+ | Yes | Model-dependent |
 | Generic ELM327 clone | Usually | Frequently fails |
+
+See [OBD-II Bluetooth adapters](obd2-bluetooth-adapter.md#known-adapters) for what each
+of those actually provides.
 
 Reading DTCs is a single-frame OBD-II mode `03`. If that works and the reset does not, the
 reset is almost certainly **multi-frame ISO-TP and/or requires custom request headers** —

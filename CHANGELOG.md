@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   advanced-stn, native-can), and per-request `command_class` (basic vs advanced)
   with a `requires` capability list, so a consumer can tell before connecting
   whether a given adapter can run a given command
+- Named OBD-II adapter coverage: UniCarScan UCSI-2100, OBDLink MX and OBDLink MX+,
+  with per-model capability profiles, plus an `alt_can_bus` capability (Ford MS-CAN /
+  GM SW-CAN) and a tool-requirement matrix covering FORScan, TuneECU, TigerTool,
+  MotoScan, BimmerCode, OBD Fusion and Torque Pro
 - `scripts/obd_discover.py` — read-only ECU and DID reconnaissance over an
   ELM327-class adapter
 - Initial project structure

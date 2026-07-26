@@ -166,6 +166,9 @@ An `adapter` also carries an `adapter_profile` classifying what it can actually 
 | `advanced-stn` | STN chipset (OBDLink LX/MX+/CX) | `multiframe_tx`, `flow_control`, `raw_frames` |
 | `native-can` | SocketCAN, PCAN, Kvaser | `monitor_all`, `non_standard_bitrate` |
 
+`alt_can_bus` (Ford MS-CAN / GM SW-CAN) is orthogonal to the tiers — only the OBDLink
+MX / MX+ / EX carry it, and tools such as FORScan need it for body and chassis modules.
+
 ### Basic vs advanced commands
 
 Each request carries `command_class` and a `requires` list of capability tokens:
