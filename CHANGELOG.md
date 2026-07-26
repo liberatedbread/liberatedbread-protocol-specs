@@ -17,6 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   platform behind most AliExpress/Amazon car, bike, backpack and badge signs
 - Target starters for iLEDColor (`com.led.iledcolor`), LED space (`com.yj.led`) and
   Divoom Pixoo (`com.divoom.Divoom`)
+- OBD-II / vehicle diagnostics support: `docs/protocols/obd2-common.md` covering
+  connectors (SAE J1962, ISO 19689), transports, ISO-TP framing, UDS services and
+  capture methodology
+- OBD-II Bluetooth adapter (ELM327 / STN) device doc and spec — BLE GATT families,
+  Bluetooth Classic SPP, and the AT/ST command set
+- Triumph Tiger 900 device doc, target spec and device spec, focused on the service
+  interval (SIA) reset message; transport confirmed, reset request still uncaptured
+- `obd` block and `obd2` protocol value in `device-specs/schema.json`, with a
+  per-fact `verification` level so untested hypotheses cannot be mistaken for facts
+- `scripts/obd_discover.py` — read-only ECU and DID reconnaissance over an
+  ELM327-class adapter
 - Initial project structure
 - Device documentation template
 - Getting started guides

@@ -364,8 +364,11 @@ def compute_transport_counts(records: list[dict]) -> dict[str, int]:
     counts: dict[str, int] = defaultdict(int)
     for rec in records:
         t = rec["transport"].strip().lower() if rec["transport"] else "unknown"
-        # Collapse similar transports
-        if "ble" in t and "wi-fi" in t:
+        # Collapse similar transports. OBD is checked first: vehicle targets are reached
+        # through a Bluetooth dongle, so they would otherwise land in BLE / Bluetooth.
+        if "obd" in t or "iso 15765" in t or "can bus" in t:
+            key = "OBD-II / CAN"
+        elif "ble" in t and "wi-fi" in t:
             key = "BLE + Wi-Fi"
         elif "ble" in t or "bluetooth" in t:
             key = "BLE / Bluetooth"

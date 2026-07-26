@@ -43,3 +43,5 @@ A catalog of IoT devices we've documented (or are documenting).
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Lutron |
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Rachio |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Samsung SmartThings |
+| [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Generic / ScanTool / Vgate |
+| [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | Research | Triumph Motorcycles |
