@@ -36,15 +36,17 @@
 - Wi-Fi: not applicable — no Wi-Fi interface on this controller.
 
 ## Threat model + guardrails
-- Scope: **owner's own vehicle only.** Read-only telemetry decode is the supported goal.
-- Explicit non-goals and exclusions:
-  - No parameter-write opcodes are enumerated or inferred. Writes alter speed limiting,
-    regen and current limits on a road-going vehicle.
+- Scope: **owner's own vehicle only.** Telemetry decode is the MVP; the write path is
+  documented and supported behind an explicit opt-in.
+- Writes are flagged `advanced: true` in the spec, with `advanced_reason` surfaced at the
+  opt-in point. Conditions that stay non-negotiable:
   - No autodetection-triggered writes, ever. Discovery is scan-and-read only.
-  - Any write experimentation happens on a stand with the wheel off the ground, by the
-    owner, on their own unit.
+  - Write experimentation happens on a stand with the wheel off the ground, by the owner,
+    on their own unit — never while moving.
+  - Frame shape is MEDIUM confidence and CRC byte order is unverified. Confirm against a
+    capture of the vendor app writing a known value before sending anything.
   - Derestriction may change a vehicle's legal classification and invalidate insurance —
-    document the capability, do not encourage the act.
+    document the capability and state the consequence; the owner decides.
   - Not safety-critical: nothing here should be relied on for braking, lighting or any
     road-safety function.
 
