@@ -18,12 +18,25 @@ if ! command -v apkeep >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "$TARGETS_CSV" ]]; then
-  echo "ERROR: targets.csv not found at: $TARGETS_CSV"
-  exit 1
+# Package list: explicit args win, otherwise fetch every package in targets.csv.
+# Placeholder package ids (TBD / N/A) are never fetchable, so drop them.
+if [[ "$#" -gt 0 ]]; then
+  mapfile -t PKGS < <(printf "%s\n" "$@" | sort -u)
+else
+  if [[ ! -f "$TARGETS_CSV" ]]; then
+    echo "ERROR: targets.csv not found at: $TARGETS_CSV"
+    exit 1
+  fi
+  mapfile -t PKGS < <(
+    awk -F, 'NR>1 && $1!="" && $1!="TBD" && $1!="N/A" {print $1}' "$TARGETS_CSV" | sort -u
+  )
 fi
 
-mapfile -t PKGS < <(awk -F, 'NR>1 && $1!="" {print $1}' "$TARGETS_CSV" | sort -u)
+if [[ "${#PKGS[@]}" -eq 0 ]]; then
+  echo "ERROR: no packages to fetch."
+  echo "Usage: $0 [package_id ...]   # no args = every package in targets.csv"
+  exit 1
+fi
 
 COMMON_ARGS=()
 if [[ "$APKEEP_SOURCE" == "google-play" ]]; then
