@@ -26,8 +26,10 @@ the app was opened.
 
 !!! note "Repair-café scope"
     The service reset is a write and is meant to be used — stationary bike, engine off,
-    owner's consent, values read back first. ECU coding can brick modules and stays out of
-    scope. See [Working a repair café](../protocols/obd2-common.md#working-a-repair-cafe).
+    owner's consent, values read back first. ECU coding is flagged `advanced` rather than
+    excluded: a second-hand module has to be coded to the bike before it works at all.
+    Dump the existing coding first. See
+    [Working a repair café](../protocols/obd2-common.md#working-a-repair-cafe).
 
 ## Addressing — BMW's `0x6F1` scheme
 
@@ -182,8 +184,23 @@ ATCEA<aa>  ATCM7FF  ATCF6<aa>  ATST90  ATBI
 ```
 
 Allow ~1.5 s between writes; MotoScan does, and the sequence is three writes over roughly
-five seconds. Ignition on, engine off. Module addresses are not yet enumerated — that is
-the one piece a volunteer still needs before this is usable end to end.
+five seconds. Ignition on, engine off.
+
+**Module addresses are not published, so scan for them.** The `6F1` scheme makes this
+cheap: every module is reached identically with only `<aa>` changing, so sweeping the
+address space and asking each for the standard VIN DID finds the live ones. Anything that
+answers — positively *or* with a negative response code — is a module that exists.
+
+```bash
+# Find the modules on this bike. Read-only.
+python scripts/obd_discover.py --port /dev/rfcomm0 --bmw-scan 0x00-0x7F
+
+# Read service state from one of them (the cluster owns it).
+python scripts/obd_discover.py --port /dev/rfcomm0 --bmw-module 0x60
+```
+
+That closes the gap between "we know the frames" and "a volunteer can use this": the scan
+supplies the one value the decompile did not.
 
 ### Why this matters against the Triumph result
 

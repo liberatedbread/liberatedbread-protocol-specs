@@ -14,10 +14,15 @@ layer, and a paid tool in between.
     service reminder after an oil change, reading fault codes, programming a replacement
     TPMS sensor. Those are writes, they are legitimate, and documenting them is the point.
 
-    What stays off the table is narrower than "don't write": no ECU flashing or coding, no
-    odometer alteration, no immobiliser or emissions-control defeat, and nothing at all on
-    a vehicle that is moving or that someone is about to ride. Brake and ABS procedures
-    follow the vehicle's service manual, not a protocol doc. See
+    Functions that need real expertise — ECU coding, module flashing, immobiliser and key
+    work — are **documented too, and flagged `advanced`**. Picking up a neglected bike is
+    exactly when you need them: a second-hand cluster must be coded, a replacement ECU
+    married to the immobiliser, a half-written flash recovered. The flag means "know the
+    recovery path first", not "we won't tell you".
+
+    Genuinely off the table: nothing on a vehicle in motion, and no falsifying a recorded
+    odometer — that one is fraud in most jurisdictions rather than a technical risk. Brake
+    and ABS procedures continue in the vehicle's service manual, not a protocol doc. See
     [Working a repair café](#working-a-repair-cafe) below.
 
 ## Layer cake
@@ -218,8 +223,8 @@ more useful on a bench than a blanket warning.
 |------|-----------|-----------------------|
 | **Routine** | Service interval / date reset, read DTCs, clear DTCs, read live data, read identity | Reversible or re-derivable. A service reset writes a counter the owner could have paid a dealer to write. Clear DTCs only *after* recording them |
 | **Care needed** | TPMS sensor ID programming, instrument menu and unit settings, throttle-body balance readings, adaptation resets | Correct but fiddly; a wrong TPMS ID means a warning light, not a hazard. Record the previous value first |
-| **Service-manual territory** | ABS modulator bleed | This is a brake procedure that happens to be triggered over the connector. Follow the manual, and do not hand the bike back without a lever-feel check |
-| **Out of scope here** | ECU flashing and coding, odometer writes, immobiliser changes, emissions defeat | Bricking risk, legal exposure, or both. Documented where we found them; not something this project helps you do |
+| **Service-manual territory** | ABS modulator bleed | A brake procedure that happens to be triggered over the connector. Follow the manual, and do not hand the bike back without a lever-feel check |
+| **Advanced** (`advanced: true`) | ECU coding, module flashing, immobiliser and key operations, adaptation writes | Documented, because reviving an old bike needs them — a replacement cluster has to be coded, a used ECU has to be married to the immobiliser, a corrupted flash has to be rewritten. Have the recovery path ready before you start: know how to re-flash, keep the original coding dump, and expect a module that is unusable until you finish |
 
 Practical notes that come up at every event:
 
@@ -237,6 +242,10 @@ Practical notes that come up at every event:
 - **Right to repair.** Reading and resetting maintenance data on a vehicle with the
   owner's permission is ordinary repair work. The reason it needs documenting at all is
   that the information was locked up, not that the act is exotic.
+- **Advanced work needs an exit plan.** Before coding or flashing anything: dump the
+  current coding, know which tool re-writes it, and be honest with the owner that the bike
+  may not start again this afternoon. That is the difference between advanced and
+  reckless — not whether the function is documented.
 
 ## Capture methodology
 
