@@ -30,6 +30,7 @@ def test_discover_specs():
         "admore-light-bar",
         "autobaba-led-backpack",
         "bluetooth-led-name-badge",
+        "bmw-motorcycle-diagnostics",
         "chef-iq-sense",
         "coolledx-led-sign",
         "dyson-air-purifier",

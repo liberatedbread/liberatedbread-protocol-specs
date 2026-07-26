@@ -44,4 +44,5 @@ A catalog of IoT devices we've documented (or are documenting).
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Rachio |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Samsung SmartThings |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Generic / ScanTool / Vgate |
-| [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | Research | Triumph Motorcycles |
+| [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | Triumph Motorcycles |
+| [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | BMW Motorrad |

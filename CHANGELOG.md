@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   advanced-stn, native-can), and per-request `command_class` (basic vs advanced)
   with a `requires` capability list, so a consumer can tell before connecting
   whether a given adapter can run a given command
+- BMW motorcycle diagnostics device doc and spec — BMW's 0x6F1 D-CAN addressing with
+  CAN extended addressing, the service interval data model (distance/date/valve-clearance),
+  cluster-owned service data, and module list — recovered from the shipped MotoScan app
 - BMW motorcycle / MotoScan target starter (`de.wgsoft.motoscan`) — the same
   service-interval-reset problem as the Triumph work, with an analysis plan and the
   observation that the app vendor also makes the UCSI-2100 adapter whose 255-byte

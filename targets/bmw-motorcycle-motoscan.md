@@ -34,25 +34,41 @@ protocol before the app is even opened.
   A Lite build exists for testing before purchase.
 
 ## Acquisition status
-Not yet obtained. The vendor site links only to Play, and third-party APK mirrors
-(apkpure, apkcombo, apkmirror, aptoide) are unreachable from this environment. Legitimate
-routes:
-- `adb shell pm path de.wgsoft.motoscan` then `adb pull` from a device that owns it --
-  this is what `scripts/pull_apks_adb.sh` does, and it is the preferred route for a paid app.
-- `apkeep -a de.wgsoft.motoscan` from a machine with normal browser-grade network access.
+DONE. `apkeep -a de.wgsoft.motoscan -d apk-pure` succeeded where the mirror websites are
+Cloudflare-blocked -- apkeep uses APKPure's API rather than the site. SHA-256
+21b590cb76641731bc448cd992114c5f2b83cc38eb87f8811b91aaf51d2c9055, 36.5 MB.
 
-## First experiments (do these first)
-1) Obtain the APK by one of the routes above; record SHA-256 and version code.
-2) Decompile (jadx). The TuneECU pass showed the payoff is highest in two places:
-   - per-stack ELM327 init arrays, which fall out as plain string constants and map the
-     whole bus topology at once (`ATSH`, `ATCRA`, `ATTP`, `ATCP`, `ATIIA`, `ATPB`)
-   - the command builders, where the interesting scaling lives (Triumph's reset turned out
-     to be `distance / 100` in a single line)
-3) Grep for the service reset specifically: BMW service data is conventionally in the
-   instrument cluster or a central body ECU, so expect a non-`0x7E0` address.
-4) Compare the recovered CAN IDs against the Triumph map. The interesting question is
-   whether "service data lives in the cluster behind a proprietary raw-frame protocol" is
-   a Triumph quirk or a motorcycle-industry pattern.
+Signature verified before analysis: `C = DE, ST = NRW, L = Buende, O = WGSoft.de,
+CN = Wladimir Gurskij` -- the genuine vendor build, not a repack. MotoScan is a free
+download with the full feature set behind an in-app purchase, so no cracked build is
+needed; MOD/crack mirrors were deliberately not used, since a patched binary cannot be
+told apart from vendor behaviour for protocol work.
+
+## Findings so far (from the shipped app)
+- Addressing is BMW's 6F1 scheme: tester transmits on CAN 0x6F1 with the target ECU
+  address as the first payload byte via CAN extended addressing (ATCEA); each ECU replies
+  on 0x600 + address. Uniform across modules, unlike Triumph's four bespoke stacks.
+- Init, with <aa> = target address: ATSPB, ATPBC101, ATSH6F1, ATFCSH6F1,
+  ATFCSD<aa>300008, ATFCSM1, ATCEA<aa>, ATCM7FF, ATCF6<aa>, ATST90, ATBI, then
+  STCSEGT1 / STCFCPC on STN adapters.
+- Service reset scopes: SI_ALL, SI_DATE, SI_MILEAGE, SI_DATE_CAR -- the same distance/date
+  split found on the Tiger 900, so that looks like an industry pattern not a Triumph quirk.
+- Service data identifiers: STAT_SERVICE_KMSTAND_DATA, STAT_SERVICE_DATUM_DATA,
+  STAT_SERVICE_JAHR/MONAT/TAG_WERT, plus a SEPARATE valve-clearance service with
+  STAT_VENTILSPIELSERVICE_RESTWEG_WERT and an ANZAHL_RESET counter.
+- Modules seen: KOMBI (cluster -- owns service data), ZFE, BMS, ABS, RDC, DWA, ILAF.
+- MotoScan ships its own adapter enum including ELM327_CLONE vs ELM327_ORIGINAL, plus
+  OBDLINK_LX/MX/MX_PLUS/MX_WIFI and UCSI_2000 ("UCSI-2000/2100"). A tool shipping clone
+  detection is strong third-party support for this repo's adapter capability tiers.
+
+## Next experiments
+1) Recover the job-to-frame mapping from libmotoscan-helper.so (~7 MB per ABI). The job
+   and result names are already readable; what is missing is the table binding
+   STR_VENTILSPIELSERVICE_RESET to a service byte and identifier.
+2) Enumerate the module addresses (<aa>) MotoScan probes.
+3) Confirm on hardware with read-back of STAT_SERVICE_KMSTAND_DATA.
+4) Compare against the Triumph map -- both vendors put service data in the cluster and
+   split it distance/date; whether the resemblance goes deeper is worth knowing.
 
 ## Protocol hypotheses (to validate)
 - BMW's D-CAN is ISO 15765-4 with BMW addressing; KWP2000* is a BMW variant of KWP2000
@@ -78,8 +94,11 @@ routes:
 - Reset the service interval, with read-back confirmation
 
 ## Evidence checklist
-- MotoScan APK hash + version code: pending
-- Decompiled init sequences and CAN IDs: pending
+- MotoScan APK SHA-256 21b590cb76641731bc448cd992114c5f2b83cc38eb87f8811b91aaf51d2c9055: DONE
+- Vendor signature verified (WGSoft.de / Wladimir Gurskij): DONE
+- Decompiled init sequences and addressing scheme (BMW 0x6F1 + ATCEA): DONE
+- Service interval data model (SI_ALL/SI_DATE/SI_MILEAGE/SI_DATE_CAR): DONE
+- Native job-table analysis for reset payloads: pending
 - Service reset command bytes: pending
 - Hardware confirmation with read-back: pending
 
