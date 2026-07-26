@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- SPOTLED LED panel device doc, device spec and target starter — the OEM matrix-panel family
+  (hats, badges, packs, banner signs) behind `com.led.spotled`, now the canonical home for the
+  `0xFF20` protocol
 - LED sign & panel design app survey (`docs/devices/led-sign-apps.md`) mapping design apps to
   device families, OEM platform clusters, and a triage checklist for unknown signs
 - CoolLEDX / CoolLED1248 device doc, device spec and target starter — the unbranded BLE LED sign
