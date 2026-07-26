@@ -64,20 +64,22 @@ device:
     Fardriver ND-series feature set. CONFIDENCE on the vendor attribution:
     MEDIUM. Confirm per-scooter with a BLE scan -- see the device doc page for
     the confirmation procedure and for the Votol EM-series alternative.
-  identification:
-    service_uuids:
-      - "0000ffe0-0000-1000-8000-00805f9b34fb"
-
-  discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids:
-            - "0000ffe0-0000-1000-8000-00805f9b34fb"
-    identity:
-      stable_keys: ["address"]
-      display: "service_uuid"
-    static_ip_required: false
+  # NO automatic identification or discovery block, deliberately.
+  #
+  # The only advertised signal we have is service 0xFFE0, which is the generic
+  # HM-10/HM-19 BLE-UART service, not a Fardriver signature. It is already
+  # claimed as the sole identification signal by motool-slacker.yaml, and
+  # SP107E LED controllers advertise it too, so a registry matcher keying on
+  # it would classify one advertisement as several different devices -- and
+  # could then associate Fardriver telemetry, or an advanced write, with
+  # entirely unrelated hardware. This spec also rates its own UUIDs LOW
+  # confidence (they vary per BLE bridge module), which makes the signal
+  # doubly unsafe to match on.
+  #
+  # Restore automatic identification only once a discriminating signal exists:
+  # a unique local-name prefix, manufacturer-specific advertisement data, or a
+  # read-only framing probe (subscribe and confirm 16-byte 0xAA status frames).
+  # Until then this device is documented for manual selection only.
 
 services:
   - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
@@ -93,7 +95,10 @@ services:
           Write frames: [0xAA, length, addr_hi, addr_lo, payload..., crc_lo, crc_hi]
           with flags=1 in the length/ID nibble; typically 8 bytes total. CRC16 is
           poly 0x8005, init 0x7F3C, refin/refout true, computed over the frame.
-          The `{crc}` parameter below is COMPUTED by the consumer, not a literal.
+          `{length}` and `{crc}` are DERIVED by the consumer from the rest of the
+          frame, not supplied by the caller; they are declared as parameters only
+          so a generic serializer knows their width. `{data}` is the caller's
+          little-endian register payload.
           CRC byte order is unverified -- confirm against a capture before use.
           All commands here are advanced: they retune a road-going vehicle.
         commands:
@@ -122,6 +127,14 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+              data:
+                type: "bytes"
+                min: 1
+                max: 26
+              crc:
+                type: "bytes"
+                min: 2
+                max: 2
           system_command:
             description: >
               System command: writes 0x88 followed by a subcommand byte to address
@@ -144,6 +157,10 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+              crc:
+                type: "bytes"
+                min: 2
+                max: 2
 
 entities:
   - platform: "sensor"

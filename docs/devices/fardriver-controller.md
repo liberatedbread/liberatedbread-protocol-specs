@@ -68,11 +68,25 @@ OpenGreenIoT exists to remove.
 
 ### Discovery
 
-- **Scan filter**: service UUID `0xFFE0` (per-unit; confirm first)
+- **Autodetection: not provided, deliberately.** The spec declares no `identification`
+  or `discovery` block — see the warning below.
+- **Selection**: manual. Pick the controller by address after confirming it with a scan.
 - **CCCD**: standard `0x2902` to enable notifications
 - **Pairing**: no bonding on HM-10-style bridges ("Just Works" or none)
 - **Keep-alive**: none required — the controller pushes telemetry unprompted once
   notifications are enabled
+
+!!! warning "`0xFFE0` is not a Fardriver signature — do not match on it"
+    `0xFFE0` is the generic HM-10/HM-19 BLE-UART service. The MoTool Slacker spec already
+    uses it as its sole identification signal, and SP107E LED controllers advertise it as
+    well. A registry matcher keyed on that UUID would classify a single advertisement as
+    several different devices — and could then point Fardriver telemetry, or an
+    **advanced write**, at unrelated hardware. Combined with this device's own
+    per-unit UUID variation, it is not a safe auto-match signal.
+
+    Automatic identification can be restored once a discriminating signal exists: a
+    unique local-name prefix, manufacturer-specific advertisement data, or a read-only
+    framing probe (subscribe, confirm 16-byte `0xAA` frames).
 
 ### Status frame format
 
