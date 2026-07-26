@@ -30,6 +30,11 @@
 - BLE:
   - advertised name patterns: UNKNOWN — bridge modules differ; record on first scan.
   - service UUIDs: `0000ffe0-...` observed commonly (HM-10-style); **per-unit, verify**.
+  - **not auto-matchable**: `0xFFE0` is the generic HM-10 BLE-UART service, already
+    claimed by motool-slacker and advertised by SP107E controllers. The spec therefore
+    declares no identification/discovery block; selection is manual until a unique
+    local-name prefix, manufacturer data, or a read-only framing probe is available.
+    Finding that discriminating signal is a first-class goal of the first scan.
   - notify characteristic: `0000ffec-...` reported by one community implementation;
     `0000ffe1-...` on plain HM-10 bridges. Verify.
   - address behavior: unknown (expect public on HM-10-class modules).
