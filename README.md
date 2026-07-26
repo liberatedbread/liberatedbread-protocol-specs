@@ -42,9 +42,18 @@ We deliberately do **not** ship device clients. Existing libraries
 are tested against far more hardware than we are; a second implementation from
 us would be a worse copy competing with the thing we tell people to use.
 
-Some exploratory discovery helpers remain under `scripts/` for device families
-where we are still mapping the protocol; they are scaffolding for research, not
-a supported client surface.
+### Scaffolding
+
+Some helpers remain under `scripts/` and are **not** a supported client
+surface. They fall into two groups, both tracked for removal:
+
+- **Verification scaffolding** — `wemo_discover.py`, `wemo_control.py`,
+  `wemo_setup.py`. The Wemo spec documents discovery, control and provisioning,
+  but nothing here has been run against real hardware yet; these close that gap.
+  Deleted once the spec is confirmed ([#16](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/16)).
+- **Research scaffolding** — the remaining `*_discover.py` helpers, for device
+  families whose protocol we are still mapping. Each one holds knowledge that
+  belongs in its spec ([#17](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/17)).
 
 Start with [Reading a Device Spec](docs/api/spec-format.md),
 [Initial Device Setup](docs/protocols/device-setup.md) and

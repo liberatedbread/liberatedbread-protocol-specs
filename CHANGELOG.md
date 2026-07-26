@@ -107,15 +107,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - LEDs2Rave4 / Lunchbox Dream LED docs now map each product generation to its design app
   (LED CHORD → SPOTLED → iLEDColor) and document the SPOTLED framed BLE protocol on `0xFF20`,
   corroborated against `python-spotled`
-### Removed
+### Changed
 
-- `scripts/wemo_discover.py`, `scripts/wemo_control.py` and
-  `scripts/wemo_setup.py` — device clients duplicating pywemo, which is
-  maintained and tested against far more hardware. What they knew now lives in
-  `device-specs/devices/wemo-devices.yaml`: the SSDP datagram and response
-  handling, the rule separating Wemo from other UPnP responders, the
-  description parse rules including vendor extensions, the SOAP wire format,
-  and `payload_formats` for `BinaryState`, `InsightParams` and `MetaInfo`.
+- The Wemo protocol now lives in `device-specs/devices/wemo-devices.yaml`
+  rather than in scripts: the SSDP datagram and response handling, the rule
+  separating Wemo from other UPnP responders, the description parse rules
+  including Belkin's vendor extensions, the SOAP wire format, and
+  `payload_formats` for `BinaryState`, `InsightParams` and `MetaInfo`.
+  `scripts/wemo_discover.py`, `wemo_control.py` and `wemo_setup.py` are
+  retained only as verification scaffolding until the spec has been checked
+  against hardware, and are marked as such (#16).
 
 ### Fixed
 
