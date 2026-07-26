@@ -24,9 +24,10 @@ the app was opened.
     than a repack. MotoScan is a free download; the full feature set is an in-app purchase,
     so no cracked build is needed or was used.
 
-!!! warning "Read-only research only"
-    Stationary bike, engine off. ECU coding can brick modules and is out of scope. See
-    [Clean-room rules](../CLEANROOM_RULES.md).
+!!! note "Repair-café scope"
+    The service reset is a write and is meant to be used — stationary bike, engine off,
+    owner's consent, values read back first. ECU coding can brick modules and stays out of
+    scope. See [Working a repair café](../protocols/obd2-common.md#working-a-repair-cafe).
 
 ## Addressing — BMW's `0x6F1` scheme
 
@@ -156,6 +157,33 @@ check available without a bike. Payload starts at offset 3 in every reply:
 | `22 E1 2B` | 10 | `hh` @3, `mm` @4, `ss` @5, `dd` @6, `MM` @7, `yyyy` @8–9 — clock |
 | `22 E1 2C` | 7 | `dd` @3, `MM` @4, `yyyy` @5–6 — service date |
 | `22 E1 2D` | 5 | uint16 at offset 3 — service distance |
+
+### At the bench
+
+```text
+# 1. Connect to the target module (<aa> = its address)
+ATZ  ATE0  ATL0  ATH1
+ATSPB  ATPBC101
+ATSH6F1  ATFCSH6F1  ATFCSD<aa>300008  ATFCSM1
+ATCEA<aa>  ATCM7FF  ATCF6<aa>  ATST90  ATBI
+
+# 2. RECORD FIRST
+22 E1 19                odometer
+22 E1 2C                current service date
+22 E1 2D                current service distance
+
+# 3. Reset — the tool writes the clock first, then the values
+2E E1 2B hh mm ss dd MM yy yy      set cluster clock
+2E E1 2C dd MM yy yy               next service date
+2E E1 2D km_hi km_lo               service distance (plain km)
+
+# 4. Read back
+22 E1 2C   /   22 E1 2D
+```
+
+Allow ~1.5 s between writes; MotoScan does, and the sequence is three writes over roughly
+five seconds. Ignition on, engine off. Module addresses are not yet enumerated — that is
+the one piece a volunteer still needs before this is usable end to end.
 
 ### Why this matters against the Triumph result
 
