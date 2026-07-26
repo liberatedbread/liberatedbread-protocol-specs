@@ -169,6 +169,42 @@ An `adapter` also carries an `adapter_profile` classifying what it can actually 
 `alt_can_bus` (Ford MS-CAN / GM SW-CAN) is orthogonal to the tiers — only the OBDLink
 MX / MX+ / EX carry it, and tools such as FORScan need it for body and chassis modules.
 
+### Referencing vendor description files
+
+Manufacturers describe each ECU in a machine-readable file — a BMW/EDIABAS SGBD (`.prg`)
+selected by a group file (`.grp`), or an ODX/PDX container, CDD, A2L or CAN database. Those
+files are the authoritative definition of a module's jobs, results, addressing and scaling,
+so a spec can point at them instead of relying only on hand-recovered offsets:
+
+```yaml
+obd:
+  description_files:                 # vehicle level — usually the .grp entry points
+    - type: "sgbd-grp"
+      name: "D_MOTOR.grp"
+      provides: ["jobs", "results"]
+      source: "EDIABAS/INPA/ISTA installation (ECU directory)"
+      verification: "hypothesis"
+  ecus:
+    - name: "KOMBI (instrument cluster)"
+      description_files:
+        - type: "sgbd-prg"
+          name: "KOMBI.prg"
+          provides: ["jobs", "results", "ecu_address", "scaling"]
+  requests:
+    - name: "read_odometer"
+      request: "22 E1 19"
+      job: "STATUS_LESEN"           # the job this frame implements
+      results: ["STAT_SERVICE_KMSTAND_DATA"]
+```
+
+`job` and `results` tie a recovered frame back to its definition, which is how a consumer
+resolves units and scaling without hardcoding byte offsets.
+
+**Reference these files; never commit them.** They are vendor copyright. `source` records
+where a licensed copy comes from — an EDIABAS/INPA/ISTA installation, a vendor tool bundle
+— not a redistribution link. `sha256` pins the exact file a fact came from so a consumer
+can tell whether it is looking at the same one.
+
 ### Basic vs advanced commands
 
 Each request carries `command_class` and a `requires` list of capability tokens:

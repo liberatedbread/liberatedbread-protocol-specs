@@ -42,6 +42,50 @@
       "description": "One adapter capability. Requests declare what they need (`requires`) and adapters declare what they provide (`adapter_profile.capabilities`), so a consumer can decide up front whether a given dongle can run a given command instead of failing halfway through. single_frame: payloads of 7 bytes or fewer. multiframe_rx/tx: ISO 15765-2 segmentation in each direction — transmit is where clone firmware fails; some adapters expose it as a long-message mode (the UniCarScan UCSI-2100 accepts payloads up to 255 bytes where a stock ELM327 stops at 8). flow_control: client-supplied flow control (ATFCSH/ATFCSD/ATFCSM). custom_headers: arbitrary request/filter IDs (ATSH/ATCRA). raw_frames: auto-formatting off (ATCAF0), client does its own ISO-TP. monitor_all: passive bus sniffing (ATMA). alt_can_bus: manufacturer CAN buses on non-standard pins or wiring — Ford MS-CAN (medium-speed) and GM SW-CAN (single-wire), which tools such as FORScan need for body and chassis modules. non_standard_bitrate: buses outside the legislated OBD-II rates.",
       "default": "single_frame"
     },
+    "diagnostic_description": {
+      "type": "object",
+      "description": "Reference to a vendor ECU-description file — a BMW/EDIABAS SGBD (.prg) or group file (.grp), an ODX/PDX container, a CDD, an A2L or a CAN database. These files are the authoritative definition of a module's jobs, results, addressing and scaling, so naming the exact file lets a consumer look the definition up instead of relying only on what we recovered by hand. NOTE: reference these files, never ship them — they are vendor copyright. Record where a licensed copy comes from in `source`.",
+      "required": ["type", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["sgbd-prg", "sgbd-grp", "odx", "pdx", "cdd", "a2l", "dbc", "ldf", "other"],
+          "description": "File format. 'sgbd-prg' is a compiled BMW/EDIABAS ECU description (KOMBI.prg); 'sgbd-grp' is the group file that dispatches to the right variant (D_MOTOR.grp)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Filename as the vendor toolchain names it, e.g. 'KOMBI.prg'."
+        },
+        "group": {
+          "type": "string",
+          "description": "For an sgbd-prg, the .grp group file that selects it. Group files are the entry point when the exact variant is not known up front."
+        },
+        "variant": {
+          "type": "string",
+          "description": "ECU variant this description covers, when one group spans several."
+        },
+        "version": { "type": "string" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "Checksum of the exact file the facts here were derived from, so a consumer can tell whether it is looking at the same one."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where a licensed copy is obtained (e.g. an EDIABAS/INPA/ISTA installation, a vendor tool bundle). Not a download link for redistributed vendor files."
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["jobs", "results", "ecu_address", "scaling", "dtc_text", "coding"]
+          },
+          "description": "What this file authoritatively defines for the module."
+        },
+        "notes": { "type": "string" },
+        "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
     "verification": {
       "type": "string",
       "enum": ["confirmed", "reported", "hypothesis"],
@@ -865,6 +909,11 @@
             "verification": { "$ref": "#/$defs/verification" }
           }
         },
+        "description_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic_description" },
+          "description": "Vehicle-level ECU-description files — typically the .grp group files that dispatch to per-variant .prg SGBDs."
+        },
         "adapter_requirements": {
           "type": "array",
           "description": "Adapter constraints observed in practice, e.g. functions that only work with an STN-chipset adapter because they need multi-frame ISO-TP with custom headers.",
@@ -884,6 +933,11 @@
                 "type": "array",
                 "items": { "type": "string" },
                 "description": "Data this node is believed to store, e.g. 'odometer', 'service interval'."
+              },
+              "description_files": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/diagnostic_description" },
+                "description": "ECU-description files covering this module — the .prg SGBD and the .grp that selects it."
               },
               "verification": { "$ref": "#/$defs/verification" }
             }
@@ -929,6 +983,15 @@
                 "type": "boolean",
                 "default": false,
                 "description": "True if this request mutates vehicle state. Consumers should gate these behind explicit confirmation."
+              },
+              "job": {
+                "type": "string",
+                "description": "Name of the job in the referenced description file that this request implements, e.g. an EDIABAS SGBD job name. Ties a recovered frame back to its authoritative definition."
+              },
+              "results": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Result names the reply carries, as named by the description file (e.g. STAT_SERVICE_KMSTAND_DATA). These are how a consumer looks up scaling and units rather than hardcoding offsets."
               },
               "advanced": {
                 "type": "boolean",

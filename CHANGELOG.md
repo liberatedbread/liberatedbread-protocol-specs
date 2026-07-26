@@ -54,6 +54,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   BMW's 0x6F1 addressing. The BMW scan supplies the module addresses the decompile
   did not; the Triumph reset reads state before and after and refuses to run
   without `--yes-write`
+- Vendor ECU-description file references in the schema: `obd.description_files` at
+  vehicle and per-ECU level for BMW/EDIABAS SGBD `.prg` and `.grp` files (plus ODX,
+  PDX, CDD, A2L and DBC), and per-request `job` / `results` linkage so a recovered
+  frame ties back to its authoritative definition. Files are referenced and
+  checksummed, never redistributed
 - Triumph odometer reply decoded from TigerTool's parser: `0D 01` answers
   `704 8D 01 <b1> <b2> <b3>`, a 24-bit big-endian value in kilometres, with
   `5E 01` -> `704 DE` flagging a TFT dash and selecting which mile divisor
