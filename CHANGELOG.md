@@ -22,8 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   capture methodology
 - OBD-II Bluetooth adapter (ELM327 / STN) device doc and spec — BLE GATT families,
   Bluetooth Classic SPP, and the AT/ST command set
-- Triumph Tiger 900 device doc, target spec and device spec, focused on the service
-  interval (SIA) reset message; transport confirmed, reset request still uncaptured
+- Triumph Tiger 900 device doc, target spec and device spec, including the recovered
+  service interval reset message (`21 <km/100>` / `22 <miles/100>` on CAN 0x701 to the
+  instrument cluster) and the surrounding diagnostic surface — four separate stacks,
+  UDS DIDs, DTC read/clear, ABS bleed, TPMS/immobiliser and instrument settings —
+  derived from static analysis of the freeware TigerTool V3.51
 - `obd` block and `obd2` protocol value in `device-specs/schema.json`, with a
   per-fact `verification` level so untested hypotheses cannot be mistaken for facts
 - OBD-II device classification: `obd.role` (vehicle / adapter / module),
