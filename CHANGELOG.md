@@ -37,7 +37,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   whether a given adapter can run a given command
 - BMW motorcycle diagnostics device doc and spec — BMW's 0x6F1 D-CAN addressing with
   CAN extended addressing, the service interval data model (distance/date/valve-clearance),
-  cluster-owned service data, and module list — recovered from the shipped MotoScan app
+  cluster-owned service data, module list, and the service reset itself — UDS
+  WriteDataByIdentifier on BMW's 0xE1xx DIDs (`2E E1 2B/2C/2D`) with matching reads —
+  recovered from the shipped MotoScan app
 - BMW motorcycle / MotoScan target starter (`de.wgsoft.motoscan`) — the same
   service-interval-reset problem as the Triumph work, with an analysis plan and the
   observation that the app vendor also makes the UCSI-2100 adapter whose 255-byte
