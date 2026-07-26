@@ -9,13 +9,16 @@ data — sits in manufacturer-specific territory on top of the same transport.
 That is the same shape as the rest of this repo: an open transport, a closed application
 layer, and a paid tool in between.
 
-!!! warning "Vehicles are safety-critical"
-    The [clean-room rules](../CLEANROOM_RULES.md) exclude safety-critical devices. That
-    exclusion applies in full to anything that steers, stops or propels: **do not** write
-    to ABS, immobiliser, throttle or engine-map memory as part of protocol research, and
-    never probe a vehicle that is moving or that someone else is about to ride. Read-only
-    diagnostics on a stationary vehicle you own, on a stand, with the engine off, is the
-    only mode of work described here.
+!!! note "Scope: repair, not just research"
+    This page exists to support **repair-café and owner-maintenance work** — clearing a
+    service reminder after an oil change, reading fault codes, programming a replacement
+    TPMS sensor. Those are writes, they are legitimate, and documenting them is the point.
+
+    What stays off the table is narrower than "don't write": no ECU flashing or coding, no
+    odometer alteration, no immobiliser or emissions-control defeat, and nothing at all on
+    a vehicle that is moving or that someone is about to ride. Brake and ABS procedures
+    follow the vehicle's service manual, not a protocol doc. See
+    [Working a repair café](#working-a-repair-cafe) below.
 
 ## Layer cake
 
@@ -205,6 +208,35 @@ ATCAF0         CAN formatting off — raw frames, you do ISO-TP yourself
 
 `ATCAF0` is the one that matters for research: with auto-formatting off you see exactly
 what a vendor tool would have to send.
+
+## Working a repair café {#working-a-repair-cafe}
+
+The functions in this repo divide cleanly by how much can go wrong, and that division is
+more useful on a bench than a blanket warning.
+
+| Tier | Functions | Notes for a volunteer |
+|------|-----------|-----------------------|
+| **Routine** | Service interval / date reset, read DTCs, clear DTCs, read live data, read identity | Reversible or re-derivable. A service reset writes a counter the owner could have paid a dealer to write. Clear DTCs only *after* recording them |
+| **Care needed** | TPMS sensor ID programming, instrument menu and unit settings, throttle-body balance readings, adaptation resets | Correct but fiddly; a wrong TPMS ID means a warning light, not a hazard. Record the previous value first |
+| **Service-manual territory** | ABS modulator bleed | This is a brake procedure that happens to be triggered over the connector. Follow the manual, and do not hand the bike back without a lever-feel check |
+| **Out of scope here** | ECU flashing and coding, odometer writes, immobiliser changes, emissions defeat | Bricking risk, legal exposure, or both. Documented where we found them; not something this project helps you do |
+
+Practical notes that come up at every event:
+
+- **Get the owner's consent for each write**, and tell them what changed. A service
+  reminder that reappears at the next interval is expected behaviour, not a fault.
+- **Record before you write.** Read the current service distance and date first — it is
+  one command and it turns a mistake into an undo.
+- **Battery.** These dongles draw from an unswitched pin. Unplug before the bike leaves,
+  and watch voltage during long sessions; `ATRV` is one command.
+- **Engine off, ignition on** for most functions. Anything needing the engine running says
+  so explicitly, and then it needs ventilation.
+- **One adapter that works** beats three that half-work. See the
+  [adapter tiers](#classifying-obd-ii-devices) — for motorcycle service work an STN-based
+  or UniCarScan adapter avoids most of the "it connected but the function failed" dead ends.
+- **Right to repair.** Reading and resetting maintenance data on a vehicle with the
+  owner's permission is ordinary repair work. The reason it needs documenting at all is
+  that the information was locked up, not that the act is exotic.
 
 ## Capture methodology
 

@@ -82,8 +82,9 @@ told apart from vendor behaviour for protocol work.
   odometer, on a manufacturer-specific address.
 
 ## Threat model + guardrails
-- Scope: only a bike the researcher owns, stationary, engine off.
-- Vehicles are safety-critical. Read-only work. No ABS, immobiliser or engine-map writes.
+- Scope: a bike the owner has consented to work on, stationary, engine off. Repair-café
+  use is the point -- the service reset is a write and is meant to be used.
+- Record current values before writing (22 E1 19 / 2B / 2C / 2D are one command each).
 - ECU coding can brick modules and is explicitly out of scope for this repo.
 - Non-goals: odometer alteration, immobiliser defeat, emissions-control tampering.
 
