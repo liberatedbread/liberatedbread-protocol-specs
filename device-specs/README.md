@@ -213,9 +213,13 @@ devices: [`docs/protocols/device-setup.md`](../docs/protocols/device-setup.md).
 ### Advanced opcodes
 
 Any command may set `advanced: true` with an `advanced_reason` string. This marks an
-opcode that is fully documented and meant to be usable, but whose effects go beyond what
-a casual user would expect — it can damage hardware, void a warranty, or change a
-vehicle's legal classification.
+opcode that goes further than a typical consumer app would — it can damage hardware, void
+a warranty, or change a vehicle's legal classification.
+
+The project default is to **expose everything the protocol supports**; this flag labels
+the capability, it does not withhold it. See
+[Capability disclosure](../docs/CLEANROOM_RULES.md#capability-disclosure-writing-the-advanced-flag)
+for the full policy.
 
 ```yaml
 commands:
@@ -227,9 +231,17 @@ commands:
 ```
 
 The flag is advisory metadata — it does not change how the command is encoded or sent.
-Consumers should gate advanced commands behind an explicit opt-in (a settings toggle or
-a confirmation step) rather than putting them in a default UI, and should show
-`advanced_reason` at that opt-in point. Absent or `false` means an ordinary command.
+It is a **signpost, not a gate**: consumers should keep the capability available and put
+it behind a deliberate action (a toggle or a confirmation) so nobody trips into it by
+accident, showing `advanced_reason` at that moment. They should not hide it, require an
+account, or nag — repair cafés and independent technicians are expected users.
+
+Write `advanced_reason` concretely: what changes, the realistic consequence, and how to
+recover. Absent or `false` means an ordinary command.
+
+`advanced` is orthogonal to confidence. It describes what happens **if the command
+works**; how sure we are that it works is recorded separately in the spec's notes. A
+well-verified opcode can still be advanced, and an unverified one can be mundane.
 
 ### `entities` (optional, array)
 
