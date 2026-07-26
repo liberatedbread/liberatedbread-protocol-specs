@@ -1,0 +1,202 @@
+# Triumph Tiger 900 — Device Specification
+# Status: Research — transport confirmed from public tool documentation; the service
+#         interval reset request itself has NOT been captured. Every candidate request
+#         below is marked `verification: hypothesis` for that reason.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Triumph Tiger 900"
+  manufacturer: "Triumph Motorcycles Ltd."
+  manufacturer_status: "active"
+  protocol: "obd2"
+  notes: >
+    The Tiger 900's spanner/wrench service reminder cannot be cleared from the bike's own
+    controls; it needs a dealer or a paid third-party tool (TuneECU, TigerTool, DealerTool,
+    HealTech Maintenance Mate) plus, on many Triumph models, an STN-chipset OBD adapter.
+
+    The transport is open — ISO 15765-4 CAN on a standard diagnostic connector — and the
+    gate is a manufacturer-specific application-layer message. That message is the open
+    question this spec exists to close.
+
+    The reminder has two independent components. The service-due DISTANCE is reset over
+    the diagnostic connector. The service-due DATE, on calendar-equipped models, is reset
+    from the bike's own instrument menu and is explicitly not touched by TigerTool. Both
+    the odometer and the service values are stored in the instrument cluster in kilometres,
+    which is why the owning ECU still has to be established.
+
+    CONFIDENCE: connector types, transport family, storage location, interval granularity
+    and adapter requirements are all from vendor tool documentation (verification:
+    reported). The request bytes are inferred from the shape of the tool UIs and from the
+    fact that DTC reads work on clone adapters while the reset does not (verification:
+    hypothesis). Nothing here has been executed against a bike.
+
+    SAFETY: vehicles are safety-critical. Read-only work on a stationary, owned bike on a
+    stand with the engine off. No writes to ABS, immobiliser or engine-map memory.
+  variants:
+    - model: "Tiger 900 GT / GT Pro / Rally / Rally Pro (2020–2023)"
+      identification:
+        connector: "sae-j1962"
+    - model: "Tiger 900 / 850 Gen 2 (MY2024+)"
+      identification:
+        connector: "iso-19689"
+      notes: >
+        Treat as a separate target. TigerTool does not connect to Gen 2 bikes because
+        Triumph relocated ECU data, and HealTech's Maintenance Mate did not initially
+        support MY2024 — so the 2020–2023 findings must not be assumed to carry over.
+
+obd:
+  connector:
+    standard: "sae-j1962"
+    location: "under the pillion seat"
+    model_years: "2020–2023 (MY2024+ Gen 2 bikes use the 6-pin ISO 19689 connector)"
+    pins:
+      - pin: 6
+        signal: "CAN-H"
+        verification: "reported"
+      - pin: 14
+        signal: "CAN-L"
+        verification: "reported"
+      - pin: 16
+        signal: "battery +12V"
+        verification: "reported"
+      - pin: 4
+        signal: "chassis ground"
+        verification: "reported"
+
+  transport:
+    standard: "iso15765-4"
+    bitrate: 500000
+    addressing: "11bit"
+    request_id: "0x7E0"
+    response_id: "0x7E8"
+    functional_id: "0x7DF"
+    tester_present_ms: 2000
+    verification: "hypothesis"
+
+  adapter_requirements:
+    - "DTC read (single-frame OBD-II mode 03) works with generic ELM327 clones."
+    - >
+      Service interval reset requires an OBDLink LX/MX (STN chipset) on many Triumph
+      models; TuneECU documents it as mandatory for Tiger 1200 MY2022+. The split between
+      what works and what does not points at multi-frame ISO-TP and custom request
+      headers, which clone ELM327 firmware handles unreliably.
+
+  ecus:
+    - name: "Engine ECU (Keihin)"
+      request_id: "0x7E0"
+      response_id: "0x7E8"
+      owns:
+        - "diagnostic trouble codes"
+        - "live sensor data"
+      verification: "hypothesis"
+    - name: "Instrument cluster"
+      owns:
+        - "odometer (kilometres)"
+        - "service interval"
+        - "service-due distance"
+        - "service-due date"
+      verification: "reported"
+      notes: >
+        TigerTool states all odometer values are stored in the instruments. Whether the
+        cluster is addressed directly from the diagnostic connector or gatewayed via the
+        engine ECU is unresolved and is the first thing a capture should settle.
+    - name: "ABS modulator"
+      owns: ["ABS DTCs"]
+      verification: "reported"
+    - name: "Immobiliser"
+      owns: ["TPMS sensor IDs", "TPMS live data"]
+      verification: "reported"
+
+  requests:
+    - name: "read_vin"
+      description: "Standard OBD-II vehicle information request; useful as a first liveness check."
+      service: "09"
+      request: "09 02"
+      expected_response: "49 02 ??"
+      writes: false
+      verification: "hypothesis"
+      notes: "Standard SAE J1979; not confirmed as supported by this ECU."
+
+    - name: "enter_extended_session"
+      description: "Extended diagnostic session, expected prerequisite for any maintenance function."
+      service: "10"
+      request: "10 03"
+      expected_response: "50 03"
+      writes: false
+      verification: "hypothesis"
+      notes: >
+        Inferred from TigerTool's documented behaviour that a failed service reset can
+        leave the ECU refusing further diagnostic functions until the tool reconnects —
+        the signature of a session that ended.
+
+    - name: "tester_present"
+      description: "Keepalive so a non-default session does not time out."
+      service: "3E"
+      request: "3E 00"
+      expected_response: "7E 00"
+      writes: false
+      verification: "hypothesis"
+
+    - name: "service_reset_h1_routine_control"
+      description: "H1: service interval reset as a UDS routine."
+      service: "31"
+      request: "31 01 ?? ??"
+      expected_response: "71 01 ?? ??"
+      prerequisites: ["10 03"]
+      security_access_required: false
+      writes: true
+      verification: "hypothesis"
+      notes: >
+        Highest-ranked candidate. 'Reset' functions are conventionally routines, and a
+        routine that tears down the session explains the observed post-failure lockout.
+        The routine identifier is unknown. DO NOT sweep RoutineControl identifiers against
+        a vehicle — 31 01 executes whatever it names.
+
+    - name: "service_reset_h2_write_data_by_identifier"
+      description: "H2: service interval reset as a value write of the service-due distance."
+      service: "2E"
+      request: "2E ?? ?? ?? ??"
+      expected_response: "6E ?? ??"
+      prerequisites: ["10 03"]
+      security_access_required: false
+      writes: true
+      verification: "hypothesis"
+      notes: >
+        The tool UI is 'pick a number, then validate', which is the shape of a value
+        write. Distance is expected to be kilometres as a scaled integer: the documented
+        100-unit granularity and the 10000 km ceiling for Tiger 800/900/Sport fit a uint16
+        comfortably. A second write may carry the service date — TuneECU requires the
+        bike's clock and date to be set correctly before the reset runs.
+
+    - name: "service_reset_h4_kwp2000_write_local_id"
+      description: "H4: KWP2000 writeDataByLocalIdentifier dialect carried over from the ISO 9141 ECUs."
+      service: "3B"
+      request: "3B ?? ?? ??"
+      expected_response: "7B ??"
+      prerequisites: ["10 03"]
+      writes: true
+      verification: "hypothesis"
+      notes: >
+        Lower probability, but Triumph's earlier ECUs (Mk1 Tiger 800 family) combined
+        ISO 9141-2 with CAN, so a vendor dialect could have survived the move to CAN.
+
+  data_identifiers:
+    - did: "0xF190"
+      name: "VIN (standard UDS DID)"
+      type: "string"
+      verification: "hypothesis"
+    - did: "0x0000"
+      name: "odometer (kilometres) — DID unknown"
+      type: "uint32"
+      unit: "km"
+      verification: "hypothesis"
+    - did: "0x0000"
+      name: "service-due distance (kilometres) — DID unknown"
+      type: "uint16"
+      unit: "km"
+      verification: "hypothesis"
+    - did: "0x0000"
+      name: "service-due date — DID unknown"
+      type: "date"
+      verification: "hypothesis"
