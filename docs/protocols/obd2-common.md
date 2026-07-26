@@ -247,6 +247,49 @@ Practical notes that come up at every event:
   may not start again this afternoon. That is the difference between advanced and
   reckless — not whether the function is documented.
 
+## Vendor ECU-description files
+
+Before reverse-engineering a frame by hand, check whether the manufacturer already
+describes it. Most do, in a machine-readable file that their own tools consume:
+
+| Format | Extension | Used by |
+|--------|-----------|---------|
+| EDIABAS SGBD | `.prg` | BMW — one compiled description per ECU variant |
+| EDIABAS group | `.grp` | BMW — dispatches to the right `.prg` when the variant is unknown |
+| ODX / PDX | `.odx`, `.pdx` | The ISO 22901 standard container; most European OEMs |
+| CANdela | `.cdd` | Vector toolchain, common at suppliers |
+| A2L | `.a2l` | ECU measurement and calibration (ASAM MCD-2 MC) |
+| CAN database | `.dbc` | Broadcast bus decoding, not diagnostics |
+
+These define jobs, results, ECU addresses, scaling and DTC text — the very things a
+capture only tells you indirectly. The BMW result names recovered from MotoScan
+(`STAT_SERVICE_KMSTAND_DATA` and friends) **are** SGBD result names, so the cluster's
+`.prg` is where their units and scaling are authoritatively defined.
+
+Specs reference them with `obd.description_files` at the vehicle level and per ECU, and
+requests link to a specific `job` and its `results`. That turns a hand-decoded byte offset
+into a lookup against the definition:
+
+```yaml
+ecus:
+  - name: "KOMBI (instrument cluster)"
+    description_files:
+      - type: "sgbd-prg"
+        name: "KOMBI.prg"
+        provides: ["jobs", "results", "ecu_address", "scaling"]
+        source: "EDIABAS/INPA/ISTA installation (ECU directory)"
+requests:
+  - name: "read_odometer"
+    request: "22 E1 19"
+    results: ["STAT_SERVICE_KMSTAND_DATA"]
+```
+
+**Name them, do not redistribute them.** These files are vendor copyright. `source` says
+where a licensed copy comes from — an EDIABAS/INPA/ISTA installation, a workshop tool
+bundle — and `sha256` pins the exact file a fact was derived from. A repair café that owns
+a licensed diagnostic installation already has them; this repo just tells you which file
+answers which question.
+
 ## Capture methodology
 
 Ranked cheapest-first. The first option needs no CAN hardware at all and reuses the
