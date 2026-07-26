@@ -295,10 +295,18 @@ parse rules.
 
 ## Doing it
 
-We ship no Wemo client at all — discovery and control included. [pywemo](https://github.com/pywemo/pywemo)
-already does all of it, is maintained, and is tested against far more hardware
+Use [pywemo](https://github.com/pywemo/pywemo). [pywemo](https://github.com/pywemo/pywemo)
+It does all of this, is maintained, and is tested against far more hardware
 than we have; a second implementation from us would be a worse copy of the
 thing we tell people to use. Our contribution is the spec.
+
+!!! warning "The scripts under `scripts/` are not that client"
+    `wemo_discover.py`, `wemo_control.py` and `wemo_setup.py` exist to check
+    this spec against real hardware, since every `verified` flag in it is still
+    `false`. They are scheduled for deletion once that is done — see
+    [issue #16](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/16),
+    which lists what needs confirming. If you are provisioning a device rather
+    than verifying a document, use pywemo.
 
 ```bash
 pip install pywemo
@@ -333,7 +341,7 @@ clears.
 ### Predicting the encryption variant
 
 Before trying combinations, read the device's own description — the flags that
-decide the variant are in it:
+decide the variant are in it. `scripts/wemo_discover.py` prints them, or:
 
 ```bash
 curl -s http://10.22.22.1:49153/setup.xml | grep -E "rtos|iot|firmwareVersion"
