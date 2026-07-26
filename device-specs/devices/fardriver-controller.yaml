@@ -41,12 +41,18 @@ device:
     them. CONFIDENCE: framing/CRC MEDIUM-HIGH; field offsets MEDIUM;
     UUIDs LOW (per-unit).
 
-    FLAG (write path deliberately unspecified): no parameter-write opcodes are
-    enumerated here. Writes to this device change speed limiting, regen and
-    current limits on a road-going vehicle. Read/telemetry decode is the
-    supported scope; anything that writes must be captured and validated
-    per-unit by the owner, on a stand, and is explicitly out of scope for
-    autodetection. Do not infer or invent write opcodes.
+    WRITE PATH (documented, flagged advanced): parameter writes use a shorter
+    variable-length frame with flags=1 -- magic 0xAA, computed length, address
+    pair, payload, CRC16 (same CRC as above, computed over the frame). System
+    commands write 0x88 XX to address 0xA0 (self-balance, data gather, reset).
+    Every write command in this spec carries `advanced: true`: they change
+    speed limiting, regen and current limits on a road-going vehicle, so
+    consumers must gate them behind an explicit opt-in rather than a default
+    UI. Writes are excluded from autodetection -- discovery is scan-and-read
+    only. Frame SHAPE is CONFIDENCE MEDIUM (derived from community RE); exact
+    per-parameter payload encodings and CRC byte order are UNVERIFIED and must
+    be confirmed against an HCI capture of the vendor app on your own unit,
+    on a stand, with the wheel off the ground.
 
     VEHICLE CONTEXT: documented because it is the app layer behind
     app-connected classic-scooter EV conversion kits (e.g. Retrospective
@@ -83,6 +89,61 @@ services:
       - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
         name: "Serial Data"
         properties: ["read", "write", "write_without_response", "notify"]
+        notes: >
+          Write frames: [0xAA, length, addr_hi, addr_lo, payload..., crc_lo, crc_hi]
+          with flags=1 in the length/ID nibble; typically 8 bytes total. CRC16 is
+          poly 0x8005, init 0x7F3C, refin/refout true, computed over the frame.
+          The `{crc}` parameter below is COMPUTED by the consumer, not a literal.
+          CRC byte order is unverified -- confirm against a capture before use.
+          All commands here are advanced: they retune a road-going vehicle.
+        commands:
+          write_parameter:
+            description: >
+              Generic parameter write to a controller register. `address` is the
+              16-bit register address (see the config register table in the device
+              doc); `data` is the little-endian value for that register.
+            advanced: true
+            advanced_reason: >
+              Writes controller registers directly. Depending on the address this
+              changes current limits, regen strength or speed limiting on a
+              road-going vehicle. Wrong values can overheat the motor or
+              controller. Validate on a stand with the wheel off the ground.
+            template: [0xAA, "{length}", "{addr_hi}", "{addr_lo}", "{data}", "{crc}"]
+            parameters:
+              length:
+                type: "uint8"
+                min: 4
+                max: 32
+              addr_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+              addr_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+          system_command:
+            description: >
+              System command: writes 0x88 followed by a subcommand byte to address
+              0xA0. Known subcommands cover self-balance/calibration, data gather
+              and controller reset; the exact subcommand byte values are UNVERIFIED
+              and must be captured from the vendor app before use.
+            advanced: true
+            advanced_reason: >
+              Triggers controller-level operations including calibration and reset.
+              A mistimed self-balance or reset can leave the controller in a state
+              that will not drive the motor until reconfigured. Do not send while
+              the vehicle is moving.
+            template: [0xAA, "{length}", 0x00, 0xA0, 0x88, "{subcommand}", "{crc}"]
+            parameters:
+              length:
+                type: "uint8"
+                min: 4
+                max: 16
+              subcommand:
+                type: "uint8"
+                min: 0
+                max: 255
 
 entities:
   - platform: "sensor"

@@ -210,6 +210,27 @@ devices: [`docs/protocols/device-setup.md`](../docs/protocols/device-setup.md).
 | `commands` | No | Named commands for writable characteristics |
 | `format` | No | Binary format for readable/notifiable characteristics |
 
+### Advanced opcodes
+
+Any command may set `advanced: true` with an `advanced_reason` string. This marks an
+opcode that is fully documented and meant to be usable, but whose effects go beyond what
+a casual user would expect — it can damage hardware, void a warranty, or change a
+vehicle's legal classification.
+
+```yaml
+commands:
+  write_basic_parameters:
+    description: "Write the basic parameter block"
+    advanced: true
+    advanced_reason: "Raises current limits; can overheat the motor if set beyond its rating"
+    template: [0x16, 0x52, "{length}", "{data}", "{checksum}"]
+```
+
+The flag is advisory metadata — it does not change how the command is encoded or sent.
+Consumers should gate advanced commands behind an explicit opt-in (a settings toggle or
+a confirmation step) rather than putting them in a default UI, and should show
+`advanced_reason` at that opt-in point. Absent or `false` means an ordinary command.
+
 ### `entities` (optional, array)
 
 Maps device capabilities to Home Assistant entity types. See the example spec for details.

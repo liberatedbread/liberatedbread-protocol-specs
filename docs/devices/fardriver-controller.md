@@ -136,20 +136,43 @@ Read-side only in this spec — see the write-path warning below.
 | CAN baud (250K / 500K / 1M) | `0x178` | 0–1 |
 | Speed limit mode | `0x196` | 0–3 |
 
-### Write path — deliberately unspecified
+### Write path
 
-Parameter writes use a shorter variable-length form (typically 8 bytes) with `flags = 1`:
-magic, computed length, address pair, payload, CRC. System commands write `0x88 XX` to
-address `0xA0`.
+Parameter writes use a shorter variable-length frame (typically 8 bytes) with `flags = 1`:
 
-!!! danger "No write opcodes are enumerated here, on purpose"
-    Writes to this controller change speed limiting, regen and current limits **on a
-    road-going vehicle**. Telemetry decode is the supported scope. Anything that writes
-    must be captured and validated per-unit by the owner, on a stand, with the wheel off
-    the ground — and is explicitly excluded from autodetection. Do not infer or invent
-    write opcodes. Note also that derestricting a speed limit may change the vehicle's
-    legal classification and invalidate insurance; that is the owner's call to make
-    knowingly.
+| Offset | Length | Description |
+|--------|--------|-------------|
+| 0 | 1 | Magic — `0xAA` |
+| 1 | 1 | Computed length (flags = 1) |
+| 2 | 2 | Register address (hi, lo) |
+| 4 | n | Payload, little-endian |
+| 4+n | 2 | CRC16 (same parameters as above, computed over the frame) |
+
+System commands write `0x88 XX` to address `0xA0` — self-balance/calibration, data
+gather, and controller reset.
+
+Both write commands are declared in the spec with `advanced: true`:
+
+| Command | Effect |
+|---------|--------|
+| `write_parameter` | Generic register write — current limits, regen, speed limiting |
+| `system_command` | Controller-level operations: calibration, data gather, reset |
+
+!!! danger "Advanced — read this before writing anything"
+    These opcodes are documented and usable, but they retune a **road-going vehicle**:
+
+    - **Confirm before trusting.** The frame *shape* is MEDIUM confidence (derived from
+      community RE). Exact per-parameter payload encodings and **CRC byte order are
+      unverified** — capture the vendor app writing a known value on your own unit first.
+    - **Validate on a stand**, wheel off the ground, never while moving.
+    - **Wrong values can overheat** the motor or controller; a mistimed self-balance or
+      reset can leave the controller unable to drive until reconfigured.
+    - **Derestricting a speed limit may change the vehicle's legal classification and
+      invalidate insurance.** Documented because it is your vehicle and your call —
+      but make it knowingly.
+
+    Writes are excluded from autodetection: discovery stays scan-and-read only.
+    Consumers must gate these behind an explicit opt-in, not a default UI.
 
 ## Confirming what your scooter actually runs
 
