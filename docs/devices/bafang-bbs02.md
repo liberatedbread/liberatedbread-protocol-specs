@@ -113,9 +113,10 @@ Each write takes the same payload layout as the matching read returns.
 | `0x16 0x54` | Throttle parameters | 6 bytes | **Yes** |
 | `0x17 0x01` | Serial number | ASCII | **Yes** |
 
-!!! danger "Advanced — these retune a vehicle you ride"
-    All four writes should carry `advanced: true` in any spec that declares them, gated
-    behind an explicit opt-in rather than a default UI:
+!!! warning "Advanced — these retune a vehicle you ride"
+    All four writes should carry `advanced: true` in any spec that declares them: available,
+    behind a deliberate action, with the reason shown at that moment. Here is what each one
+    actually costs you if it goes wrong:
 
     - **Current limits are thermal limits.** Raising max current beyond the motor's rating
       is the classic way to cook a BBS02's nylon primary gear or the controller MOSFETs.
@@ -125,11 +126,14 @@ Each write takes the same payload layout as the matching read returns.
     - **Throttle and speed-limit settings change legal class.** Enabling throttle-from-zero
       or lifting the speed limit can move the bike out of pedelec/EAPC classification —
       changing what licence, insurance and road access apply.
-    - **Writing the serial number is near-irreversible** and can break warranty and
-      dealer-tool workflows. There is almost never a legitimate reason to touch it.
+    - **The serial number write is effectively irreversible** and can break warranty and
+      dealer-tool workflows. It has real uses — restoring identity after a controller swap
+      is a normal repair-bench job — so it is documented like anything else; just know that
+      there is no undo.
 
-    Always read the current block first and keep a copy — the write payload is the whole
-    block, so a partial edit means writing back fields you did not intend to change.
+    **Read the block first and keep a copy.** The write payload is the whole block, so a
+    partial edit means writing back fields you did not intend to change — and an archived
+    block is your restore path for every item above.
 
 ### Basic parameter block (`0x52`, 24 bytes)
 

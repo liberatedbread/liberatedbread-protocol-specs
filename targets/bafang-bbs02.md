@@ -41,8 +41,10 @@
   - Low-voltage cutoff protects the pack; lowering it drives cells into over-discharge.
   - Throttle-from-zero and speed-limit changes can move the bike out of pedelec/EAPC
     classification, changing licence, insurance and road-access status.
-  - Serial-number writes (`0x17 0x01`) are effectively irreversible and break warranty and
-    dealer-tool workflows. Document, do not encourage.
+  - Serial-number writes (`0x17 0x01`) are effectively irreversible and can break warranty
+    and dealer-tool workflows. Legitimate uses exist (restoring identity after a controller
+    swap is a normal repair-bench job), so it ships like any other advanced command — the
+    reason string just has to be honest that there is no undo.
   - Always read the block first and keep a copy: writes replace the **whole** block, so a
     partial edit silently rewrites fields you did not intend to touch.
 - Not safety-critical: nothing here should be relied on for braking or road safety.
@@ -74,10 +76,10 @@
 - Onboarding: serial port selection (cable) or BLE bridge pairing.
 - Core controls (MVP): read and display firmware, device info, error codes, and all three
   parameter blocks; archive/restore blocks to a file.
-- Advanced (opt-in, gated): edit and write basic / pedal assist / throttle blocks, with a
-  mandatory read-first, a visible diff of what will change, and the `advanced_reason`
-  shown at the confirmation step.
-- Never in a default UI: serial-number write.
+- Advanced (behind a deliberate action): edit and write basic / pedal assist / throttle
+  blocks, plus the serial-number write, with a mandatory read-first, a visible diff of what
+  will change, and the `advanced_reason` shown at the confirmation step. Available to any
+  user who opts in — a repair café should not have to reach for a different tool.
 - Error handling: surface the write-response error parameter index — it names which field
   the controller rejected.
 
