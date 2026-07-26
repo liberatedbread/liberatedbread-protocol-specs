@@ -46,6 +46,7 @@ A catalog of IoT devices we've documented (or are documenting).
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Generic / ScanTool / Vgate |
 | [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | Triumph Motorcycles |
 | [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | BMW Motorrad |
+| [Fardriver ND-series Motor Controller](fardriver-controller.md) | BLE | Research | Nanjing Fardriver |
 The **Setup** column records how a factory-fresh device is provisioned, and how
 well that flow is understood. The full machine-readable version lives in each
 spec's `device.setup` block; the patterns are explained in
