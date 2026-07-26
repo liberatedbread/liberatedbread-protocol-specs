@@ -57,6 +57,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Reframed the OBD-II guardrails for repair-café use: maintenance writes (service
+  interval resets, TPMS sensor IDs, clearing recorded faults) are in scope and are the
+  point, with a function-risk tier table, bench sequences for the Triumph and BMW
+  service resets, and a narrower out-of-scope list (flashing/coding, odometer writes,
+  immobiliser and emissions defeat, anything on a moving vehicle)
+
 - LEDs2Rave4 / Lunchbox Dream LED docs now map each product generation to its design app
   (LED CHORD → SPOTLED → iLEDColor) and document the SPOTLED framed BLE protocol on `0xFF20`,
   corroborated against `python-spotled`

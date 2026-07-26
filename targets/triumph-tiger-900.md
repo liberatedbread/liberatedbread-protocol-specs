@@ -51,11 +51,14 @@
   - OBDLink LX/MX adapter, RFCOMM/SPP, ASCII ELM327 command set
 
 ## Threat model + guardrails
-- Scope: only a bike the researcher owns, stationary, on a stand, engine off, ignition on.
-- Vehicles are safety-critical. No writes to ABS, immobiliser, TPMS or engine-map memory.
+- Scope: a bike the owner has consented to work on, stationary, engine off, ignition on.
+  Repair-café use is the point -- the service reset is a write and is meant to be used.
+- Record current values before writing; a read-back is one command.
+- ABS bleed is a brake procedure that happens to be triggered over the connector. Follow
+  the service manual and check lever feel before the bike leaves.
 - Non-goals: ECU flashing, remapping, immobiliser defeat, odometer alteration.
-- Goal: document the service interval reset message so an owner who has done their own
-  service can clear their own reminder without a dealer visit or a paid tool.
+- Goal: document the service interval reset so an owner or a volunteer who has done the
+  service can clear the reminder without a dealer visit or a paid tool.
 
 ## First experiments (do these first)
 0) DONE -- static analysis of TigerTool V3.51 (freeware Windows binary) recovered the

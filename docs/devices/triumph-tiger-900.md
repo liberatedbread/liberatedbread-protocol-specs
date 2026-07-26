@@ -21,9 +21,14 @@ The reset itself is a manufacturer-specific request on top of it. See
 instrument cluster** — not a UDS request to the engine ECU at all. See
 [Protocol Summary](#protocol-summary) for that and the rest of the recovered surface.
 
-!!! warning "Read-only research only"
-    Stationary bike, on a stand, engine off, ignition on. No writes to ABS, immobiliser
-    or engine-map memory. See [Clean-room rules](../CLEANROOM_RULES.md).
+!!! note "Repair-café scope"
+    The service reset here is a **write, and that is the point** — it is what an owner or a
+    repair-café volunteer needs after doing the service. Stationary bike, engine off,
+    ignition on, owner's consent, and read the current values back first.
+
+    Out of scope: ECU flashing, odometer alteration, immobiliser changes. The ABS bleed
+    documented below is a brake procedure — follow the service manual. See
+    [Working a repair café](../protocols/obd2-common.md#working-a-repair-cafe).
 
 ## Hardware
 
@@ -185,6 +190,42 @@ The date reset is a separate command on the same stack: `5C <x> <hi> <lo>`, wher
 | Reset service interval (km) | `33 <km/100>` | `704 B3` |
 | Reset service interval (miles) | `34 <miles/100>` | `704 B4` |
 | Reset service date | `5C <x> <hi> <lo>` | `704 DC` |
+
+### At the bench
+
+The full sequence for a service reset, as a repair-café volunteer would run it. Everything
+here is `verification: reported` — recovered from two tools, not yet confirmed on a bike —
+so treat the first run as the confirmation.
+
+```text
+# 1. Connect, cluster stack
+ATZ                     reset adapter
+ATE0  ATL0              echo and linefeeds off
+ATH1                    headers ON — you need them to read the 704 prefix
+ATTP6                   ISO 15765-4, 11-bit, 500 kbit/s
+ATCAF0  ATCFC0          raw frames, no flow control (this stack is not ISO-TP)
+ATSH701                 transmit to the cluster
+ATCRA704                accept only the cluster's replies
+ATST7F                  long timeout
+
+# 2. RECORD FIRST — read current state before changing anything
+0D01                    -> 704 8D 01 ...   SIA / odometer record
+5E01                    -> 704 DE ...      cluster probe
+
+# 3. Reset the service interval
+33 <km/100>             -> 704 B3          e.g. 10000 km -> 33 64
+34 <miles/100>          -> 704 B4          e.g. 6000 mi  -> 34 3C
+
+# 4. Read back and confirm on the dash
+0D01
+```
+
+Ignition on, engine off, bike stationary. If step 3 answers `704 00` the write did not
+take — reconnect and retry rather than repeating blindly. A failed reset can leave the
+cluster refusing further commands until the adapter reconnects.
+
+The date component is separate (`5C …` → `704 DC`) and on calendar-equipped models the
+rider can set it from the instrument menu, which is usually the easier route.
 
 ### Reading the current service and odometer values
 
