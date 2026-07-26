@@ -363,7 +363,7 @@ is discontinued and no longer distributed by its author, so it is not a route in
 The message is known; proving it and decoding the rest is what remains.
 
 1. **Confirm on hardware.** Cluster stack setup, then `33 <km/100>`, and check for a reply
-   beginning `704 B4`. Read back through the instrument menu, and via the `0D 01` / `47 01`
+   beginning `704 B3`. Read back through the instrument menu, and via the `0D 01` / `47 01`
    / `5E 01` / `6E 76` / `6E 74` query sequence, that the service-due distance changed.
 2. **Decode the SIA query replies.** The five query opcodes return the odometer,
    distance-to-service and service date. Field offsets and scaling are not yet mapped —
