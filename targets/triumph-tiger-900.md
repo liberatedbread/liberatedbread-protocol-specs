@@ -60,8 +60,9 @@
 ## First experiments (do these first)
 0) DONE -- static analysis of TigerTool V3.51 (freeware Windows binary) recovered the
    reset message and most of the surrounding surface; see Protocol findings below.
-0b) APK static analysis of `com.tuneecu_lite` (free build, so `apkeep -a com.tuneecu_lite`
-   or `scripts/pull_apks_adb.sh` are both legitimate). Run
+0b) DONE -- TuneECU 23 decompiled from the author's own distribution URL
+   (https://tuneecu.fr/update/23/TuneECU.apk); confirmed the reset command and widened the
+   stack map. Original plan retained below for reference. Run
    `scripts/run_static_target.sh triumph-tiger-900` and grep the decompile for:
    - ELM327 setup strings: `ATSP`, `ATSH`, `ATCRA`, `ATFC`, `ATCAF`
    - service bytes and their positive responses: `31 01`/`71`, `2E`/`6E`, `22`/`62`,
@@ -84,16 +85,18 @@
 All four earlier hypotheses were wrong in an instructive way: the reset is not UDS, and it
 does not target the engine ECU at all.
 
-- Reset service interval: `21 <km/100>` or `22 <miles/100>` on CAN 0x701 (instrument
-  cluster), success reply `704 B4` (`B3` also accepted). No diagnostic session, no security
-  access. The value is divided by 100 -- which is exactly why every tool UI restricts
-  intervals to multiples of 100.
+- Reset service interval: `33 <km/100>` or `34 <miles/100>` on CAN 0x701 (instrument
+  cluster), success reply `704 B3` / `704 B4`. No diagnostic session, no security access.
+  The value is divided by 100 -- which is exactly why every tool UI restricts intervals to
+  multiples of 100. Confirmed independently in TuneECU 23:
+  `rb = (i15 == 0 ? "33" : "34").concat(String.format("%02x", .../100))`.
+- Every reply on the cluster stack is the request opcode with bit 7 set.
 - Reset service date: `5C <x> <hi> <lo>` -> `704 DC`. Date word is incremented and split
   high/low; epoch and the third byte still undecoded.
 - SIA/odometer reads: `0D 01` -> `704 8D 01 ...`, then `47 01`, `5E 01`, `6E 76`, `6E 74`.
   Reply field layouts NOT yet decoded -- highest-value remaining work.
-- Instrument menu: `30 <v>` ODO units -> `B0`, `31 <v>` TPMS menu -> `B1`, `32 <v>` ABS
-  menu -> `B2`; an unexplained `B3` implies a `33 <v>` setting.
+- Instrument menu: `30 00`/`30 06` ODO units -> `B0`, `31 00`/`31 01` TPMS menu -> `B1`,
+  `32 00`/`32 01` ABS menu -> `B2`, plus `40 xx` -> `C0` and `41 xx` -> `C1` (TuneECU only).
 - Cluster stack setup: AT TP6, AT E0, AT H1, AT L0, AT CFC0, AT CAF0, AT SH701, AT CRA704,
   AT ST7F. Auto-formatting and flow control OFF -- raw frames, no ISO-TP on this stack.
 - Engine ECU is UDS over 29-bit CAN: header 18 DA D5 F1, replies 18 DA F1 D5, functional
@@ -103,13 +106,18 @@ does not target the engine ECU at all.
   identity, 13 40 FF read DTCs, 14 00 00 clear, A1 01 FF / A1 B0 FF / A1 01 00 bleed.
 - Immobiliser/TPMS on CAN 0x604 -> 0x602, live broadcast on 0x600 (AT CRA600 + AT MA).
 - SecurityAccess 27 03 / 27 04 exists but gates throttle balance, not the service reset.
+- Additional nodes seen only in TuneECU: engine-side ECUs 0xC1 and 0xC8 (29-bit, probed
+  with UDS `10 03`), a node at 0x780/0x781, standard OBD-II 0x7E0/0x7E8, ISO 9141 headers
+  8010F1/8011F1/8101F1/8111F1/81D5F5, and ISO init address 0xD5 alongside the ABS 0x43.
+- TuneECU uses the ELM327 user-defined protocol (`ATPB0101`/`ATPBE101` + `ATSPB`) for some
+  stacks -- another thing clone firmware will not do.
 - Model-year split: all of the above is 2020-2023 only. TigerTool does not connect to Gen 2
   (MY2024+), so that variant still needs its own capture.
 
 ## Still open
-- Field layouts of the five SIA query replies (odometer, distance-to-service, date).
+- Field layouts of the SIA query replies (odometer, distance-to-service, date).
 - The `5C` date-reset epoch and its third byte.
-- The `33 <v>` instrument setting implied by the unexplained `B3` acknowledgement.
+- What the `40 xx` / `41 xx` instrument options control.
 - Immobiliser/TPMS opcode space beyond the handful TigerTool uses.
 - Whether these opcodes are shared across Triumph's wider range (cross-check TuneECU).
 - Everything about MY2024+ Gen 2.
@@ -125,8 +133,8 @@ does not target the engine ECU at all.
 ## Evidence checklist
 - TigerTool V3.51 SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79: DONE
 - Hardware confirmation of `21 <km/100>` with read-back: pending
-- TuneECU Lite APK hash + version code: pending
-- Decompile grep results for ELM327 setup strings and UDS service bytes: pending
+- TuneECU 23 APK SHA-256 f724294669a3bc008d81dbb590a8c0bfa1b4ac4a223d524e040c85bc885408eb: DONE
+- Cross-tool agreement on the reset command (TigerTool + TuneECU): DONE
 - btsnoop HCI log of a vendor tool reset: pending
 - CAN capture (candump / SavvyCAN) of the same operation: pending
 - DID sweep output: pending

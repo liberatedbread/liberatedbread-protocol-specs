@@ -1,10 +1,12 @@
 # Triumph Tiger 900 — Device Specification
 # Status: In Progress — the service interval reset message and most of the surrounding
 #         diagnostic surface were recovered by static analysis of TigerTool V3.51
-#         (freeware, SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79):
-#         Delphi literal extraction plus x86 disassembly of the request builders and
-#         response matchers. Derived from a tool binary, NOT yet reproduced on a bike,
-#         so these carry `verification: reported` rather than `confirmed`.
+#         (freeware, SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79)
+#         and independently confirmed by decompiling TuneECU 23
+#         (SHA-256 f724294669a3bc008d81dbb590a8c0bfa1b4ac4a223d524e040c85bc885408eb).
+#         Two unrelated codebases build the same command with the same scaling.
+#         Derived from tool binaries, NOT yet reproduced on a bike, so these carry
+#         `verification: reported` rather than `confirmed`.
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 
@@ -29,9 +31,9 @@ device:
     which is why the owning ECU still has to be established.
 
     The reset is NOT a UDS request to the engine ECU. It goes to the instrument cluster on
-    CAN 0x701 as a two-byte proprietary frame, 21 <km/100> or 22 <miles/100> — which is
+    CAN 0x701 as a two-byte proprietary frame, 33 <km/100> or 34 <miles/100> — which is
     why every tool's UI only offers intervals in multiples of 100: the wire format cannot
-    express anything else.
+    express anything else. Every reply on this stack is the request opcode with bit 7 set.
 
     Four separate stacks are in play. Engine ECU speaks UDS over 29-bit CAN (18 DA D5 F1).
     Instrument cluster and immobiliser speak a proprietary raw-frame protocol on 11-bit
@@ -134,6 +136,22 @@ obd:
       notes: >
         KWP2000 header 68 6A F1 (target 0x6A, source 0xF1) via AT SH 68 6A F1 and AT TP3.
         ABS additionally requires AT IIA43 (ISO init address 0x43).
+    - name: "Engine-side ECU 0xC1"
+      request_id: "0x18DAC1F1"
+      owns: ["unknown — probed with UDS 10 03 extended session"]
+      verification: "reported"
+      notes: "Seen only in TuneECU. Confirms a UDS session exists on this platform, though not in front of the service reset."
+    - name: "Engine-side ECU 0xC8"
+      request_id: "0x18DAC8F1"
+      owns: ["unknown — probed with UDS 10 03 extended session"]
+      verification: "reported"
+      notes: "Seen only in TuneECU."
+    - name: "Node 0x780"
+      request_id: "0x780"
+      response_id: "0x781"
+      owns: ["unknown — probed with UDS 10 03"]
+      verification: "reported"
+      notes: "Seen only in TuneECU, reached via the ELM327 user-defined protocol (ATPBE101 + ATSPB)."
     - name: "Immobiliser (also carries TPMS)"
       request_id: "0x604"
       response_id: "0x602"
@@ -153,19 +171,20 @@ obd:
         the Tiger 800/900/Sport ceiling, is 100 = 0x64.
       command_class: "advanced"
       requires: ["single_frame", "custom_headers", "raw_frames"]
-      request: "21 ??"
-      expected_response: "B4"
+      request: "33 ??"
+      expected_response: "B3"
       writes: true
       verification: "reported"
       notes: >
-        Sent on CAN 0x701. Success is a frame on 0x704 beginning B4 (TigerTool also accepts
-        B3); a reply beginning 00 is the no-data/error case. No diagnostic session and no
-        security access precede it.
+        Sent on CAN 0x701. Success is a frame on 0x704 beginning B3 (the request opcode with
+        bit 7 set); a reply beginning 00 is the no-data/error case. No diagnostic session and
+        no security access precede it. TuneECU builds the identical string:
+        (units == km ? "33" : "34") + %02x(distance / 100).
     - name: "reset_service_interval_miles"
       description: "Reset the service interval, distance in miles. Value byte is miles/100 (6000 mi = 60 = 0x3C)."
       command_class: "advanced"
       requires: ["single_frame", "custom_headers", "raw_frames"]
-      request: "22 ??"
+      request: "34 ??"
       expected_response: "B4"
       writes: true
       verification: "reported"
@@ -195,10 +214,11 @@ obd:
       writes: false
       verification: "reported"
     - name: "sia_query_3"
-      description: "Third SIA/odometer record."
+      description: "Cluster probe — TuneECU uses this as its connect handshake for this stack; reply begins DE."
       command_class: "advanced"
       requires: ["single_frame", "custom_headers", "raw_frames"]
       request: "5E 01"
+      expected_response: "DE ??"
       writes: false
       verification: "reported"
     - name: "sia_query_4"
@@ -231,6 +251,22 @@ obd:
       requires: ["single_frame", "custom_headers", "raw_frames"]
       request: "31 ??"
       expected_response: "B1"
+      writes: true
+      verification: "reported"
+    - name: "set_instrument_option_40"
+      description: "Further instrument option (TuneECU only). 40 00 / 40 01."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "40 ??"
+      expected_response: "C0 ??"
+      writes: true
+      verification: "reported"
+    - name: "set_instrument_option_41"
+      description: "Further instrument option (TuneECU only). 41 00 / 41 01."
+      command_class: "advanced"
+      requires: ["single_frame", "custom_headers", "raw_frames"]
+      request: "41 ??"
+      expected_response: "C1 ??"
       writes: true
       verification: "reported"
     - name: "set_abs_menu"
