@@ -132,7 +132,7 @@ does not target the engine ECU at all.
 
 ## Evidence checklist
 - TigerTool V3.51 SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79: DONE
-- Hardware confirmation of `21 <km/100>` with read-back: pending
+- Hardware confirmation of `33 <km/100>` with read-back: pending
 - TuneECU 23 APK SHA-256 f724294669a3bc008d81dbb590a8c0bfa1b4ac4a223d524e040c85bc885408eb: DONE
 - Cross-tool agreement on the reset command (TigerTool + TuneECU): DONE
 - btsnoop HCI log of a vendor tool reset: pending
