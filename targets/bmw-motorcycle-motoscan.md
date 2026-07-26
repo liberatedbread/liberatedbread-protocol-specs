@@ -98,8 +98,11 @@ told apart from vendor behaviour for protocol work.
 - Vendor signature verified (WGSoft.de / Wladimir Gurskij): DONE
 - Decompiled init sequences and addressing scheme (BMW 0x6F1 + ATCEA): DONE
 - Service interval data model (SI_ALL/SI_DATE/SI_MILEAGE/SI_DATE_CAR): DONE
-- Native job-table analysis for reset payloads: pending
-- Service reset command bytes: pending
+- ARM64 native library structure analysed (stripped, 3.7 MB .rodata vs 1.8 MB .text,
+  string-in/string-out JNI surface -- it holds the ECU description database, not the
+  wire protocol): DONE
+- Service reset command bytes (2E E1 2B/2C/2D) and matching reads (22 E1 19/2B/2C/2D): DONE
+- Module address (<aa>) enumeration and 31 FA routine semantics: pending
 - Hardware confirmation with read-back: pending
 
 ## Spec output (clean-room)

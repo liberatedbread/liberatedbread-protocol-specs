@@ -1,6 +1,6 @@
 # BMW Motorcycle Diagnostics (MotoScan)
 
-> **Status**: In Progress (addressing and data model recovered; reset payloads still in native code)
+> **Status**: In Progress (addressing, data model and reset payloads recovered; hardware confirmation pending)
 > **Protocol**: OBD-II connector — BMW D-CAN (ISO 15765-4 with `0x6F1` addressing), KWP2000, UDS
 > **Manufacturer**: BMW Motorrad
 > **Manufacturer Status**: Active (protocol closed; owner-facing functions are dealer- or paid-tool-gated)
@@ -124,29 +124,90 @@ The app distinguishes a **clone** from an **original** ELM327 at runtime and tre
 differently. A tool shipping clone detection is the strongest possible statement that the
 tier distinction is real and load-bearing.
 
+## The service reset — plain UDS on a BMW DID family
+
+The reset payloads turned out **not** to be in the native library. `libmotoscan-helper.so`
+holds the ECU description database — job and result names, localised parameter text — but
+the frames themselves are built in Kotlin, in the control-unit class for the UDS-capable
+cluster family. Only that one family implements the reset; the older families return
+"not supported".
+
+Every operation is standard UDS against the manufacturer DID range `0xE1xx`:
+
+### Writes
+
+| Scope | Request | Fields |
+|-------|---------|--------|
+| `SI_DATE_CAR`, `SI_ALL` | `2E E1 2B <hh> <mm> <ss> <dd> <MM> <yyyy hi> <yyyy lo>` | Sets the cluster clock from the current time |
+| `SI_DATE`, `SI_ALL` | `2E E1 2C <dd> <MM> <yyyy hi> <yyyy lo>` | Next service date |
+| `SI_MILEAGE`, `SI_ALL` | `2E E1 2D <km hi> <km lo>` | Service distance, **plain uint16 kilometres** |
+
+Each write is issued with a 2000 ms timeout and a 1500 ms settle before the next, so a
+`SI_ALL` reset is three writes spread over roughly five seconds.
+
+### Reads
+
+The read side matches the write layouts exactly, which is the best internal consistency
+check available without a bike. Payload starts at offset 3 in every reply:
+
+| Request | Reply length | Layout |
+|---------|--------------|--------|
+| `22 E1 19` | 7 | uint32 at offset 3 — odometer |
+| `22 E1 2B` | 10 | `hh` @3, `mm` @4, `ss` @5, `dd` @6, `MM` @7, `yyyy` @8–9 — clock |
+| `22 E1 2C` | 7 | `dd` @3, `MM` @4, `yyyy` @5–6 — service date |
+| `22 E1 2D` | 5 | uint16 at offset 3 — service distance |
+
+### Why this matters against the Triumph result
+
+Same owner-facing function, opposite mechanism:
+
+| | Triumph Tiger 900 | BMW (MotoScan) |
+|---|---|---|
+| Mechanism | Proprietary 2-byte frame, no ISO-TP | Standard UDS `2E` WriteDataByIdentifier |
+| Address | Cluster on its own CAN ID `0x701` | Cluster via BMW `6F1` extended addressing |
+| Distance encoding | `distance / 100` in one byte | Plain uint16 kilometres |
+| Session / security | None | None observed for the service DIDs |
+| Clock | Must be set beforehand, by the rider | Written by the tool as part of the reset |
+
+**My earlier four hypotheses were wrong for Triumph and right for BMW.** The
+WriteDataByIdentifier guess that failed on the Tiger 900 is exactly what BMW does. That is
+worth remembering as a methodological point: the plausible-by-convention answer is a
+coin flip, and only the capture settles it.
+
+## Other diagnostic surface
+
+Also recovered from the same code:
+
+- **Read DIDs** beyond the service family: `F150`, and a low range including `0001`,
+  `0004`, `0007`, `0009`, `0011`, `0012`, `0024`, `0031`, `0032`, `0033`, `0060`, `0062`,
+  `0063`, `0064`, `0067`, `0070`, `0071`, `0090`, `0100`, `0101`, `0150`.
+- **Other writes**: `2E 62 40 …` and `2E 64 40 …`.
+- **RoutineControl** used extensively in the form `31 FA <routine> <sub>` — note the
+  BMW-specific `FA` sub-function byte where UDS would normally carry `01`/`02`/`03`.
+  Routine groups `FA 0C`, `FA 0D`, `FA 13` (sub-IDs 1–21) and `FA 14` appear.
+- Utility identifiers `UTIL_UDS_BMSX_ADAPTION_RESET` and `UTIL_UDS_BMSX_ADAPTION_EARN_DONE`
+  for engine adaption resets.
+
 ## What is still unknown
 
-The reset **payloads** are not in the Java. MotoScan's diagnostic engine lives in
-`libmotoscan-helper.so` (~7 MB per ABI), which embeds a BMW SGBD-style job and result
-database along with localised parameter descriptions. The Java layer dispatches job names;
-the native layer turns them into UDS/KWP frames.
-
-Remaining work, in order of value:
-
-1. **Recover the job → frame mapping** from `libmotoscan-helper.so`. The names are already
-   readable; what is needed is the table that binds `STR_VENTILSPIELSERVICE_RESET` to a
-   service byte and identifier.
-2. **Enumerate module addresses** — the `<aa>` values MotoScan probes.
-3. **Confirm on hardware** with read-back of `STAT_SERVICE_KMSTAND_DATA`.
-4. **Compare with Triumph.** Both vendors put service data in the cluster and split it
-   distance/date; whether the resemblance goes deeper is worth knowing.
+1. **Module addresses** — the `<aa>` values MotoScan probes for each ECU.
+2. **The `31 FA` routine semantics.** The frames are recorded above; what each routine
+   does is not, and RoutineControl executes things, so these must not be guessed at
+   against a vehicle.
+3. **The valve-clearance service path.** `STR_VENTILSPIELSERVICE_RESET` and
+   `STAT_VENTILSPIELSERVICE_RESTWEG_WERT` are named in the native database but no matching
+   `E1xx` DID has been tied to them yet — it may run through the job engine rather than a
+   direct DID write.
+4. **Hardware confirmation** with read-back of `22 E1 2D`.
 
 ## Tools Used
 
 - [x] `apkeep` fetch of `de.wgsoft.motoscan` + signature verification (genuine WGSoft build)
 - [x] DEX string-pool extraction and jadx decompile (8708 classes)
-- [x] Native-library string survey (`libmotoscan-helper.so`)
-- [ ] Native job-table analysis for the reset payloads
+- [x] Native-library string survey and ELF structure (`libmotoscan-helper.so`: 3.7 MB
+      `.rodata` against 1.8 MB `.text`, stripped, string-in/string-out JNI surface)
+- [x] Recovered the service reset and read frames from the Kotlin control-unit classes
+- [ ] Module address enumeration and `31 FA` routine semantics
 - [ ] Hardware confirmation with read-back
 
 ## References
