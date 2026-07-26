@@ -8,6 +8,12 @@ A catalog of IoT devices we've documented (or are documenting).
 | In Progress | Actively reverse engineering |
 | Complete | Protocol fully documented |
 
+## Guides
+
+- [LED Sign & Panel Design Apps](led-sign-apps.md) — which app designs content for which LED
+  panel family, and how to triage an unknown sign.
+- [WiFi Discovery Guide](wifi-discovery.md)
+
 ## Devices
 
 | Device | Protocol | Status | Manufacturer |
@@ -16,6 +22,8 @@ A catalog of IoT devices we've documented (or are documenting).
 | [Bluetooth LED Name Badge](bluetooth-led-name-badge.md) | BLE | Complete | Generic (multiple vendors) |
 | [iDotMatrix](idotmatrix.md) | BLE | Complete | iDotMatrix / LedHun |
 | [LEDs2Rave4 Lunchbox LED](leds2rave4-lunchbox-led.md) | BLE | Complete | SP LED (SP107E / SP110E) |
+| [SPOTLED LED Panels](spotled-led-panel.md) | BLE | Complete | Host No.4 Technology / generic OEM |
+| [CoolLEDX / CoolLED1248 Signs](coolledx-led-sign.md) | BLE | In Progress | Juntong Technology |
 | [Shining Mask](shining-mask.md) | BLE | Complete | Shenzhen Shining Bright Technology |
 | [PAX Vape](pax-vape.md) | BLE | Complete | PAX Labs |
 | [Shining Glasses](shining-glasses.md) | BLE | Complete | Shenzhen Shining Bright Technology |
