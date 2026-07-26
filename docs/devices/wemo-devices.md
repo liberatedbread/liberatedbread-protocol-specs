@@ -34,11 +34,12 @@ Ports are connection details only; Wemo devices can move across
 49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159
 ```
 
-Use the local tool:
-
-```bash
-python scripts/wemo_discover.py --timeout 5
-```
+The full SSDP wire format — the M-SEARCH datagram, response headers,
+deduplication, the rule that separates Wemo from every other UPnP responder,
+and the description parse rules — is in
+`device-specs/devices/wemo-devices.yaml` under `device.discovery`.
+[pywemo](https://github.com/pywemo/pywemo) implements it if you want a client
+rather than a spec.
 
 ## Device Catalog
 

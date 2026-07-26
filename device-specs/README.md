@@ -176,9 +176,12 @@ proves it: the module transcribes the published algorithm using nothing but
 the transcription reproduces the spec's own test vectors. If the transcription
 cannot be written, the spec is underspecified and CI fails.
 
-That is also why this repository ships no provisioning clients. Existing
-libraries do that job and are tested against far more hardware than we are; the
-spec is our contribution, and proving it implementable is the test.
+That is also why this repository ships no Wemo client — discovery and control
+included, not just provisioning. Existing libraries do those jobs and are
+tested against far more hardware than we are; the spec is our contribution, and
+proving it implementable is the test. The same module reconstructs the SSDP
+datagram, the description parser and the SOAP request builder from the YAML and
+diffs each against the spec's own published examples.
 
 Full field-by-field walkthrough:
 [`docs/api/spec-format.md`](../docs/api/spec-format.md). Patterns across

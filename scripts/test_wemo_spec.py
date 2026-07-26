@@ -1,19 +1,20 @@
-"""Proves the Wemo setup spec can be implemented from the spec alone.
+"""Proves the Wemo spec can be implemented from the spec alone.
 
-`device-specs/devices/wemo-devices.yaml` claims that `device.setup` is complete
-on its own — that someone with the hardware and none of our context could
-provision a device from that file. This module is how that claim is kept
-honest.
+`device-specs/devices/wemo-devices.yaml` claims to be sufficient on its own for
+all three things a client does — **discover** a device, **control** it, and
+**provision** it. This module is how that claim is kept honest.
 
-Everything below is a **transcription of what the YAML says**, deliberately
-importing nothing from our own Wemo modules. Each function cites the spec path
-it came from. If a transcription cannot be written, or does not reproduce the
-spec's published test vectors, the spec is underspecified and this fails —
-regardless of whether any of our other code still works.
+Everything below is a **transcription of what the YAML says**, importing
+nothing but the standard library. Each function cites the spec path it came
+from. If a transcription cannot be written, or does not reproduce the spec's
+own published examples and test vectors, the spec is underspecified and this
+fails.
 
-We do not ship a provisioning client: pywemo already does that job, is
-maintained, and is tested against far more hardware than we have. The spec is
-our contribution; this file is its test.
+This repository ships no Wemo client. Discovery, control and provisioning are
+all things existing libraries (pywemo) already do, tested against far more
+hardware than we have; a second implementation from us would be a worse copy.
+The spec is the contribution, and this file is its test — the transcriptions
+here exist to prove the document is complete, not to be used.
 
 Requires the ``openssl`` binary, which the spec names as an equivalent
 implementation of its encryption.
@@ -23,8 +24,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -58,6 +61,13 @@ def method(setup) -> dict:
 @pytest.fixture(scope="module")
 def encryption(method) -> dict:
     return method["softap"]["credential_encryption"]
+
+
+@pytest.fixture(scope="module")
+def ssdp(spec) -> dict:
+    methods = [m for m in spec["device"]["discovery"]["methods"] if m["type"] == "ssdp"]
+    assert methods, "spec must document SSDP discovery"
+    return methods[0]["ssdp"]
 
 
 # ── Reference implementation, transcribed from the spec ──────────────────────
@@ -187,6 +197,8 @@ def test_spec_publishes_the_wire_format(spec):
     assert "SOAPACTION" in request["http"]["headers"]
     # The trap that cost us a bug: arguments are not namespace-qualified.
     assert "UNQUALIFIED" in request["argument_qualification"].upper()
+    # And the one that bites on an SSID containing an ampersand.
+    assert request.get("escaping"), "XML escaping of argument values not stated"
     assert spec["soap_common"]["response_format"]["parse_rule"]
 
 
@@ -377,3 +389,299 @@ def test_reset_scopes_are_documented(setup):
     description = arguments[0]["description"]
     for code in ("1", "2", "5"):
         assert code in description, f"reset code {code} not documented"
+
+
+# ── Discovery, transcribed from device.discovery ─────────────────────────────
+#
+# These reconstruct what a discovery client does, using only what the spec
+# publishes. Together they are the evidence that discovery does not need a
+# reference implementation shipped alongside the document.
+
+
+def build_msearch(ssdp: dict, search_target: str) -> bytes:
+    """Per device.discovery.methods[].ssdp.request."""
+    request = ssdp["request"]
+    body = request["template"].format(
+        multicast_group=ssdp["multicast_group"],
+        multicast_port=ssdp["multicast_port"],
+        mx=request["mx"],
+        search_target=search_target,
+    )
+    # "Lines are CRLF-terminated and the request ends with a blank line."
+    assert request["line_ending"] == "CRLF"
+    return "\r\n".join(body.rstrip("\n").split("\n")).encode("utf-8") + b"\r\n\r\n"
+
+
+def parse_ssdp_response(raw: str, ssdp: dict) -> dict[str, str]:
+    """Per device.discovery.methods[].ssdp.response."""
+    assert ssdp["response"]["header_matching"] == "case-insensitive"
+    found = {}
+    for header in ssdp["response"]["headers_used"]:
+        match = re.search(rf"(?im)^{header}:\s*(.+)$", raw)
+        if match:
+            found[header] = match.group(1).strip()
+    return found
+
+
+def parse_description(xml_text: str) -> dict:
+    """Per device.discovery...response_mapping.location.parse.parse_rules."""
+    standard = {
+        "deviceType",
+        "friendlyName",
+        "manufacturer",
+        "manufacturerURL",
+        "modelDescription",
+        "modelName",
+        "modelNumber",
+        "modelURL",
+        "serialNumber",
+        "UDN",
+        "UPC",
+        "macAddress",
+        "iconList",
+        "serviceList",
+        "deviceList",
+        "presentationURL",
+    }
+
+    def local(tag: str) -> str:
+        return tag.split("}")[-1] if "}" in tag else tag
+
+    root = ET.fromstring(xml_text)
+    # "Some firmware serves it with no namespace at all, so match on local
+    # element names rather than requiring the namespace."
+    device = next(el for el in root.iter() if local(el.tag) == "device")
+
+    fields, extras, services = {}, {}, []
+    for child in device:
+        name = local(child.tag)
+        text = (child.text or "").strip()
+        if name == "serviceList":
+            for service in child:
+                services.append(
+                    {
+                        local(item.tag): (item.text or "").strip()
+                        for item in service
+                    }
+                )
+        elif name in standard:
+            fields[name] = text
+        elif text:
+            extras[name] = text  # vendor extensions, per the parse rules
+    return {"fields": fields, "config_extras": extras, "services": services}
+
+
+def is_match(candidate: dict, match: dict) -> bool:
+    """Per device.discovery.methods[].ssdp.match.rule."""
+    haystack = " ".join(candidate.values()).lower()
+    # The rule names the two tokens to look for; take them from the spec text
+    # rather than hardcoding, so a change to the rule fails this instead.
+    tokens = [t for t in ("belkin", "wemo") if t in match["rule"].lower()]
+    assert tokens, "the match rule names no token to search for"
+    return any(token in haystack for token in tokens)
+
+
+def test_spec_publishes_the_ssdp_request(ssdp):
+    """A client cannot guess CRLF, the quoted MAN value or the trailing blank."""
+    request = ssdp["request"]
+    assert request["line_ending"] == "CRLF"
+    assert request.get("mx"), "MX is not published"
+    assert request.get("example"), "no literal datagram to diff against"
+
+    built = build_msearch(ssdp, "urn:Belkin:service:basicevent:1")
+    expected = (
+        "\r\n".join(request["example"].rstrip("\n").split("\n")).encode("utf-8")
+        + b"\r\n\r\n"
+    )
+    assert built == expected, "the template does not reproduce the published example"
+
+    text = built.decode()
+    assert text.startswith("M-SEARCH * HTTP/1.1\r\n")
+    assert 'MAN: "ssdp:discover"' in text  # quotes are part of the value
+    assert text.endswith("\r\n\r\n")  # blank line terminates the request
+    # The listen window must be at least MX, or replies are missed.
+    assert ssdp["timing"]["response_wait_seconds"] >= request["mx"]
+
+
+def test_documented_ssdp_response_parses(ssdp):
+    """The published reply must yield the headers the spec says to use."""
+    headers = parse_ssdp_response(ssdp["response"]["example"], ssdp)
+    assert set(headers) == set(ssdp["response"]["headers_used"])
+    assert headers["LOCATION"].endswith("/setup.xml")
+    assert headers["USN"].startswith("uuid:")
+    # Deduplication key must be one of the headers a client actually reads.
+    assert ssdp["response"]["dedupe_by"] in headers
+
+
+def test_documented_description_parses(spec, ssdp):
+    """setup.xml must yield identity, services and the vendor extensions."""
+    parse = ssdp["response_mapping"]["location"]["parse"]
+    assert parse.get("parse_rules"), "no rules for parsing the description"
+    parsed = parse_description(parse["example"])
+
+    # Identity keys named in device.discovery.identity must be obtainable.
+    assert parsed["fields"]["UDN"].startswith("uuid:")
+    assert parsed["fields"]["serialNumber"]
+    assert parsed["fields"]["macAddress"]
+    assert parsed["fields"]["friendlyName"]
+    assert parsed["fields"]["deviceType"].startswith("urn:Belkin:device:")
+
+    # Control URLs come from the description, never hardcoded.
+    assert parsed["services"], "no services parsed"
+    service = parsed["services"][0]
+    assert service["serviceType"].startswith("urn:Belkin:service:")
+    assert service["controlURL"].startswith("/upnp/control/")
+
+    # Vendor extensions must survive — rtos/iot select the setup encryption.
+    assert "firmwareVersion" in parsed["config_extras"]
+    assert {"rtos", "iot"} <= set(parsed["config_extras"])
+
+
+def test_description_parses_without_the_upnp_namespace(ssdp):
+    """The spec promises namespace-optional parsing; hold it to that."""
+    example = ssdp["response_mapping"]["location"]["parse"]["example"]
+    stripped = example.replace(' xmlns="urn:schemas-upnp-org:device-1-0"', "")
+    parsed = parse_description(stripped)
+    assert parsed["fields"]["friendlyName"] == "Kitchen Plug"
+    assert parsed["services"]
+
+
+def test_match_rule_separates_wemo_from_other_upnp_responders(ssdp):
+    """ssdp:all is a search target, so everything on the LAN answers."""
+    assert "ssdp:all" in ssdp["search_targets"], "match rule would be unnecessary"
+    match = ssdp["match"]
+    assert match.get("rule"), "no rule for identifying this device's responses"
+
+    wemo = {"manufacturer": match["manufacturer_exact"]}
+    printer = {
+        "manufacturer": "Brother",
+        "deviceType": "urn:schemas-upnp-org:device:Printer:1",
+    }
+    assert is_match(wemo, match)
+    assert not is_match(printer, match)
+
+
+def test_port_instability_is_documented(ssdp):
+    """Ports move; the spec must say so and publish the probe order."""
+    assert ssdp["port_fallback"], "no port fallback list"
+    assert ssdp.get("port_fallback_notes")
+    assert ssdp["timing"].get("port_probe_timeout_seconds")
+
+
+# ── Control, transcribed from soap_common and payload_formats ────────────────
+
+
+def build_soap_body(spec: dict, service_type: str, action: str, arguments: dict) -> str:
+    """Per soap_common.request_format."""
+    request = spec["soap_common"]["request_format"]
+    rendered = "\n".join(
+        f"<{name}>{value}</{name}>" for name, value in arguments.items()
+    )
+    return request["template"].format(
+        action=action, serviceType=service_type, arguments=rendered
+    )
+
+
+def parse_soap_response(xml_text: str) -> dict[str, str]:
+    """Per soap_common.response_format.parse_rule."""
+    envelope = ET.fromstring(xml_text)
+    body = list(envelope)[0]
+    response = list(body)[0]
+    return {
+        (item.tag.split("}")[-1] if "}" in item.tag else item.tag): (item.text or "")
+        for item in response
+    }
+
+
+def parse_delimited(value: str, payload_format: dict) -> dict[str, str]:
+    """Per payload_formats.<name>.fields, for pipe-delimited payloads."""
+    parts = value.split("|")
+    parsed = {
+        field["name"]: parts[field["index"]]
+        for field in payload_format["fields"]
+        if field["index"] < len(parts)
+    }
+    # "Firmware may append fields beyond those documented here. Keep any extras."
+    documented = len(payload_format["fields"])
+    for index in range(documented, len(parts)):
+        parsed[f"field_{index}"] = parts[index]
+    return parsed
+
+
+def test_soap_request_template_reproduces_the_published_example(spec):
+    """Build a request from the template; it must match the spec's own example."""
+    request = spec["soap_common"]["request_format"]
+    built = build_soap_body(
+        spec,
+        "urn:Belkin:service:WiFiSetup:1",
+        "ConnectHomeNetwork",
+        {
+            "ssid": "HomeNet",
+            "auth": "WPA2PSK",
+            "password": "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c",
+            "encrypt": "AES",
+            "channel": "6",
+        },
+    )
+    assert built.strip() == request["example"]["body"].strip()
+
+    # And the trap the wire format exists to prevent.
+    assert "<ssid>HomeNet</ssid>" in built
+    assert "u:ssid" not in built
+    ET.fromstring(built)  # must be well-formed
+
+
+def test_documented_soap_response_parses(spec):
+    """The published response must yield its named values under the parse rule."""
+    values = parse_soap_response(spec["soap_common"]["response_format"]["example"])
+    assert values == {"NetworkStatus": "1"}
+
+
+def test_control_payload_formats_are_published(spec):
+    """The values a control client reads back are not self-describing."""
+    formats = spec["payload_formats"]
+    assert {"BinaryState", "InsightParams", "MetaInfo"} <= set(formats)
+
+    binary_state = formats["BinaryState"]
+    assert binary_state["values"], "on/off values not enumerated"
+    # The one that surprises people: 8 means on-but-standby, not a third state.
+    assert "8" in binary_state["values"]
+    assert binary_state.get("parse_rules"), "pipe-delimited extras not warned about"
+
+
+def test_documented_insight_params_example_parses(spec):
+    """Field alignment is the whole point of documenting this payload."""
+    insight = spec["payload_formats"]["InsightParams"]
+    parsed = parse_delimited(insight["example"], insight)
+
+    names = [field["name"] for field in insight["fields"]]
+    assert names.index("wifipower") == 6, (
+        "wifipower must sit between timeperiod and currentpower_mw — omitting it "
+        "shifts every power reading one column left"
+    )
+    assert parsed["state"] == "8"
+    assert parsed["wifipower"] == "8000"
+    assert parsed["currentpower_mw"] == "18500"
+    assert parsed["powerthreshold"] == "8000"
+
+
+def test_insight_params_keeps_undocumented_trailing_fields(spec):
+    """The spec says firmware may append fields; a parser must not drop them."""
+    insight = spec["payload_formats"]["InsightParams"]
+    extended = insight["example"] + "|42"
+    parsed = parse_delimited(extended, insight)
+    assert parsed[f"field_{len(insight['fields'])}"] == "42"
+
+
+def test_control_actions_are_documented_with_their_service(spec):
+    """Every action a client sends needs its service URN and control URL."""
+    endpoints = {e["name"]: e for e in spec["http_endpoints"]}
+    for action in ("GetBinaryState", "SetBinaryState", "GetInsightParams", "GetMetaInfo"):
+        assert action in endpoints, f"{action} is not documented"
+        assert endpoints[action]["path"].startswith("/upnp/control/")
+        # The SOAPACTION header value must be derivable from the description.
+        assert "urn:Belkin:service:" in endpoints[action]["description"]
+
+    set_state = endpoints["SetBinaryState"]
+    fields = {f["name"] for f in set_state["request_body"]["fields"]}
+    assert "BinaryState" in fields
