@@ -100,6 +100,23 @@ Commands are `\r`-terminated. Replies end with `>`.
 | `ATCAF0` | CAN auto-formatting **off** — raw frames, ISO-TP is yours to do |
 | `ATST <hh>` | Response timeout |
 
+### Capability tier
+
+Which tier a dongle belongs to decides which functions it can run. See
+[classifying OBD-II devices](../protocols/obd2-common.md#classifying-obd-ii-devices) for
+the full capability matrix.
+
+| Class | Typical hardware | Runs `basic` commands | Runs `advanced` commands |
+|-------|------------------|-----------------------|--------------------------|
+| `basic-clone` | "ELM327 v2.1" clones | Yes | No — multi-frame transmit and flow control are unreliable |
+| `standards-elm327` | Genuine ELM327 v1.4/1.5 | Yes | Partly — firmware-dependent |
+| `advanced-stn` | OBDLink LX / MX+ / CX | Yes | Yes |
+| `native-can` | SocketCAN, PCAN, Kvaser | Yes | Yes, plus bus sniffing |
+
+The spec's baseline profile is `standards-elm327`, because that is what the whole family
+can be relied on to do; anything needing `multiframe_tx` or `flow_control` should be
+matched against an `advanced-stn` adapter specifically.
+
 ### Telling a good adapter from a clone
 
 Clone firmware reports a version banner it did not earn (`ELM327 v2.1` on a v1.4 core is

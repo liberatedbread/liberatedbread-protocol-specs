@@ -26,6 +26,21 @@
       "pattern": "^0x[0-9A-Fa-f]{3,8}$",
       "description": "CAN identifier in hex, e.g. '0x7E0' (11-bit) or '0x18DAF110' (29-bit)."
     },
+    "obd_capability": {
+      "type": "string",
+      "enum": [
+        "single_frame",
+        "multiframe_rx",
+        "multiframe_tx",
+        "flow_control",
+        "custom_headers",
+        "raw_frames",
+        "monitor_all",
+        "non_standard_bitrate"
+      ],
+      "description": "One adapter capability. Requests declare what they need (`requires`) and adapters declare what they provide (`adapter_profile.capabilities`), so a consumer can decide up front whether a given dongle can run a given command instead of failing halfway through. single_frame: payloads of 7 bytes or fewer. multiframe_rx/tx: ISO 15765-2 segmentation in each direction — transmit is where clone firmware fails. flow_control: client-supplied flow control (ATFCSH/ATFCSD/ATFCSM). custom_headers: arbitrary request/filter IDs (ATSH/ATCRA). raw_frames: auto-formatting off (ATCAF0), client does its own ISO-TP. monitor_all: passive bus sniffing (ATMA). non_standard_bitrate: buses outside the legislated OBD-II rates.",
+      "default": "single_frame"
+    },
     "verification": {
       "type": "string",
       "enum": ["confirmed", "reported", "hypothesis"],
@@ -752,6 +767,34 @@
       "description": "Diagnostic access for devices reached through a vehicle diagnostic connector (OBD-II / UDS) rather than a radio. Vehicles are safety-critical: entries here describe read paths and owner-facing maintenance functions only, and any request whose `verification` is not 'confirmed' must be treated as untested.",
       "required": ["transport"],
       "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["vehicle", "adapter", "module"],
+          "default": "vehicle",
+          "description": "What this device IS on the diagnostic link, which is the first thing that distinguishes OBD-II specs from each other. 'vehicle' = the thing being diagnosed (a bike, a car). 'adapter' = the dongle that bridges a host to the connector; its `adapter_profile` says what it can do. 'module' = a single ECU or accessory documented on its own rather than as part of a whole vehicle."
+        },
+        "adapter_profile": {
+          "type": "object",
+          "description": "Capability classification, meaningful when `role` is 'adapter'. The class is the headline; `capabilities` is what a consumer should actually match request requirements against.",
+          "properties": {
+            "class": {
+              "type": "string",
+              "enum": ["basic-clone", "standards-elm327", "advanced-stn", "native-can"],
+              "description": "Capability tier. 'basic-clone': cloned ELM327 firmware — legislated single-frame reads only, unreliable beyond. 'standards-elm327': genuine ELM327 v1.4/1.5 behaviour. 'advanced-stn': STN chipset (OBDLink LX/MX+/CX) — reliable multi-frame transmit, client flow control, ST extensions. 'native-can': a real CAN interface (SocketCAN, PCAN, Kvaser) with no AT-command layer between the client and the bus."
+            },
+            "capabilities": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/obd_capability" },
+              "description": "Everything this adapter class can be relied on to do."
+            },
+            "known_limitations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Behaviour that fails or is unreliable on this class, in plain language."
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
         "connector": {
           "type": "object",
           "description": "Physical diagnostic socket on the vehicle.",
@@ -854,6 +897,17 @@
             "properties": {
               "name": { "type": "string" },
               "description": { "type": "string" },
+              "command_class": {
+                "type": "string",
+                "enum": ["basic", "advanced"],
+                "default": "advanced",
+                "description": "The dividing line that decides which adapters can run this request. 'basic': legislated OBD-II (SAE J1979 modes), single-frame, no session or security prerequisite — works on essentially any adapter including clones. 'advanced': manufacturer or UDS territory — needs a non-default session, security access, custom headers, or multi-frame ISO-TP, and therefore a capable adapter. Defaults to 'advanced' so an unclassified request is never assumed to be the safe kind."
+              },
+              "requires": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/obd_capability" },
+                "description": "Adapter capabilities this request depends on. Match against `adapter_profile.capabilities` to know before connecting whether a given dongle can run it."
+              },
               "service": {
                 "type": "string",
                 "pattern": "^[0-9A-Fa-f]{2}$",

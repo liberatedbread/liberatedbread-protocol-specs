@@ -128,6 +128,36 @@ services:
         properties: ["read", "write", "write_without_response", "notify"]
 
 obd:
+  role: "adapter"
+
+  # The market splits into four capability tiers. This spec documents the family, so the
+  # profile below is the *baseline* every listed adapter meets; the variants above say
+  # which physical dongles sit in which tier. A consumer should match a request's
+  # `requires` list against the capabilities of the tier actually in hand.
+  adapter_profile:
+    class: "standards-elm327"
+    capabilities:
+      - "single_frame"
+      - "multiframe_rx"
+      - "custom_headers"
+    known_limitations:
+      - >
+        basic-clone tier (cloned firmware sold as "ELM327 v2.1"): legislated single-frame
+        reads only. Multi-frame transmit, client-supplied flow control and sometimes
+        ATCAF0 fail or are silently wrong. TuneECU Lite's own listing states clone v2.1
+        adapters do not work and a genuine v1.4/1.5 is required.
+      - >
+        standards-elm327 tier: reliable for reads and custom headers, but multi-frame
+        transmit and tight timing are firmware-dependent — this is the tier where
+        maintenance functions become a coin toss.
+      - >
+        advanced-stn tier (OBDLink LX/MX+/CX): adds dependable multiframe_tx,
+        flow_control, raw_frames and the ST command set. This is what vendor tools name
+        when a function must work.
+      - >
+        native-can tier (SocketCAN, PCAN, Kvaser): adds monitor_all and
+        non_standard_bitrate. No AT layer, so nothing is hidden — the research tier.
+
   connector:
     standard: "sae-j1962"
     location: "vehicle diagnostic socket"
@@ -165,6 +195,8 @@ obd:
   requests:
     - name: "read_supported_pids"
       description: "Mode 01 PID 00 — bitmask of supported live-data PIDs; a safe first liveness check."
+      command_class: "basic"
+      requires: ["single_frame"]
       service: "01"
       request: "01 00"
       expected_response: "41 00 ?? ?? ?? ??"
@@ -172,20 +204,28 @@ obd:
       verification: "confirmed"
     - name: "read_dtcs"
       description: "Mode 03 — stored diagnostic trouble codes. Single frame, works on clones."
+      command_class: "basic"
+      requires: ["single_frame"]
       service: "03"
       request: "03"
       expected_response: "43 ??"
       writes: false
       verification: "confirmed"
     - name: "read_vin"
-      description: "Mode 09 PID 02 — VIN. Multi-frame, so a useful clone-firmware smoke test."
+      description: >
+        Mode 09 PID 02 — VIN. Legislated, but the reply is multi-frame, which makes it the
+        cheapest test of whether an adapter can reassemble ISO-TP at all.
+      command_class: "basic"
+      requires: ["single_frame", "multiframe_rx"]
       service: "09"
       request: "09 02"
       expected_response: "49 02 ??"
       writes: false
       verification: "confirmed"
     - name: "read_vin_uds"
-      description: "UDS ReadDataByIdentifier of the standard VIN DID."
+      description: "UDS ReadDataByIdentifier of the standard VIN DID — first step off the legislated path."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx"]
       service: "22"
       request: "22 F1 90"
       expected_response: "62 F1 90 ??"

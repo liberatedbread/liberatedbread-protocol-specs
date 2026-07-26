@@ -26,6 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   interval (SIA) reset message; transport confirmed, reset request still uncaptured
 - `obd` block and `obd2` protocol value in `device-specs/schema.json`, with a
   per-fact `verification` level so untested hypotheses cannot be mistaken for facts
+- OBD-II device classification: `obd.role` (vehicle / adapter / module),
+  `obd.adapter_profile` capability tiers (basic-clone, standards-elm327,
+  advanced-stn, native-can), and per-request `command_class` (basic vs advanced)
+  with a `requires` capability list, so a consumer can tell before connecting
+  whether a given adapter can run a given command
 - `scripts/obd_discover.py` — read-only ECU and DID reconnaissance over an
   ELM327-class adapter
 - Initial project structure
