@@ -35,8 +35,14 @@ values.
 
 ### Discovery
 
-Scan for a device whose local name starts with `CoolLED` (or is `iLedBike`). **The advertisement
-carries the panel geometry**, so a client never has to ask the user for the sign's size:
+Scan for a device whose local name starts with `CoolLED` (or is `iLedBike`) to *recognise* the
+family. Match on the **exact** name to decide what to drive: only `CoolLEDX` is mapped, and the
+device spec deliberately restricts auto-discovery to it. A `CoolLEDM`/`CoolLEDU`/`CoolLEDMX`/
+`CoolLEDUX` that matched a loose `CoolLED` prefix would be handed the basic-protocol command
+table, which is silently wrong on those generations.
+
+**The advertisement carries the panel geometry**, so a client never has to ask the user for the
+sign's size:
 
 | Offset | Length | Description |
 |--------|--------|-------------|
