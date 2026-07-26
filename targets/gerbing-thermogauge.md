@@ -66,7 +66,7 @@ The app is not on Play, so the standard path does not work:
 
 1. **Best: pull from a device that still has it.**
    ```bash
-   ./scripts/pull_apks_adb.sh          # then pick com.gyde.thermogauge
+   ./scripts/pull_apks_adb.sh com.gyde.thermogauge
    # or directly:
    adb shell pm path com.gyde.thermogauge
    adb pull <path>/base.apk workspace/apks/adb/com.gyde.thermogauge.apk
