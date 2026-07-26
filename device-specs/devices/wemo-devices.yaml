@@ -143,7 +143,120 @@ device:
                     service_type: "serviceType"
                     control_url: "controlURL"
                     event_sub_url: "eventSubURL"
+                    scpd_url: "SCPDURL"
+                parse_rules:
+                  - >
+                    The document root is <root> in the UPnP namespace
+                    urn:schemas-upnp-org:device-1-0, with the device as
+                    <root><device>. Some firmware serves it with no namespace
+                    at all, so match on local element names rather than
+                    requiring the namespace.
+                  - >
+                    Standard UPnP child elements of <device>: deviceType,
+                    friendlyName, manufacturer, manufacturerURL,
+                    modelDescription, modelName, modelNumber, modelURL,
+                    serialNumber, UDN, UPC, macAddress, iconList, serviceList,
+                    deviceList, presentationURL.
+                  - >
+                    Any OTHER child element of <device> is a Belkin extension.
+                    Collect them into a map; firmwareVersion, rtos, iot,
+                    binaryOption and new_algo appear there, and rtos/iot select
+                    the setup encryption variant (see device.setup).
+                  - >
+                    serviceList contains one <service> per entry; take
+                    serviceType, controlURL, eventSubURL and SCPDURL from each.
+                    Never hardcode a controlURL — the spelling varies across
+                    firmware generations.
+                example: |
+                  <?xml version="1.0"?>
+                  <root xmlns="urn:schemas-upnp-org:device-1-0">
+                    <device>
+                      <deviceType>urn:Belkin:device:controllee:1</deviceType>
+                      <friendlyName>Kitchen Plug</friendlyName>
+                      <manufacturer>Belkin International Inc.</manufacturer>
+                      <modelName>Socket</modelName>
+                      <modelNumber>1.0</modelNumber>
+                      <serialNumber>221517K0101769</serialNumber>
+                      <macAddress>94103E36AF15</macAddress>
+                      <UDN>uuid:Socket-1_0-221517K0101769</UDN>
+                      <firmwareVersion>WeMo_US_2.00.11408</firmwareVersion>
+                      <rtos>1</rtos>
+                      <iot>0</iot>
+                      <serviceList>
+                        <service>
+                          <serviceType>urn:Belkin:service:basicevent:1</serviceType>
+                          <serviceId>urn:Belkin:serviceId:basicevent1</serviceId>
+                          <controlURL>/upnp/control/basicevent1</controlURL>
+                          <eventSubURL>/upnp/event/basicevent1</eventSubURL>
+                          <SCPDURL>/eventservice.xml</SCPDURL>
+                        </service>
+                      </serviceList>
+                    </device>
+                  </root>
           port_fallback: [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
+          port_fallback_notes: >
+            Wemo HTTP ports move across this range after a power cycle, so the
+            port is never identity. When a cached LOCATION stops answering,
+            probe this list in order for /setup.xml on the same host before
+            concluding the device is gone.
+          request:
+            transport: "UDP multicast"
+            line_ending: "CRLF"
+            template: |
+              M-SEARCH * HTTP/1.1
+              HOST: {multicast_group}:{multicast_port}
+              MAN: "ssdp:discover"
+              MX: {mx}
+              ST: {search_target}
+            template_notes: >
+              Lines are CRLF-terminated and the request ends with a blank line
+              (a trailing CRLF after the ST header). MAN's value includes the
+              literal double quotes. Send one datagram per search target and
+              collect unicast replies on the same socket.
+            mx: 2
+            socket_options:
+              IP_MULTICAST_TTL: 2
+            example: |
+              M-SEARCH * HTTP/1.1
+              HOST: 239.255.255.250:1900
+              MAN: "ssdp:discover"
+              MX: 2
+              ST: urn:Belkin:service:basicevent:1
+          response:
+            format: "HTTP/1.1 200 OK status line followed by headers; no body."
+            header_matching: "case-insensitive"
+            headers_used:
+              LOCATION: "URL of the device description, normally http://<ip>:<port>/setup.xml"
+              USN: "UDN plus the matching search target"
+              ST: "Search target echoed by the device"
+            dedupe_by: "LOCATION"
+            dedupe_notes: >
+              Every search target is sent separately, so one device answers
+              several times. Deduplicate on the LOCATION URL before fetching.
+            example: |
+              HTTP/1.1 200 OK
+              CACHE-CONTROL: max-age=86400
+              LOCATION: http://192.168.1.42:49153/setup.xml
+              ST: urn:Belkin:service:basicevent:1
+              USN: uuid:Socket-1_0-221517K0101769::urn:Belkin:service:basicevent:1
+          match:
+            description: >
+              ssdp:all is among the search targets, so every UPnP responder on
+              the LAN answers. Keep only Belkin devices.
+            rule: >
+              Case-insensitively match 'belkin' or 'wemo' in any of: the USN
+              header, the ST header, deviceType or manufacturer from the
+              fetched description. The manufacturer element reads exactly
+              'Belkin International Inc.' on every device seen so far.
+            manufacturer_exact: "Belkin International Inc."
+          timing:
+            response_wait_seconds: 3
+            response_wait_notes: >
+              Wait per search target, not in total. MX is the device's own
+              upper bound on how long it may delay its reply, so the listen
+              window must be at least MX.
+            http_fetch_timeout_seconds: 5
+            port_probe_timeout_seconds: 2
     identity:
       stable_keys: ["udn", "serial", "mac"]
       display: "friendlyName"
@@ -1098,6 +1211,92 @@ soap_common:
         serviceList in setup.xml; the path spelling differs across firmware
         generations.
 
+payload_formats:
+  BinaryState:
+    description: >
+      Relay/light state, returned by basicevent#GetBinaryState and accepted
+      by SetBinaryState.
+    values:
+      "0": "off"
+      "1": "on"
+      "8": >
+        On, but the attached load is drawing standby-level power. Insight
+        devices report this; treat it as ON for control purposes.
+    parse_rules:
+      - >
+        Some firmware returns extra pipe-delimited values after the state
+        (for example on dimmers). Split on '|' and take field 0 rather than
+        parsing the whole string as an integer.
+    example: "1"
+  InsightParams:
+    description: >
+      Energy and timing counters from insight#GetInsightParams, as a single
+      pipe-delimited string.
+    parse_rules:
+      - "Split on '|'. Fields are positional; there are no names on the wire."
+      - >
+        Firmware may append fields beyond those documented here. Keep any
+        extras rather than discarding them, and do not treat a longer string
+        as a parse failure.
+    fields:
+      - index: 0
+        name: "state"
+        description: "Current BinaryState — see the BinaryState format above."
+      - index: 1
+        name: "lastchange"
+        description: "Unix timestamp of the last state change."
+      - index: 2
+        name: "onfor_seconds"
+        description: "Seconds the load has been on during the current run."
+      - index: 3
+        name: "ontoday_seconds"
+        description: "Seconds on today."
+      - index: 4
+        name: "ontotal_seconds"
+        description: "Seconds on over the measurement period."
+      - index: 5
+        name: "timeperiod"
+        description: "Length of the measurement period in seconds (commonly 1209600 = 14 days)."
+      - index: 6
+        name: "wifipower"
+        description: >
+          WiFi signal strength. Easy to miss — omitting this field shifts
+          every power reading one column left, which reads as plausible but
+          wrong data rather than as an error.
+      - index: 7
+        name: "currentpower_mw"
+        description: "Instantaneous power draw in milliwatts."
+      - index: 8
+        name: "todaymw"
+        description: "Energy used today, in milliwatt-minutes."
+      - index: 9
+        name: "totalmw"
+        description: "Energy used over the measurement period, in milliwatt-minutes."
+      - index: 10
+        name: "powerthreshold"
+        description: "Standby detection threshold in milliwatts."
+    example: "8|1700000000|100|200|300|1209600|8000|18500|1200|9900|8000"
+  MetaInfo:
+    description: >
+      Device metadata from metainfo#GetMetaInfo. Also used during setup —
+      see device.setup for how fields 0 and 1 key the passphrase encryption.
+    fields:
+      - index: 0
+        name: "mac"
+        description: "12 hex characters, no separators."
+      - index: 1
+        name: "serial_number"
+      - index: 2
+        name: "device_sku"
+      - index: 3
+        name: "firmware_version"
+      - index: 4
+        name: "access_point_ssid"
+        description: "The device's own setup AP name."
+      - index: 5
+        name: "model_name"
+    example: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
+
 http_endpoints:
   - method: "GET"
     path: "/setup.xml"
@@ -1159,7 +1358,45 @@ http_endpoints:
       fields:
         - name: "BinaryState"
           type: "integer"
-          description: "Current state: 1 = on, 0 = off. Some devices include pipe-delimited extra parameters."
+          description: >
+            Current state. Values and the pipe-delimited-extras caveat are in
+            the top-level payload_formats.BinaryState.
+
+  - method: "POST"
+    path: "/upnp/control/metainfo1"
+    name: "GetMetaInfo"
+    description: >
+      Device metadata. Required SOAPACTION header:
+      "urn:Belkin:service:metainfo:1#GetMetaInfo". Takes no arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "MetaInfo"
+          type: "string"
+          description: "Pipe-delimited; see the top-level payload_formats.MetaInfo."
+
+  - method: "POST"
+    path: "/upnp/control/timesync1"
+    name: "TimeSync"
+    description: >
+      Set the device clock, which local rules and timers depend on. Required
+      SOAPACTION header: "urn:Belkin:service:timesync:1#TimeSync".
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "UTC"
+          type: "string"
+          required: true
+          description: "Current UTC time formatted as %Y-%m-%dT%H:%M:%S."
+
+  - method: "POST"
+    path: "/upnp/control/deviceinf1"
+    name: "GetDeviceInformation"
+    description: >
+      Extended device information. Required SOAPACTION header:
+      "urn:Belkin:service:deviceinf:1#GetDeviceInformation". Not present on
+      every device or firmware; treat a SOAP fault as "not supported" rather
+      than as an error.
 
   - method: "POST"
     path: "/upnp/control/insight1"
@@ -1172,7 +1409,9 @@ http_endpoints:
       fields:
         - name: "InsightParams"
           type: "string"
-          description: "Pipe-delimited state, timing, energy, power, and threshold values."
+          description: >
+            Pipe-delimited state, timing, energy, power and threshold values.
+            Field-by-field layout in the top-level payload_formats.InsightParams.
 
   - method: "POST"
     path: "/upnp/control/deviceevent1"

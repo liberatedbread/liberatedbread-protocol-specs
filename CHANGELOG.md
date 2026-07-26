@@ -71,12 +71,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     WiFi (SoftAP) and BLE devices
   - `docs/devices/wemo-setup.md` — Wemo factory reset, provisioning over the
     device's setup AP, and rebinding to a new network via `ReSetup`
-- `scripts/test_wemo.py` — tests for Wemo discovery parsing and InsightParams
-  field alignment
-- `scripts/test_wemo_spec.py` — proves the Wemo setup spec is implementable
-  from the spec alone: transcribes the published algorithm using only
-  `hashlib`, `base64` and `openssl`, importing none of this project's code, and
-  asserts it reproduces the spec's own test vectors
+- `scripts/test_wemo_spec.py` — proves the Wemo spec is implementable from the
+  spec alone for all three client jobs (discover, control, provision):
+  transcribes the published protocol using only the standard library and
+  `openssl`, and asserts the transcription reproduces the spec's own examples
+  and test vectors
 - `docs/api/spec-format.md` — how to read a device spec, with the `setup` block
   covered field by field
 - `scripts/test_device_specs.py` — cross-spec consistency checks for conventions
@@ -108,13 +107,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - LEDs2Rave4 / Lunchbox Dream LED docs now map each product generation to its design app
   (LED CHORD → SPOTLED → iLEDColor) and document the SPOTLED framed BLE protocol on `0xFF20`,
   corroborated against `python-spotled`
+### Removed
+
+- `scripts/wemo_discover.py`, `scripts/wemo_control.py` and
+  `scripts/wemo_setup.py` — device clients duplicating pywemo, which is
+  maintained and tested against far more hardware. What they knew now lives in
+  `device-specs/devices/wemo-devices.yaml`: the SSDP datagram and response
+  handling, the rule separating Wemo from other UPnP responders, the
+  description parse rules including vendor extensions, the SOAP wire format,
+  and `payload_formats` for `BinaryState`, `InsightParams` and `MetaInfo`.
+
 ### Fixed
 
-- `wemo_control.py`: `InsightParams` parsing omitted the `wifipower` field,
-  shifting every power reading one column left
-- `wemo_discover.py`: removed a dead service-parsing loop, added Belkin/Wemo
-  filtering (`ssdp:all` made every UPnP responder appear as a Wemo device), and
-  wired up the previously unused port-fallback probe list
+- `InsightParams` was documented without the `wifipower` field, which shifts
+  every power reading one column left — now published field by field with an
+  example
 - `test_build_index.py`: hardcoded device list had rotted into a failing test
 - `mkdocs.yml`: ten device pages existed but were missing from the nav
 - `docs/devices/wifi-discovery.md`: content appeared above the page title

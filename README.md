@@ -29,23 +29,26 @@ mkdocs serve
 
 Then open http://localhost:8000
 
-## Device Tooling
+## What we ship, and what we don't
 
-Local-first helper scripts, all standard-library only:
+**The specs are the product.** `device-specs/devices/*.yaml` is written to be
+implementable on its own — discovery, control and provisioning alike — and
+`scripts/test_wemo_spec.py` proves it by transcribing the published protocol
+from the YAML using nothing but the standard library, and checking the
+transcription reproduces the spec's own examples and test vectors.
 
-```bash
-python scripts/wemo_discover.py --timeout 5     # find Wemo devices via SSDP
-python scripts/wemo_control.py state --device 192.168.1.42:49153
-python scripts/vector_discover.py --timeout 5   # mDNS discovery for other families
-```
+We deliberately do **not** ship device clients. Existing libraries
+([pywemo](https://github.com/pywemo/pywemo) for Wemo) already do that job and
+are tested against far more hardware than we are; a second implementation from
+us would be a worse copy competing with the thing we tell people to use.
 
-These find and probe devices. We deliberately do not ship provisioning clients
-— existing libraries (pywemo for Wemo) do that job and are tested against far
-more hardware than we are. The protocol specs are our contribution, and they
-are written to be implementable on their own: see
-[Wemo setup, reset and rebinding](docs/devices/wemo-setup.md),
+Some exploratory discovery helpers remain under `scripts/` for device families
+where we are still mapping the protocol; they are scaffolding for research, not
+a supported client surface.
+
+Start with [Reading a Device Spec](docs/api/spec-format.md),
 [Initial Device Setup](docs/protocols/device-setup.md) and
-[Reading a Device Spec](docs/api/spec-format.md).
+[Wemo setup, reset and rebinding](docs/devices/wemo-setup.md).
 
 ## Adding a New Device
 
