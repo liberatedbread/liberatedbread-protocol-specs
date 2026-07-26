@@ -44,7 +44,10 @@ except ImportError:  # pragma: no cover - dependency is optional for docs builds
 # ELM327 protocol 6 = ISO 15765-4 CAN, 11-bit ID, 500 kbit/s: the usual OBD-II variant
 # and the one Triumph's later ECUs use.
 DEFAULT_PROTOCOL = "6"
-DEFAULT_ECUS = ["0x7E0", "0x7E8"]
+# REQUEST IDs only. ATSH sets the header we transmit with, so a response ID such as
+# 0x7E8 would put our requests on the ECU's own arbitration ID and simply look dead.
+# 0x7E0 and 0x7E1 are the first two physically addressed ECUs on standard OBD-II.
+DEFAULT_ECUS = ["0x7E0", "0x7E1"]
 
 # UDS negative response codes worth naming; the first three are what a DID sweep sees.
 NRC = {
@@ -102,7 +105,9 @@ class Elm327:
         info["adapter"] = self.command("ATZ", delay=1.0)
         self.command("ATE0")
         self.command("ATL0")
-        self.command("ATS0")
+        # Spaces ON (ATS1) deliberately: separated bytes are unambiguous to parse. The
+        # parser also handles the compact form, since some adapters ignore this.
+        self.command("ATS1")
         info["voltage"] = self.command("ATRV")
         info["protocol_set"] = self.command(f"ATSP{protocol}")
         info["protocol"] = self.command("ATDP")
@@ -110,7 +115,14 @@ class Elm327:
 
 
 def parse_response(reply: str) -> list[list[int]]:
-    """Turn an adapter reply into a list of byte sequences, one per response line."""
+    """Turn an adapter reply into a list of byte sequences, one per response line.
+
+    Handles both adapter output styles, because whether spaces appear depends on the
+    adapter's ATS setting and not every adapter honours ours:
+
+        spaced   "7E8 06 62 F1 90 01"   (optional 3-digit CAN header when ATH1)
+        compact  "7E80662F19001"        (same reply with spaces off)
+    """
     frames = []
     for line in reply.splitlines():
         line = line.strip()
@@ -118,11 +130,34 @@ def parse_response(reply: str) -> list[list[int]]:
             continue
         if any(marker in line for marker in ("NO DATA", "ERROR", "UNABLE", "?", "STOPPED")):
             continue
-        tokens = line.replace(":", " ").split()
-        byte_values = [int(tok, 16) for tok in tokens if len(tok) == 2 and _is_hex(tok)]
+        # An ISO-TP multi-line reply prefixes each line with a frame index ("0:", "1:").
+        if ":" in line:
+            line = line.split(":", 1)[1].strip()
+        byte_values = _line_to_bytes(line)
         if byte_values:
             frames.append(byte_values)
     return frames
+
+
+def _line_to_bytes(line: str) -> list[int]:
+    """Decode one response line to bytes, spaced or compact."""
+    tokens = line.split()
+    if len(tokens) > 1:
+        # Spaced: two-character tokens are payload bytes. A three-character token is
+        # the 11-bit CAN header (present under ATH1) and is not payload.
+        return [int(tok, 16) for tok in tokens if len(tok) == 2 and _is_hex(tok)]
+
+    compact = tokens[0] if tokens else ""
+    if not compact or not _is_hex(compact):
+        return []
+    if len(compact) % 2:
+        # Odd length means either a leading 3-digit CAN header or a bare multi-frame
+        # total-length line ("014"). Dropping three characters resolves the first and
+        # empties the second, which is the right outcome for both.
+        compact = compact[3:]
+        if not compact or len(compact) % 2:
+            return []
+    return [int(compact[i : i + 2], 16) for i in range(0, len(compact), 2)]
 
 
 def _is_hex(token: str) -> bool:
@@ -156,10 +191,30 @@ def classify(frames: list[list[int]], service: int) -> dict[str, object]:
     return {"result": "no_response"}
 
 
+def response_id_for(request_id: str) -> str | None:
+    """Paired response ID for a standard OBD-II physical request ID (0x7E0 -> 0x7E8).
+
+    Returns None outside that range, where the pairing is manufacturer-defined and
+    guessing would filter out the very replies we are looking for.
+    """
+    value = int(request_id, 16)
+    if 0x7E0 <= value <= 0x7E7:
+        return f"0x{value + 8:03X}"
+    return None
+
+
 def probe_ecu(elm: Elm327, ecu_request_id: str, extended: bool) -> dict[str, object]:
-    """Basic liveness probe of one ECU address. Read-only."""
+    """Basic liveness probe of one ECU address. Read-only.
+
+    `ecu_request_id` is a REQUEST id: it becomes the ATSH transmit header.
+    """
     elm.command(f"ATSH {ecu_request_id[2:]}")
-    out: dict[str, object] = {"request_id": ecu_request_id}
+    response_id = response_id_for(ecu_request_id)
+    if response_id:
+        elm.command(f"ATCRA {response_id[2:]}")
+    else:
+        elm.command("ATCRA")  # clear any previous filter
+    out: dict[str, object] = {"request_id": ecu_request_id, "response_id": response_id}
 
     vin = parse_response(elm.command("0902", delay=0.5))
     out["vin_request"] = classify(vin, 0x09)
@@ -253,6 +308,8 @@ def main() -> None:
         if args.scan_dids:
             start, end = parse_range(args.scan_dids)
             elm.command(f"ATSH {ecus[0][2:]}")
+            sweep_response_id = response_id_for(ecus[0])
+            elm.command(f"ATCRA {sweep_response_id[2:]}" if sweep_response_id else "ATCRA")
             report["did_sweep"] = {
                 "request_id": ecus[0],
                 "range": args.scan_dids,
