@@ -128,7 +128,8 @@ These are optional, but a `setup` block that omits them usually is not
 implementable on its own.
 
 **`payload_formats`** — how to parse response values that are not
-self-describing, keyed by the value's name. Use this rather than inventing a
+self-describing, keyed by the value's name. Allowed on a setup method and at
+the top level next to the control surface. Use it rather than inventing a
 per-device key, so a consumer finds payload documentation the same way for
 every device:
 
@@ -200,10 +201,19 @@ importing none of our own code — and asserts the transcription reproduces the
 spec's own vectors. If that cannot be written, the spec is underspecified and
 CI fails, regardless of whether anything else still works.
 
-That test is also why this repository ships no provisioning client. Existing
-libraries already do that job and are tested against far more hardware than we
-are; a second implementation from us would be a worse copy. The spec is the
-contribution, and proving it implementable is the test.
+That test is also why this repository ships no Wemo client — discovery and
+control included, not just provisioning. Existing libraries already do those
+jobs and are tested against far more hardware than we are; a second
+implementation from us would be a worse copy of the thing we tell people to
+use. The spec is the contribution, and proving it implementable is the test.
+
+The same test covers all three client jobs, which is what makes deleting the
+clients safe: it reconstructs the M-SEARCH datagram from
+`discovery...ssdp.request` and diffs it against the published example, parses
+the published SSDP reply and description (including with the UPnP namespace
+stripped), applies the `match` rule to a Wemo and to a printer, builds a SOAP
+request from `soap_common.request_format` and diffs *that* against its example,
+and parses the published `InsightParams` string into named fields.
 
 ### Factory reset, rejoin, credentials
 
@@ -251,6 +261,10 @@ Reading it in implementation order:
 
 | Question | Where to look |
 |---|---|
+| How do I find one on the network? | `discovery.methods[].ssdp` — the M-SEARCH datagram, response headers, deduplication, and the `match` rule that separates it from every other UPnP responder |
+| How do I read its description? | `discovery...parse.parse_rules` and `example` |
+| How do I control it? | `soap_common.request_format` and `http_endpoints` |
+| What does a returned value mean? | top-level `payload_formats` |
 | How do I get the device into setup mode? | `setup.factory_reset.procedures`, or `setup.rejoin` to do it over the LAN |
 | What is it called, and where does it answer? | `setup.methods[0].softap` — SSID prefix, gateway IP, port probe list |
 | How do I build a request? | `soap_common.request_format` — template, headers, and the unqualified-arguments rule |

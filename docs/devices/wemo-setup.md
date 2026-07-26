@@ -289,18 +289,16 @@ with `basicevent#SetSetupDoneStatus` — it is absent on some firmware, and its
 absence is not an error.
 
 Rejoin your own WiFi and rediscover by SSDP. The device now has a completely
-different address, so match on UDN, serial or MAC, never on IP:
-
-```bash
-python scripts/wemo_discover.py --timeout 5
-```
+different address, so match on UDN, serial or MAC, never on IP —
+`device.discovery` in the spec covers the M-SEARCH datagram and the description
+parse rules.
 
 ## Doing it
 
-We do not ship a provisioning client. [pywemo](https://github.com/pywemo/pywemo)
-already does this job, is maintained, and is tested against far more hardware
-than we have — a second implementation from us would be a worse copy of it. Our
-contribution is the spec.
+We ship no Wemo client at all — discovery and control included. [pywemo](https://github.com/pywemo/pywemo)
+already does all of it, is maintained, and is tested against far more hardware
+than we have; a second implementation from us would be a worse copy of the
+thing we tell people to use. Our contribution is the spec.
 
 ```bash
 pip install pywemo
@@ -332,17 +330,17 @@ Resets are `device.reset(data=..., wifi=...)` — see
 [Rebinding to a new network](#rebinding-to-a-new-network) for what each scope
 clears.
 
-### Finding the device
+### Predicting the encryption variant
 
-`scripts/wemo_discover.py` is ours and stays useful either side of setup. It
-prints the firmware flags that decide which encryption variant a device wants,
-so you can predict the right combination before trying:
+Before trying combinations, read the device's own description — the flags that
+decide the variant are in it:
 
 ```bash
-python scripts/wemo_discover.py --timeout 5
-#   192.168.1.42  49153  Kitchen Plug   controllee   221517K0101769
-#           Firmware: firmwareVersion=WeMo_US_2.00.11408  iot=0  rtos=1
-#           ^ rtos=1 without iot=1 means encryption method 2, no length suffix
+curl -s http://10.22.22.1:49153/setup.xml | grep -E "rtos|iot|firmwareVersion"
+#   <firmwareVersion>WeMo_US_2.00.11408</firmwareVersion>
+#   <rtos>1</rtos>
+#   <iot>0</iot>
+#   ^ rtos=1 without iot=1 means encryption method 2, no length suffix
 ```
 
 ### Implementing it yourself

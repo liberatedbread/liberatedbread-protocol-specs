@@ -51,11 +51,11 @@
 - Explicitly excluded: remote/cloud features, firmware updates over cloud, WiFi provisioning (app-only onboarding is out of scope for local-control MVP)
 
 ## First experiments (do these first)
-1) Run `./scripts/wemo_discover.py` on a LAN with Wemo devices
+1) Implement SSDP discovery from `device.discovery` in the spec (or use pywemo) on a LAN with Wemo devices
 2) Fetch APK: `./scripts/fetch_apks_apkeep.sh` — already downloaded and decoded at `wemo-apk/decoded/`
 3) Static: APK widget mock analysis complete (`wemo-apk/decoded/assets/www/widgets/*/mocks/device.json`); smali deep-dive pending for SOAP service strings
 4) Dynamic: capture one "SSDP discover + toggle on/off" PCAP on local network
-5) Run `./scripts/wemo_control.py --dry-run` to verify SOAP envelope generation
+5) Build a SOAP request from `soap_common.request_format` and diff it against the published example
 
 ## Protocol hypotheses (to validate)
 - **Pairing/bonding steps**: WiFi provisioning via `WeMo.Setup.` AP (VERIFIED — pywemo `api/wifi_setup.py`); join AP → GetApList → ConnectHomeNetwork
