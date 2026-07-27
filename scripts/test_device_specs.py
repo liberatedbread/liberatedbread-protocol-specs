@@ -175,14 +175,29 @@ def test_ble_devices_use_ble_method_types(specs):
 
 
 def test_factory_reset_is_described_not_just_declared(specs):
-    """Reset is the entry point to every setup flow; it needs real detail."""
+    """Reset is the entry point to every setup flow; it needs real detail.
+
+    Not every device has one — a vehicle reached over a diagnostic connector
+    does not. Those must say so with `applicable: false` and explain why,
+    rather than carrying an invented procedure, which on safety-relevant
+    hardware is worse than an admission of nothing to document.
+    """
     for device_id, setup in setups(specs):
         reset = setup["factory_reset"]
+        assert reset.get("effect"), (
+            f"{device_id}: factory_reset must say what it clears, or why there "
+            "is nothing to clear"
+        )
+
+        if reset.get("applicable") is False:
+            assert not reset.get("procedures"), (
+                f"{device_id}: factory_reset is marked not applicable but "
+                "still lists procedures"
+            )
+            continue
+
         assert reset.get("confidence") in CONFIDENCE_VALUES, (
             f"{device_id}: factory_reset needs a confidence level"
-        )
-        assert reset.get("effect"), (
-            f"{device_id}: factory_reset must say what it actually clears"
         )
         procedures = reset.get("procedures", [])
         assert procedures, f"{device_id}: factory_reset needs at least one procedure"

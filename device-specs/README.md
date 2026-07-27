@@ -115,7 +115,7 @@ a handshake.
 | `required` | No | Whether provisioning is needed at all. `false` for most BLE devices — say so explicitly; "no setup needed" is a feature. |
 | `confidence` | No | `high` (replayed against hardware or a working open implementation), `medium` (public source/vendor docs), `low` (inferred) |
 | `methods` | No | Ordered onboarding methods, preferred first |
-| `factory_reset` | No | What a reset clears, and the per-variant procedures that trigger it |
+| `factory_reset` | No | What a reset clears, and the per-variant procedures that trigger it. Set `applicable: false` with an `effect` explaining why when the device genuinely has none — a vehicle reached over a diagnostic connector, say — rather than inventing a procedure to fill the field |
 | `rejoin` | No | Whether a device can be moved to a new network without a reset |
 | `credentials` | No | How the passphrase is protected, what the device stores, what it issues to the client |
 | `notes` | No | Prose overview, including what is and is not confirmed |
