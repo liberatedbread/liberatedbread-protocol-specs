@@ -81,7 +81,7 @@ entities:
 | `name` | Yes | Human-readable device name |
 | `manufacturer` | Yes | Original manufacturer name |
 | `manufacturer_status` | Yes | One of: `abandoned`, `shutdown`, `unsupported`, `active` |
-| `protocol` | Yes | Primary protocol: `ble`, `wifi`, `zigbee`, `zwave` |
+| `protocol` | Yes | Primary protocol: `ble`, `wifi`, `zigbee`, `zwave`, `obd2` |
 | `notes` | No | Free-text notes about the device |
 | `identification` | No | How to auto-discover during scanning |
 
@@ -113,6 +113,131 @@ entities:
 ### `entities` (optional, array)
 
 Maps device capabilities to Home Assistant entity types. See the example spec for details.
+
+## OBD-II devices (`obd`)
+
+A spec satisfies the schema by carrying `services` (BLE), `http_endpoints` or
+`mqtt_topics` (Wi-Fi), **or** `obd` — for devices reached through a vehicle
+diagnostic connector rather than a radio. Set `device.protocol: "obd2"` and
+describe the diagnostic surface:
+
+```yaml
+device:
+  name: "Example Motorcycle"
+  manufacturer: "Acme Motors"
+  manufacturer_status: "active"
+  protocol: "obd2"
+
+obd:
+  role: "vehicle"                # vehicle | adapter | module
+  connector:
+    standard: "sae-j1962"        # or iso-19689 (6-pin Euro 5 motorcycle), proprietary
+    location: "under the pillion seat"
+  transport:
+    standard: "iso15765-4"       # CAN with ISO-TP segmentation
+    bitrate: 500000
+    addressing: "11bit"
+    request_id: "0x7E0"
+    response_id: "0x7E8"
+    verification: "confirmed"
+  requests:
+    - name: "read_vin_did"
+      command_class: "advanced"  # basic = legislated OBD-II; advanced = UDS/manufacturer
+      requires: ["custom_headers", "multiframe_rx"]
+      service: "22"
+      request: "22 F1 90"
+      expected_response: "62 F1 90 ??"
+      writes: false
+      verification: "confirmed"
+```
+
+### Device categories
+
+`obd.role` says what the device is on the diagnostic link — `vehicle` (the thing being
+diagnosed), `adapter` (the dongle bridging a host to the connector), or `module` (a single
+ECU documented on its own).
+
+An `adapter` also carries an `adapter_profile` classifying what it can actually do:
+
+| Class | Hardware | Adds |
+|-------|----------|------|
+| `basic-clone` | Cloned "ELM327 v2.1" firmware | `single_frame` only |
+| `standards-elm327` | Genuine ELM327 v1.4/1.5 | `multiframe_rx`, `custom_headers` |
+| `advanced-stn` | STN chipset (OBDLink LX/MX+/CX) | `multiframe_tx`, `flow_control`, `raw_frames` |
+| `native-can` | SocketCAN, PCAN, Kvaser | `monitor_all`, `non_standard_bitrate` |
+
+`alt_can_bus` (Ford MS-CAN / GM SW-CAN) is orthogonal to the tiers — only the OBDLink
+MX / MX+ / EX carry it, and tools such as FORScan need it for body and chassis modules.
+
+### Referencing vendor description files
+
+Manufacturers describe each ECU in a machine-readable file — a BMW/EDIABAS SGBD (`.prg`)
+selected by a group file (`.grp`), or an ODX/PDX container, CDD, A2L or CAN database. Those
+files are the authoritative definition of a module's jobs, results, addressing and scaling,
+so a spec can point at them instead of relying only on hand-recovered offsets:
+
+```yaml
+obd:
+  description_files:                 # vehicle level — usually the .grp entry points
+    - type: "sgbd-grp"
+      name: "D_MOTOR.grp"
+      provides: ["jobs", "results"]
+      source: "EDIABAS/INPA/ISTA installation (ECU directory)"
+      verification: "hypothesis"
+  ecus:
+    - name: "KOMBI (instrument cluster)"
+      description_files:
+        - type: "sgbd-prg"
+          name: "KOMBI.prg"
+          provides: ["jobs", "results", "ecu_address", "scaling"]
+  requests:
+    - name: "read_odometer"
+      request: "22 E1 19"
+      job: "STATUS_LESEN"           # the job this frame implements
+      results: ["STAT_SERVICE_KMSTAND_DATA"]
+```
+
+`job` and `results` tie a recovered frame back to its definition, which is how a consumer
+resolves units and scaling without hardcoding byte offsets.
+
+**Reference these files; never commit them.** They are vendor copyright. `source` records
+where a licensed copy comes from — an EDIABAS/INPA/ISTA installation, a vendor tool bundle
+— not a redistribution link. `sha256` pins the exact file a fact came from so a consumer
+can tell whether it is looking at the same one.
+
+### Basic vs advanced commands
+
+Each request carries `command_class` and a `requires` list of capability tokens:
+
+- `basic` — legislated OBD-II (SAE J1979 modes), single-frame, no session or security
+  prerequisite. Works on essentially any adapter.
+- `advanced` — UDS or a manufacturer dialect: non-default session, security access,
+  custom headers, multi-frame, or any write. Needs a capable adapter.
+
+`command_class` defaults to `advanced`, so an unclassified request is never assumed to be
+the safe kind. Matching a request's `requires` against an adapter's
+`adapter_profile.capabilities` answers "can this dongle run this command?" before
+connecting, instead of failing halfway through a write.
+
+Two further conventions differ from the BLE blocks, on purpose:
+
+- **Byte sequences are hex strings** (`"22 F1 90"`), not integer arrays, matching how
+  automotive traces are conventionally written. `??` marks an unknown byte position.
+- **Every fact carries a `verification`** — `confirmed` (observed in our own capture or
+  read back from the device), `reported` (stated by vendor/community documentation but
+  not reproduced here), or `hypothesis` (inferred, untested). This lets a spec record
+  ranked candidate messages without them being mistaken for facts. Anything not
+  `confirmed`, and anything with `writes: true`, must not be executed against a vehicle
+  without review.
+
+Vehicles are safety-critical, so specs here document read paths and owner-facing
+maintenance functions only. See [`docs/protocols/obd2-common.md`](../docs/protocols/obd2-common.md)
+for the transport background and
+[`docs/devices/triumph-tiger-900.md`](../docs/devices/triumph-tiger-900.md) for a worked
+example.
+
+`device.protocol: "obd2"` is not yet consumed by the mobile Rust `Protocol` enum, so
+these specs are documentation and tooling targets today rather than mobile-app targets.
 
 ## Extended / optional fields
 

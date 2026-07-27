@@ -30,20 +30,33 @@ def test_discover_specs():
         "admore-light-bar",
         "autobaba-led-backpack",
         "bluetooth-led-name-badge",
+        "bmw-motorcycle-diagnostics",
         "chef-iq-sense",
+        "coolledx-led-sign",
+        "dyson-air-purifier",
         "ember-mug",
+        "enphase-envoy",
         "frigidaire-portable-ac",
         "frigidaire-window-ac",
+        "hue-bridge",
         "idotmatrix",
         "leds2rave4-lunchbox-led",
+        "lifx-z",
+        "lutron-caseta-smart-bridge",
         "magic-display",
         "motool-slacker",
         "nyan-bt-image-controller",
+        "obd2-bluetooth-adapter",
         "pax-vape",
         "proglow-motorcycle-led",
+        "rachio-controller",
+        "roku-ecp",
         "seeblue-motorcycle-led",
         "shining-glasses",
         "shining-mask",
+        "smartthings-hub-v2",
+        "spotled-led-panel",
+        "triumph-tiger-900",
         "vector-robot",
         "wemo-devices",
     }
@@ -131,9 +144,10 @@ def test_per_device_json():
         # json_text includes trailing "\n"; strip it for round-trip
         per_device = json.loads(json_text)
         assert "device" in per_device
-        # Must have at least one of services, http_endpoints, mqtt_topics
+        # Must have at least one of services, http_endpoints, mqtt_topics, obd
+        # (mirrors the schema's top-level anyOf).
         assert any(
-            k in per_device for k in ("services", "http_endpoints", "mqtt_topics")
+            k in per_device for k in ("services", "http_endpoints", "mqtt_topics", "obd")
         ), f"{Path(path).stem} missing transport"
 
 

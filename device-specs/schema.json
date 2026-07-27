@@ -8,12 +8,89 @@
   "anyOf": [
     { "required": ["services"] },
     { "required": ["http_endpoints"] },
-    { "required": ["mqtt_topics"] }
+    { "required": ["mqtt_topics"] },
+    { "required": ["obd"] }
   ],
   "$defs": {
     "uuid": {
       "type": "string",
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "hex_bytes": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f?]{2}( [0-9A-Fa-f?]{2})*$",
+      "description": "Space-separated hex byte sequence, e.g. '22 F1 90'. A '??' byte is an unknown/placeholder position. Automotive traces are conventionally written this way, so OBD payloads use hex strings rather than the integer arrays used for BLE writes."
+    },
+    "can_id": {
+      "type": "string",
+      "pattern": "^0x[0-9A-Fa-f]{3,8}$",
+      "description": "CAN identifier in hex, e.g. '0x7E0' (11-bit) or '0x18DAF110' (29-bit)."
+    },
+    "obd_capability": {
+      "type": "string",
+      "enum": [
+        "single_frame",
+        "multiframe_rx",
+        "multiframe_tx",
+        "flow_control",
+        "custom_headers",
+        "raw_frames",
+        "monitor_all",
+        "alt_can_bus",
+        "non_standard_bitrate"
+      ],
+      "description": "One adapter capability. Requests declare what they need (`requires`) and adapters declare what they provide (`adapter_profile.capabilities`), so a consumer can decide up front whether a given dongle can run a given command instead of failing halfway through. single_frame: payloads of 7 bytes or fewer. multiframe_rx/tx: ISO 15765-2 segmentation in each direction — transmit is where clone firmware fails; some adapters expose it as a long-message mode (the UniCarScan UCSI-2100 accepts payloads up to 255 bytes where a stock ELM327 stops at 8). flow_control: client-supplied flow control (ATFCSH/ATFCSD/ATFCSM). custom_headers: arbitrary request/filter IDs (ATSH/ATCRA). raw_frames: auto-formatting off (ATCAF0), client does its own ISO-TP. monitor_all: passive bus sniffing (ATMA). alt_can_bus: manufacturer CAN buses on non-standard pins or wiring — Ford MS-CAN (medium-speed) and GM SW-CAN (single-wire), which tools such as FORScan need for body and chassis modules. non_standard_bitrate: buses outside the legislated OBD-II rates.",
+      "default": "single_frame"
+    },
+    "diagnostic_description": {
+      "type": "object",
+      "description": "Reference to a vendor ECU-description file — a BMW/EDIABAS SGBD (.prg) or group file (.grp), an ODX/PDX container, a CDD, an A2L or a CAN database. These files are the authoritative definition of a module's jobs, results, addressing and scaling, so naming the exact file lets a consumer look the definition up instead of relying only on what we recovered by hand. NOTE: reference these files, never ship them — they are vendor copyright. Record where a licensed copy comes from in `source`.",
+      "required": ["type", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["sgbd-prg", "sgbd-grp", "odx", "pdx", "cdd", "a2l", "dbc", "ldf", "other"],
+          "description": "File format. 'sgbd-prg' is a compiled BMW/EDIABAS ECU description (KOMBI.prg); 'sgbd-grp' is the group file that dispatches to the right variant (D_MOTOR.grp)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Filename as the vendor toolchain names it, e.g. 'KOMBI.prg'."
+        },
+        "group": {
+          "type": "string",
+          "description": "For an sgbd-prg, the .grp group file that selects it. Group files are the entry point when the exact variant is not known up front."
+        },
+        "variant": {
+          "type": "string",
+          "description": "ECU variant this description covers, when one group spans several."
+        },
+        "version": { "type": "string" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "Checksum of the exact file the facts here were derived from, so a consumer can tell whether it is looking at the same one."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where a licensed copy is obtained (e.g. an EDIABAS/INPA/ISTA installation, a vendor tool bundle). Not a download link for redistributed vendor files."
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["jobs", "results", "ecu_address", "scaling", "dtc_text", "coding"]
+          },
+          "description": "What this file authoritatively defines for the module."
+        },
+        "notes": { "type": "string" },
+        "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
+    "verification": {
+      "type": "string",
+      "enum": ["confirmed", "reported", "hypothesis"],
+      "description": "How much weight this fact carries. 'confirmed' = observed in our own capture or read back from the device; 'reported' = stated by vendor/community documentation but not reproduced here; 'hypothesis' = inferred and not yet tested. Anything not 'confirmed' must not be executed against a vehicle without review.",
+      "default": "hypothesis"
     },
     "initialization": {
       "type": "array",
@@ -107,8 +184,8 @@
         },
         "protocol": {
           "type": "string",
-          "enum": ["ble", "wifi", "zigbee", "zwave"],
-          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum."
+          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2"],
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); the mobile Rust Protocol enum does NOT yet consume it, so such specs are documentation/tooling targets rather than mobile-app targets today."
         },
         "notes": {
           "type": "string",
@@ -725,6 +802,231 @@
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "obd": {
+      "type": "object",
+      "description": "Diagnostic access for devices reached through a vehicle diagnostic connector (OBD-II / UDS) rather than a radio. Vehicles are safety-critical: entries here describe read paths and owner-facing maintenance functions only, and any request whose `verification` is not 'confirmed' must be treated as untested.",
+      "required": ["transport"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["vehicle", "adapter", "module"],
+          "default": "vehicle",
+          "description": "What this device IS on the diagnostic link, which is the first thing that distinguishes OBD-II specs from each other. 'vehicle' = the thing being diagnosed (a bike, a car). 'adapter' = the dongle that bridges a host to the connector; its `adapter_profile` says what it can do. 'module' = a single ECU or accessory documented on its own rather than as part of a whole vehicle."
+        },
+        "adapter_profile": {
+          "type": "object",
+          "description": "Capability classification, meaningful when `role` is 'adapter'. The class is the headline; `capabilities` is what a consumer should actually match request requirements against.",
+          "properties": {
+            "class": {
+              "type": "string",
+              "enum": ["basic-clone", "standards-elm327", "advanced-stn", "native-can"],
+              "description": "Capability tier. 'basic-clone': cloned ELM327 firmware — legislated single-frame reads only, unreliable beyond. 'standards-elm327': genuine ELM327 v1.4/1.5 behaviour. 'advanced-stn': STN chipset (OBDLink LX/MX+/CX) — reliable multi-frame transmit, client flow control, ST extensions. 'native-can': a real CAN interface (SocketCAN, PCAN, Kvaser) with no AT-command layer between the client and the bus."
+            },
+            "capabilities": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/obd_capability" },
+              "description": "Everything this adapter class can be relied on to do."
+            },
+            "known_limitations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Behaviour that fails or is unreliable on this class, in plain language."
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "connector": {
+          "type": "object",
+          "description": "Physical diagnostic socket on the vehicle.",
+          "properties": {
+            "standard": {
+              "type": "string",
+              "enum": ["sae-j1962", "iso-19689", "proprietary"],
+              "description": "Connector standard: 16-pin automotive (sae-j1962), 6-pin Euro 5 motorcycle (iso-19689), or vendor-specific."
+            },
+            "location": {
+              "type": "string",
+              "description": "Where the socket is on the vehicle, e.g. 'under the pillion seat'."
+            },
+            "model_years": {
+              "type": "string",
+              "description": "Which model years use this connector, when a vehicle changed connectors mid-life."
+            },
+            "pins": {
+              "type": "array",
+              "description": "Pin assignments that matter for diagnostics.",
+              "items": {
+                "type": "object",
+                "required": ["pin", "signal"],
+                "properties": {
+                  "pin": { "type": "integer", "minimum": 1 },
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal on this pin, e.g. 'CAN-H', 'CAN-L', 'K-line', 'ground', 'battery +12V'."
+                  },
+                  "verification": { "$ref": "#/$defs/verification" }
+                }
+              }
+            }
+          }
+        },
+        "transport": {
+          "type": "object",
+          "description": "Link and transport layer used to reach the ECU.",
+          "required": ["standard"],
+          "properties": {
+            "standard": {
+              "type": "string",
+              "enum": ["iso15765-4", "iso9141-2", "iso14230-4", "sae-j1850-pwm", "sae-j1850-vpw"],
+              "description": "Diagnostic link standard. 'iso15765-4' is CAN with ISO-TP segmentation."
+            },
+            "bitrate": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Bus bitrate in bit/s (500000 for the usual OBD-II CAN variant)."
+            },
+            "addressing": {
+              "type": "string",
+              "enum": ["11bit", "29bit"],
+              "description": "CAN identifier width."
+            },
+            "request_id": { "$ref": "#/$defs/can_id" },
+            "response_id": { "$ref": "#/$defs/can_id" },
+            "functional_id": {
+              "$ref": "#/$defs/can_id",
+              "description": "Functional broadcast request ID (0x7DF on standard OBD-II)."
+            },
+            "tester_present_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Interval at which TesterPresent (3E 00) must be sent to hold a non-default session."
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "description_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic_description" },
+          "description": "Vehicle-level ECU-description files — typically the .grp group files that dispatch to per-variant .prg SGBDs."
+        },
+        "adapter_requirements": {
+          "type": "array",
+          "description": "Adapter constraints observed in practice, e.g. functions that only work with an STN-chipset adapter because they need multi-frame ISO-TP with custom headers.",
+          "items": { "type": "string" }
+        },
+        "ecus": {
+          "type": "array",
+          "description": "Nodes on the diagnostic bus and which data each owns. Knowing the owner matters when a value displayed on one module is stored in another.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "request_id": { "$ref": "#/$defs/can_id" },
+              "response_id": { "$ref": "#/$defs/can_id" },
+              "owns": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Data this node is believed to store, e.g. 'odometer', 'service interval'."
+              },
+              "description_files": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/diagnostic_description" },
+                "description": "ECU-description files covering this module — the .prg SGBD and the .grp that selects it."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "requests": {
+          "type": "array",
+          "description": "Diagnostic requests, including hypotheses that have not been captured yet. Every entry carries its own `verification` so unproven candidates can be recorded without being mistaken for facts.",
+          "items": {
+            "type": "object",
+            "required": ["name", "verification"],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "command_class": {
+                "type": "string",
+                "enum": ["basic", "advanced"],
+                "default": "advanced",
+                "description": "The dividing line that decides which adapters can run this request. 'basic': legislated OBD-II (SAE J1979 modes), single-frame, no session or security prerequisite — works on essentially any adapter including clones. 'advanced': manufacturer or UDS territory — needs a non-default session, security access, custom headers, or multi-frame ISO-TP, and therefore a capable adapter. Defaults to 'advanced' so an unclassified request is never assumed to be the safe kind."
+              },
+              "requires": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/obd_capability" },
+                "description": "Adapter capabilities this request depends on. Match against `adapter_profile.capabilities` to know before connecting whether a given dongle can run it."
+              },
+              "service": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{2}$",
+                "description": "UDS/OBD service byte in hex, e.g. '22' (ReadDataByIdentifier), '31' (RoutineControl)."
+              },
+              "request": { "$ref": "#/$defs/hex_bytes" },
+              "expected_response": { "$ref": "#/$defs/hex_bytes" },
+              "prerequisites": {
+                "type": "array",
+                "description": "Ordered requests that must succeed first (session control, security access).",
+                "items": { "$ref": "#/$defs/hex_bytes" }
+              },
+              "security_access_required": {
+                "type": "boolean",
+                "description": "Whether a SecurityAccess (27) seed/key exchange is needed before this request is accepted."
+              },
+              "writes": {
+                "type": "boolean",
+                "default": false,
+                "description": "True if this request mutates vehicle state. Consumers should gate these behind explicit confirmation."
+              },
+              "job": {
+                "type": "string",
+                "description": "Name of the job in the referenced description file that this request implements, e.g. an EDIABAS SGBD job name. Ties a recovered frame back to its authoritative definition."
+              },
+              "results": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Result names the reply carries, as named by the description file (e.g. STAT_SERVICE_KMSTAND_DATA). These are how a consumer looks up scaling and units rather than hardcoding offsets."
+              },
+              "advanced": {
+                "type": "boolean",
+                "default": false,
+                "description": "True for functions that need expertise to use safely — ECU coding and flashing, immobiliser and key operations, adaptation writes, brake-system procedures. These are IN SCOPE and documented: reviving an old bike routinely needs them. The flag tells a consumer to warn and to require confirmation, not to hide the function. Pair with `notes` describing the specific risk (bricking, a module that must be re-coded to the vehicle, a procedure that continues in the service manual)."
+              },
+              "verification": { "$ref": "#/$defs/verification" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "data_identifiers": {
+          "type": "array",
+          "description": "Known or suspected ReadDataByIdentifier (22) DIDs and how to decode them.",
+          "items": {
+            "type": "object",
+            "required": ["did", "name", "verification"],
+            "properties": {
+              "did": {
+                "type": "string",
+                "pattern": "^0x[0-9A-Fa-f]{4}$",
+                "description": "Two-byte data identifier in hex, e.g. '0xF190'."
+              },
+              "name": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["bool", "uint8", "uint16", "uint32", "bytes", "string", "date"],
+                "description": "How the response payload decodes."
+              },
+              "unit": { "type": "string" },
+              "scale": {
+                "type": "number",
+                "description": "Multiplier applied to the raw value to get `unit`."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
             }
           }
         }
