@@ -62,12 +62,24 @@ told apart from vendor behaviour for protocol work.
   detection is strong third-party support for this repo's adapter capability tiers.
 
 ## Next experiments
-1) Recover the job-to-frame mapping from libmotoscan-helper.so (~7 MB per ABI). The job
-   and result names are already readable; what is missing is the table binding
-   STR_VENTILSPIELSERVICE_RESET to a service byte and identifier.
-2) Enumerate the module addresses (<aa>) MotoScan probes.
-3) Confirm on hardware with read-back of STAT_SERVICE_KMSTAND_DATA.
-4) Compare against the Triumph map -- both vendors put service data in the cluster and
+0) DONE -- the frames were NOT in libmotoscan-helper.so. That library is the ECU
+   description database (3.7 MB .rodata vs 1.8 MB .text, string-in/string-out JNI); the
+   wire protocol is built in Kotlin. Service reset is UDS WriteDataByIdentifier on BMW's
+   0xE1xx DIDs: 2E E1 2B (clock), 2E E1 2C (service date), 2E E1 2D (service distance,
+   plain uint16 km), with matching reads 22 E1 19/2B/2C/2D, payload at offset 3.
+1) Enumerate the module addresses (<aa>). Not published, so scan: the 6F1 scheme reaches
+   every module identically, so `scripts/obd_discover.py --bmw-scan 0x00-0x7F` asks each
+   address for the VIN DID and reports anything that answers, positively or with an NRC.
+   NOTE: the VIN-DID probe is an assumption -- some module families may need a different
+   liveness request. First run on a bike settles it, and the scan is read-only.
+2) Read KOMBI.prg instead. The result names are SGBD names, so a licensed
+   EDIABAS/INPA/ISTA installation already defines the module address, scaling and DTC
+   text authoritatively -- faster than another capture. See `obd.description_files` in
+   the spec for where to record which file answered what.
+3) Confirm on hardware with read-back of 22 E1 2D.
+4) Decode the 31 FA <routine> <sub> family -- frames recorded, semantics unknown. 31
+   executes things, so these are not to be guessed at against a vehicle.
+5) Compare against the Triumph map -- both vendors put service data in the cluster and
    split it distance/date; whether the resemblance goes deeper is worth knowing.
 
 ## Protocol hypotheses (to validate)
@@ -77,16 +89,20 @@ told apart from vendor behaviour for protocol work.
 - Long-message support (255 bytes) implies coding/adaptation writes that exceed a single
   ISO-TP frame, i.e. real multi-frame transmit rather than the two-byte frames Triumph's
   cluster uses.
-- ECU coding implies SecurityAccess (`27`) somewhere in the stack.
-- Service interval reset is likely a routine or a value write to whichever module owns the
-  odometer, on a manufacturer-specific address.
+- ECU coding implies SecurityAccess (`27`) somewhere in the stack. Not yet located -- the
+  service DIDs need no session and no security access.
+- SETTLED: the service reset is a value write (2E) on manufacturer DIDs in the cluster,
+  not a routine. Note this is the opposite of the Triumph result, where the same
+  hypothesis was wrong -- convention predicts nothing; the capture decides.
 
 ## Threat model + guardrails
 - Scope: a bike the owner has consented to work on, stationary, engine off. Repair-café
   use is the point -- the service reset is a write and is meant to be used.
 - Record current values before writing (22 E1 19 / 2B / 2C / 2D are one command each).
-- ECU coding can brick modules and is explicitly out of scope for this repo.
-- Non-goals: odometer alteration, immobiliser defeat, emissions-control tampering.
+- ECU coding, flashing and immobiliser/key work are IN scope and flagged `advanced`:
+  a salvaged module has to be coded to the bike before it works. Dump the existing coding
+  first and know what rewrites it.
+- Non-goals: falsifying a recorded odometer, and anything on a moving vehicle.
 
 ## Control surface inventory (what a replacement would need)
 - Adapter connect and protocol selection across KWP2000 / D-CAN / UDS
