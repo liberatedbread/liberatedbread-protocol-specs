@@ -13,6 +13,20 @@
 - **mitmproxy** -- HTTPS interception for cloud API calls
 - **Charles Proxy** -- GUI alternative to mitmproxy
 
+## OBD-II / Vehicle Diagnostics
+
+- **OBDLink LX / MX+** (STN chipset) -- Handles multi-frame ISO-TP and custom headers;
+  clone ELM327 adapters often do not
+- **SocketCAN + can-utils** (`candump`, `cansend`, `isotpsend`) -- Full frame visibility
+  with no AT-command layer in the way
+- **SavvyCAN** -- GUI capture, diffing and DBC authoring for CAN logs
+- **CANable / PCAN / Kvaser** -- USB CAN interfaces for passive logging
+- **Android HCI snoop log** -- Captures the phone-to-adapter link; the ELM327 protocol is
+  ASCII, so vendor tool requests are readable in the RFCOMM stream
+- `scripts/obd_discover.py` -- Read-only ECU and DID reconnaissance over an ELM327 adapter
+
+See [Common OBD-II patterns](../protocols/obd2-common.md).
+
 ## Firmware Analysis
 
 - **binwalk** -- Firmware image extraction
