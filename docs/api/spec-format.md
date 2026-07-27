@@ -219,6 +219,7 @@ and parses the published `InsightParams` string into named fields.
 
 ```yaml
 factory_reset:
+  applicable: true                     # false when the device has none at all
   confidence: "medium"
   effect: "What is actually cleared — and what survives."
   procedures:
@@ -245,6 +246,11 @@ Two fields deserve a second look:
 - **`factory_reset.effect`** — the blast radius. Clearing a WiFi credential is
   cheap; clearing a bridge's ZigBee network orphans every device paired to it.
   Read this before telling a user to hold a button for ten seconds.
+- **`factory_reset.applicable: false`** — some devices have no reset to
+  document. A motorcycle reached over its diagnostic connector holds no pairing
+  state, and ECU resets are dealer-tool operations rather than a setup step.
+  Saying so beats inventing a procedure, which on safety-relevant hardware is
+  worse than an admission of nothing to document.
 - **`credentials.wifi_passphrase_protection: device_encrypted`** — treat with
   scepticism. When the key is derived from data the device hands out
   unauthenticated, it stops an opportunistic listener and nothing else. It is
