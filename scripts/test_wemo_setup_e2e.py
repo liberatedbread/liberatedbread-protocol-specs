@@ -137,9 +137,14 @@ def decrypt(blob: str, key_data: str, add_lengths: bool) -> str:
 class FakeWemo:
     """A Wemo device in setup mode, as far as the client can tell."""
 
-    def __init__(self, rtos: str = "0", iot: str = "0") -> None:
+    def __init__(
+        self, rtos: str = "0", iot: str = "0", close_setup_supported: bool = True
+    ) -> None:
         self.rtos = rtos
         self.iot = iot
+        #: Some firmware has no CloseSetup action; when False it 500s, as a
+        #: real device without the action would.
+        self.close_setup_supported = close_setup_supported
         self.calls: list[str] = []
         self.received: dict[str, str] = {}
         self.decrypted_password: str | None = None
@@ -230,6 +235,8 @@ class FakeWemo:
                 self._status_sequence.pop(0)
             return {"NetworkStatus": value}
         if action == "CloseSetup":
+            if not self.close_setup_supported:
+                return None  # 500, as a device without the action would
             self.setup_closed = True
             return {"status": "success"}
         if action == "SetSetupDoneStatus":
@@ -292,6 +299,40 @@ def test_connect_drives_the_full_flow(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert WIFI_PASSWORD not in out
     assert f"Connected to {TARGET_SSID}" in out
+
+
+def test_connect_succeeds_when_close_setup_is_absent(monkeypatch, capsys):
+    """A device that joined but has no CloseSetup action is still a success.
+
+    Regression: CloseSetup 500ing (or being absent) must not turn a completed
+    join into a reported failure. pywemo tolerates it; so must we.
+    """
+    monkeypatch.setenv("WEMO_WIFI_PASSWORD", WIFI_PASSWORD)
+
+    with FakeWemo(close_setup_supported=False) as device:
+        assert wemo_setup.cmd_connect(connect_args(device.port)) == 0
+        assert device.decrypted_password == WIFI_PASSWORD
+        assert not device.setup_closed  # the action 500'd
+
+    out = capsys.readouterr().out
+    assert f"Connected to {TARGET_SSID}" in out
+    assert "CloseSetup: not available" in out
+
+
+def test_explicit_encrypt_method_uses_that_methods_length_default(monkeypatch):
+    """`--encrypt-method 1` alone must still append the lengths, as method 1 does.
+
+    Regression: an explicit method with no --add-lengths previously fell to
+    False, so the device rejected a method-1 blob and the method looked broken.
+    The FakeWemo expects method 1 with lengths, so a wrong default fails here.
+    """
+    monkeypatch.setenv("WEMO_WIFI_PASSWORD", WIFI_PASSWORD)
+
+    with FakeWemo() as device:  # default firmware -> method 1, add_lengths True
+        assert (
+            wemo_setup.cmd_connect(connect_args(device.port, encrypt_method=1)) == 0
+        )
+        assert device.decrypted_password == WIFI_PASSWORD
 
 
 def test_connect_uses_method_2_for_rtos_firmware(monkeypatch):
