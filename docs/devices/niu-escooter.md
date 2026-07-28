@@ -98,13 +98,47 @@ value experiment on this page:
    handshake with everything else deferred to the cloud. That answer decides whether local
    control is achievable at all.
 
-## No device spec YAML yet
+## Device spec
 
-The schema's `http_endpoints` is for **local** HTTP on Wi-Fi devices. Writing NIU's cloud
-endpoints into it would tell every consumer that this is a locally-controllable device when
-the opposite is true — the whole point of the entry is that control is remote. A spec
-becomes honest once the BLE link is characterised, at which point it is an ordinary
-`services` block.
+[`device-specs/devices/niu-escooter.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/niu-escooter.yaml)
+records this device as what it is: **cloud-only**, via a `cloud` block carrying
+`required: true`, the hosts, the OAuth2 shape, the endpoint list, an explicit
+`failure_mode`, and `data_leaves_device` naming location and ride history as personal data.
+
+A spec may satisfy the schema on `cloud` alone. That is deliberate — it makes "no local
+path exists" a machine-readable state rather than prose buried in a notes field, so a
+consumer can present the device as vendor-tethered instead of quietly offering endpoints
+that will one day 404.
+
+### Freeing it takes a different controller
+
+The spec's `local_access` block is `status: replacement_hardware`, and its
+`covers` / `not_covered` split is the honest part:
+
+| | |
+|---|---|
+| **Covered** by fitting an aftermarket Bluetooth controller | motor drive parameters — max speed, acceleration, per-mode speed limits, current, battery config, over the replacement part's own BLE app |
+| **Not covered** | telemetry, position and ride history (still NIU's cloud); GPS and alarm (the vendor advertises these as continuing to work unchanged — i.e. still tethered); the stock BLE link, still undocumented either way |
+
+One such part is the [escootparts NIU Bluetooth
+controller](https://escootparts.com/product/niu-bluetooth-controller/) — sold as a
+performance upgrade for N1S/N1/NQi/UQi/MQi variants, replacing the stock motor controller,
+reversible if you keep the original.
+
+!!! warning "Replacing the controller does not free the scooter — it frees the throttle map"
+    It is worth being precise about what this buys, because the shape is common across the
+    aftermarket: a replacement part liberates one subsystem while the rest stays tethered.
+    Here the drivetrain becomes locally programmable and *every connected feature remains
+    cloud-dependent*. The vendor's own selling point — that the NIU app, dashboard, GPS and
+    alarm keep working — is precisely the evidence that the cloud stack is untouched.
+
+    Recorded as documentation of what exists, not as an endorsement: untested by us, a
+    third-party commercial listing, and raising current limits on a road vehicle carries
+    the usual thermal and legal consequences.
+
+    If the stock BLE link turns out to be a full control channel, this device drops to
+    `bridge_hardware` or `native` and this section shrinks to a footnote. Establishing that
+    is the highest-value experiment on this page.
 
 ## Tools Used
 
