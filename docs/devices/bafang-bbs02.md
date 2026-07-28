@@ -55,7 +55,10 @@ else* bolted on:
 
 ### Packet formats
 
-**Read request** — send the command code bytes; no length or checksum on the request.
+**Read request** — most reads are bare code bytes (`0x11 0x52`, `0x11 0x53`, `0x11 0x54`)
+with no length or checksum. The device-info/connect read is the exception: it carries two
+payload bytes and a checksum, `0x11 0x51 0x04 0xB0 0x05`, where `0x05` is
+`(0x51 + 0x04 + 0xB0) mod 256`. Do not assume every read is bare.
 
 **Read response**:
 
@@ -137,47 +140,65 @@ Each write takes the same payload layout as the matching read returns.
 
 ### Basic parameter block (`0x52`, 24 bytes)
 
-| Offset | Length | Field |
-|--------|--------|-------|
-| 0 | 1 | Low voltage limit |
-| 1 | 1 | Max current limit |
-| 2 | 20 | Assist profiles 0–9 — 10 profiles × 2 bytes (current %, speed %) |
-| 22 | 1 | Wheel diameter |
-| 23 | 1 | Speedmeter type |
+Offsets are into the 24-byte data payload (i.e. the frame less its `0x52` code, length byte
+and trailing checksum — the full frame is 27 bytes).
+
+| Offset | Length | Field | Encoding |
+|--------|--------|-------|----------|
+| 0 | 1 | Low battery protect | volts |
+| 1 | 1 | Current limit | amps |
+| 2 | 10 | Assist 0–9 **current** limit | percent, one byte per level |
+| 12 | 10 | Assist 0–9 **speed** limit | percent, one byte per level |
+| 22 | 1 | Wheel diameter | code, `0x1F`–`0x3C` for 16″–30″; `0x37` = 700C |
+| 23 | 1 | Speedmeter model | bits 1–2: `00` external, `01` internal, `10` motor phase |
+
+!!! warning "The assist limits are two arrays, not interleaved pairs"
+    Current limits for levels 0–9 occupy ten consecutive bytes, *then* speed limits for
+    levels 0–9 occupy the next ten. They are **not** ten `(current, speed)` pairs. Parsing
+    them as pairs yields plausible-looking nonsense — every value lands on the wrong level
+    and half of them are read as the wrong quantity. Corroborated across two independent
+    implementations.
 
 ### Pedal assist parameter block (`0x53`, 11 bytes)
 
-| Offset | Field |
-|--------|-------|
-| 0 | Sensor type |
-| 1 | Assist level |
-| 2 | Speed limit |
-| 3 | Start current |
-| 4 | Slow start mode |
-| 5 | Signals before start |
-| 6 | Work mode |
-| 7 | Time to stop |
-| 8 | Current decay |
-| 9 | Stop decay |
-| 10 | Keep current |
+| Offset | Field | Encoding |
+|--------|-------|----------|
+| 0 | Pedal sensor type | `0x00` none, `0x01` DH-12, `0x02` BB-32, `0x03` double-signal-24 |
+| 1 | Designated assist | `0x00`–`0x09`, or `0xFF` = follow display |
+| 2 | Speed limit | `0x0F`–`0x28` km/h, or `0xFF` = follow display |
+| 3 | Start current | percent, `0x00`–`0x64` |
+| 4 | Slow-start mode | `0x01`–`0x08` |
+| 5 | Startup degree | pedal signal count before assist engages |
+| 6 | Work mode | `0x0A`–`0x50` (angular speed × 10) |
+| 7 | Time of stop | value × 10 ms |
+| 8 | Current decay | `0x01`–`0x08` |
+| 9 | Stop decay | value × 10 ms |
+| 10 | Keep current | percent |
 
 ### Throttle parameter block (`0x54`, 6 bytes)
 
-| Offset | Field |
-|--------|-------|
-| 0 | Start voltage |
-| 1 | End voltage |
-| 2 | Mode |
-| 3 | Designated assist level |
-| 4 | Speed limit |
-| 5 | Start current |
+| Offset | Field | Encoding |
+|--------|-------|----------|
+| 0 | Start voltage | value × 100 mV |
+| 1 | End voltage | value × 100 mV |
+| 2 | Mode | `0x00` speed, `0x01` current |
+| 3 | Designated assist | `0x00`–`0x09`, or `0xFF` = follow display |
+| 4 | Speed limit | `0x0F`–`0x28` km/h, or `0xFF` = follow display |
+| 5 | Start current | percent |
 
-!!! warning "Block layouts are field-order derived"
-    The field *order and block sizes* above are well corroborated across independent
-    implementations (**HIGH** confidence). Per-field **units and scaling are not fully
-    documented** (**MEDIUM**) — e.g. whether a speed limit is km/h or a percentage varies
-    by field and firmware. Read your own controller's block and compare against what the
-    vendor tool displays before assigning units.
+!!! warning "Verification: `reported`, with one known ambiguity"
+    Block sizes, field order and the encodings above are corroborated across three
+    independent implementations (OpenBafangTool and two `bafang-python` forks), so they are
+    `reported` — well attested, but not `confirmed`, because nothing here has been read back
+    from a physical unit by us.
+
+    **The write length byte is genuinely ambiguous.** Sources give `0x16 0x52 0x24` for the
+    basic-block write and `0x16 0x53 0x11` for the pedal block, yet the corresponding read
+    responses carry lengths `0x18` (24) and `0x0B` (11). `0x24` and `0x11` are exactly 24
+    and 11 written as if decimal were hex, which looks like a documentation slip
+    propagated between forks — but it could equally be a real protocol quirk where writes
+    use a different length convention. Capture a vendor-tool write before trusting either
+    value. Nothing else in this doc depends on it.
 
 ## No device spec YAML yet
 
@@ -200,6 +221,15 @@ Two clean ways forward, either of which makes a spec honest:
    characteristic UUIDs and we can spec the bridge as a BLE device that tunnels these
    same opcodes.
 
+## Related mid-drives
+
+The other common DIY mid-drive is the **Tongsheng TSDZ2**, and it is worth knowing it is a
+different bus, not a variant of this one: 9600 baud (not 1200), packets starting `0x43`
+motor→display and `0x59` display→motor, an 8-bit sum checksum, and a continuous telemetry
+stream (8 frames/second up, 15 down) rather than the request/response exchange used here.
+Its protocol is documented in full by the community, and open-source firmware already
+replaces the stock firmware outright. Tracked as `tsdz2-tongsheng` in `targets.csv`.
+
 ## Tools Used
 
 - [ ] Bafang USB programming cable (UART, ~1200 baud) + USB isolator
@@ -211,6 +241,9 @@ Two clean ways forward, either of which makes a spec honest:
 
 - [OpenBafangTool — UART protocol docs (MIT)](https://github.com/andrey-pr/OpenBafangTool/blob/master/docs/Bafang%20UART%20protocol.md)
 - [OpenBafangTool — UART motor API (MIT)](https://github.com/andrey-pr/OpenBafangTool/blob/master/docs/Bafang%20UART%20motor%20API.md)
+- [philippsandhaus/bafang-python — protocol + block layouts](https://github.com/philippsandhaus/bafang-python)
+- [hliebscher/bafang-python — independent corroboration of the block layouts](https://github.com/hliebscher/bafang-python)
+- [Endless Sphere — Bafang communication protocol (UART)](https://endless-sphere.com/sphere/threads/bafang-communication-protocol-uart.74692/)
 - [bbs-fw — open-source BBS02/BBSHD firmware (danielnilsson9)](https://github.com/danielnilsson9/bbs-fw)
 - [Endless Sphere — protocol specs for Bafang BBS02 mid-drive](https://endless-sphere.com/sphere/threads/protocol-specs-for-bafang-bbs02-mid-drive.60591/)
 - [EggRider V2 — Bluetooth display for BBS01/BBS02/BBSHD](https://shop.eggrider.com/eggrider-v2)
