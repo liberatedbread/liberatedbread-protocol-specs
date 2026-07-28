@@ -22,7 +22,7 @@
 - **VERIFIED**: pywemo Python library provides local control (source: pywemo/pywemo)
 - **VERIFIED**: UPnP deviceTypes for plugs: `urn:Belkin:device:controllee:1` (Mini), `urn:Belkin:device:socket:1` (V2); SSDP search-target: `urn:Belkin:service:basicevent:1`
 - Port instability: HTTP port drifts across 49152-49159 (probe 49153 first, re-probe after reconnect)
-- WiFi provisioning: factory-reset device broadcasts SSID prefix `WeMo.Setup.`; app joins and provisions home WiFi via SOAP (GetApList / ConnectHomeNetwork)
+- WiFi provisioning: factory-reset device broadcasts an open AP whose SSID starts with `Wemo.` (match case-insensitively; observed `WeMo.Switch.A1B`, `Wemo.Mini.4A2`). A client joins it and provisions home WiFi via SOAP (GetApList / ConnectHomeNetwork) — no app required. Fully specified in `device.setup`.
 - Structured spec: `device-specs/devices/wemo-smart-plug.yaml`
 
 ## Device discovery signals
@@ -31,7 +31,7 @@
     (alternates: `ssdp:all`, `urn:Belkin:device:controllee:1`, `urn:Belkin:device:socket:1`)
   - SSDP reply: `LOCATION` header → `http://<ip>:<port>/setup.xml`; `USN` → `uuid:Socket-1_0-<serial>::urn:Belkin:service:basicevent:1`
   - setup.xml port behavior: port is NOT stable — drifts across 49152-49159; probe 49153 first, then 49152, 49154, 49151, 49155-49159
-  - setup-AP SSID: factory-reset device broadcasts SSID prefix `WeMo.Setup.`
+  - setup-AP SSID: factory-reset device broadcasts an open AP starting with `Wemo.` (case-insensitive); the device reports its own AP name as MetaInfo field 4
   - mDNS service types: N/A — Wemo does not use mDNS/Bonjour
   - UPnP deviceTypes (from setup.xml, device.json mocks):
     - **Plug family**: `urn:Belkin:device:controllee:1` (Mini F7C063), `urn:Belkin:device:socket:1` (V2 WSP080, Smart Plug, mini widget)
@@ -48,7 +48,7 @@
 - Wemo Dimmer / Light Switch: no safety implications for lighting
 - UPnP/SSDP operates on the local LAN only — not exposed to WAN by default
 - Cloud endpoints (api.xwemo.com, Firebase, AWS IoT) are documented for avoidance only
-- Explicitly excluded: remote/cloud features, firmware updates over cloud, WiFi provisioning (app-only onboarding is out of scope for local-control MVP)
+- Explicitly excluded: remote/cloud features, firmware updates over cloud
 
 ## First experiments (do these first)
 1) Implement SSDP discovery from `device.discovery` in the spec (or use pywemo) on a LAN with Wemo devices
@@ -58,11 +58,11 @@
 5) Build a SOAP request from `soap_common.request_format` and diff it against the published example
 
 ## Protocol hypotheses (to validate)
-- **Pairing/bonding steps**: WiFi provisioning via `WeMo.Setup.` AP (VERIFIED — pywemo `api/wifi_setup.py`); join AP → GetApList → ConnectHomeNetwork
+- **Pairing/bonding steps**: WiFi provisioning via the device's own `Wemo.*` AP (VERIFIED — pywemo `ouimeaux_device/__init__.py`); join AP → GetMetaInfo → GetApList → ConnectHomeNetwork → GetNetworkStatus → CloseSetup. Fully documented in `device.setup`, including the three passphrase encryption variants.
 - **Session state machine**: SSDP M-SEARCH discovery → GET `/setup.xml` → SOAP action calls; rediscover after IP/port change
 - **Commands** (VERIFIED SOAP actions, SOAP 1.1 POST over HTTP):
   - **basicevent** (`/upnp/control/basicevent1`): `SetBinaryState` (BinaryState=1/0), `GetBinaryState`; each requires `SOAPACTION: "urn:Belkin:service:basicevent:1#<Action>"` header
-  - **insight** (`/upnp/control/insight1`, Insight only): `GetInsightParams` → colon-delimited telemetry; `SetPowerThreshold`, `GetPowerThreshold`
+  - **insight** (`/upnp/control/insight1`, Insight only): `GetInsightParams` → pipe-delimited telemetry (field layout in the spec's top-level `payload_formats.InsightParams`); `SetPowerThreshold`, `GetPowerThreshold`
   - **metainfo** (`/upnp/control/metainfo1`): `GetMetaInfo` — device metadata
   - **timesync** (`/upnp/control/timesync1`): `TimeSync` — set device clock
   - **deviceinf** (`/upnp/control/deviceinf1`): `GetDeviceInformation` — model/serial/MAC
@@ -73,7 +73,7 @@
 
 ## Control surface inventory (what the replacement app must support)
 ### Phase 1 — Core Plug (MVP)
-- **Onboarding**: NOT in MVP scope (WiFi provisioning is app-only onboarding; MVP assumes device is on LAN)
+- **Onboarding**: documented and entirely local — see `device.setup` in the spec and docs/devices/wemo-setup.md. It is not app-only, which is what makes these devices recoverable after the cloud shutdown. Not yet replayed against hardware (issue #16).
 - **Discovery**: SSDP M-SEARCH → parse LOCATION → fetch /setup.xml → enumerate services
 - **Core controls**: on/off (SetBinaryState), get current state (GetBinaryState)
 - **Rediscovery**: handle port change after device reconnects

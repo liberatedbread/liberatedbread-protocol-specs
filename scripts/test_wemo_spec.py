@@ -10,11 +10,17 @@ from. If a transcription cannot be written, or does not reproduce the spec's
 own published examples and test vectors, the spec is underspecified and this
 fails.
 
-This repository ships no Wemo client. Discovery, control and provisioning are
-all things existing libraries (pywemo) already do, tested against far more
+There is no supported client surface here. Discovery, control and provisioning
+are all things existing libraries (pywemo) already do, tested against far more
 hardware than we have; a second implementation from us would be a worse copy.
 The spec is the contribution, and this file is its test — the transcriptions
 here exist to prove the document is complete, not to be used.
+
+The `wemo_*.py` scripts alongside this one are verification scaffolding, not
+that client surface: they exist to check the spec against hardware while its
+`verified` flags are still false, and are tracked for deletion in issue #16.
+This module deliberately does not import them, so it keeps testing the document
+whatever happens to them.
 
 Requires the ``openssl`` binary, which the spec names as an equivalent
 implementation of its encryption.

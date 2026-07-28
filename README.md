@@ -37,10 +37,11 @@ implementable on its own — discovery, control and provisioning alike — and
 from the YAML using nothing but the standard library, and checking the
 transcription reproduces the spec's own examples and test vectors.
 
-We deliberately do **not** ship device clients. Existing libraries
-([pywemo](https://github.com/pywemo/pywemo) for Wemo) already do that job and
-are tested against far more hardware than we are; a second implementation from
-us would be a worse copy competing with the thing we tell people to use.
+We deliberately do **not** ship a supported device-client surface. Existing
+libraries ([pywemo](https://github.com/pywemo/pywemo) for Wemo) already do that
+job and are tested against far more hardware than we are; a second
+implementation from us would be a worse copy competing with the thing we tell
+people to use.
 
 ### Scaffolding
 
