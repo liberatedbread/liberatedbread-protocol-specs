@@ -295,8 +295,8 @@ parse rules.
 
 ## Doing it
 
-Use [pywemo](https://github.com/pywemo/pywemo). [pywemo](https://github.com/pywemo/pywemo)
-It does all of this, is maintained, and is tested against far more hardware
+Use [pywemo](https://github.com/pywemo/pywemo). It does all of this, is
+maintained, and is tested against far more hardware
 than we have; a second implementation from us would be a worse copy of the
 thing we tell people to use. Our contribution is the spec.
 

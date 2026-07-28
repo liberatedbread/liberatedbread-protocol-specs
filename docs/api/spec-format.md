@@ -201,19 +201,24 @@ importing none of our own code — and asserts the transcription reproduces the
 spec's own vectors. If that cannot be written, the spec is underspecified and
 CI fails, regardless of whether anything else still works.
 
-That test is also why this repository ships no Wemo client — discovery and
-control included, not just provisioning. Existing libraries already do those
-jobs and are tested against far more hardware than we are; a second
-implementation from us would be a worse copy of the thing we tell people to
-use. The spec is the contribution, and proving it implementable is the test.
+That test is also why this repository has no supported client surface.
+Existing libraries already do discovery, control and provisioning, and are
+tested against far more hardware than we are; a second implementation from us
+would be a worse copy of the thing we tell people to use. The spec is the
+contribution, and proving it implementable is the test.
 
-The same test covers all three client jobs, which is what makes deleting the
-clients safe: it reconstructs the M-SEARCH datagram from
+It covers all three client jobs: it reconstructs the M-SEARCH datagram from
 `discovery...ssdp.request` and diffs it against the published example, parses
 the published SSDP reply and description (including with the UPnP namespace
 stripped), applies the `match` rule to a Wemo and to a printer, builds a SOAP
 request from `soap_common.request_format` and diffs *that* against its example,
 and parses the published `InsightParams` string into named fields.
+
+!!! note "The Wemo scripts under `scripts/` are not a counterexample"
+    `wemo_discover.py`, `wemo_control.py` and `wemo_setup.py` exist to check
+    this spec against hardware, since every `verified` flag in it is still
+    `false`. They are scaffolding with a deletion date — see
+    [issue #16](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/16).
 
 ### Factory reset, rejoin, credentials
 

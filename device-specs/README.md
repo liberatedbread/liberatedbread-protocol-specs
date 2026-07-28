@@ -176,12 +176,16 @@ proves it: the module transcribes the published algorithm using nothing but
 the transcription reproduces the spec's own test vectors. If the transcription
 cannot be written, the spec is underspecified and CI fails.
 
-That is also why this repository ships no Wemo client — discovery and control
-included, not just provisioning. Existing libraries do those jobs and are
-tested against far more hardware than we are; the spec is our contribution, and
-proving it implementable is the test. The same module reconstructs the SSDP
-datagram, the description parser and the SOAP request builder from the YAML and
-diffs each against the spec's own published examples.
+That is also why there is no supported client surface here. Existing libraries
+do discovery, control and provisioning, and are tested against far more
+hardware than we are; the spec is our contribution, and proving it
+implementable is the test. The same module reconstructs the SSDP datagram, the
+description parser and the SOAP request builder from the YAML and diffs each
+against the spec's own published examples.
+
+The Wemo scripts under `scripts/` are not an exception to that: they exist to
+check the spec against hardware while every `verified` flag in it is still
+`false`, and are tracked for deletion once it is done.
 
 Full field-by-field walkthrough:
 [`docs/api/spec-format.md`](../docs/api/spec-format.md). Patterns across
