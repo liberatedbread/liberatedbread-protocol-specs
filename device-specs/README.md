@@ -381,6 +381,106 @@ example.
 `device.protocol: "obd2"` is not yet consumed by the mobile Rust `Protocol` enum, so
 these specs are documentation and tooling targets today rather than mobile-app targets.
 
+## Wired bus devices (`bus`)
+
+For devices with **no radio and no diagnostic connector** — an e-bike motor talking to its
+display over UART, or an internal CAN bus carrying raw frames. Set `device.protocol` to
+`uart` or `can` and describe the bus:
+
+```yaml
+device:
+  name: "Example Mid-Drive"
+  manufacturer: "Acme"
+  manufacturer_status: "active"
+  protocol: "uart"
+
+bus:
+  link:
+    type: "uart"                 # uart | can
+    baud: 9600                   # or `bitrate` for CAN
+    framing: "8N1"
+    wiring:
+      - signal: "motor TX (display RX)"
+        wire_colour: "brown"
+        connector: "6-pin"
+  style: "stream"                # request_response | stream | broadcast
+  checksum:
+    algorithm: "sum8"
+    scope: "8-bit sum of all preceding bytes, both directions"
+  messages:
+    - name: "motor_status"
+      direction: "from_device"
+      start_byte: "43"
+      length: 9
+      rate_hz: 8
+      verification: "reported"
+      fields:
+        - offset: 1
+          name: "battery_level"
+          type: "uint8"
+          encoding: "0x00 red blinking; 0x0A+ full green"
+```
+
+### Choosing a `style`
+
+`style` decides which message fields apply and what a consumer has to implement:
+
+| Style | Shape | Messages carry | Example |
+|-------|-------|----------------|---------|
+| `request_response` | Host asks, device answers | `request`, `response` | Bafang BBS02 |
+| `stream` | Both ends push at a fixed rate | `start_byte`, `rate_hz` | Tongsheng TSDZ2 |
+| `broadcast` | Frames keyed by identifier on a shared bus | `can_id` | Bosch CAN |
+
+`stream` has a consequence worth internalising: a control packet **writes by existing**. It
+re-asserts its fields on every repetition, so `writes: true` there does not mean "sends a
+command once" — it means "continuously asserts state". A read-only consumer of a `stream`
+device must never transmit at all.
+
+### Repeated fields — use `array_len`
+
+Where a block holds one value per level or per channel, say so with `array_len` rather than
+describing it in prose:
+
+```yaml
+- offset: 2
+  name: "assist_current_limit"
+  array_len: 10        # ten consecutive bytes, levels 0-9
+- offset: 12
+  name: "assist_speed_limit"
+  array_len: 10        # then ten more
+```
+
+This is deliberately not expressible as "ten (current, speed) pairs" — a real and easily
+made misreading of exactly this block, which yields plausible values attached to the wrong
+level instead of an obvious failure.
+
+### Entities on a bus device
+
+Bus devices have no GATT characteristic to bind to, so entities use `state_field` with a
+`message_name.field_name` reference:
+
+```yaml
+entities:
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    state_field: "motor_status.speed"
+```
+
+### `bus` vs `obd`
+
+Both can be CAN, and they are still different things. `obd` models a **diagnostic session**
+reached through a standardised socket: connector standard, ECU addressing, UDS services,
+security access, adapter capability tiers. `bus` models an **internal bus** whose traffic is
+simply there to be read — no session, no addressing scheme, no adapter negotiation. A Bosch
+e-bike is CAN but is not OBD-II, and putting it in `obd` would imply a diagnostic layer that
+does not exist.
+
+Messages carry `advanced` / `advanced_reason` with the same meaning and the same enforced
+pairing as BLE commands, plus `writes` and `verification`. Reaching any of these devices
+needs a physical adapter, so specs here are documentation and bridge-building targets rather
+than mobile-app targets today.
+
 ## Extended / optional fields
 
 The schema is intentionally **permissive** (no `additionalProperties: false`),

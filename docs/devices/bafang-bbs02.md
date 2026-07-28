@@ -200,26 +200,19 @@ and trailing checksum — the full frame is 27 bytes).
     use a different length convention. Capture a vendor-tool write before trusting either
     value. Nothing else in this doc depends on it.
 
-## No device spec YAML yet
+## Device spec
 
-There is deliberately no `device-specs/devices/bafang-bbs02.yaml`. A spec satisfies the
-schema by carrying `services` (BLE), `http_endpoints` / `mqtt_topics` (Wi-Fi), or `obd`
-(a vehicle diagnostic connector). The BBS02 has none of these: its native bus is a
-1200-baud UART on the display harness — not a radio, and not a diagnostic connector, so
-`obd` does not fit either. Its `transport.standard` enum covers the diagnostic link
-standards (`iso15765-4`, `iso9141-2`, `iso14230-4`, J1850), and a display harness is none
-of them. Writing a spec today would mean inventing BLE UUIDs, and the EggRider bridge's
-UUIDs are not publicly documented.
+[`device-specs/devices/bafang-bbs02.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/bafang-bbs02.yaml)
+carries this protocol as a machine-readable `bus` spec (`protocol: uart`,
+`style: request_response`), with every read and write above catalogued, the field tables
+encoded as `fields` entries, and the four writes flagged `advanced`.
 
-Two clean ways forward, either of which makes a spec honest:
+The assist-limit trap is encoded rather than merely described: `assist_current_limit` and
+`assist_speed_limit` are two `array_len: 10` fields at offsets 2 and 12, which is
+structurally unable to be read as ten interleaved pairs.
 
-1. **Add a serial transport block**, modelled directly on `obd`. That block already set
-   the precedent — a new top-level key in the schema's `anyOf` plus a `protocol` enum
-   value — so a `serial` sibling (baud, framing, opcode tables) would follow a proven
-   shape and cover other wired targets too.
-2. **Scan a real bridge.** If you have an EggRider V2, capture its service and
-   characteristic UUIDs and we can spec the bridge as a BLE device that tunnels these
-   same opcodes.
+The write length byte is the one thing the spec deliberately does **not** assert — see the
+ambiguity note above. The write messages carry their `16 5x` code and stop there.
 
 ## Related mid-drives
 

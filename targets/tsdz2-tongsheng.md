@@ -79,8 +79,11 @@
 
 ## Spec output (clean-room)
 - `docs/devices/tsdz2-tongsheng.md`
-- **No device-spec YAML yet** — same gap as the BBS02. Would want a `serial` transport
-  block, in a **stream** flavour: no opcode table, just two fixed packet shapes with rates.
+- `device-specs/devices/tsdz2-tongsheng.yaml` — `bus` spec, `protocol: uart`,
+  `style: stream`. Both packet shapes with `start_byte`/`length`/`rate_hz` and full field
+  tables; `display_control` marked `writes: true` + `advanced` because in stream style a
+  control packet writes by existing. Entities bind via `state_field`. The two undocumented
+  display bytes are recorded as `hypothesis` fields rather than omitted.
 
 ## Open questions
 - Does a bridge already exist? Nothing found that puts this link on BLE — an ESP32 bridge

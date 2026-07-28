@@ -85,10 +85,11 @@ target in the registry.
 
 ## Spec output (clean-room)
 - `docs/devices/bosch-ebike-cx-gen4.md`
-- **No device-spec YAML yet.** `obd` is the wrong shape: it models a diagnostic connector
-  (J1962 / ISO-19689) speaking a diagnostic link standard over ISO-TP, whereas this is an
-  internal bus carrying raw frames. Wants a raw-CAN transport block — bitrate, wiring, and
-  a frame catalogue keyed by CAN ID, with no session or security-access concept.
+- `device-specs/devices/bosch-ebike-cx-gen4.yaml` — `bus` spec, `protocol: can`,
+  `style: broadcast`. Bitrate and the full D-Sub 9 breakout as `wiring` entries; the message
+  catalogue holds exactly one frame, marked `hypothesis` and `advanced`. A one-entry
+  catalogue is the honest output — the spec exists so confirmed frames have somewhere to
+  land, not because the protocol is understood.
 
 ## Open questions
 - Do Gen2/Gen3 systems share the bus format, or is each generation its own target?

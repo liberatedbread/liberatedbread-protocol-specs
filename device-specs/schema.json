@@ -9,7 +9,8 @@
     { "required": ["services"] },
     { "required": ["http_endpoints"] },
     { "required": ["mqtt_topics"] },
-    { "required": ["obd"] }
+    { "required": ["obd"] },
+    { "required": ["bus"] }
   ],
   "$defs": {
     "uuid": {
@@ -272,8 +273,8 @@
         },
         "protocol": {
           "type": "string",
-          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2"],
-          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); the mobile Rust Protocol enum does NOT yet consume it, so such specs are documentation/tooling targets rather than mobile-app targets today."
+          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2", "uart", "can"],
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge."
         },
         "notes": {
           "type": "string",
@@ -1435,6 +1436,207 @@
       }
     },
     "payload_formats": { "$ref": "#/$defs/payload_formats" },
+    "bus": {
+      "type": "object",
+      "description": "A plain wired local bus -- UART/TTL serial or raw CAN -- for devices with no radio and no diagnostic connector. An e-bike motor talking to its display lives here. Distinct from `obd`: that models a diagnostic session (connector standard, ECU addressing, UDS services, security access) reached through a standardised socket, whereas this models an internal bus whose traffic is simply there to be read. A consumer needs a physical adapter to reach one of these, so specs here are documentation and bridge-building targets. Vehicles: the same care as `obd` applies -- anything that transmits on a bus with a motor on it is `advanced`.",
+      "required": ["link"],
+      "properties": {
+        "link": {
+          "type": "object",
+          "description": "Physical layer parameters -- what you set on the adapter before any byte makes sense.",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["uart", "can"],
+              "description": "'uart': asynchronous TTL serial, point-to-point on a harness line. 'can': a CAN bus carrying raw frames (NOT ISO-TP diagnostics -- that is `obd`)."
+            },
+            "baud": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "UART baud rate, e.g. 1200 (Bafang BBS02) or 9600 (Tongsheng TSDZ2). Getting this wrong yields plausible-looking garbage, so it is worth stating even when it seems obvious."
+            },
+            "framing": {
+              "type": "string",
+              "description": "UART framing, e.g. '8N1'."
+            },
+            "bitrate": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "CAN bitrate in bit/s, e.g. 500000."
+            },
+            "logic_level": {
+              "type": "string",
+              "description": "Signalling level where it matters for adapter choice, e.g. '3.3V TTL'."
+            },
+            "wiring": {
+              "type": "array",
+              "description": "How to physically reach the bus: which wire or pin carries what.",
+              "items": {
+                "type": "object",
+                "required": ["signal"],
+                "properties": {
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal on this conductor, e.g. 'CAN-H', 'motor TX', 'ground'."
+                  },
+                  "pin": { "type": "integer", "minimum": 1 },
+                  "wire_colour": { "type": "string" },
+                  "connector": {
+                    "type": "string",
+                    "description": "Connector this pin belongs to, e.g. 'D-Sub 9 (CiA DS-102)', '6-pin Tongsheng'."
+                  },
+                  "notes": { "type": "string" },
+                  "verification": { "$ref": "#/$defs/verification" }
+                }
+              }
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "style": {
+          "type": "string",
+          "enum": ["request_response", "stream", "broadcast"],
+          "description": "How traffic is organised, which decides what a consumer must implement. 'request_response': the host asks and the device answers, so messages carry `request`/`response` (Bafang BBS02). 'stream': both ends push fixed-shape packets at a fixed rate with nobody asking, so messages carry `start_byte` and `rate_hz` -- and note that transmitting at all means continuously asserting state (Tongsheng TSDZ2). 'broadcast': nodes emit frames keyed by identifier onto a shared bus, so messages carry `can_id` (Bosch CAN)."
+        },
+        "checksum": {
+          "type": "object",
+          "description": "Integrity scheme. Worth stating precisely: a mismatched checksum rule is the usual reason a first implementation is silently rejected by the device.",
+          "properties": {
+            "algorithm": {
+              "type": "string",
+              "enum": ["sum8", "sum8-mod256", "crc8", "crc16", "none", "other"],
+              "description": "Algorithm over the frame. 'sum8'/'sum8-mod256' is a plain 8-bit additive checksum."
+            },
+            "scope": {
+              "type": "string",
+              "description": "Exactly which bytes are summed, and whether it differs by direction. State this even when it seems obvious -- the Bafang BBS02 sums every preceding byte on a read response but skips the first code byte on a write request, and that asymmetry is the classic cause of rejected writes."
+            },
+            "notes": { "type": "string" },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "messages": {
+          "type": "array",
+          "description": "The message catalogue. One entry per distinct exchange, packet shape or frame, whichever this bus uses; the `fields` array is the part every style shares.",
+          "items": {
+            "type": "object",
+            "required": ["name", "verification"],
+            "allOf": [
+              {
+                "$comment": "Same rule as BLE commands: an advanced message must explain itself.",
+                "if": {
+                  "properties": { "advanced": { "const": true } },
+                  "required": ["advanced"]
+                },
+                "then": {
+                  "required": ["advanced_reason"],
+                  "properties": {
+                    "advanced_reason": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "direction": {
+                "type": "string",
+                "enum": ["to_device", "from_device", "bidirectional"],
+                "description": "Which way this message travels, from the host's point of view."
+              },
+              "request": {
+                "$ref": "#/$defs/hex_bytes",
+                "description": "Bytes the host sends (request_response style). Include any payload and checksum actually required -- not every read is a bare opcode."
+              },
+              "response": {
+                "$ref": "#/$defs/hex_bytes",
+                "description": "Expected reply prefix, where a fixed one exists. '??' marks a variable byte."
+              },
+              "can_id": {
+                "$ref": "#/$defs/can_id",
+                "description": "Frame identifier (broadcast style)."
+              },
+              "start_byte": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{2}$",
+                "description": "Fixed leading byte identifying this packet shape (stream style), e.g. '43'."
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Total frame length in bytes, including any start byte and checksum."
+              },
+              "rate_hz": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "How many times a second this packet is emitted (stream/broadcast style)."
+              },
+              "payload_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Where `fields` offsets are measured from, when they are relative to a payload rather than the whole frame. Omit when offsets are frame-absolute. State it either way rather than leaving a reader to infer it."
+              },
+              "fields": {
+                "type": "array",
+                "description": "Decoded fields. Offsets are frame-absolute unless `payload_offset` says otherwise.",
+                "items": {
+                  "type": "object",
+                  "required": ["offset", "name"],
+                  "properties": {
+                    "offset": { "type": "integer", "minimum": 0 },
+                    "length": { "type": "integer", "minimum": 1, "default": 1 },
+                    "name": { "type": "string" },
+                    "type": {
+                      "type": "string",
+                      "enum": ["uint8", "uint16", "int8", "int16", "uint32", "int32", "bytes", "string", "bitfield", "bool"]
+                    },
+                    "endianness": {
+                      "type": "string",
+                      "enum": ["little", "big"],
+                      "default": "little"
+                    },
+                    "unit": { "type": "string" },
+                    "scale": {
+                      "type": "number",
+                      "description": "Multiplier applied to the raw value to get `unit`."
+                    },
+                    "encoding": {
+                      "type": "string",
+                      "description": "Value encoding in prose where an enum or code table applies, e.g. '0x1F-0x3C = 16in-30in, 0x37 = 700C'."
+                    },
+                    "array_len": {
+                      "type": "integer",
+                      "minimum": 2,
+                      "description": "Number of consecutive same-width entries starting at `offset`. Use this for repeated per-level values instead of describing them in prose -- it is exactly the distinction between ten current limits followed by ten speed limits and ten interleaved pairs, which is the kind of thing that is otherwise got wrong silently."
+                    },
+                    "notes": { "type": "string" },
+                    "verification": { "$ref": "#/$defs/verification" }
+                  }
+                }
+              },
+              "writes": {
+                "type": "boolean",
+                "default": false,
+                "description": "True if this message mutates device state. Note that in 'stream' style a control packet writes by existing at all -- it asserts its fields on every repetition."
+              },
+              "advanced": {
+                "type": "boolean",
+                "default": false,
+                "description": "Same meaning as on BLE commands: goes further than a typical consumer app would. A signpost, not a gate."
+              },
+              "advanced_reason": {
+                "type": "string",
+                "description": "Why, in the terms described for BLE commands: what changes, the realistic consequence, and how to recover."
+              },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
     "entities": {
       "type": "array",
       "items": {
@@ -1463,6 +1665,11 @@
           },
           "state_characteristic": {
             "$ref": "#/$defs/uuid"
+          },
+          "state_field": {
+            "type": "string",
+            "description": "Source of this entity's state on a `bus` device, as 'message_name.field_name' (e.g. 'motor_status.speed'). The bus analogue of `state_characteristic`: bus devices have no GATT characteristic to point at, so an entity binds to a decoded field of a catalogued message instead.",
+            "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
           },
           "state_topic": {
             "type": "string",

@@ -63,12 +63,16 @@
    characteristic UUIDs, and check whether it tunnels these opcodes verbatim.
 
 ## Protocol hypotheses (to validate)
-- Block field *order and sizes* are HIGH confidence (corroborated across independent
-  implementations). Per-field **units and scaling are MEDIUM** — e.g. whether a given
-  speed limit is km/h or a percentage varies by field and firmware. Confirm against what
-  the vendor tool renders.
-- Assist profiles are 10 × 2 bytes (current %, speed %) within the 24-byte basic block —
-  verify by changing one profile and diffing the block.
+- Block field order, sizes and encodings are `reported` — corroborated across three
+  independent implementations (OpenBafangTool and two bafang-python forks) but not read
+  back from a physical unit by us. Confirm against what the vendor tool renders.
+- Assist limits in the basic block are **two arrays of 10**, not 10 interleaved
+  `(current, speed)` pairs: current limits at payload offsets 2–11, speed limits at 12–21.
+  An earlier revision of this sheet had it as pairs — that was wrong, and it is the kind of
+  error that produces plausible values on the wrong assist level rather than an obvious
+  failure. Verify by changing one level and diffing the block.
+- Write length byte is ambiguous across sources (`0x24`/`0x11` vs the read responses'
+  `0x18`/`0x0B`). Capture a vendor-tool write to settle it.
 - Whether the bus tolerates a passive listener while a display is attached (needed for a
   non-invasive capture) is unknown — test before assuming.
 
@@ -92,13 +96,11 @@
 
 ## Spec output (clean-room)
 - `docs/devices/bafang-bbs02.md`
-- **No device-spec YAML yet.** The schema admits a spec via `services` (BLE),
-  `http_endpoints`/`mqtt_topics` (Wi-Fi) or `obd` (diagnostic connector). A 1200-baud UART
-  on a display harness is none of those — `obd.transport.standard` covers the diagnostic
-  link standards only — so a spec today would mean inventing BLE UUIDs. Resolve by adding
-  a `serial` transport block modelled on `obd` (which already set the precedent for a new
-  top-level key in `anyOf` plus a `protocol` enum value), or by scanning a real BLE bridge
-  and speccing the bridge instead.
+- `device-specs/devices/bafang-bbs02.yaml` — `bus` spec, `protocol: uart`,
+  `style: request_response`. Every read/write catalogued with field tables; the four writes
+  flagged `advanced`. The assist-limit arrays are encoded as two `array_len: 10` fields, so
+  the interleaved-pairs misreading is structurally impossible. The write length byte is
+  deliberately not asserted while it remains ambiguous.
 
 ## Open questions
 - Does the EggRider V2 tunnel these opcodes verbatim over BLE, or re-encode them?
