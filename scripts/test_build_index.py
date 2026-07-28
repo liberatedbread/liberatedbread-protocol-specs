@@ -108,6 +108,7 @@ def test_deterministic_output():
 def test_per_device_json():
     """Per-device JSON is valid JSON with expected structure."""
     paths = build_index.discover_specs()
+    schema = build_index.load_schema()
 
     for path in paths:
         spec = build_index.load_yaml(Path(path))
@@ -115,11 +116,19 @@ def test_per_device_json():
         # json_text includes trailing "\n"; strip it for round-trip
         per_device = json.loads(json_text)
         assert "device" in per_device
-        # Must have at least one of services, http_endpoints, mqtt_topics, obd
-        # (mirrors the schema's top-level anyOf).
-        assert any(
-            k in per_device for k in ("services", "http_endpoints", "mqtt_topics", "obd")
-        ), f"{Path(path).stem} missing transport"
+        # Must carry at least one transport block. The accepted set is READ FROM
+        # the schema's top-level anyOf rather than restated here: this test used
+        # to hardcode the list and claim to mirror it, which meant every new
+        # transport (bus, cloud) failed a test that was only ever out of date.
+        transports = [
+            required
+            for branch in schema["anyOf"]
+            for required in branch.get("required", [])
+        ]
+        assert transports, "schema anyOf declares no transport blocks"
+        assert any(k in per_device for k in transports), (
+            f"{Path(path).stem} missing transport (expected one of {transports})"
+        )
 
 
 def test_manifest_checksums_match_disk_files():
