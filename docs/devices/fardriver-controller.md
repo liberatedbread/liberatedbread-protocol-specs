@@ -213,6 +213,16 @@ Five minutes with a phone, before writing any code:
 If step 3 shows 16-byte `0xAA` frames, the vendor attribution above is confirmed for your
 unit and this page's status can move from Research to In Progress.
 
+## Where else this spec applies
+
+Scooter conversions are not the only place these controllers turn up. The ND/NS-series is
+a common upgrade on light electric off-road bikes — **Sur-Ron Light Bee**, **Talaria**
+(MX3/MX4/Sting R) and **Segway X260** — typically as the ND96680/NS96680 at 48–96 V, sold
+alongside Sabvoton, Kelly and Nucular as the competing options. The framing, CRC and write
+path documented here are the same family; only the voltage class and per-unit BLE bridge
+differ. If you are working on one of those bikes, start here rather than from scratch, but
+re-confirm the UUIDs and register values on your own unit exactly as below.
+
 ## If it's not Fardriver
 
 The main alternative in this class is the **Votol EM-series** (EM50/EM100/EM150/EM200),
