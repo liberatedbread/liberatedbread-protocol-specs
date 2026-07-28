@@ -131,7 +131,7 @@ def main() -> int:
         print(f"Error: {filepath} does not exist.", file=sys.stderr)
         return 1
 
-    print(f"OpenGreenIoT pcap parser")
+    print("OpenGreenIoT pcap parser")
     print(f"File: {filepath}")
     print()
 

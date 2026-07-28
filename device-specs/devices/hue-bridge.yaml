@@ -64,6 +64,93 @@ device:
       display: "name"
     static_ip_required: false
 
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      Two separate things have to happen before a client can control a Hue
+      Bridge: the bridge has to reach the LAN (Ethernet only — the v2 bridge
+      has no WiFi radio and no credential provisioning of its own), and the
+      client has to be authorized by the physical link button. Only the second
+      step is a protocol flow.
+    methods:
+      - type: "wired"
+        verified: false
+        description: >
+          Plug the bridge into the router with Ethernet and power it. It takes
+          a DHCP lease and starts answering mDNS/SSDP; there is no WiFi
+          passphrase to transfer, so there is no setup AP and no credential
+          encryption problem.
+        steps:
+          - action: "Connect the bridge to the LAN over Ethernet and apply power."
+            actor: "user"
+            expect: "All three front LEDs light; the bridge answers _hue._tcp.local."
+            timeout_seconds: 120
+      - type: "button_pairing"
+        verified: false
+        description: >
+          The bridge issues an API username (whitelist entry) to any client
+          that asks within roughly 30 seconds of the physical link button being
+          pressed. This is a proximity proof, not an account: no cloud login is
+          involved and the username keeps working after the vendor cloud goes
+          away.
+        steps:
+          - action: "POST /api with a devicetype string to confirm the bridge rejects unauthorized clients."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /api"
+              arguments:
+                - name: "devicetype"
+                  type: "string"
+                  required: true
+                  description: "application#instance identifier, e.g. opengreeniot#hub."
+            expect: "Error type 101, 'link button not pressed' — proves the bridge is reachable and unpaired."
+          - action: "Press the round link button on the top of the bridge."
+            actor: "user"
+          - action: "Repeat POST /api within the pairing window."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /api"
+            expect: "success.username — store it; it is the only credential needed for all later control."
+            timeout_seconds: 30
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears every whitelist username and the bridge's own ZigBee network
+        configuration. Paired bulbs stay joined to the old, now-forgotten
+        network and must be re-added (or reset themselves) afterwards, so a
+        bridge reset is a much bigger event than a WiFi device reset.
+      procedures:
+        - name: "Recessed restore button"
+          indicator: "LEDs cycle and the bridge reboots."
+          steps:
+            - action: "Press the recessed button on the underside of the bridge with a paperclip and hold until the LEDs cycle."
+              actor: "user"
+            - action: "Wait for the bridge to reboot and re-acquire a DHCP lease."
+              actor: "device"
+              timeout_seconds: 120
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving the bridge to a different router is a cable move plus a new DHCP
+        lease. Stored usernames survive, so previously authorized clients keep
+        working; only the IP changes, which is why clients must key off the TXT
+        bridgeid rather than the address.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Whitelist usernames issued to paired clients"
+        - "ZigBee network key for paired lights"
+      issued_to_client:
+        - "API username (bearer-equivalent; sent in the URL path on plain HTTP)"
+      notes: >
+        The username is transmitted in the URL on unencrypted HTTP and never
+        expires on its own. Treat it as a long-lived LAN secret and delete
+        unused whitelist entries.
+
 evidence:
   live_lan_probe:
     date: "2026-07-16"

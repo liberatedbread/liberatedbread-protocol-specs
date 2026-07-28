@@ -95,6 +95,96 @@ device:
         Vgate, OBDLink LX/MX+. Not reachable from iOS unless MFi-certified; not reachable
         from a BLE-only client at all. Linux: `rfcomm bind 0 <mac> 1` -> /dev/rfcomm0.
 
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The adapter is the one part of an OBD-II stack that does need pairing.
+      Bluetooth Classic variants ask for a PIN; BLE variants generally do not.
+      Which you have is not always printed on the dongle, and the two are
+      frequently sold under the same listing.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          BLE variants advertise as soon as they are powered from the connector
+          and accept a connection with no pairing. Identify by the advertised
+          name prefix plus one of the serial-service UUIDs.
+        ble:
+          advertised_name: "OBD"
+          pairing_required: false
+        steps:
+          - action: "Plug the adapter into the diagnostic connector and switch on the ignition."
+            actor: "user"
+            expect: "Adapter LEDs light and it begins advertising."
+          - action: "Scan for the advertised name prefix and a serial-service UUID, then connect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Confirm the command interface with ATI and record the reported firmware string."
+            actor: "client"
+            expect: >
+              An ELM327 identification string. Cloned firmware reports a
+              version it does not implement, so match the adapter_profile class
+              rather than trusting this string.
+      - type: "button_pairing"
+        verified: false
+        description: >
+          Bluetooth Classic (SPP/RFCOMM) variants pair with the host operating
+          system first, using a fixed PIN. There is no button; the PIN is the
+          proof of possession, and it is not a secret.
+        steps:
+          - action: "Plug the adapter in and power the ignition."
+            actor: "user"
+          - action: "Pair from the host's Bluetooth settings, entering the adapter's PIN."
+            actor: "user"
+            notes: >
+              Commonly 1234 or 0000, printed in the manual. Treat it as a
+              default rather than a credential — it is identical across
+              enormous numbers of dongles.
+          - action: "Open the resulting serial port and confirm with ATI."
+            actor: "client"
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears the adapter's own configuration — protocol selection, echo,
+        headers, timeouts and any saved defaults — and returns it to power-on
+        state. Nothing about the vehicle is touched.
+      procedures:
+        - name: "ATZ software reset"
+          indicator: "The adapter re-emits its identification string."
+          steps:
+            - action: "Send ATZ on the command interface."
+              actor: "client"
+              expect: "Adapter resets and reports its firmware string."
+            - action: "Send ATD to restore defaults if settings persist across the reset."
+              actor: "client"
+        - name: "Power cycle"
+          steps:
+            - action: "Unplug the adapter from the connector for a few seconds and reinsert it."
+              actor: "user"
+              notes: >
+                Also the remedy when the adapter is wedged, which cloned
+                firmware does under multi-frame load.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Pairing with a different host is just pairing again. Remove the old
+        bond from the previous host as well — Classic adapters accept one
+        connection at a time, and a phone reconnecting in the background is the
+        usual cause of an adapter that "stopped working".
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Bluetooth bond with the paired host (Classic variants)"
+      issued_to_client: []
+      notes: >
+        The pairing PIN is a fixed default shared across a whole product
+        category, so it identifies nothing and protects nothing. Anyone within
+        radio range of a plugged-in adapter can reach the vehicle bus through
+        it — worth knowing before leaving one in the connector.
+
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Serial Pipe (family A)"
@@ -257,9 +347,12 @@ obd:
   adapter_requirements:
     - "Single-frame reads (mode 01/03) work on essentially any adapter including clones."
     - >
-      Multi-frame ISO-TP transmit and custom request headers need sound firmware — an STN
-      chipset (OBDLink LX/MX+/CX) in practice. This is the dividing line behind vendor
-      tools accepting any adapter for reads while naming specific ones for maintenance
+      Multi-frame ISO-TP transmit and custom request headers need sound firmware
+      — an STN
+      chipset (OBDLink LX/MX+/CX) in practice. This is the dividing line behind
+      vendor
+      tools accepting any adapter for reads while naming specific ones for
+      maintenance
       functions.
 
   requests:

@@ -5,6 +5,10 @@ so applications (Home Assistant integrations, mobile apps, CI pipelines)
 can programmatically consume structured device specifications and detect
 updates.
 
+For the structure of a device spec — and how to read the `setup` block that
+carries provisioning, factory reset and rebinding — see
+[Reading a Device Spec](spec-format.md).
+
 ## Endpoints
 
 | Endpoint | Description |

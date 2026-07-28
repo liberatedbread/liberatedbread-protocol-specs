@@ -1,21 +1,24 @@
-## Machine-Readable Discovery
-
-Every device spec in `device-specs/devices/` now includes a `device.discovery`
-section that a consumer app can parse to implement automatic discovery without
-per-device hardcoding. See the `discovery` property in
-`device-specs/schema.json` for the full JSON
-Schema definition. See the discovery reference at
-[docs/devices/discovery.yaml](discovery.yaml) for a
-annotated example of each discovery method.
-
-The flows documented below are the SSDP, mDNS, and Cloud variants that
-correspond to the machine-readable `device.discovery.methods[].type` values.
-
 # WiFi Device Discovery
 
 WiFi devices in this repository do not all use the same discovery model. The
 right first step depends on whether the device exposes a local protocol, an
 mDNS service, or only a cloud account API.
+
+This page is about finding a device that is **already on the network**. Getting
+it there in the first place is covered in
+[Initial Device Setup](../protocols/device-setup.md).
+
+## Machine-Readable Discovery
+
+Every device spec in `device-specs/devices/` includes a `device.discovery`
+section that a consumer app can parse to implement automatic discovery without
+per-device hardcoding. See the `discovery` property in
+`device-specs/schema.json` for the full JSON Schema definition, and the
+discovery reference at [docs/devices/discovery.yaml](discovery.yaml) for an
+annotated example of each discovery method.
+
+The flows documented below are the SSDP, mDNS, and Cloud variants that
+correspond to the machine-readable `device.discovery.methods[].type` values.
 
 ## SSDP / UPnP: Wemo and Roku
 
@@ -66,21 +69,12 @@ answering, rediscover with SSDP or probe the pywemo port order:
 49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159
 ```
 
-Example:
-
-```bash
-python scripts/wemo_discover.py --timeout 5
-```
-
-Expected output shape:
-
-```text
-IP               Port   Name                     Device Type                            Serial
-----------------------------------------------------------------------------------------------
-192.168.1.42     49153  Kitchen Plug             socket                                 2216...
-        Service: basicevent           CTRL=/upnp/control/basicevent1     EVENT=/upnp/event/basicevent1
-        Service: metainfo             CTRL=/upnp/control/metainfo1       EVENT=/upnp/event/metainfo1
-```
+`device-specs/devices/wemo-devices.yaml` specifies this end to end under
+`device.discovery` — the exact M-SEARCH datagram, which response headers to
+read, how to deduplicate across search targets, how to tell a Wemo from the
+rest of the UPnP responders that answer `ssdp:all`, and how to parse the
+description including Belkin's vendor extension elements.
+[pywemo](https://github.com/pywemo/pywemo) is a working implementation.
 
 ## mDNS / DNS-SD: Vector
 
