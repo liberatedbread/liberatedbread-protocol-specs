@@ -1,0 +1,351 @@
+{
+  "device": {
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "value": "IDM-"
+            },
+            "service_uuids": [
+              "0000fee9-0000-1000-8000-00805f9b34fb",
+              "0000fa02-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefix": "IDM-",
+      "service_uuids": [
+        "0000fee9-0000-1000-8000-00805f9b34fb",
+        "0000fa02-0000-1000-8000-00805f9b34fb"
+      ]
+    },
+    "manufacturer": "iDotMatrix / Tech",
+    "manufacturer_status": "unsupported",
+    "name": "iDotMatrix",
+    "notes": "Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers, schedules). No pairing required.\nPRIMARY (recovered) protocol — service 0xFEE9, from jadx of com.tech.idotmatrix: framed binary packets with a 16-byte header per 4096-byte payload chunk:\n  [0-1]  total packet length (uint16 BE)\n  [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase\n  [3]    sub-type: 0x00 data / 0x02 MultiColor/Phrase\n  [4]    chunk flag: 0=first, 2=continuation\n  [5-8]  total data length (uint32 LE)\n  [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)\n  [13-14] time/delay (uint16 BE)\n  [15]   speed/type byte\n  [16+]  payload\nBLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for GIF/image, 50 ms/chunk for text. Notify response: [?,0,cmd_type,sub_type,status] with status 0=invalid, 1=next-chunk, 2=error, 3=finished. Display sizes (ScreenData.getLedSize): 1010=10x10, 1001=1x100, 1116=16x11, 1318=18x13, 1619=19x16, 1920=20x19, 2020=32x32 (default), 2010=10x20, 3010=10x30, 3820=20x38. FLAGGED: exact image pixel encoding (RGB565 bitmap laid out by device type) needs live BLE capture to confirm; text glyph width varies by device/font. CONFIDENCE: UUIDs, framing header, CRC32, chunk sizes, command types, response format all HIGH; image pixel layout MEDIUM. Evidence: Ble.java:354-362 (UUIDs), GifAgreement.java:160-196/271-286 (framing, CRC32, response), ScreenData.java (display sizes), CrcUtils.java (java.util.zip.CRC32).\nALTERNATE (legacy) protocol — service 0xFA02: some iDotMatrix units / the popular community \"python-idotmatrix\" library speak an unframed 0xFA02 protocol with short length-prefixed byte commands ([len, 0x00, cmd, ...]). That command set is preserved below as a second service (\"iDotMatrix Legacy (0xFA02) Service\") for those devices; a given unit speaks one protocol or the other. Name prefix \"IDM-\".\n",
+    "protocol": "ble",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "Anything within radio range can connect and issue commands. Physical proximity is the only access control.\n",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "confidence": "low",
+        "effect": "No credential state to clear. Power-cycling drops the current connection, which is the actual remedy for the common failure mode: the device already being connected to another central.\n",
+        "procedures": [
+          {
+            "name": "Power cycle",
+            "steps": [
+              {
+                "action": "Remove power (or battery) for a few seconds and reapply.",
+                "actor": "user",
+                "expect": "Device advertises again and accepts a new connection."
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "advertised_name": "IDM-",
+            "pairing_required": false
+          },
+          "description": "No provisioning step: the device advertises as soon as it is powered on and accepts a connection from any central. There is no account, no network credential exchange and no pairing PIN, so a replacement client only has to scan, connect and write.\n",
+          "steps": [
+            {
+              "action": "Power the device and scan for its advertisement.",
+              "actor": "client",
+              "request": {
+                "protocol": "ble_gatt"
+              }
+            },
+            {
+              "action": "Connect and run the documented initialization sequence, if the spec defines one.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "No provisioning. The vendor app adds a cloud content library, but none of it is required to connect to and drive the display.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Nothing binds this device to a network or an owner, so switching controllers is just connecting from the new one. If the old client is an Android or iOS phone, remove the device from the OS Bluetooth list as well — a cached bond can keep the phone reconnecting automatically and holding the single available link.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    }
+  },
+  "entities": [
+    {
+      "commands": {
+        "set_brightness": "set_brightness",
+        "turn_off": "screen_off",
+        "turn_on": "screen_on"
+      },
+      "features": [
+        "brightness"
+      ],
+      "name": "Pixel Display",
+      "platform": "light",
+      "state_characteristic": "0000fa03-0000-1000-8000-00805f9b34fb"
+    }
+  ],
+  "features": [
+    {
+      "format": "rgb565",
+      "max_height": 32,
+      "max_width": 32,
+      "type": "image_upload"
+    }
+  ],
+  "protocol_handler": "idotmatrix_image",
+  "services": [
+    {
+      "characteristics": [
+        {
+          "framing": {
+            "checksum": "crc32",
+            "length_prefix": true,
+            "max_chunk_size": 4096
+          },
+          "name": "Data Write/Read",
+          "notes": "All framed protocol commands (GIF/Image/Text/Phrase) are written here. 16-byte header + up to 4096-byte payload per frame; CRC32 (java.util.zip.CRC32) over the whole data payload. Evidence: Ble.java:355-356, GifAgreement.java:160-196.\n",
+          "properties": [
+            "write",
+            "read"
+          ],
+          "uuid": "d44bc439-abfd-45a2-b575-925416129600"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "unknown",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "reserved_zero",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "command_type",
+              "offset": 2,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "sub_type",
+              "offset": 3,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "status",
+              "offset": 4,
+              "type": "uint8"
+            }
+          ],
+          "name": "Data Notify",
+          "notes": "Transfer-progress responses. Evidence: Ble.java:358, GifAgreement.java:271-286.",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "d44bc439-abfd-45a2-b575-925416129601"
+        }
+      ],
+      "name": "iDotMatrix Data Service",
+      "uuid": "0000fee9-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "OTA Write",
+          "properties": [
+            "write"
+          ],
+          "uuid": "0000ae01-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "OTA Notify",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "0000ae02-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "iDotMatrix OTA Service",
+      "uuid": "0000ae00-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "enter_diy_mode": {
+              "description": "Enter DIY image mode (0=disable, 1=enable)",
+              "parameters": {
+                "mode": {
+                  "max": 1,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                5,
+                0,
+                4,
+                1,
+                "{mode}"
+              ]
+            },
+            "flip_screen": {
+              "description": "Rotate screen 180 degrees (0=normal, 1=flipped)",
+              "parameters": {
+                "flip": {
+                  "max": 1,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                5,
+                0,
+                6,
+                128,
+                "{flip}"
+              ]
+            },
+            "freeze_screen": {
+              "description": "Freeze/unfreeze screen",
+              "value": [
+                4,
+                0,
+                3,
+                0
+              ]
+            },
+            "screen_off": {
+              "description": "Turn screen off",
+              "value": [
+                5,
+                0,
+                7,
+                1,
+                0
+              ]
+            },
+            "screen_on": {
+              "description": "Turn screen on",
+              "value": [
+                5,
+                0,
+                7,
+                1,
+                1
+              ]
+            },
+            "set_brightness": {
+              "description": "Set brightness (5-100%)",
+              "parameters": {
+                "brightness": {
+                  "max": 100,
+                  "min": 5,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                5,
+                0,
+                4,
+                128,
+                "{brightness}"
+              ]
+            },
+            "set_password": {
+              "description": "Set 6-digit password (000000-999999). Reset device to clear.",
+              "parameters": {
+                "pwd_high": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "pwd_low": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "pwd_mid": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                8,
+                0,
+                4,
+                2,
+                1,
+                "{pwd_high}",
+                "{pwd_mid}",
+                "{pwd_low}"
+              ]
+            },
+            "set_speed": {
+              "description": "Set animation speed",
+              "parameters": {
+                "speed": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                5,
+                0,
+                3,
+                1,
+                "{speed}"
+              ]
+            }
+          },
+          "name": "Write Data",
+          "properties": [
+            "write"
+          ],
+          "uuid": "0000fa02-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Read Data",
+          "properties": [
+            "read"
+          ],
+          "uuid": "0000fa03-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "iDotMatrix Legacy (0xFA02) Service",
+      "uuid": "0000fa02-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

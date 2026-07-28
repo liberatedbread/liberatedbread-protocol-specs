@@ -1,0 +1,414 @@
+{
+  "bus": {
+    "checksum": {
+      "algorithm": "sum8-mod256",
+      "scope": "Read response: sum of ALL preceding bytes, mod 256. Write request: sum of the SECOND code byte, the length byte and all data bytes, mod 256 -- the first code byte is EXCLUDED. Write response: sum of code and data, mod 256. This asymmetry is the classic reason a first write implementation is silently rejected.\n",
+      "verification": "reported"
+    },
+    "link": {
+      "baud": 1200,
+      "framing": "8N1",
+      "logic_level": "TTL",
+      "type": "uart",
+      "verification": "reported",
+      "wiring": [
+        {
+          "connector": "main harness display connector",
+          "notes": "Reached in practice through the Bafang USB programming cable; a USB isolator is recommended.",
+          "signal": "controller/display serial line (shared harness)",
+          "verification": "reported"
+        }
+      ]
+    },
+    "messages": [
+      {
+        "description": "Device info / connect. Note this read is NOT a bare opcode: it carries two payload bytes and a checksum, where 0x05 = (0x51 + 0x04 + 0xB0) mod 256. Most other reads are bare -- do not generalise from them to this one.\n",
+        "direction": "to_device",
+        "fields": [
+          {
+            "encoding": "ASCII, e.g. 'HZXT'",
+            "length": 4,
+            "name": "manufacturer",
+            "offset": 0,
+            "type": "string",
+            "verification": "reported"
+          },
+          {
+            "encoding": "ASCII, e.g. 'SZZ6'",
+            "length": 4,
+            "name": "model",
+            "offset": 4,
+            "type": "string",
+            "verification": "reported"
+          },
+          {
+            "encoding": "ASCII",
+            "length": 2,
+            "name": "hardware_version",
+            "offset": 8,
+            "type": "string",
+            "verification": "reported"
+          },
+          {
+            "encoding": "ASCII",
+            "length": 4,
+            "name": "firmware_version",
+            "offset": 10,
+            "type": "string",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x00=24V, 0x01=36V, 0x02=48V, 0x03=60V",
+            "length": 1,
+            "name": "voltage_setting",
+            "offset": 14,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "max_current",
+            "offset": 15,
+            "type": "uint8",
+            "unit": "A",
+            "verification": "reported"
+          }
+        ],
+        "name": "read_device_info",
+        "payload_offset": 2,
+        "request": "11 51 04 B0 05",
+        "response": "51 10",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "Firmware version string, e.g. 'CRX10B4812E010026.3'.",
+        "direction": "to_device",
+        "name": "read_firmware_version",
+        "request": "11 50",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "Basic parameter block: 24 data bytes (27-byte frame including code, length and checksum).\n",
+        "direction": "to_device",
+        "fields": [
+          {
+            "length": 1,
+            "name": "low_battery_protect",
+            "offset": 0,
+            "type": "uint8",
+            "unit": "V",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "current_limit",
+            "offset": 1,
+            "type": "uint8",
+            "unit": "A",
+            "verification": "reported"
+          },
+          {
+            "array_len": 10,
+            "encoding": "one byte per assist level 0-9, consecutive",
+            "length": 1,
+            "name": "assist_current_limit",
+            "notes": "TEN CONSECUTIVE BYTES, not interleaved with the speed limits below. Parsing this region as (current, speed) pairs puts every value on the wrong assist level and reads half of them as the wrong quantity, silently. Corroborated across two independent implementations.\n",
+            "offset": 2,
+            "type": "uint8",
+            "unit": "%",
+            "verification": "reported"
+          },
+          {
+            "array_len": 10,
+            "encoding": "one byte per assist level 0-9, consecutive, following the current limits",
+            "length": 1,
+            "name": "assist_speed_limit",
+            "offset": 12,
+            "type": "uint8",
+            "unit": "%",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x1F-0x3C for 16in-30in; 0x37 = 700C",
+            "length": 1,
+            "name": "wheel_diameter",
+            "offset": 22,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "bits 1-2: 00 external, 01 internal, 10 motor phase",
+            "length": 1,
+            "name": "speedmeter_model",
+            "offset": 23,
+            "type": "bitfield",
+            "verification": "reported"
+          }
+        ],
+        "name": "read_basic_parameters",
+        "payload_offset": 2,
+        "request": "11 52",
+        "response": "52 18",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "Pedal assist block: 11 data bytes.",
+        "direction": "to_device",
+        "fields": [
+          {
+            "encoding": "0x00 none, 0x01 DH-12, 0x02 BB-32, 0x03 double-signal-24",
+            "length": 1,
+            "name": "pedal_sensor_type",
+            "offset": 0,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x00-0x09, or 0xFF = follow display",
+            "length": 1,
+            "name": "designated_assist",
+            "offset": 1,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x0F-0x28, or 0xFF = follow display",
+            "length": 1,
+            "name": "speed_limit",
+            "offset": 2,
+            "type": "uint8",
+            "unit": "km/h",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x00-0x64",
+            "length": 1,
+            "name": "start_current",
+            "offset": 3,
+            "type": "uint8",
+            "unit": "%",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x01-0x08",
+            "length": 1,
+            "name": "slow_start_mode",
+            "offset": 4,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "pedal signal count before assist engages",
+            "length": 1,
+            "name": "startup_degree",
+            "offset": 5,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x0A-0x50 (angular speed x10)",
+            "length": 1,
+            "name": "work_mode",
+            "offset": 6,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "time_of_stop",
+            "offset": 7,
+            "scale": 10,
+            "type": "uint8",
+            "unit": "ms",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x01-0x08",
+            "length": 1,
+            "name": "current_decay",
+            "offset": 8,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "stop_decay",
+            "offset": 9,
+            "scale": 10,
+            "type": "uint8",
+            "unit": "ms",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "keep_current",
+            "offset": 10,
+            "type": "uint8",
+            "unit": "%",
+            "verification": "reported"
+          }
+        ],
+        "name": "read_pedal_assist_parameters",
+        "payload_offset": 2,
+        "request": "11 53",
+        "response": "53 0B",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "Throttle block: 6 data bytes.",
+        "direction": "to_device",
+        "fields": [
+          {
+            "length": 1,
+            "name": "start_voltage",
+            "offset": 0,
+            "scale": 100,
+            "type": "uint8",
+            "unit": "mV",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "end_voltage",
+            "offset": 1,
+            "scale": 100,
+            "type": "uint8",
+            "unit": "mV",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x00 speed, 0x01 current",
+            "length": 1,
+            "name": "mode",
+            "offset": 2,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x00-0x09, or 0xFF = follow display",
+            "length": 1,
+            "name": "designated_assist",
+            "offset": 3,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x0F-0x28, or 0xFF = follow display",
+            "length": 1,
+            "name": "speed_limit",
+            "offset": 4,
+            "type": "uint8",
+            "unit": "km/h",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "start_current",
+            "offset": 5,
+            "type": "uint8",
+            "unit": "%",
+            "verification": "reported"
+          }
+        ],
+        "name": "read_throttle_parameters",
+        "payload_offset": 2,
+        "request": "11 54",
+        "response": "54 06",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "Active error codes; empty byte array when no faults.",
+        "direction": "to_device",
+        "name": "read_error_codes",
+        "request": "14 15",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "Serial number, ASCII.",
+        "direction": "to_device",
+        "name": "read_serial_number",
+        "request": "14 14",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "advanced": true,
+        "advanced_reason": "Sets the current limit and low-voltage cutoff. Current limits are thermal limits: above the motor's rating this cooks the nylon primary gear or the controller MOSFETs, and the motor will not stop you. Lowering the low-voltage cutoff below the pack's real cutoff drives cells into over-discharge. Read and archive the block first -- the write replaces all 24 bytes, so the saved copy is your restore path.\n",
+        "description": "Write the 24-byte basic block. Payload layout is identical to read_basic_parameters. The length byte is deliberately not asserted here -- see the KNOWN AMBIGUITY note in device.notes.\n",
+        "direction": "to_device",
+        "name": "write_basic_parameters",
+        "request": "16 52",
+        "verification": "reported",
+        "writes": true
+      },
+      {
+        "advanced": true,
+        "advanced_reason": "Sets assist speed limiting and start behaviour. Raising the speed limit can move the bike out of pedelec/EAPC classification, changing what licence, insurance and road access apply. Read and archive the block first; the write replaces all 11 bytes.\n",
+        "description": "Write the 11-byte pedal assist block. Payload layout is identical to read_pedal_assist_parameters.\n",
+        "direction": "to_device",
+        "name": "write_pedal_assist_parameters",
+        "request": "16 53",
+        "verification": "reported",
+        "writes": true
+      },
+      {
+        "advanced": true,
+        "advanced_reason": "Sets throttle behaviour including throttle-from-zero and its speed limit, which is the setting most likely to change the bike's legal classification. Read and archive the block first; the write replaces all 6 bytes.\n",
+        "description": "Write the 6-byte throttle block. Payload layout is identical to read_throttle_parameters.\n",
+        "direction": "to_device",
+        "name": "write_throttle_parameters",
+        "request": "16 54",
+        "verification": "reported",
+        "writes": true
+      },
+      {
+        "advanced": true,
+        "advanced_reason": "Effectively irreversible, and can break warranty and dealer-tool workflows. It has legitimate uses -- restoring identity after a controller swap is a normal repair-bench job -- but there is no undo, so record the existing value before changing it.\n",
+        "description": "Write the serial number (ASCII).",
+        "direction": "to_device",
+        "name": "write_serial_number",
+        "request": "17 01",
+        "verification": "reported",
+        "writes": true
+      }
+    ],
+    "style": "request_response"
+  },
+  "device": {
+    "manufacturer": "Suzhou Bafang Electric Motor Science-Technology",
+    "manufacturer_status": "active",
+    "name": "Bafang BBS02 Mid-Drive",
+    "notes": "36-48 V mid-drive conversion kit sharing a controller architecture and configuration protocol with the BBS01 and BBSHD. No radio and no official app: Bafang Go / BESST targets the newer CAN-bus M-series (M500/M510/M600), not this family. Everything that talks to a BBS02 does so over 1200-baud UART on the display harness -- via a USB programming cable, or via an aftermarket BLE bridge display (EggRider V2, app com.eggbikes.EggRider, whose own BLE UUIDs are undocumented).\nThis is a request/response CONFIGURATION protocol, not a telemetry stream. Reads return parameter blocks; writes replace a whole block. Contrast the Tongsheng TSDZ2, which is a continuous stream at 9600 baud -- a different family entirely, not a variant.\nWRITE SEMANTICS: a write replaces the ENTIRE block. Always read the block first and keep a copy: a partial edit means writing back fields you did not intend to change, and the archived block is the restore path.\nCHECKSUM ASYMMETRY (most common cause of rejected writes): read responses sum every preceding byte; write requests sum only the SECOND code byte, the length byte and the data bytes -- skipping the first code byte.\nVERIFICATION: `reported` throughout -- block sizes, field order and encodings are corroborated across three independent implementations (OpenBafangTool and two bafang-python forks), but nothing here has been read back from a physical unit by us.\nKNOWN AMBIGUITY: sources give write length bytes 0x24 (basic) and 0x11 (pedal) where the corresponding read responses carry 0x18 (24) and 0x0B (11). 0x24 and 0x11 are exactly 24 and 11 written as if decimal were hex, which looks like a documentation slip propagated between forks -- but it could be a real write-side convention. The write messages below therefore omit a literal length byte rather than assert a wrong one. Capture a vendor-tool write before filling it in.\n",
+    "protocol": "uart",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "notes": "No WiFi, no account and no passphrase: physical access to the harness is the only credential.\n",
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": false,
+        "effect": "No factory reset exists. The controller holds configuration blocks that are overwritten by writing them, not cleared by a reset procedure -- which is exactly why archiving the blocks before a write is the documented restore path. Inventing a reset here would be worse than recording that there is none.\n"
+      },
+      "methods": [
+        {
+          "description": "Connect the USB programming cable (or a BLE bridge display such as the EggRider V2) to the display harness. No handshake, pairing or credential exchange precedes normal reads.\n",
+          "type": "wired",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision. The motor has no radio, no account and no pairing step. A cable or a bridge display is connected and the protocol starts immediately.\n",
+      "rejoin": {
+        "notes": "No network binding exists, so there is nothing to rejoin. Moving the vehicle between owners or workshops changes nothing about how the bus is reached.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    }
+  }
+}

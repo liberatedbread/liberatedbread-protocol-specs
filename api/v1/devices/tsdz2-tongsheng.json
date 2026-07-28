@@ -1,0 +1,241 @@
+{
+  "bus": {
+    "checksum": {
+      "algorithm": "sum8",
+      "scope": "8-bit sum of all preceding bytes in the packet, same rule in both directions (unlike the Bafang BBS02, whose rule differs by direction).\n",
+      "verification": "reported"
+    },
+    "link": {
+      "baud": 9600,
+      "framing": "8N1",
+      "logic_level": "TTL",
+      "type": "uart",
+      "verification": "reported",
+      "wiring": [
+        {
+          "connector": "6-pin Tongsheng",
+          "signal": "motor TX (display RX)",
+          "verification": "reported",
+          "wire_colour": "brown"
+        },
+        {
+          "connector": "6-pin Tongsheng",
+          "signal": "motor RX (display TX)",
+          "verification": "reported",
+          "wire_colour": "orange"
+        }
+      ]
+    },
+    "messages": [
+      {
+        "description": "Motor to display status packet. Free-running; no request triggers it.\n",
+        "direction": "from_device",
+        "fields": [
+          {
+            "encoding": "always 0x43",
+            "length": 1,
+            "name": "start_byte",
+            "offset": 0,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x00 red blinking; 0x01-0x09 red through green; 0x0A and above full green",
+            "length": 1,
+            "name": "battery_level",
+            "offset": 1,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "bits: low voltage, unknown, motor running, PAS status",
+            "length": 1,
+            "name": "status_flags",
+            "notes": "Exact bit order worth confirming by diffing single-variable changes.",
+            "offset": 2,
+            "type": "bitfield",
+            "verification": "hypothesis"
+          },
+          {
+            "length": 1,
+            "name": "torque_sensor_tara",
+            "notes": "Zero/reference value; pair with torque_sensor_value to derive applied torque. Scaling to real units is not documented.",
+            "offset": 3,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "torque_sensor_value",
+            "offset": 4,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "0x08 = undervoltage; other codes not documented",
+            "length": 1,
+            "name": "error_code",
+            "offset": 5,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "speed",
+            "offset": 6,
+            "type": "uint16",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "checksum",
+            "offset": 8,
+            "type": "uint8",
+            "verification": "reported"
+          }
+        ],
+        "length": 9,
+        "name": "motor_status",
+        "rate_hz": 8,
+        "start_byte": "43",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "advanced": true,
+        "advanced_reason": "Transmitting this packet makes you the display: it continuously asserts wheel size and max speed. Raising the max-speed byte is derestriction, which can move a pedelec out of EAPC classification and change what licence, insurance and road access apply. Capture the values the stock display sends before replacing them, so you can restore them. Do not transmit onto a bus that still has the stock display attached -- two transmitters asserting different values is untested.\n",
+        "description": "Display to motor control packet. Re-asserted 15 times a second; this is the write path -- there is no separate configuration exchange.\n",
+        "direction": "to_device",
+        "fields": [
+          {
+            "encoding": "always 0x59",
+            "length": 1,
+            "name": "start_byte",
+            "offset": 0,
+            "type": "uint8",
+            "verification": "reported"
+          },
+          {
+            "encoding": "bits: headlight, assist levels 2-4, assist off, 6 km/h walk mode, assist level 1, hidden level",
+            "length": 1,
+            "name": "control_flags",
+            "notes": "Bit positions described but not precisely pinned; confirm by diffing one change at a time.",
+            "offset": 1,
+            "type": "bitfield",
+            "verification": "hypothesis"
+          },
+          {
+            "length": 1,
+            "name": "unknown_byte_2",
+            "notes": "Undocumented in the sources. Unknown, not known-zero -- capture before assuming.",
+            "offset": 2,
+            "type": "uint8",
+            "verification": "hypothesis"
+          },
+          {
+            "encoding": "range 6-29; default 0x1A (26 inch)",
+            "length": 1,
+            "name": "wheel_size",
+            "offset": 3,
+            "type": "uint8",
+            "unit": "in",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "unknown_byte_4",
+            "notes": "Undocumented in the sources. Unknown, not known-zero.",
+            "offset": 4,
+            "type": "uint8",
+            "verification": "hypothesis"
+          },
+          {
+            "encoding": "minimum 0x0E (14); default 0x19 (25)",
+            "length": 1,
+            "name": "max_speed",
+            "offset": 5,
+            "type": "uint8",
+            "unit": "km/h",
+            "verification": "reported"
+          },
+          {
+            "length": 1,
+            "name": "checksum",
+            "offset": 6,
+            "type": "uint8",
+            "verification": "reported"
+          }
+        ],
+        "length": 7,
+        "name": "display_control",
+        "rate_hz": 15,
+        "start_byte": "59",
+        "verification": "reported",
+        "writes": true
+      }
+    ],
+    "notes": "Stock displays sharing this protocol: VLCD5, VLCD6, XH18. OSF additionally supports SW102, DZ41, 850C and 860C.\n",
+    "style": "stream"
+  },
+  "device": {
+    "manufacturer": "Tongsheng",
+    "manufacturer_status": "active",
+    "name": "Tongsheng TSDZ2 Mid-Drive",
+    "notes": "Torque-sensing e-bike mid-drive conversion kit. No radio and no app: the controller talks to the display over plain 9600-baud TTL serial on the main harness, so reaching it from a phone or hub needs a bridge.\nUnlike the Bafang BBS02 this is NOT a request/response configuration protocol. Both ends push fixed-shape packets continuously and neither waits for the other -- the motor reports status 8 times a second, the display asserts control 15 times a second. There is no \"read the settings block\" exchange.\nCONSEQUENCE FOR IMPLEMENTERS: the display packet IS the write path. Wheel size and max speed are re-asserted on every repetition, so anything that transmits on this bus is setting them, continuously. A read-only tool here means listen-only -- never transmit.\nFIRMWARE MATTERS: the layouts below describe the STOCK Tongsheng firmware. Open-source firmware (OSF) is widely installed and changes both the feature set and, on 850C/860C/SW102 displays, the link itself. A capture that disagrees with this spec most likely means OSF is installed -- establish which firmware is running before concluding the spec is wrong.\nVERIFICATION: `reported` throughout -- documented by community work (hurzhurz/tsdz2) and corroborated by independent OSF forks, but nothing here has been captured from a physical unit by us. Display packet bytes 2 and 4 are undocumented even in the sources: unknown, NOT assumed zero.\n",
+    "protocol": "uart",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "notes": "No WiFi, no account and no passphrase: physical access to the harness is the only credential.\n",
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": false,
+        "effect": "No factory reset exists on the stock firmware. Settings are asserted by the display on every control packet rather than stored as provisioning state, so restoring defaults means sending default values -- or refitting the stock display. Reflashing (OSF or stock) is a firmware operation, not a reset.\n"
+      },
+      "methods": [
+        {
+          "description": "Connect a 3.3V USB-TTL adapter to the brown (motor TX) and orange (motor RX) harness lines at 9600 8N1. The telemetry stream is already running; nothing needs to be requested or negotiated.\n",
+          "type": "wired",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision. No radio, no account, no pairing. Connecting at the right baud rate is the entire onboarding flow.\n",
+      "rejoin": {
+        "notes": "No network binding exists, so there is nothing to rejoin. Moving the vehicle between owners or workshops changes nothing about how the bus is reached.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    }
+  },
+  "entities": [
+    {
+      "device_class": "speed",
+      "name": "Speed",
+      "platform": "sensor",
+      "state_field": "motor_status.speed"
+    },
+    {
+      "device_class": "battery",
+      "name": "Battery Level",
+      "platform": "sensor",
+      "state_field": "motor_status.battery_level"
+    },
+    {
+      "name": "Torque Sensor",
+      "platform": "sensor",
+      "state_field": "motor_status.torque_sensor_value"
+    },
+    {
+      "name": "Motor Running",
+      "platform": "binary_sensor",
+      "state_field": "motor_status.status_flags"
+    },
+    {
+      "name": "Error Code",
+      "platform": "sensor",
+      "state_field": "motor_status.error_code"
+    }
+  ]
+}

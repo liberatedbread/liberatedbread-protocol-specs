@@ -1,0 +1,803 @@
+{
+  "device": {
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "value": "Ember"
+            },
+            "manufacturer_data": {
+              "company_id": 961,
+              "description": "Ember BLE manufacturer data under Bluetooth SIG company ID 0x03C1.",
+              "match": "prefix"
+            },
+            "service_uuids": [
+              "fc543622-236c-4c94-8fa9-944a3e5353fa",
+              "fc543621-236c-4c94-8fa9-944a3e5353fa",
+              "fc5421a1-236c-4c94-8fa9-944a3e5353fa"
+            ]
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefix": "Ember",
+      "manufacturer_data": {
+        "company_id": 961,
+        "company_id_hex": "0x03C1",
+        "discovery_patterns": [
+          "Home Assistant bluetooth manifest: local_name `Ember C*` + manufacturer_id 961.",
+          "Home Assistant bluetooth manifest: local_name `Ember T*` + manufacturer_id 961.",
+          "python-ember-mug reads AdvertisementData.manufacturer_data[0x03C1]."
+        ],
+        "payload_notes": "python-ember-mug treats short (<4 byte) payloads as a signed model/color byte and longer payloads as bytes 1..3 = model_id, generation, colour_id. Known model_id/generation mapping includes Mug 1/2, Travel Mug, Cup, and Tumbler; color IDs map to black/white/red/copper/rose gold/stainless steel/sandstone/sage green/grey/blue/gold. The exact manufacturer-data binary contract remains inferred from public library behavior.\n"
+      },
+      "service_uuids": [
+        "fc543622-236c-4c94-8fa9-944a3e5353fa",
+        "fc543621-236c-4c94-8fa9-944a3e5353fa",
+        "fc5421a1-236c-4c94-8fa9-944a3e5353fa"
+      ]
+    },
+    "manufacturer": "Ember Technologies",
+    "manufacturer_status": "unsupported",
+    "name": "Ember Mug",
+    "notes": "Covers Ember Mug 2 (10/14 oz), Travel Mug 2/2+, Cup (6 oz), Tumbler (16 oz). Official Android app package is `com.embertech`; APKPure XAPK inspected: Ember app 4.5.9 / versionCode 220. The decompiled Android manifest confirms BLE permissions, package `com.embertech`, and Nordic DFU services; Flutter AOT strings expose the Ember Bluetooth model names and characteristic helper names such as `characteristicForTargetTemperature`, `characteristicForLED`, `characteristicForPushEvent`, `characteristicForDSK`, and `ManufacturerDataX|get#emberAdvertisementInfoOrNull`.\nAll protocol UUIDs use template fc54XXXX-236c-4c94-8fa9-944a3e5353fa. Standard Mug/Cup/Tumbler service is fc543622. Travel Mug libraries also use fc543621 and fc5421a1 as service UUIDs. BLE SIG company ID is 0x03C1 (961). Home Assistant discovery matches local names `Ember C*` and `Ember T*` with manufacturer_id 961, plus the known service UUIDs.\nPairing/auth: public libraries can connect locally with BLE pairing, but writes may fail until the product has first been set up in the official app. python-ember-mug models DSK (read) and UDSK (read/write, base64-encoded string); its `make_writable()` helper attempts to write a random UDSK if the mug is not writable. Treat UDSK/DSK details as partially understood.\nTemperature values are little-endian uint16 centi-degrees C. Target 0x0000 disables temperature control. python-ember-mug enforces setpoint bounds of 49-63 C or 120-145 F. Liquid level is a raw 0-30-ish value; orlopau notes it may only update on charger and only 0/30 are app-significant. Push event notifications are one-byte event IDs and should prompt clients to re-read the affected characteristic.\nDevice coverage is wider than the original orlopau Ember Mug 2 docs: sopelj/python-ember-mug reports tested Mug, Mug 2, Cup, Tumbler, Travel Mug, and Travel Mug 2 support. No dedicated ESPHome Ember component was found; the Home Assistant integration works through BLE adapters or active ESPHome Bluetooth proxies.\nSchema gaps (device-specs/schema.json intentionally not modified): there is no dedicated field for BLE manufacturer-data format, characteristic endianness, enum/value maps, write authentication/pairing caveats, multiple equivalent service UUIDs sharing one characteristic table, or per-field evidence links. These are documented in notes and references.\n",
+    "protocol": "ble",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [
+          "DSK read from the mug, and the UDSK the client wrote"
+        ],
+        "stored_on_device": [
+          "UDSK claim value"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "confidence": "low",
+        "effect": "Clears the stored claim and returns the mug to pairing mode; temperature history and target are lost.",
+        "procedures": [
+          {
+            "hold_seconds": 10,
+            "indicator": "LED changes colour and the mug re-enters pairing mode.",
+            "name": "Base button held",
+            "steps": [
+              {
+                "action": "Press and hold the button on the base of the mug until the LED changes.",
+                "actor": "user",
+                "notes": "Hold time varies by model; watch the LED rather than the clock."
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "advertised_name": "Ember",
+            "pairing_required": true,
+            "pin_source": "None — claiming is a characteristic write, not a BLE PIN pairing."
+          },
+          "description": "Scan, connect, then claim write access. Temperature reads work immediately; setpoint and LED writes may not.\n",
+          "steps": [
+            {
+              "action": "Put the mug in pairing mode by holding the button on the base until the LED shows the pairing colour.",
+              "actor": "user",
+              "expect": "Mug advertises with local name Ember* and manufacturer ID 961 (0x03C1)."
+            },
+            {
+              "action": "Connect and read the device state characteristics to confirm the link.",
+              "actor": "client",
+              "request": {
+                "protocol": "ble_gatt"
+              }
+            },
+            {
+              "action": "If writes are rejected, claim the mug by writing a UDSK value.",
+              "actor": "client",
+              "notes": "python-ember-mug's make_writable() writes a random UDSK. Treat the DSK/UDSK semantics as partially understood; keep the value you wrote, since it is the client's claim on the mug.\n",
+              "request": {
+                "action": "Write UDSK",
+                "protocol": "ble_gatt"
+              }
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "There is nothing to provision — no network, no account, no cloud. What trips clients up instead is write authorization: several libraries report that a mug fresh out of the box accepts reads but rejects writes until a client has claimed it by writing the UDSK characteristic (what python-ember-mug calls making the mug writable). Historically that first claim was done by the vendor app.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "The usual symptom of a mug that will not connect is not a broken claim but a phone that is still holding the single allowed connection. Close or uninstall the other client, or power-cycle the mug on its coaster, before assuming a reset is required.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    }
+  },
+  "entities": [
+    {
+      "device_class": "temperature",
+      "name": "Current Temperature",
+      "platform": "sensor",
+      "state_characteristic": "fc540002-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "value": "current_temp_raw"
+      },
+      "unit": "C"
+    },
+    {
+      "commands": {
+        "set_value": "set_target_temp"
+      },
+      "device_class": "temperature",
+      "name": "Target Temperature",
+      "platform": "number",
+      "state_characteristic": "fc540003-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "allowed_celsius_range": "49-63 or 0 to disable",
+        "scale": 0.01,
+        "value": "target_temp_raw"
+      },
+      "unit": "C"
+    },
+    {
+      "commands": {
+        "turn_off": "set target temp raw to 0x0000",
+        "turn_on": "restore previous nonzero target temperature"
+      },
+      "name": "Temperature Control",
+      "platform": "switch",
+      "state_characteristic": "fc540003-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "on_when": "nonzero",
+        "value": "target_temp_raw"
+      }
+    },
+    {
+      "commands": {
+        "set_celsius": "set_celsius",
+        "set_fahrenheit": "set_fahrenheit"
+      },
+      "name": "Temperature Unit",
+      "platform": "select",
+      "state_characteristic": "fc540004-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "options": {
+          "0": "Celsius",
+          "1": "Fahrenheit"
+        },
+        "value": "temp_unit"
+      }
+    },
+    {
+      "device_class": "battery",
+      "name": "Battery",
+      "platform": "sensor",
+      "state_characteristic": "fc540007-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "value": "battery_percent"
+      },
+      "unit": "%"
+    },
+    {
+      "name": "Charging Base",
+      "platform": "binary_sensor",
+      "state_characteristic": "fc540007-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "on_value": 1,
+        "value": "on_charging_base"
+      }
+    },
+    {
+      "name": "Liquid Level",
+      "platform": "sensor",
+      "state_characteristic": "fc540005-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "scale": "raw / 30 * 100",
+        "value": "liquid_level"
+      },
+      "unit": "%"
+    },
+    {
+      "name": "Liquid State",
+      "platform": "sensor",
+      "state_characteristic": "fc540008-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "states": {
+          "0": "standby",
+          "1": "empty",
+          "2": "filling",
+          "3": "cold_no_temp_control",
+          "4": "cooling",
+          "5": "heating",
+          "6": "target_temperature",
+          "7": "warm_no_temp_control"
+        },
+        "value": "liquid_state"
+      }
+    },
+    {
+      "commands": {
+        "set_color": "set_led_color"
+      },
+      "features": [
+        "color"
+      ],
+      "name": "LED",
+      "platform": "light",
+      "state_characteristic": "fc540014-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "brightness": "brightness",
+        "color_rgb": {
+          "blue": "blue",
+          "green": "green",
+          "red": "red"
+        }
+      }
+    },
+    {
+      "commands": {
+        "set_high": "set_volume_high",
+        "set_low": "set_volume_low",
+        "set_medium": "set_volume_medium"
+      },
+      "name": "Travel Mug Volume",
+      "platform": "select",
+      "state_characteristic": "fc540009-236c-4c94-8fa9-944a3e5353fa",
+      "state_mapping": {
+        "options": {
+          "0": "low",
+          "1": "medium",
+          "2": "high"
+        },
+        "value": "volume_level"
+      }
+    }
+  ],
+  "references": [
+    "https://play.google.com/store/apps/details?id=com.embertech",
+    "https://apkpure.com/ember/com.embertech",
+    "https://github.com/orlopau/ember-mug",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/target-temp.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/current-temp.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/battery.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/liquid-level.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/liquid-state.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/mug-color.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/mug-name.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/temperature-unit.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/push-events.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/time-date-zone.md",
+    "https://github.com/orlopau/ember-mug/blob/master/docs/ota.md",
+    "https://github.com/sopelj/python-ember-mug",
+    "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/consts.py",
+    "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/mug.py",
+    "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/data.py",
+    "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/utils.py",
+    "https://github.com/sopelj/hass-ember-mug-component",
+    "https://github.com/sopelj/hass-ember-mug-component/blob/main/custom_components/ember_mug/manifest.json",
+    "https://github.com/zopieux/mugctl",
+    "https://support.ember.com/en-US/ember-mug-how-to-pair-1757457"
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "format": [
+            {
+              "length": 16,
+              "name": "name",
+              "offset": 0,
+              "type": "string"
+            }
+          ],
+          "name": "Mug Name",
+          "notes": "orlopau documents up to 14 bytes ASCII without spaces; python-ember-mug accepts UTF-8 writes matching a 1-16 character restricted regex. Cup/Tumbler are modeled as not supporting name; Travel Mug is read-only in python-ember-mug's README table.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540001-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 2,
+              "name": "current_temp_raw",
+              "offset": 0,
+              "type": "uint16"
+            }
+          ],
+          "name": "Current Temperature",
+          "notes": "Little-endian uint16; value * 0.01 = degrees C.",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc540002-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "commands": {
+            "set_target_temp": {
+              "description": "Set target temperature (value * 0.01 = degrees C; 0x0000 disables heater)",
+              "parameters": {
+                "temp_high": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "temp_low": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                "{temp_low}",
+                "{temp_high}"
+              ]
+            }
+          },
+          "format": [
+            {
+              "length": 2,
+              "name": "target_temp_raw",
+              "offset": 0,
+              "type": "uint16"
+            }
+          ],
+          "name": "Target Temperature",
+          "notes": "Little-endian uint16 centi-degrees C. 0x0000 disables heater/temp control. python-ember-mug accepts nonzero setpoints only in 49-63 C or 120-145 F, converting F to device C before writing.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540003-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "commands": {
+            "set_celsius": {
+              "description": "Set temperature display to Celsius",
+              "value": [
+                0
+              ]
+            },
+            "set_fahrenheit": {
+              "description": "Set temperature display to Fahrenheit",
+              "value": [
+                1
+              ]
+            }
+          },
+          "format": [
+            {
+              "length": 1,
+              "name": "temp_unit",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Temperature Unit",
+          "notes": "0 = Celsius, 1 = Fahrenheit; affects device/app display unit, not raw temp encoding.",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540004-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "liquid_level",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Liquid Level",
+          "notes": "Raw one-byte level. orlopau observed 0 = empty and 30 = not empty; the app appears to ignore intermediate values. python-ember-mug formats it as raw / 30 * 100 percent.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc540005-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "commands": {
+            "set_time": {
+              "description": "Set device clock (4-byte Unix timestamp LE + 1-byte timezone offset)",
+              "parameters": {
+                "ts0": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "ts1": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "ts2": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "ts3": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "tz_offset": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                "{ts0}",
+                "{ts1}",
+                "{ts2}",
+                "{ts3}",
+                "{tz_offset}"
+              ]
+            }
+          },
+          "name": "Date Time Zone",
+          "notes": "orlopau calls this a write-only sink using 4-byte little-endian Unix timestamp plus one timezone-offset byte. python-ember-mug currently reads it as a 4-byte big-endian timestamp and does not write it in the normal update path, so endianness/readability are uncertain.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540006-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "battery_percent",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "on_charging_base",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 2,
+              "name": "battery_temp_raw",
+              "offset": 2,
+              "type": "uint16"
+            },
+            {
+              "length": 1,
+              "name": "legacy_battery_voltage",
+              "offset": 4,
+              "type": "uint8"
+            }
+          ],
+          "name": "Battery",
+          "notes": "orlopau documents a 5-byte value: byte 0 battery percent (5-100, not scaled), byte 1 charging status, bytes 2-3 battery temperature as little-endian centi-degrees C, byte 4 legacy/probable voltage. Current python-ember-mug only exposes percent and charging-base boolean.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc540007-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "liquid_state",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Liquid State",
+          "notes": "python-ember-mug maps 0=standby, 1=empty, 2=filling, 3=cold/no-temp-control, 4=cooling, 5=heating, 6=target/perfect, 7=warm/no-temp-control. orlopau's older app notes saw 3 as emitted but not registered by the app.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc540008-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "commands": {
+            "set_volume_high": {
+              "description": "Set Travel Mug beep volume to high",
+              "value": [
+                2
+              ]
+            },
+            "set_volume_low": {
+              "description": "Set Travel Mug beep volume to low",
+              "value": [
+                0
+              ]
+            },
+            "set_volume_medium": {
+              "description": "Set Travel Mug beep volume to medium",
+              "value": [
+                1
+              ]
+            }
+          },
+          "format": [
+            {
+              "length": 1,
+              "name": "volume_level",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Volume",
+          "notes": "Travel Mug button-beep volume in python-ember-mug. Values: 0=low, 1=medium, 2=high. Marked N/A for Mug/Cup/Tumbler.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540009-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "name": "Last Location",
+          "notes": "Present in python-ember-mug's MugCharacteristic enum as LAST_LOCATION (write). Payload format was not found in public docs or light app static inspection.\n",
+          "properties": [
+            "write"
+          ],
+          "uuid": "fc54000a-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "name": "Acceleration",
+          "notes": "Present in python-ember-mug's MugCharacteristic enum as UUID_ACCELERATION with comment \"Unsure what it does\"; payload format unknown.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc54000b-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 2,
+              "name": "firmware_version",
+              "offset": 0,
+              "type": "uint16"
+            },
+            {
+              "length": 2,
+              "name": "hardware_version",
+              "offset": 2,
+              "type": "uint16"
+            },
+            {
+              "length": 2,
+              "name": "bootloader_version",
+              "offset": 4,
+              "type": "uint16"
+            }
+          ],
+          "name": "Firmware",
+          "notes": "orlopau documents 4-6 bytes: firmware version, hardware version, and optional bootloader version, each little-endian uint16. python-ember-mug exposes all three fields.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc54000c-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 6,
+              "name": "mug_id",
+              "offset": 0,
+              "type": "bytes"
+            },
+            {
+              "length": 16,
+              "name": "serial_number",
+              "offset": 7,
+              "type": "string"
+            }
+          ],
+          "name": "Mug ID",
+          "notes": "python-ember-mug reads this as 6 bytes mug_id followed by serial number from byte 7 onward. The mug_id decoding is marked uncertain in the library.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc54000d-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 20,
+              "name": "dsk",
+              "offset": 0,
+              "type": "bytes"
+            }
+          ],
+          "name": "DSK",
+          "notes": "python-ember-mug calls this a unique ID used for auth in the app and base64-encodes/decodes the byte string. Exact auth semantics unknown.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "fc54000e-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "commands": {
+            "set_udsk": {
+              "description": "Write app auth/user DSK material; exact semantics uncertain",
+              "parameters": {
+                "udsk_bytes": {
+                  "type": "bytes"
+                }
+              },
+              "template": [
+                "{udsk_bytes}"
+              ]
+            }
+          },
+          "format": [
+            {
+              "length": 20,
+              "name": "udsk",
+              "offset": 0,
+              "type": "bytes"
+            }
+          ],
+          "name": "UDSK",
+          "notes": "python-ember-mug calls this UDSK, used for auth in the app. It treats all-zero 20-byte reads as missing and attempts to write a base64-encoded random string in `make_writable()` when normal writes fail.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc54000f-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "control_register_address",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Control Register Address",
+          "notes": "python-ember-mug enum comment says \"int/temp lock - Address\". App AOT strings include `characteristicForControlRegisterAddress`. Payload and temp-lock behavior remain uncertain.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540010-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "control_register_data0",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Control Register Data",
+          "notes": "python-ember-mug enum comment says battery charge info read/write; for Travel Mug it reads the first byte as battery voltage/state. App AOT strings include `characteristicForControlRegisterData`. Exact register map is unknown.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540011-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "event_id",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Push Event",
+          "notes": "One-byte notification event ID. python-ember-mug maps 1=battery changed, 2=charger connected, 3=charger disconnected, 4=target temp changed, 5=drink temp changed, 6=auth info not found, 7=liquid level changed, 8=liquid state changed, 9=battery voltage state changed. Clients should re-read the affected characteristic.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "fc540012-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "statistics_event_id",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
+          "name": "Statistics",
+          "notes": "python-ember-mug subscribes only when debug is enabled and logs raw bytes as statistics; payload format was not found.\n",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "fc540013-236c-4c94-8fa9-944a3e5353fa"
+        },
+        {
+          "commands": {
+            "set_led_color": {
+              "description": "Set LED color (RGBA)",
+              "parameters": {
+                "blue": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "brightness": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "green": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "red": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                "{red}",
+                "{green}",
+                "{blue}",
+                "{brightness}"
+              ]
+            }
+          },
+          "format": [
+            {
+              "length": 1,
+              "name": "red",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "green",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "blue",
+              "offset": 2,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "brightness",
+              "offset": 3,
+              "type": "uint8"
+            }
+          ],
+          "name": "LED Color",
+          "notes": "LED color characteristic. orlopau documents the byte order as red, blue, green, alpha. python-ember-mug's Colour tuple and app log strings label writes as R/G/B/brightness. Existing integrations appear to use [red, green, blue, brightness]; verify on hardware if precise blue/green ordering matters.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "fc540014-236c-4c94-8fa9-944a3e5353fa"
+        }
+      ],
+      "name": "Ember Mug Service",
+      "notes": "Standard Mug/Cup/Tumbler service. Travel Mug variants use service UUIDs fc543621-236c-4c94-8fa9-944a3e5353fa and fc5421a1-236c-4c94-8fa9-944a3e5353fa with the same fc54XXXX characteristic UUID pattern according to python-ember-mug. Schema has no way to declare equivalent service UUIDs without duplicating every characteristic.\n",
+      "uuid": "fc543622-236c-4c94-8fa9-944a3e5353fa"
+    }
+  ]
+}

@@ -1,0 +1,1732 @@
+{
+  "device": {
+    "discovery": {
+      "identity": {
+        "display": "friendlyName",
+        "stable_keys": [
+          "udn",
+          "serial",
+          "mac"
+        ]
+      },
+      "methods": [
+        {
+          "ssdp": {
+            "match": {
+              "description": "ssdp:all is among the search targets, so every UPnP responder on the LAN answers. Keep only Belkin devices.\n",
+              "manufacturer_exact": "Belkin International Inc.",
+              "rule": "Case-insensitively match 'belkin' or 'wemo' in any of: the USN header, the ST header, deviceType or manufacturer from the fetched description. The manufacturer element reads exactly 'Belkin International Inc.' on every device seen so far.\n"
+            },
+            "multicast_group": "239.255.255.250",
+            "multicast_port": 1900,
+            "port_fallback": [
+              49153,
+              49152,
+              49154,
+              49151,
+              49155,
+              49156,
+              49157,
+              49158,
+              49159
+            ],
+            "port_fallback_notes": "Wemo HTTP ports move across this range after a power cycle, so the port is never identity. When a cached LOCATION stops answering, probe this list in order for /setup.xml on the same host before concluding the device is gone.\n",
+            "request": {
+              "example": "M-SEARCH * HTTP/1.1\nHOST: 239.255.255.250:1900\nMAN: \"ssdp:discover\"\nMX: 2\nST: urn:Belkin:service:basicevent:1\n",
+              "line_ending": "CRLF",
+              "mx": 2,
+              "socket_options": {
+                "IP_MULTICAST_TTL": 2
+              },
+              "template": "M-SEARCH * HTTP/1.1\nHOST: {multicast_group}:{multicast_port}\nMAN: \"ssdp:discover\"\nMX: {mx}\nST: {search_target}\n",
+              "template_notes": "Lines are CRLF-terminated and the request ends with a blank line (a trailing CRLF after the ST header). MAN's value includes the literal double quotes. Send one datagram per search target and collect unicast replies on the same socket.\n",
+              "transport": "UDP multicast"
+            },
+            "response": {
+              "dedupe_by": "LOCATION",
+              "dedupe_notes": "Every search target is sent separately, so one device answers several times. Deduplicate on the LOCATION URL before fetching.\n",
+              "example": "HTTP/1.1 200 OK\nCACHE-CONTROL: max-age=86400\nLOCATION: http://192.168.1.42:49153/setup.xml\nST: urn:Belkin:service:basicevent:1\nUSN: uuid:Socket-1_0-221517K0101769::urn:Belkin:service:basicevent:1\n",
+              "format": "HTTP/1.1 200 OK status line followed by headers; no body.",
+              "header_matching": "case-insensitive",
+              "headers_used": {
+                "LOCATION": "URL of the device description, normally http://<ip>:<port>/setup.xml",
+                "ST": "Search target echoed by the device",
+                "USN": "UDN plus the matching search target"
+              }
+            },
+            "response_mapping": {
+              "location": {
+                "action": "fetch_xml",
+                "parse": {
+                  "control_endpoints": {
+                    "fields": {
+                      "control_url": "controlURL",
+                      "event_sub_url": "eventSubURL",
+                      "scpd_url": "SCPDURL",
+                      "service_type": "serviceType"
+                    },
+                    "source": "xml://device/serviceList/service"
+                  },
+                  "device_identity": {
+                    "display": {
+                      "source": "xml://device/friendlyName"
+                    },
+                    "stable_keys": [
+                      {
+                        "key": "udn",
+                        "source": "xml://device/UDN"
+                      },
+                      {
+                        "key": "serial",
+                        "source": "xml://device/serialNumber"
+                      },
+                      {
+                        "key": "mac",
+                        "source": "xml://device/macAddress"
+                      }
+                    ],
+                    "variant": {
+                      "source": "xml://device/deviceType"
+                    }
+                  },
+                  "example": "<?xml version=\"1.0\"?>\n<root xmlns=\"urn:schemas-upnp-org:device-1-0\">\n  <device>\n    <deviceType>urn:Belkin:device:controllee:1</deviceType>\n    <friendlyName>Kitchen Plug</friendlyName>\n    <manufacturer>Belkin International Inc.</manufacturer>\n    <modelName>Socket</modelName>\n    <modelNumber>1.0</modelNumber>\n    <serialNumber>221517K0101769</serialNumber>\n    <macAddress>94103E36AF15</macAddress>\n    <UDN>uuid:Socket-1_0-221517K0101769</UDN>\n    <firmwareVersion>WeMo_US_2.00.11408</firmwareVersion>\n    <rtos>1</rtos>\n    <iot>0</iot>\n    <serviceList>\n      <service>\n        <serviceType>urn:Belkin:service:basicevent:1</serviceType>\n        <serviceId>urn:Belkin:serviceId:basicevent1</serviceId>\n        <controlURL>/upnp/control/basicevent1</controlURL>\n        <eventSubURL>/upnp/event/basicevent1</eventSubURL>\n        <SCPDURL>/eventservice.xml</SCPDURL>\n      </service>\n    </serviceList>\n  </device>\n</root>\n",
+                  "parse_rules": [
+                    "The document root is <root> in the UPnP namespace urn:schemas-upnp-org:device-1-0, with the device as <root><device>. Some firmware serves it with no namespace at all, so match on local element names rather than requiring the namespace.\n",
+                    "Standard UPnP child elements of <device>: deviceType, friendlyName, manufacturer, manufacturerURL, modelDescription, modelName, modelNumber, modelURL, serialNumber, UDN, UPC, macAddress, iconList, serviceList, deviceList, presentationURL.\n",
+                    "Any OTHER child element of <device> is a Belkin extension. Collect them into a map; firmwareVersion, rtos, iot, binaryOption and new_algo appear there, and rtos/iot select the setup encryption variant (see device.setup).\n",
+                    "serviceList contains one <service> per entry; take serviceType, controlURL, eventSubURL and SCPDURL from each. Never hardcode a controlURL — the spelling varies across firmware generations.\n"
+                  ]
+                },
+                "url": "LOCATION"
+              }
+            },
+            "search_targets": [
+              "urn:Belkin:service:basicevent:1",
+              "urn:Belkin:device:controllee:1",
+              "urn:Belkin:device:socket:1",
+              "urn:Belkin:device:insight:1",
+              "urn:Belkin:device:Lightswitch:1",
+              "urn:Belkin:device:dimmer:1",
+              "urn:Belkin:device:bridge:1",
+              "urn:Belkin:device:Maker:1",
+              "urn:Belkin:device:motion:1",
+              "urn:Belkin:device:sensor:1",
+              "urn:Belkin:device:outdoor:1",
+              "ssdp:all",
+              "urn:Belkin:device:coffeemaker:1",
+              "urn:Belkin:device:crockpot:1",
+              "urn:Belkin:device:purifier:1",
+              "urn:Belkin:device:heater:1",
+              "urn:Belkin:device:humidifier:1",
+              "urn:Belkin:device:humidifierb:1"
+            ],
+            "timing": {
+              "http_fetch_timeout_seconds": 5,
+              "port_probe_timeout_seconds": 2,
+              "response_wait_notes": "Wait per search target, not in total. MX is the device's own upper bound on how long it may delay its reply, so the listen window must be at least MX.\n",
+              "response_wait_seconds": 3
+            }
+          },
+          "type": "ssdp"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 49153,
+      "discovery_order": [
+        "Send SSDP M-SEARCH to 239.255.255.250:1900.",
+        "Read LOCATION from each unicast SSDP response.",
+        "Fetch LOCATION, usually /setup.xml.",
+        "Parse deviceType, UDN, friendlyName, serialNumber, macAddress, and serviceList.",
+        "Match variant by deviceType first and UDN prefix second.",
+        "Use each service controlURL from setup.xml for SOAP calls."
+      ],
+      "identity_keys": {
+        "display": "friendlyName",
+        "primary": "UDN",
+        "secondary": "serialNumber",
+        "tertiary": "macAddress"
+      },
+      "port_probe_list": [
+        49153,
+        49152,
+        49154,
+        49151,
+        49155,
+        49156,
+        49157,
+        49158,
+        49159
+      ],
+      "ssdp": {
+        "headers": {
+          "HOST": "239.255.255.250:1900",
+          "MAN": "\"ssdp:discover\"",
+          "MX": "1"
+        },
+        "method": "M-SEARCH * HTTP/1.1",
+        "multicast_group": "239.255.255.250",
+        "multicast_port": 1900,
+        "response_headers": {
+          "location": "URL to fetch, normally http://<ip>:<port>/setup.xml",
+          "st": "Search target echoed by the device",
+          "usn": "UDN plus matching search target"
+        },
+        "search_targets": [
+          "urn:Belkin:service:basicevent:1",
+          "urn:Belkin:device:controllee:1",
+          "urn:Belkin:device:socket:1",
+          "urn:Belkin:device:insight:1",
+          "urn:Belkin:device:Lightswitch:1",
+          "urn:Belkin:device:dimmer:1",
+          "urn:Belkin:device:bridge:1",
+          "urn:Belkin:device:Maker:1",
+          "urn:Belkin:device:motion:1",
+          "urn:Belkin:device:sensor:1",
+          "urn:Belkin:device:outdoor:1",
+          "ssdp:all"
+        ],
+        "setup_xml_fields": [
+          "deviceType",
+          "friendlyName",
+          "UDN",
+          "serialNumber",
+          "macAddress",
+          "modelName",
+          "modelNumber",
+          "serviceList"
+        ]
+      },
+      "ssid_examples": [
+        "WeMo.Switch.A1B",
+        "Wemo.Mini.4A2",
+        "WeMo.Insight.7C4",
+        "WeMo.Lightswitch.0F3"
+      ],
+      "ssid_prefix": "Wemo.",
+      "ssid_prefix_match": "case_insensitive",
+      "static_ip_required": false
+    },
+    "manufacturer": "Belkin",
+    "manufacturer_status": "shutdown",
+    "name": "Belkin Wemo Smart Devices",
+    "notes": "ALL Wemo devices are discovered via SSDP (Simple Service Discovery Protocol). NO static IP configuration is needed. Send an M-SEARCH to 239.255.255.250:1900 with ST matching a device or service search target, then fetch and parse setup.xml at the LOCATION URL to get the control URL, UDN, friendly name, serial/MAC metadata, service list, and deviceType.\nDiscovery order: 1. SSDP M-SEARCH; 2. parse LOCATION /setup.xml; 3. match deviceType and UDN prefix to a variant; 4. call SOAP actions at the service controlURL from setup.xml. Device ordering should use stable identity first: UDN, then serialNumber, then macAddress, with friendlyName used only as user-facing display text.\nPort instability: Wemo Mini and related devices may change HTTP ports after a power cycle or reconnect. Always rediscover with SSDP or probe ports 49152-49159 in the pywemo order recorded below.\nCONFIDENCE: SSDP discovery and SOAP action values HIGH (verified by pywemo, Home Assistant, ouimeaux lineage, and APK decompilation). Per-device command mappings MEDIUM; verified against public libraries but not validated via live capture for every appliance class.\n",
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No token or certificate is issued to the client: post-setup control is unauthenticated SOAP to anyone on the LAN. Treat network segmentation, not device auth, as the security control for Wemo hardware.\n",
+        "stored_on_device": [
+          "Home network SSID and passphrase",
+          "Friendly name and local rules/timers"
+        ],
+        "wifi_passphrase_protection": "device_encrypted"
+      },
+      "factory_reset": {
+        "confidence": "medium",
+        "effect": "Clears the stored WiFi credentials, friendly name, rules/timers and any cloud/account association, and returns the device to setup mode. The UDN, serial number and MAC address are hardware identity and survive a reset, so a device keeps its stable discovery keys across reprovisioning.\n",
+        "notes": "Hold times are vendor-documented and vary by generation; treat them as a starting point and watch the LED rather than the clock. The reliable confirmation that a reset worked is the reappearance of the open Wemo.* setup AP.\n",
+        "procedures": [
+          {
+            "applies_to": [
+              "F7C063",
+              "WSP080",
+              "F7C029",
+              "WSP090"
+            ],
+            "hold_seconds": 5,
+            "indicator": "Status LED blinks, then the device reboots into setup mode and starts advertising its Wemo.* AP.",
+            "name": "Restore button held while power is applied (plug-style devices)",
+            "steps": [
+              {
+                "action": "Unplug the device from the outlet.",
+                "actor": "user"
+              },
+              {
+                "action": "Press and hold the Restore button, then plug the device back in while still holding.",
+                "actor": "user"
+              },
+              {
+                "action": "Keep holding for about 5 seconds after power is applied, then release.",
+                "actor": "user"
+              },
+              {
+                "action": "Wait up to 90 seconds for the device to finish rebooting.",
+                "actor": "device",
+                "expect": "An open Wemo.* network appears in the client's WiFi scan.",
+                "timeout_seconds": 90
+              }
+            ]
+          },
+          {
+            "applies_to": [
+              "F7C030/F7C027/F7C076",
+              "F7C059",
+              "WDS060"
+            ],
+            "hold_seconds": 10,
+            "indicator": "Status LED cycles, then the device reboots into setup mode.",
+            "name": "Restore button held on a mains-powered in-wall device",
+            "steps": [
+              {
+                "action": "Leave the switch powered at the breaker.",
+                "actor": "user"
+              },
+              {
+                "action": "Press and hold the Restore button on the device body for about 10 seconds until the LED changes pattern.",
+                "actor": "user",
+                "notes": "In-wall units cannot be reset by cycling power at the breaker alone; the button must be held."
+              },
+              {
+                "action": "Wait up to 90 seconds for the device to reboot into setup mode.",
+                "actor": "device",
+                "timeout_seconds": 90
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "description": "Join the device's own setup AP and drive the WiFiSetup SOAP service. This is the only known way to give a Wemo device WiFi credentials without the (now defunct) Belkin app.\n",
+          "payload_formats": {
+            "ApList": {
+              "auth_modes_observed": [
+                "OPEN",
+                "WPA2PSK",
+                "WPAPSK",
+                "Unknown"
+              ],
+              "description": "WiFiSetup#GetApList returns a single ApList value holding the device's scan results, newline-separated.\n",
+              "example": "3\nHomeNet|6|WPA2PSK|blah|WPA2PSK/AES,\nOpenGuest|1|OPEN|blah|OPEN/NONE,\nNewFangled|1|SAE|blah|Unknown,\n",
+              "open_network_handling": "When the selected entry's cipher is NONE, skip the encryption entirely: send auth=OPEN, encrypt=NONE and an empty password string. Do not call GetMetaInfo — no key material is needed.\n",
+              "parse_rules": [
+                "Split on newline. SKIP THE FIRST LINE — it is a header/count, not an access point.",
+                "Strip whitespace and any trailing comma from each remaining line.",
+                "Ignore lines with no '|' — some firmware emits blank or partial trailing lines.",
+                "Split on '|'. Column 0 is the SSID. Column 1 is the channel.",
+                "The LAST column is 'AUTHMODE/CIPHER'. Split it on '/' to get the `auth` and `encrypt` arguments for ConnectHomeNetwork. Do not assume a fixed column index for it; the number of columns varies.\n",
+                "Send the device's own strings back verbatim. A network the device can see is still rejected if the auth string does not match its own vocabulary.\n"
+              ],
+              "supported_ciphers": [
+                "NONE",
+                "AES",
+                "TKIPAES"
+              ],
+              "unsupported_marker": {
+                "meaning": "The device cannot express that network's security mode and will never join it. WPA3 appears this way. The remedy is a WPA2 compatibility SSID for the duration of setup, not a retry.\n",
+                "value": "Unknown"
+              }
+            },
+            "MetaInfo": {
+              "description": "metainfo#GetMetaInfo returns a single MetaInfo value: a pipe-delimited string of at least six fields. Field order matters — using the serial where the MAC belongs yields a valid-looking blob the device rejects without explanation.\n",
+              "example": "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket",
+              "fields": [
+                {
+                  "description": "12 hex characters, no separators. Key material.",
+                  "index": 0,
+                  "name": "mac"
+                },
+                {
+                  "description": "Device serial. Key material.",
+                  "index": 1,
+                  "name": "serial_number"
+                },
+                {
+                  "description": "Regional SKU, e.g. Wemo_WW.",
+                  "index": 2,
+                  "name": "device_sku"
+                },
+                {
+                  "description": "e.g. WeMo_US_2.00.11408.",
+                  "index": 3,
+                  "name": "firmware_version"
+                },
+                {
+                  "description": "The device's own setup AP name — it tells you what it advertises.",
+                  "index": 4,
+                  "name": "access_point_ssid"
+                },
+                {
+                  "description": "e.g. Socket.",
+                  "index": 5,
+                  "name": "model_name"
+                }
+              ]
+            }
+          },
+          "softap": {
+            "credential_encryption": {
+              "algorithm": "aes-128-cbc",
+              "algorithm_steps": [
+                "1. Choose the keydata layout for this device (see variants below).",
+                "2. salt = the first 8 characters of keydata, as UTF-8 bytes (NOT hex-decoded).",
+                "3. iv = the first 16 characters of keydata, as UTF-8 bytes (NOT hex-decoded).",
+                "4. aes_key = MD5(utf8(keydata) || salt)[0:16]. One MD5 round only; do not iterate.",
+                "5. Pad the UTF-8 passphrase with PKCS#7 to a multiple of 16 bytes.",
+                "6. Encrypt with AES-128-CBC using aes_key and iv.",
+                "7. Base64-encode the ciphertext (standard alphabet, with '=' padding).",
+                "8. If this variant sets add_lengths, append four lowercase hex digits: the length of the base64 string from step 7, then the length of the plaintext passphrase, EACH zero-padded to exactly two digits. A passphrase of 8 characters contributes '08', not '8'.\n",
+                "9. Send the result as the `password` argument of ConnectHomeNetwork."
+              ],
+              "encoding": "base64 of the ciphertext, then — for methods 1 and 3 only — four hex digits: the length of that base64 string and the length of the plaintext passphrase, each zero-padded to exactly two digits. Note that OpenSSL 1.x prefixes ciphertext with a 16-byte \"Salted__\"+salt header even when the salt is given explicitly while OpenSSL 3.x does not, so strip that header conditionally.\n",
+              "key_derivation": "Key material (\"keydata\") is assembled from the MetaInfo string returned by metainfo#GetMetaInfo, split on '|', where field 0 is the MAC and field 1 is the serial number. The AES key is MD5(keydata_bytes + salt_bytes) truncated to 16 bytes, with salt = keydata[0:8] and iv = keydata[0:16] — equivalent to OpenSSL's legacy EVP_BytesToKey MD5 derivation for AES-128 with the IV supplied explicitly.\n",
+              "notes": "The scheme protects the passphrase from a passive listener on the open setup AP, but the key is derived entirely from device metadata that the device hands out unauthenticated, so it is obfuscation rather than a trust boundary. Passphrases shorter than 8 characters are rejected by the device (network status 2).\n",
+              "openssl_equivalent": {
+                "command": "openssl enc -aes-128-cbc -md md5 -S <hex of salt bytes> -iv <hex of iv bytes> -pass pass:<keydata>\n",
+                "notes": "Produces byte-identical output to the steps above. Note the header quirk: OpenSSL 1.x prefixes its output with the 16-byte \"Salted__\" + salt header even when the salt is supplied with -S, while OpenSSL 3.x does not. Strip that header only when it is actually present — slicing 16 bytes unconditionally, as older published scripts do, silently corrupts the credential on OpenSSL 3.x.\n"
+              },
+              "padding": "pkcs7",
+              "password_constraints": {
+                "max_length": 255,
+                "min_length": 8,
+                "notes": "A passphrase under 8 characters is rejected by the device with network status 2. The upper bound follows from the two-hex-digit length suffix: both the plaintext and the base64 ciphertext must be 255 characters or fewer.\n"
+              },
+              "test_vectors": {
+                "description": "Reproducible vectors so an implementation can be verified without hardware. The MAC is from the IANA documentation range (00:00:5E) and the serial is invented — these identify no real device. Every value below is generated from the algorithm_steps above. scripts/test_wemo_spec.py transcribes those steps using only hashlib, base64 and openssl — importing none of this project's code — and asserts the transcription reproduces these vectors, so the published algorithm cannot quietly rot.\n",
+                "input": {
+                  "mac": "00005E00530A",
+                  "meta_info": "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket",
+                  "passphrase": "correct horse battery staple",
+                  "passphrase_length": 28,
+                  "serial": "229999K9999999"
+                },
+                "vectors": [
+                  {
+                    "add_lengths": true,
+                    "aes_key_hex": "6d27765d242fa465ae5ee33a671d7714",
+                    "base64_ciphertext": "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=",
+                    "iv": "00005E229999K999",
+                    "keydata": "00005E229999K999999900530A",
+                    "method": 1,
+                    "password_argument": "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c",
+                    "salt": "00005E22",
+                    "suffix_explanation": "base64 is 44 characters = 0x2c; passphrase is 28 = 0x1c.\n"
+                  },
+                  {
+                    "add_lengths": false,
+                    "aes_key_hex": "83b55ae7a7b3bbf7a1b6ead631a232da",
+                    "base64_ciphertext": "9ibm3ouYHODjuzVQ0hEHGkEdj4Pf/uCQ0vr8s8Ghuyk=",
+                    "iv": "00005E229999K999",
+                    "keydata": "00005E229999K999999900530Ab3{8t;80dIN{ra83eC1s?M70?683@2Yf",
+                    "method": 2,
+                    "password_argument": "9ibm3ouYHODjuzVQ0hEHGkEdj4Pf/uCQ0vr8s8Ghuyk=",
+                    "salt": "00005E22",
+                    "suffix_explanation": "Method 2 appends no length suffix."
+                  },
+                  {
+                    "add_lengths": true,
+                    "aes_key_hex": "040c94b31e16aacdaf9bd16e79e08b45",
+                    "base64_ciphertext": "JHw2xNnoahVM1rEfW1N2HDn4UT/v60Up80M4Nd3xAQo=",
+                    "iv": "00030A229999K999",
+                    "keydata": "00030A229999K9999999b2Ujb3Rtb24mY3ZEbmlhaXBBZGFiT25v00505E",
+                    "method": 3,
+                    "password_argument": "JHw2xNnoahVM1rEfW1N2HDn4UT/v60Up80M4Nd3xAQo=2c1c",
+                    "salt": "00030A22",
+                    "suffix_explanation": "Same lengths as method 1; only the keydata layout differs.\n"
+                  }
+                ]
+              },
+              "variants": [
+                {
+                  "add_lengths": true,
+                  "keydata": "mac[0:6] + serial + mac[6:12]",
+                  "method": 1,
+                  "selector": "Default."
+                },
+                {
+                  "add_lengths": false,
+                  "keydata": "mac[0:6] + serial + mac[6:12] + 'b3{8t;80dIN{ra83eC1s?M70?683@2Yf'",
+                  "method": 2,
+                  "selector": "setup.xml contains rtos=1 and not iot=1."
+                },
+                {
+                  "add_lengths": true,
+                  "keydata": "mac[0:3] + mac[9:12] + serial + 'b2Ujb3Rtb24mY3ZEbmlhaXBBZGFiT25v' + mac[6:9] + mac[3:6]\n",
+                  "method": 3,
+                  "selector": "The Wemo app associates this with binaryOption=1, but pywemo reports the rtos/iot selector above matches hardware more often. Try this variant manually if the others fail.\n"
+                }
+              ]
+            },
+            "gateway_ip": "10.22.22.1",
+            "open_network": true,
+            "port": 49153,
+            "port_notes": "Probe rather than assume: the setup-mode port varies like the normal one. pywemo walks the same fallback list it uses on the LAN.\n",
+            "port_probe_list": [
+              49153,
+              49152,
+              49154,
+              49151,
+              49155,
+              49156,
+              49157,
+              49158,
+              49159
+            ],
+            "ssid_examples": [
+              "WeMo.Switch.A1B",
+              "Wemo.Mini.4A2",
+              "WeMo.Insight.7C4"
+            ],
+            "ssid_prefix": "Wemo."
+          },
+          "steps": [
+            {
+              "action": "Factory reset the device (or call basicevent#ReSetup on a provisioned one) so it re-enters setup mode.",
+              "actor": "user",
+              "expect": "Device starts advertising an open Wemo.* WiFi network."
+            },
+            {
+              "action": "Join the device's setup AP from the provisioning client.",
+              "actor": "user",
+              "expect": "Client receives a 10.22.22.x address with 10.22.22.1 as gateway."
+            },
+            {
+              "action": "Fetch the device description and resolve service control URLs.",
+              "actor": "client",
+              "expect": "serviceList contains urn:Belkin:service:WiFiSetup:1 and urn:Belkin:service:metainfo:1. Belkin also adds non-standard elements alongside the UPnP ones — rtos, iot, binaryOption, new_algo, firmwareVersion — and these select the passphrase encryption variant (see credential_encryption.variants).\n",
+              "request": {
+                "action": "GET http://10.22.22.1:49153/setup.xml",
+                "protocol": "http"
+              }
+            },
+            {
+              "action": "Read device metadata used to derive the passphrase encryption key.",
+              "actor": "client",
+              "expect": "MetaInfo pipe-delimited string; fields 0 and 1 supply the key material.",
+              "request": {
+                "action": "GetMetaInfo",
+                "protocol": "soap",
+                "service": "urn:Belkin:service:metainfo:1"
+              },
+              "response_fields": [
+                {
+                  "description": "Pipe-delimited; see payload_formats.MetaInfo above.",
+                  "name": "MetaInfo",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "action": "Ask the device to scan for nearby access points.",
+              "actor": "client",
+              "expect": "ApList string. The first line is a header and is skipped. Each remaining line is pipe-delimited with SSID in column 0, channel in column 1, and 'AUTHMODE/CIPHER' in the last column; a trailing comma is common. An auth mode of 'Unknown' means the device cannot join that network (WPA3 appears this way). Supported ciphers are NONE, AES and TKIPAES.\n",
+              "request": {
+                "action": "GetApList",
+                "protocol": "soap",
+                "service": "urn:Belkin:service:WiFiSetup:1"
+              },
+              "response_fields": [
+                {
+                  "description": "Newline-separated scan results; see payload_formats.ApList above.",
+                  "name": "ApList",
+                  "type": "string"
+                }
+              ],
+              "timeout_seconds": 20
+            },
+            {
+              "action": "Encrypt the home network passphrase and hand the device its credentials.",
+              "actor": "client",
+              "expect": "Returns PairingStatus. Send this action twice about 100ms apart — pywemo reports a markedly higher success rate when it is repeated, for reasons that are not understood. For an open network send auth=OPEN, encrypt=NONE and an empty password.\n",
+              "request": {
+                "action": "ConnectHomeNetwork",
+                "arguments": [
+                  {
+                    "description": "Target network SSID, exactly as reported by GetApList.",
+                    "name": "ssid",
+                    "required": true,
+                    "type": "string"
+                  },
+                  {
+                    "description": "Auth mode from the ApList entry, e.g. WPA2PSK.",
+                    "name": "auth",
+                    "required": true,
+                    "type": "string"
+                  },
+                  {
+                    "description": "Encrypted passphrase blob (see credential_encryption).",
+                    "name": "password",
+                    "required": true,
+                    "type": "string"
+                  },
+                  {
+                    "description": "Cipher from the ApList entry, e.g. AES.",
+                    "name": "encrypt",
+                    "required": true,
+                    "type": "string"
+                  },
+                  {
+                    "description": "Channel from the ApList entry.",
+                    "name": "channel",
+                    "required": true,
+                    "type": "integer"
+                  }
+                ],
+                "protocol": "soap",
+                "service": "urn:Belkin:service:WiFiSetup:1"
+              },
+              "response_fields": [
+                {
+                  "description": "Acknowledgement that the request was accepted, not the join result. The outcome comes from polling GetNetworkStatus.\n",
+                  "name": "PairingStatus",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "action": "Poll the join result until the device reports a connected state.",
+              "actor": "client",
+              "expect": "NetworkStatus: 0 = still connecting, 1 = connected, 2 = rejected because the passphrase is shorter than 8 characters, 3 = handshaking (usually becomes 1 within a few seconds, so do not treat it as a failure).\n",
+              "request": {
+                "action": "GetNetworkStatus",
+                "protocol": "soap",
+                "service": "urn:Belkin:service:WiFiSetup:1"
+              },
+              "response_fields": [
+                {
+                  "description": "Join state; see status_codes below.",
+                  "name": "NetworkStatus",
+                  "type": "string"
+                }
+              ],
+              "status_codes": {
+                "0": "Still trying to connect. Keep polling.",
+                "1": "Connected. Terminal success.",
+                "2": "Rejected — passphrase shorter than 8 characters. Terminal failure; retrying will not help.",
+                "3": "Handshaking. Usually becomes 1 within a few seconds; not a failure."
+              },
+              "timeout_seconds": 30
+            },
+            {
+              "action": "Close setup mode so the device leaves its AP and joins the home network.",
+              "actor": "client",
+              "expect": "Returns status = success. Follow with basicevent#SetSetupDoneStatus where present; it is absent on some firmware and its absence is not an error. Setup AP disappears and the client can rejoin its normal network.\n",
+              "request": {
+                "action": "CloseSetup",
+                "protocol": "soap",
+                "service": "urn:Belkin:service:WiFiSetup:1"
+              },
+              "response_fields": [
+                {
+                  "description": "'success' on a clean close.",
+                  "name": "status",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "action": "Rediscover the device on the home LAN by SSDP and confirm control.",
+              "actor": "client",
+              "expect": "Device answers with a LOCATION URL; basicevent#GetBinaryState succeeds.",
+              "request": {
+                "action": "M-SEARCH ST: urn:Belkin:service:basicevent:1",
+                "protocol": "ssdp"
+              },
+              "timeout_seconds": 90
+            }
+          ],
+          "timing": {
+            "connect_send_count": 2,
+            "connect_send_gap_ms": 100,
+            "connect_send_notes": "Send ConnectHomeNetwork twice about 100ms apart. pywemo reports a markedly higher success rate when it is repeated; the reason is not understood, but it is cheap and harmless.\n",
+            "notes": "Devices routinely take 10-15 seconds to join, so a poll timeout below 20 seconds produces false failures. Status 3 usually flips to 1 within a few more seconds — wait rather than retrying.\n",
+            "reboot_after_reset_seconds": 90,
+            "status_3_extra_wait_seconds": 3,
+            "status_poll_interval_seconds": 1,
+            "status_poll_minimum_seconds": 20,
+            "status_poll_timeout_seconds": 25
+          },
+          "troubleshooting": [
+            {
+              "causes": [
+                "Wrong passphrase.",
+                "Target SSID is 5 GHz. Every Wemo radio is 2.4 GHz only, and a band-steering router advertising one SSID on both bands is the most common cause of an unexplained failure.\n",
+                "Wrong encryption variant. Sweep all six combinations of method (1, 2, 3) and add_lengths (true, false), in this order: (1, true), (2, false), (3, true), (1, false), (2, true), (3, false). The first three are the documented pairings; the last three are unlikely but cheap to try.\n",
+                "Weak signal. Some units need a strong signal to complete setup even though they run fine on a weak one afterwards."
+              ],
+              "symptom": "ConnectHomeNetwork accepted but NetworkStatus never reaches 1."
+            },
+            {
+              "causes": [
+                "Passphrase is shorter than 8 characters. Terminal — retrying will not help."
+              ],
+              "symptom": "NetworkStatus returns 2."
+            },
+            {
+              "causes": [
+                "Handshaking. Wait a few more seconds; 3 usually precedes 1. Not a failure."
+              ],
+              "symptom": "NetworkStatus sits at 3."
+            },
+            {
+              "causes": [
+                "The device cannot express that security mode; WPA3 is the usual cause. Add a WPA2 SSID for the duration of setup."
+              ],
+              "symptom": "Target network reports auth mode Unknown in ApList."
+            },
+            {
+              "causes": [
+                "On plug-style devices the Restore button must be held THROUGH power-on; pressing it on a running device does nothing. Watch the LED rather than timing the hold.\n"
+              ],
+              "symptom": "Device is not advertising a Wemo.* AP after a reset."
+            },
+            {
+              "causes": [
+                "The client fell back to cellular or another interface. Pin the route to 10.22.22.0/24.",
+                "Wrong port. Probe the port_probe_list rather than assuming 49153."
+              ],
+              "symptom": "Setup AP is joinable but HTTP times out."
+            },
+            {
+              "causes": [
+                "Genuinely try again — pywemo's own documentation lists this first. Wemo devices sometimes fail to connect and the identical sequence subsequently works.\n"
+              ],
+              "symptom": "Everything fails repeatedly for no clear reason."
+            }
+          ],
+          "type": "softap_soap",
+          "verified": false
+        }
+      ],
+      "notes": "Wemo devices ship unprovisioned and cannot be discovered by SSDP until they hold WiFi credentials. Provisioning is entirely local: the device hosts an open setup AP and accepts the home network credentials over the same SOAP 1.1 stack used for normal control. The Belkin cloud is not required at any point, which is why Wemo hardware remains recoverable after the January 2026 cloud shutdown.\nCONFIDENCE: HIGH. Service names, action names, argument names, the ApList layout, the network status codes and all three passphrase encryption variants come from pywemo's implementation (pywemo/ouimeaux_device/__init__.py, Apache 2.0), which is maintained and exercised against real hardware across several device generations. Not yet replayed against hardware by this project.\nAlways read the WiFiSetup controlURL from setup.xml rather than assuming a path: both /upnp/control/WiFiSetup1 and /upnp/control/wifi1 have been reported across firmware generations.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "A provisioned Wemo device can be pushed back into setup mode over the LAN with basicevent#ReSetup, which avoids a physical factory reset when the device is still reachable on the old network — useful when the router is being replaced but the device is not. If the old network is already gone, the device is unreachable and a physical factory reset is the only path. Note that ReSetup clears the stored credentials, so a failed reprovisioning leaves the device in setup mode, not on the old network.\n",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "While the device is still reachable on the old network, send basicevent#ReSetup.",
+            "actor": "client",
+            "expect": "Returns Reset = success; at least one device reports reset_remote instead and still resets correctly. Device drops off the LAN and starts advertising its Wemo.* setup AP.\n",
+            "request": {
+              "action": "ReSetup",
+              "arguments": [
+                {
+                  "description": "Scope of the reset: 1 clears name/icon/rules (\"Clear Personalized Info\"), 2 clears everything including WiFi (\"Factory Restore\"), 5 clears WiFi credentials only (\"Change Wi-Fi\"). Codes were consistent across the devices pywemo has been tested against but are not guaranteed for every model.\n",
+                  "name": "Reset",
+                  "required": true,
+                  "type": "integer"
+                }
+              ],
+              "protocol": "soap",
+              "service": "urn:Belkin:service:basicevent:1"
+            },
+            "response_fields": [
+              {
+                "description": "'success', or 'reset_remote' on at least one device.",
+                "name": "Reset",
+                "type": "string"
+              }
+            ]
+          },
+          {
+            "action": "Run the softap_soap provisioning flow against the new network.",
+            "actor": "client"
+          }
+        ]
+      },
+      "required": true
+    },
+    "transport": "upnp",
+    "variants": [
+      {
+        "characteristics": [
+          "Basic on/off smart plug.",
+          "Some firmware and APK mocks identify the Mini as socket:1."
+        ],
+        "identification": {
+          "alternate_device_types": [
+            "urn:Belkin:device:socket:1"
+          ],
+          "apk_widgets": [
+            "wemo_mini",
+            "bundlemanager"
+          ],
+          "device_type": "urn:Belkin:device:controllee:1",
+          "friendly_name_pattern": "WeMo",
+          "udn_prefixes": [
+            "uuid:Socket"
+          ]
+        },
+        "model": "F7C063",
+        "name": "Wemo Mini Smart Plug",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "GetFriendlyName",
+              "ChangeFriendlyName",
+              "ReSetup"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1",
+            "service_type": "urn:Belkin:service:basicevent:1"
+          },
+          "deviceinfo": {
+            "actions": [
+              "GetDeviceInformation"
+            ],
+            "control_url": "/upnp/control/deviceinf1"
+          },
+          "metainfo": {
+            "actions": [
+              "GetMetaInfo",
+              "GetExtMetaInfo"
+            ],
+            "control_url": "/upnp/control/metainfo1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Basic on/off smart plug."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_smart_plug",
+            "wemo_socket"
+          ],
+          "device_type": "urn:Belkin:device:socket:1",
+          "friendly_name_pattern": "Wemo Smart Plug",
+          "udn_prefixes": [
+            "uuid:Socket"
+          ]
+        },
+        "model": "WSP080",
+        "name": "Wemo WiFi Smart Plug",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "GetFriendlyName",
+              "ChangeFriendlyName",
+              "GetSignalStrength"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1",
+            "service_type": "urn:Belkin:service:basicevent:1"
+          },
+          "metainfo": {
+            "actions": [
+              "GetMetaInfo"
+            ],
+            "control_url": "/upnp/control/metainfo1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Smart plug with power and energy monitoring.",
+          "InsightParams state 8 means on but load is in standby."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_insight",
+            "wemo_group"
+          ],
+          "device_type": "urn:Belkin:device:insight:1",
+          "friendly_name_pattern": "Insight",
+          "udn_prefixes": [
+            "uuid:Insight"
+          ]
+        },
+        "model": "F7C029",
+        "name": "Wemo Insight Smart Plug",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "GetInsightHomeSettings",
+              "SetInsightHomeSettings"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          },
+          "insight": {
+            "actions": [
+              "GetInsightParams",
+              "GetPowerThreshold",
+              "SetPowerThreshold",
+              "ResetPowerThreshold",
+              "GetTodayKWH",
+              "GetTodayONTime",
+              "GetPower"
+            ],
+            "control_url": "/upnp/control/insight1",
+            "event_sub_url": "/upnp/event/insight1",
+            "response_fields": {
+              "InsightParams": "state|lastchange|onfor|ontoday|ontotal|timeperiod|wifipower|currentpower_mw|todaymw|totalmw|powerthreshold"
+            },
+            "service_type": "urn:Belkin:service:insight:1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Wall switch; Gen2 and 3-way variants may support long-press notifications."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_lightswitch",
+            "wemo_lightswitch_2gen",
+            "wemo_lightswitch3way"
+          ],
+          "device_type": "urn:Belkin:device:Lightswitch:1",
+          "friendly_name_pattern": "Light Switch",
+          "udn_prefixes": [
+            "uuid:Lightswitch-1_0",
+            "uuid:Lightswitch-2_0",
+            "uuid:Lightswitch-3_0",
+            "uuid:Lightswitch"
+          ]
+        },
+        "model": "F7C030/F7C027/F7C076",
+        "name": "Wemo Light Switch Gen1/Gen2/3-Way",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "SimulateLongPress"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Dimmer uses basicevent SetBinaryState with brightness=1-100.",
+          "APK mock data reuses socket:1, but public libraries use dimmer:1 for real hardware."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_dimmer",
+            "wemo_dimmer_calibration"
+          ],
+          "device_type": "urn:Belkin:device:dimmer:1",
+          "friendly_name_pattern": "Dimmer",
+          "udn_prefixes": [
+            "uuid:Dimmer-1_0",
+            "uuid:Dimmer"
+          ]
+        },
+        "model": "F7C059",
+        "name": "Wemo Dimmer v1",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "Calibrate",
+              "ConfigureDimmingRange",
+              "ConfigureNightMode",
+              "GetNightModeConfiguration"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Same deviceType as Dimmer v1; distinguish by UDN prefix and model metadata.",
+          "Supports brightness through basicevent SetBinaryState brightness=1-100."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_dimmer_v2"
+          ],
+          "device_type": "urn:Belkin:device:dimmer:1",
+          "friendly_name_pattern": "Dimmer",
+          "udn_prefixes": [
+            "uuid:Dimmer-2_0"
+          ]
+        },
+        "model": "WDS060",
+        "name": "Wemo Dimmer v2",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "Calibrate",
+              "ConfigureDimmingRange",
+              "ConfigureHushMode",
+              "ConfigureNightMode"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Relay plus sensor input.",
+          "Attribute list exposes Switch, Sensor, SwitchMode, and SensorPresent."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_maker"
+          ],
+          "device_type": "urn:Belkin:device:Maker:1",
+          "friendly_name_pattern": "Maker",
+          "udn_prefixes": [
+            "uuid:Maker"
+          ]
+        },
+        "model": "F7C043",
+        "name": "Wemo Maker",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          },
+          "deviceevent": {
+            "actions": [
+              "GetAttributes",
+              "SetAttributes",
+              "GetAttributeList"
+            ],
+            "control_url": "/upnp/control/deviceevent1",
+            "event_sub_url": "/upnp/event/deviceevent1",
+            "service_type": "urn:Belkin:service:deviceevent:1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Outdoor smart plug; pywemo models it as a switch."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_outdoorplug"
+          ],
+          "device_type": "urn:Belkin:device:outdoor:1",
+          "friendly_name_pattern": "Outdoor",
+          "udn_prefixes": [
+            "uuid:OutdoorPlug"
+          ]
+        },
+        "model": "WSP090",
+        "name": "Wemo Outdoor Plug",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Binary motion sensor. Some docs call this sensor:1; APK mock uses motion:1."
+        ],
+        "identification": {
+          "alternate_device_types": [
+            "urn:Belkin:device:sensor:1"
+          ],
+          "apk_widgets": [
+            "wemo_sensor"
+          ],
+          "device_type": "urn:Belkin:device:motion:1",
+          "friendly_name_pattern": "Motion",
+          "udn_prefixes": [
+            "uuid:Sensor"
+          ]
+        },
+        "model": "F7C031",
+        "name": "Wemo Motion Sensor",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Zigbee bridge for Wemo Link bulbs and groups."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_lighting",
+            "wemo_bridge",
+            "wemo_bridge_popup"
+          ],
+          "device_type": "urn:Belkin:device:bridge:1",
+          "friendly_name_pattern": "Bridge",
+          "udn_prefixes": [
+            "uuid:Bridge"
+          ]
+        },
+        "model": "F7C033",
+        "name": "Wemo Bridge / Link",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "GetMacAddr"
+            ],
+            "control_url": "/upnp/control/basicevent1"
+          },
+          "bridge": {
+            "actions": [
+              "GetEndDevices",
+              "GetEndDevicesWithStatus",
+              "GetDeviceStatus",
+              "SetDeviceStatus",
+              "GetGroups",
+              "CreateGroup",
+              "DeleteGroup",
+              "OpenNetwork",
+              "CloseNetwork"
+            ],
+            "control_url": "/upnp/control/bridge1",
+            "event_sub_url": "/upnp/event/bridge1",
+            "service_type": "urn:Belkin:service:bridge:1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Attribute-based appliance. Mode 4 starts brewing; remote off is not supported by pywemo."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_coffeemaker"
+          ],
+          "device_type": "urn:Belkin:device:coffeemaker:1",
+          "friendly_name_pattern": "Coffee",
+          "udn_prefixes": [
+            "uuid:CoffeeMaker"
+          ]
+        },
+        "model": "BVMC-PSTX91WE",
+        "name": "Mr. Coffee Smart Wemo Coffeemaker",
+        "services": {
+          "deviceevent": {
+            "actions": [
+              "GetAttributes",
+              "SetAttributes",
+              "GetAttributeList"
+            ],
+            "control_url": "/upnp/control/deviceevent1",
+            "event_sub_url": "/upnp/event/deviceevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Cooking modes are off=0, warm=50, low=51, high=52."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_crockpot"
+          ],
+          "device_type": "urn:Belkin:device:crockpot:1",
+          "friendly_name_pattern": "Crock",
+          "udn_prefixes": [
+            "uuid:Crockpot"
+          ]
+        },
+        "model": "SCCPWM600-V1",
+        "name": "Crock-Pot Smart Slow Cooker",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetCrockpotState",
+              "SetCrockpotState",
+              "GetBinaryState"
+            ],
+            "control_url": "/upnp/control/basicevent1",
+            "event_sub_url": "/upnp/event/basicevent1"
+          },
+          "crockpotevent": {
+            "actions": [
+              "GetCrockpotState",
+              "SetCrockpotState",
+              "GetJardenStatus",
+              "SetJardenStatus"
+            ],
+            "control_url": "/upnp/control/crockpotevent1",
+            "event_sub_url": "/upnp/event/crockpotevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "APK mock uses purifier:1. Some public catalogs call the class airpurifier:1.",
+          "Uses deviceevent attributes for appliance state."
+        ],
+        "identification": {
+          "alternate_device_types": [
+            "urn:Belkin:device:airpurifier:1"
+          ],
+          "apk_widgets": [
+            "wemo_airpurifier"
+          ],
+          "device_type": "urn:Belkin:device:purifier:1",
+          "friendly_name_pattern": "Air Purifier",
+          "udn_prefixes": [
+            "uuid:AirPurifier"
+          ]
+        },
+        "model": "Holmes-Air-Purifier",
+        "name": "Holmes Smart Air Purifier",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "GetJardenStatus",
+              "SetJardenStatus"
+            ],
+            "control_url": "/upnp/control/basicevent1"
+          },
+          "deviceevent": {
+            "actions": [
+              "GetAttributes",
+              "SetAttributes",
+              "GetAttributeList"
+            ],
+            "control_url": "/upnp/control/deviceevent1",
+            "event_sub_url": "/upnp/event/deviceevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "Uses Jarden/deviceevent appliance attributes."
+        ],
+        "identification": {
+          "apk_widgets": [
+            "wemo_heatera"
+          ],
+          "device_type": "urn:Belkin:device:heater:1",
+          "friendly_name_pattern": "Heater",
+          "udn_prefixes": [
+            "uuid:Heater"
+          ]
+        },
+        "model": "Holmes-Heater",
+        "name": "Holmes Smart Heater",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "GetJardenStatus",
+              "SetJardenStatus"
+            ],
+            "control_url": "/upnp/control/basicevent1"
+          },
+          "deviceevent": {
+            "actions": [
+              "GetAttributes",
+              "SetAttributes",
+              "GetAttributeList"
+            ],
+            "control_url": "/upnp/control/deviceevent1",
+            "event_sub_url": "/upnp/event/deviceevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "pywemo supports humidifier attributes for fan mode, desired humidity, current humidity, water level, and filter life.",
+          "APK includes both humidifier:1 and humidifierb:1 widgets plus generic Humidifier:1 mocks."
+        ],
+        "identification": {
+          "alternate_device_types": [
+            "urn:Belkin:device:humidity:1",
+            "urn:Belkin:device:Humidifier:1"
+          ],
+          "apk_widgets": [
+            "wemo_humidifier",
+            "wemo_humidifierb"
+          ],
+          "device_type": "urn:Belkin:device:humidifier:1",
+          "friendly_name_pattern": "Humidifier",
+          "udn_prefixes": [
+            "uuid:Humidifier"
+          ]
+        },
+        "model": "Holmes-Humidifier",
+        "name": "Holmes Smart Humidifier",
+        "services": {
+          "basicevent": {
+            "actions": [
+              "GetBinaryState",
+              "SetBinaryState",
+              "GetJardenStatus",
+              "SetJardenStatus"
+            ],
+            "control_url": "/upnp/control/basicevent1"
+          },
+          "deviceevent": {
+            "actions": [
+              "GetAttributes",
+              "SetAttributes",
+              "GetAttributeList"
+            ],
+            "control_url": "/upnp/control/deviceevent1",
+            "event_sub_url": "/upnp/event/deviceevent1"
+          }
+        }
+      },
+      {
+        "characteristics": [
+          "APK-specific humidifier variant; expect same deviceevent attribute pattern as humidifier:1."
+        ],
+        "identification": {
+          "alternate_device_types": [
+            "urn:Belkin:device:humidity:1"
+          ],
+          "apk_widgets": [
+            "wemo_humidifierb"
+          ],
+          "device_type": "urn:Belkin:device:humidifierb:1",
+          "friendly_name_pattern": "Humidifier",
+          "udn_prefixes": [
+            "uuid:Humidifier"
+          ]
+        },
+        "model": "Holmes-Humidifier-B",
+        "name": "Holmes Smart Humidifier Variant B",
+        "services": {
+          "deviceevent": {
+            "actions": [
+              "GetAttributes",
+              "SetAttributes",
+              "GetAttributeList"
+            ],
+            "control_url": "/upnp/control/deviceevent1",
+            "event_sub_url": "/upnp/event/deviceevent1"
+          }
+        }
+      }
+    ]
+  },
+  "discovery_catalog": {
+    "sources": {
+      "apk": {
+        "first_level_widget_dirs_observed": 45,
+        "path": "wemo-apk/decoded/assets/www/widgets/",
+        "relevant_device_widgets": [
+          "wemo_mini",
+          "wemo_socket",
+          "wemo_smart_plug",
+          "wemo_insight",
+          "wemo_outdoorplug",
+          "wemo_lightswitch",
+          "wemo_lightswitch_2gen",
+          "wemo_lightswitch3way",
+          "wemo_dimmer",
+          "wemo_dimmer_v2",
+          "wemo_lighting",
+          "wemo_maker",
+          "wemo_sensor",
+          "wemo_coffeemaker",
+          "wemo_crockpot",
+          "wemo_heatera",
+          "wemo_airpurifier",
+          "wemo_humidifier",
+          "wemo_humidifierb"
+        ]
+      },
+      "home_assistant": {
+        "discovery_default": true,
+        "supported_platforms": [
+          "Binary sensor: Wemo Motion Sensor",
+          "Fan: Wemo/Holmes Smart Humidifier",
+          "Light: Wemo LED lights and Smart Dimmer Switch",
+          "Switch: Wemo switches and Mr. Coffee smart coffee makers"
+        ],
+        "url": "https://www.home-assistant.io/integrations/wemo/"
+      },
+      "ouimeaux": {
+        "role": "Legacy Python Wemo implementation and pywemo lineage.",
+        "url": "https://github.com/iancmcc/ouimeaux"
+      },
+      "pywemo": {
+        "device_classes": [
+          "Switch",
+          "Insight",
+          "LightSwitch",
+          "Dimmer",
+          "DimmerV2",
+          "Maker",
+          "OutdoorPlug",
+          "Motion",
+          "Bridge",
+          "CoffeeMaker",
+          "CrockPot",
+          "Humidifier"
+        ],
+        "url": "https://github.com/pywemo/pywemo"
+      }
+    }
+  },
+  "http_endpoints": [
+    {
+      "description": "PRIMARY Wemo identification endpoint. Fetch the LOCATION URL returned by SSDP discovery. Parse deviceType for variant matching, UDN/serial/MAC for stable identity and ordering, friendlyName for display naming, and serviceList for per-device controlURL and eventSubURL values.\n",
+      "method": "GET",
+      "name": "UPnP Device Description",
+      "path": "/setup.xml",
+      "response_body": {
+        "content_type": "text/xml",
+        "fields": [
+          {
+            "description": "UPnP device type URN used for variant matching.",
+            "name": "deviceType",
+            "type": "string"
+          },
+          {
+            "description": "User-facing name. Do not use as the stable device key.",
+            "name": "friendlyName",
+            "type": "string"
+          },
+          {
+            "description": "Primary stable identity, for example uuid:Socket-1_0-<serial>.",
+            "name": "UDN",
+            "type": "string"
+          },
+          {
+            "description": "Secondary stable identity.",
+            "name": "serialNumber",
+            "type": "string"
+          },
+          {
+            "description": "Tertiary stable identity.",
+            "name": "macAddress",
+            "type": "string"
+          },
+          {
+            "description": "UPnP services with serviceType, controlURL, eventSubURL, and SCPDURL.",
+            "name": "serviceList",
+            "type": "array"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Universal SOAP action for relay/light on/off. Required SOAPACTION header: \"urn:Belkin:service:basicevent:1#SetBinaryState\". Dimmers may include a brightness argument from 1-100 in the same action.\n",
+      "method": "POST",
+      "name": "SetBinaryState",
+      "path": "/upnp/control/basicevent1",
+      "request_body": {
+        "content_type": "text/xml",
+        "fields": [
+          {
+            "description": "Target state: 1 = on, 0 = off.",
+            "enum": [
+              0,
+              1
+            ],
+            "name": "BinaryState",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "description": "Optional dimmer brightness, 1-100.",
+            "name": "brightness",
+            "type": "integer"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Universal SOAP action for current binary state. Required SOAPACTION header: \"urn:Belkin:service:basicevent:1#GetBinaryState\".\n",
+      "method": "POST",
+      "name": "GetBinaryState",
+      "path": "/upnp/control/basicevent1",
+      "response_body": {
+        "content_type": "text/xml",
+        "fields": [
+          {
+            "description": "Current state. Values and the pipe-delimited-extras caveat are in the top-level payload_formats.BinaryState.\n",
+            "name": "BinaryState",
+            "type": "integer"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Device metadata. Required SOAPACTION header: \"urn:Belkin:service:metainfo:1#GetMetaInfo\". Takes no arguments.\n",
+      "method": "POST",
+      "name": "GetMetaInfo",
+      "path": "/upnp/control/metainfo1",
+      "response_body": {
+        "content_type": "text/xml",
+        "fields": [
+          {
+            "description": "Pipe-delimited; see the top-level payload_formats.MetaInfo.",
+            "name": "MetaInfo",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Set the device clock, which local rules and timers depend on. Required SOAPACTION header: \"urn:Belkin:service:timesync:1#TimeSync\".\n",
+      "method": "POST",
+      "name": "TimeSync",
+      "path": "/upnp/control/timesync1",
+      "request_body": {
+        "content_type": "text/xml",
+        "fields": [
+          {
+            "description": "Current UTC time formatted as %Y-%m-%dT%H:%M:%S.",
+            "name": "UTC",
+            "required": true,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Extended device information. Required SOAPACTION header: \"urn:Belkin:service:deviceinf:1#GetDeviceInformation\". Not present on every device or firmware; treat a SOAP fault as \"not supported\" rather than as an error.\n",
+      "method": "POST",
+      "name": "GetDeviceInformation",
+      "path": "/upnp/control/deviceinf1"
+    },
+    {
+      "description": "Insight-only SOAP action. Required SOAPACTION header: \"urn:Belkin:service:insight:1#GetInsightParams\".\n",
+      "method": "POST",
+      "name": "GetInsightParams",
+      "path": "/upnp/control/insight1",
+      "response_body": {
+        "content_type": "text/xml",
+        "fields": [
+          {
+            "description": "Pipe-delimited state, timing, energy, power and threshold values. Field-by-field layout in the top-level payload_formats.InsightParams.\n",
+            "name": "InsightParams",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Attribute-based appliance surface used by Maker, Coffee Maker, Heater, Air Purifier, and Humidifier classes. Required SOAPACTION header uses urn:Belkin:service:deviceevent:1 with GetAttributes or SetAttributes.\n",
+      "method": "POST",
+      "name": "GetAttributes / SetAttributes",
+      "path": "/upnp/control/deviceevent1"
+    },
+    {
+      "description": "Wemo Link bridge actions for paired bulbs and groups, including GetEndDevicesWithStatus, GetDeviceStatus, and SetDeviceStatus.\n",
+      "method": "POST",
+      "name": "Bridge Device Control",
+      "path": "/upnp/control/bridge1"
+    }
+  ],
+  "payload_formats": {
+    "BinaryState": {
+      "description": "Relay/light state, returned by basicevent#GetBinaryState and accepted by SetBinaryState.\n",
+      "example": "1",
+      "parse_rules": [
+        "Some firmware returns extra pipe-delimited values after the state (for example on dimmers). Split on '|' and take field 0 rather than parsing the whole string as an integer.\n"
+      ],
+      "values": {
+        "0": "off",
+        "1": "on",
+        "8": "On, but the attached load is drawing standby-level power. Insight devices report this; treat it as ON for control purposes.\n"
+      }
+    },
+    "InsightParams": {
+      "description": "Energy and timing counters from insight#GetInsightParams, as a single pipe-delimited string.\n",
+      "example": "8|1700000000|100|200|300|1209600|8000|18500|1200|9900|8000",
+      "fields": [
+        {
+          "description": "Current BinaryState — see the BinaryState format above.",
+          "index": 0,
+          "name": "state"
+        },
+        {
+          "description": "Unix timestamp of the last state change.",
+          "index": 1,
+          "name": "lastchange"
+        },
+        {
+          "description": "Seconds the load has been on during the current run.",
+          "index": 2,
+          "name": "onfor_seconds"
+        },
+        {
+          "description": "Seconds on today.",
+          "index": 3,
+          "name": "ontoday_seconds"
+        },
+        {
+          "description": "Seconds on over the measurement period.",
+          "index": 4,
+          "name": "ontotal_seconds"
+        },
+        {
+          "description": "Length of the measurement period in seconds (commonly 1209600 = 14 days).",
+          "index": 5,
+          "name": "timeperiod"
+        },
+        {
+          "description": "WiFi signal strength. Easy to miss — omitting this field shifts every power reading one column left, which reads as plausible but wrong data rather than as an error.\n",
+          "index": 6,
+          "name": "wifipower"
+        },
+        {
+          "description": "Instantaneous power draw in milliwatts.",
+          "index": 7,
+          "name": "currentpower_mw"
+        },
+        {
+          "description": "Energy used today, in milliwatt-minutes.",
+          "index": 8,
+          "name": "todaymw"
+        },
+        {
+          "description": "Energy used over the measurement period, in milliwatt-minutes.",
+          "index": 9,
+          "name": "totalmw"
+        },
+        {
+          "description": "Standby detection threshold in milliwatts.",
+          "index": 10,
+          "name": "powerthreshold"
+        }
+      ],
+      "parse_rules": [
+        "Split on '|'. Fields are positional; there are no names on the wire.",
+        "Firmware may append fields beyond those documented here. Keep any extras rather than discarding them, and do not treat a longer string as a parse failure.\n"
+      ]
+    },
+    "MetaInfo": {
+      "description": "Device metadata from metainfo#GetMetaInfo. Also used during setup — see device.setup for how fields 0 and 1 key the passphrase encryption.\n",
+      "example": "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket",
+      "fields": [
+        {
+          "description": "12 hex characters, no separators.",
+          "index": 0,
+          "name": "mac"
+        },
+        {
+          "index": 1,
+          "name": "serial_number"
+        },
+        {
+          "index": 2,
+          "name": "device_sku"
+        },
+        {
+          "index": 3,
+          "name": "firmware_version"
+        },
+        {
+          "description": "The device's own setup AP name.",
+          "index": 4,
+          "name": "access_point_ssid"
+        },
+        {
+          "index": 5,
+          "name": "model_name"
+        }
+      ]
+    }
+  },
+  "soap_common": {
+    "content_type": "text/xml; charset=\"utf-8\"",
+    "request_format": {
+      "argument_qualification": "CRITICAL: action arguments are UNQUALIFIED. Send <ssid>value</ssid>, not <u:ssid>value</u:ssid>. Only the action element itself carries the u: prefix, and the xmlns:u declaration belongs ON THE ACTION ELEMENT, not on the envelope. Several XML libraries (including Python's ElementTree) hoist namespace declarations to the root element, which is equivalent XML but not what these devices normally receive.\n",
+      "description": "Everything needed to build a Wemo SOAP request byte for byte. Wemo firmware runs a minimal XML parser, so send this shape rather than whatever your XML library produces by default.\n",
+      "escaping": "XML-escape argument values (&, <, >). An SSID containing an ampersand otherwise produces a malformed document. Note that pywemo does not escape, so this is a divergence in our favour rather than a documented device behaviour.\n",
+      "example": {
+        "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\n<s:Body>\n<u:ConnectHomeNetwork xmlns:u=\"urn:Belkin:service:WiFiSetup:1\">\n<ssid>HomeNet</ssid>\n<auth>WPA2PSK</auth>\n<password>mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c</password>\n<encrypt>AES</encrypt>\n<channel>6</channel>\n</u:ConnectHomeNetwork>\n</s:Body>\n</s:Envelope>\n",
+        "description": "ConnectHomeNetwork as it goes on the wire."
+      },
+      "http": {
+        "headers": {
+          "Content-Type": "text/xml; charset=\"utf-8\"",
+          "SOAPACTION": "\"<serviceType>#<Action>\"  (note the literal double quotes)"
+        },
+        "method": "POST",
+        "url": "http://<ip>:<port><controlURL from setup.xml>"
+      },
+      "template": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\n<s:Body>\n<u:{action} xmlns:u=\"{serviceType}\">\n{arguments}\n</u:{action}>\n</s:Body>\n</s:Envelope>\n"
+    },
+    "response_format": {
+      "description": "Responses are a SOAP envelope whose Body has exactly one child, named <ActionName>Response. That element's direct children are the named return values; take their text content. A Body child named Fault is an error.\n",
+      "example": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">\n<s:Body>\n<u:GetNetworkStatusResponse xmlns:u=\"urn:Belkin:service:WiFiSetup:1\">\n<NetworkStatus>1</NetworkStatus>\n</u:GetNetworkStatusResponse>\n</s:Body>\n</s:Envelope>\n",
+      "parse_rule": "envelope -> Body -> first child -> {child.tag: child.text}"
+    },
+    "setup_description": {
+      "content_type": "text/xml",
+      "method": "GET",
+      "path": "/setup.xml",
+      "source": "SSDP LOCATION response header"
+    },
+    "soapaction_format": "\"<serviceType>#<Action>\"",
+    "transport": "HTTP POST",
+    "universal_services": {
+      "basicevent": {
+        "actions": [
+          "GetBinaryState",
+          "SetBinaryState",
+          "ReSetup",
+          "SetSetupDoneStatus"
+        ],
+        "control_url": "/upnp/control/basicevent1",
+        "event_sub_url": "/upnp/event/basicevent1",
+        "service_type": "urn:Belkin:service:basicevent:1",
+        "setup_related_actions": {
+          "ReSetup": "Takes a Reset argument selecting scope: 1 clears name/icon/rules, 2 factory resets, 5 clears WiFi credentials only. Returns Reset = success (or reset_remote on at least one device). See device.setup.rejoin.\n",
+          "SetSetupDoneStatus": "Sent after a successful CloseSetup. Absent on some firmware; treat a SOAP fault or missing action as non-fatal.\n"
+        }
+      },
+      "metainfo": {
+        "actions": [
+          "GetMetaInfo",
+          "GetExtMetaInfo"
+        ],
+        "control_url": "/upnp/control/metainfo1",
+        "service_type": "urn:Belkin:service:metainfo:1"
+      },
+      "timesync": {
+        "actions": [
+          "GetTime",
+          "TimeSync",
+          "GetDeviceTime"
+        ],
+        "control_url": "/upnp/control/timesync1",
+        "service_type": "urn:Belkin:service:timesync:1"
+      },
+      "wifi_setup": {
+        "actions": [
+          "GetApList",
+          "ConnectHomeNetwork",
+          "GetNetworkStatus",
+          "CloseSetup"
+        ],
+        "availability": "Present on the setup AP. Always resolve the controlURL from the serviceList in setup.xml; the path spelling differs across firmware generations.\n",
+        "control_url": "/upnp/control/WiFiSetup1",
+        "control_url_alternates": [
+          "/upnp/control/wifi1"
+        ],
+        "service_type": "urn:Belkin:service:WiFiSetup:1"
+      }
+    }
+  }
+}

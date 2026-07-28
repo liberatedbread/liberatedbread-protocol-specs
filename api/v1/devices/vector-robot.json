@@ -1,0 +1,677 @@
+{
+  "device": {
+    "discovery": {
+      "identity": {
+        "display": "name",
+        "stable_keys": [
+          "serial",
+          "hostname"
+        ]
+      },
+      "methods": [
+        {
+          "mdns": {
+            "identity_mapping": {
+              "display": {
+                "source": "name"
+              },
+              "stable_keys": [
+                {
+                  "source": "txt:serial"
+                },
+                {
+                  "source": "hostname"
+                }
+              ]
+            },
+            "port": 443,
+            "service_type": "_ankivector._tcp.local.",
+            "txt_record_keys": [
+              "serial"
+            ]
+          },
+          "type": "mdns"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 443,
+      "mdns_service_type": "_ankivector._tcp.local."
+    },
+    "manufacturer": "Anki / Digital Dream Labs",
+    "manufacturer_status": "active",
+    "name": "Vector Robot",
+    "notes": "Desktop companion robot with primary local control over WiFi using gRPC and protobuf 3 over TLS on port 443. Discovery uses mDNS service _ankivector._tcp.local. Connections require robot certificate pinning and a GUID bearer token obtained during onboarding. BLE onboarding uses Anki RTS protocol with CLAD serialization and NaCl/libsodium encryption. The anki_vector Python SDK is available under Apache 2.0 and documents the ExternalInterface service.\n",
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [
+          "Robot self-signed TLS certificate (pin it)",
+          "client_token_guid bearer token for gRPC"
+        ],
+        "notes": "The passphrase is sent as plaintext inside the NaCl-encrypted BLE session, so confidentiality depends on the handshake having been completed with the on-screen PIN rather than on the field itself.\n",
+        "stored_on_device": [
+          "WiFi credentials for each provisioned network",
+          "Owner/account association"
+        ],
+        "wifi_passphrase_protection": "device_encrypted"
+      },
+      "factory_reset": {
+        "confidence": "medium",
+        "effect": "Clears WiFi credentials, the owner/account association, enrolled faces and the issued client GUID. The ESN (serial) is hardware identity and survives, so the mDNS name and BLE advertisement stay the same.\n",
+        "procedures": [
+          {
+            "hold_seconds": 15,
+            "indicator": "The screen shows the clear-user-data confirmation and the robot reboots into onboarding.",
+            "name": "Backpack button held on the charger",
+            "steps": [
+              {
+                "action": "Place the robot on the charger.",
+                "actor": "user"
+              },
+              {
+                "action": "Press and hold the backpack button for about 15 seconds until the clear-user-data screen appears.",
+                "actor": "user"
+              },
+              {
+                "action": "Wait for the reboot; the robot returns to BLE pairing mode.",
+                "actor": "device",
+                "timeout_seconds": 180
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "advertised_name": "Vector-XXXX",
+            "pairing_required": true,
+            "pin_source": "Six-digit PIN rendered on the robot's face display during pairing mode.",
+            "protocol": "Anki RTS (CLAD over BLE, NaCl secretbox after handshake)",
+            "read_characteristic": "7d2a4bda-d29b-4152-b725-2491478c5cd7",
+            "write_characteristic": "30619f2d-0f54-41bd-a65a-7588d8c85b45"
+          },
+          "description": "Anki RTS over BLE: handshake, PIN confirmation, WiFi scan, credential push, then certificate/GUID retrieval. Versions 2 through 5 of the protocol all carry the same WiFi messages.\n",
+          "steps": [
+            {
+              "action": "Place the robot on its charger and double-click the backpack button to enter pairing mode.",
+              "actor": "user",
+              "expect": "Robot advertises as Vector-XXXX and shows a PIN on its screen."
+            },
+            {
+              "action": "Connect and complete the RTS handshake (RtsConnRequest / RtsConnResponse / RtsNonceMessage / RtsChallengeMessage).",
+              "actor": "client",
+              "expect": "RtsChallengeSuccessMessage; all later traffic is NaCl-encrypted.",
+              "request": {
+                "action": "RtsConnRequest",
+                "protocol": "ble_gatt",
+                "service": "Anki RTS"
+              }
+            },
+            {
+              "action": "Request a WiFi scan and present the results to the user.",
+              "actor": "client",
+              "expect": "RtsWifiScanResponse listing SSID, signal, auth type, hidden and provisioned flags.",
+              "request": {
+                "action": "RtsWifiScanRequest",
+                "protocol": "ble_gatt",
+                "service": "Anki RTS"
+              },
+              "timeout_seconds": 30
+            },
+            {
+              "action": "Send the selected network's credentials.",
+              "actor": "client",
+              "expect": "RtsWifiConnectResponse carrying the resulting WiFi state and connect result.",
+              "request": {
+                "action": "RtsWifiConnectRequest",
+                "arguments": [
+                  {
+                    "description": "SSID hex-encoded, not raw text — the field carries the hex string itself.",
+                    "name": "wifi_ssid_hex",
+                    "required": true,
+                    "type": "string"
+                  },
+                  {
+                    "description": "Passphrase in the clear inside the already-encrypted BLE channel.",
+                    "name": "password",
+                    "required": true,
+                    "type": "string"
+                  },
+                  {
+                    "name": "auth_type",
+                    "required": true,
+                    "type": "uint8"
+                  },
+                  {
+                    "description": "Seconds the robot should spend attempting the join before reporting failure.",
+                    "name": "timeout",
+                    "required": true,
+                    "type": "uint8"
+                  }
+                ],
+                "protocol": "ble_gatt",
+                "service": "Anki RTS"
+              },
+              "timeout_seconds": 60
+            },
+            {
+              "action": "Read back the assigned address to confirm the join.",
+              "actor": "client",
+              "expect": "RtsWifiIpResponse with an IPv4 address; the robot now answers _ankivector._tcp.local.",
+              "request": {
+                "action": "RtsWifiIpRequest",
+                "protocol": "ble_gatt",
+                "service": "Anki RTS"
+              }
+            },
+            {
+              "action": "Exchange a session token for the long-lived control GUID.",
+              "actor": "client",
+              "expect": "client_token_guid returned; store it with the robot's certificate for gRPC sessions.",
+              "notes": "Only cloud-dependent step. wire-pod issues the token locally instead.",
+              "request": {
+                "action": "RtsCloudSessionRequest",
+                "protocol": "ble_gatt",
+                "service": "Anki RTS"
+              }
+            }
+          ],
+          "type": "ble_provisioning",
+          "verified": false
+        }
+      ],
+      "notes": "Vector is the best-documented onboarding flow in this repository because the BLE provisioning protocol (RTS) is published under Apache 2.0. WiFi credentials never touch a vendor server: they travel over an encrypted BLE channel established by a Curve25519 exchange, with a PIN shown on the robot's own screen as the proof of physical possession. Only the last step — trading a session token for the control GUID — has a cloud dependency, and wire-pod replaces it.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Moving Vector to a new network never needs a factory reset. Re-enter BLE pairing mode and send a fresh RtsWifiConnectRequest; RtsWifiForgetRequest drops one stored network or all of them. Because BLE works regardless of WiFi state, the robot is recoverable even after the old network is gone — the failure mode that strands most WiFi-only devices.\n",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Enter BLE pairing mode and complete the RTS handshake.",
+            "actor": "user"
+          },
+          {
+            "action": "Optionally clear stale networks with RtsWifiForgetRequest.",
+            "actor": "client",
+            "request": {
+              "action": "RtsWifiForgetRequest",
+              "protocol": "ble_gatt",
+              "service": "Anki RTS"
+            }
+          },
+          {
+            "action": "Send RtsWifiConnectRequest for the new network.",
+            "actor": "client"
+          }
+        ]
+      },
+      "required": true
+    }
+  },
+  "entities": [
+    {
+      "device_class": "battery",
+      "name": "Battery",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "battery_level"
+      },
+      "state_topic": "/v1/battery_state",
+      "unit": "%"
+    },
+    {
+      "name": "Version",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "os_version"
+      },
+      "state_topic": "/v1/version_state"
+    }
+  ],
+  "grpc_rpcs": [
+    "ProtocolVersion",
+    "SDKInitialization",
+    "UserAuthentication",
+    "DriveWheels",
+    "MoveHead",
+    "MoveLift",
+    "StopAllMotors",
+    "DriveStraight",
+    "TurnInPlace",
+    "SetHeadAngle",
+    "SetLiftHeight",
+    "PlayAnimation",
+    "PlayAnimationTrigger",
+    "ListAnimations",
+    "ListAnimationTriggers",
+    "DisplayFaceImageRGB",
+    "SetEyeColor",
+    "GoToPose",
+    "DockWithCube",
+    "DriveOffCharger",
+    "DriveOnCharger",
+    "FindFaces",
+    "LookAroundInPlace",
+    "EnableFaceDetection",
+    "EnableMarkerDetection",
+    "EnableMotionDetection",
+    "CancelFaceEnrollment",
+    "RequestEnrolledNames",
+    "UpdateEnrolledFaceByID",
+    "EraseEnrolledFaceByID",
+    "EraseAllEnrolledFaces",
+    "SetFaceToEnroll",
+    "TurnTowardsFace",
+    "GoToObject",
+    "RollObject",
+    "PopAWheelie",
+    "PickupObject",
+    "PlaceObjectOnGroundHere",
+    "ConnectCube",
+    "DisconnectCube",
+    "CubesAvailable",
+    "FlashCubeLights",
+    "SetCubeLights",
+    "ForgetPreferredCube",
+    "SetPreferredCube",
+    "DeleteCustomObjects",
+    "CreateFixedCustomObject",
+    "DefineCustomObject",
+    "PhotosInfo",
+    "Photo",
+    "Thumbnail",
+    "DeletePhoto",
+    "SayText",
+    "SetMasterVolume",
+    "ExternalAudioStreamPlayback",
+    "EventStream",
+    "BehaviorControl",
+    "CameraFeed",
+    "AudioFeed",
+    "NavMapFeed",
+    "BatteryState",
+    "VersionState",
+    "EnableMirrorMode",
+    "EnableImageStreaming",
+    "IsImageStreamingEnabled",
+    "CancelActionByIdTag",
+    "RollBlock",
+    "CaptureSingleImage"
+  ],
+  "http_endpoints": [
+    {
+      "description": "Negotiate SDK/robot protocol version.",
+      "method": "POST",
+      "name": "ProtocolVersion",
+      "path": "/v1/protocol_version",
+      "request_body": {
+        "content_type": "application/json",
+        "fields": [
+          {
+            "description": "Client protocol version.",
+            "name": "client_version",
+            "type": "integer"
+          }
+        ]
+      },
+      "response_body": {
+        "content_type": "application/json",
+        "fields": [
+          {
+            "description": "Robot protocol version; current documented version is 5.",
+            "name": "version",
+            "type": "integer"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Initialize SDK session metadata.",
+      "method": "POST",
+      "name": "SDKInitialization",
+      "path": "/v1/sdk_initialization"
+    },
+    {
+      "description": "Authenticate a cloud or wire-pod session token and obtain a GUID.",
+      "method": "POST",
+      "name": "UserAuthentication",
+      "path": "/v1/user_authentication"
+    },
+    {
+      "description": "Server stream carrying robot state, world, and status events.",
+      "method": "POST",
+      "name": "EventStream",
+      "path": "/v1/event_stream"
+    },
+    {
+      "description": "Return battery voltage, charge level, and charging status.",
+      "method": "POST",
+      "name": "BatteryState",
+      "path": "/v1/battery_state",
+      "response_body": {
+        "content_type": "application/json",
+        "fields": [
+          {
+            "description": "Battery voltage.",
+            "name": "battery_volts",
+            "type": "number"
+          },
+          {
+            "description": "Battery level enum.",
+            "name": "battery_level",
+            "type": "integer"
+          },
+          {
+            "description": "Whether Vector is on charger and charging.",
+            "name": "is_charging",
+            "type": "boolean"
+          }
+        ]
+      }
+    },
+    {
+      "description": "Return firmware, OS, engine, and serial/version identifiers.",
+      "method": "POST",
+      "name": "VersionState",
+      "path": "/v1/version_state"
+    },
+    {
+      "description": "List installed animation names.",
+      "method": "POST",
+      "name": "ListAnimations",
+      "path": "/v1/list_animations"
+    },
+    {
+      "description": "List available animation triggers.",
+      "method": "POST",
+      "name": "ListAnimationTriggers",
+      "path": "/v1/list_animation_triggers"
+    },
+    {
+      "description": "Display an RGB image on Vector's face screen.",
+      "method": "POST",
+      "name": "DisplayFaceImageRGB",
+      "path": "/v1/display_face_image_rgb"
+    },
+    {
+      "description": "Set Vector eye color.",
+      "method": "POST",
+      "name": "SetEyeColor",
+      "path": "/v1/set_eye_color"
+    },
+    {
+      "description": "Drive to a pose.",
+      "method": "POST",
+      "name": "GoToPose",
+      "path": "/v1/go_to_pose"
+    },
+    {
+      "description": "Approach and dock with the cube.",
+      "method": "POST",
+      "name": "DockWithCube",
+      "path": "/v1/dock_with_cube"
+    },
+    {
+      "description": "Drive off the charger.",
+      "method": "POST",
+      "name": "DriveOffCharger",
+      "path": "/v1/drive_off_charger"
+    },
+    {
+      "description": "Return to charger.",
+      "method": "POST",
+      "name": "DriveOnCharger",
+      "path": "/v1/drive_on_charger"
+    },
+    {
+      "description": "Look for faces.",
+      "method": "POST",
+      "name": "FindFaces",
+      "path": "/v1/find_faces"
+    },
+    {
+      "description": "Scan the environment in place.",
+      "method": "POST",
+      "name": "LookAroundInPlace",
+      "path": "/v1/look_around_in_place"
+    },
+    {
+      "description": "Enable or disable face detection.",
+      "method": "POST",
+      "name": "EnableFaceDetection",
+      "path": "/v1/enable_face_detection"
+    },
+    {
+      "description": "Enable or disable marker detection.",
+      "method": "POST",
+      "name": "EnableMarkerDetection",
+      "path": "/v1/enable_marker_detection"
+    },
+    {
+      "description": "Enable or disable motion detection.",
+      "method": "POST",
+      "name": "EnableMotionDetection",
+      "path": "/v1/enable_motion_detection"
+    },
+    {
+      "description": "Cancel face enrollment.",
+      "method": "POST",
+      "name": "CancelFaceEnrollment",
+      "path": "/v1/cancel_face_enrollment"
+    },
+    {
+      "description": "List enrolled face names.",
+      "method": "POST",
+      "name": "RequestEnrolledNames",
+      "path": "/v1/request_enrolled_names"
+    },
+    {
+      "description": "Rename an enrolled face.",
+      "method": "POST",
+      "name": "UpdateEnrolledFaceByID",
+      "path": "/v1/update_enrolled_face_by_id"
+    },
+    {
+      "description": "Erase one enrolled face.",
+      "method": "POST",
+      "name": "EraseEnrolledFaceByID",
+      "path": "/v1/erase_enrolled_face_by_id"
+    },
+    {
+      "description": "Erase all enrolled faces.",
+      "method": "POST",
+      "name": "EraseAllEnrolledFaces",
+      "path": "/v1/erase_all_enrolled_faces"
+    },
+    {
+      "description": "Begin face enrollment.",
+      "method": "POST",
+      "name": "SetFaceToEnroll",
+      "path": "/v1/set_face_to_enroll"
+    },
+    {
+      "description": "Connect to Vector's cube.",
+      "method": "POST",
+      "name": "ConnectCube",
+      "path": "/v1/connect_cube"
+    },
+    {
+      "description": "Disconnect from cube.",
+      "method": "POST",
+      "name": "DisconnectCube",
+      "path": "/v1/disconnect_cube"
+    },
+    {
+      "description": "Check whether cubes are available.",
+      "method": "POST",
+      "name": "CubesAvailable",
+      "path": "/v1/cubes_available"
+    },
+    {
+      "description": "Flash cube lights.",
+      "method": "POST",
+      "name": "FlashCubeLights",
+      "path": "/v1/flash_cube_lights"
+    },
+    {
+      "description": "Set cube light pattern.",
+      "method": "POST",
+      "name": "SetCubeLights",
+      "path": "/v1/set_cube_lights"
+    },
+    {
+      "description": "Forget preferred cube.",
+      "method": "POST",
+      "name": "ForgetPreferredCube",
+      "path": "/v1/forget_preferred_cube"
+    },
+    {
+      "description": "Set preferred cube.",
+      "method": "POST",
+      "name": "SetPreferredCube",
+      "path": "/v1/set_preferred_cube"
+    },
+    {
+      "description": "Delete custom objects.",
+      "method": "POST",
+      "name": "DeleteCustomObjects",
+      "path": "/v1/delete_custom_objects"
+    },
+    {
+      "description": "Create a fixed custom object.",
+      "method": "POST",
+      "name": "CreateFixedCustomObject",
+      "path": "/v1/create_fixed_custom_object"
+    },
+    {
+      "description": "Define a custom object marker.",
+      "method": "POST",
+      "name": "DefineCustomObject",
+      "path": "/v1/define_custom_object"
+    },
+    {
+      "description": "List photo metadata.",
+      "method": "POST",
+      "name": "PhotosInfo",
+      "path": "/v1/photos_info"
+    },
+    {
+      "description": "Fetch one photo.",
+      "method": "POST",
+      "name": "Photo",
+      "path": "/v1/photo"
+    },
+    {
+      "description": "Fetch one thumbnail.",
+      "method": "POST",
+      "name": "Thumbnail",
+      "path": "/v1/thumbnail"
+    },
+    {
+      "description": "Delete one photo.",
+      "method": "POST",
+      "name": "DeletePhoto",
+      "path": "/v1/delete_photo"
+    },
+    {
+      "description": "Make Vector speak text.",
+      "method": "POST",
+      "name": "SayText",
+      "path": "/v1/say_text"
+    },
+    {
+      "description": "Set speaker master volume.",
+      "method": "POST",
+      "name": "SetMasterVolume",
+      "path": "/v1/set_master_volume"
+    },
+    {
+      "description": "Enable or disable mirror mode.",
+      "method": "POST",
+      "name": "EnableMirrorMode",
+      "path": "/v1/enable_mirror_mode"
+    },
+    {
+      "description": "Enable or disable image streaming.",
+      "method": "POST",
+      "name": "EnableImageStreaming",
+      "path": "/v1/enable_image_streaming"
+    },
+    {
+      "description": "Return image streaming enabled state.",
+      "method": "POST",
+      "name": "IsImageStreamingEnabled",
+      "path": "/v1/is_image_streaming_enabled"
+    },
+    {
+      "description": "Cancel a running action by id tag.",
+      "method": "POST",
+      "name": "CancelActionByIdTag",
+      "path": "/v1/cancel_action_by_id_tag"
+    },
+    {
+      "description": "Roll cube/block.",
+      "method": "POST",
+      "name": "RollBlock",
+      "path": "/v1/roll_block"
+    },
+    {
+      "description": "Capture one camera image.",
+      "method": "POST",
+      "name": "CaptureSingleImage",
+      "path": "/v1/capture_single_image"
+    }
+  ],
+  "protocols": {
+    "ble_onboarding": {
+      "encryption": "NaCl/libsodium Curve25519 key exchange + secretbox",
+      "name": "RTS",
+      "read_characteristic": "7d2a4bda-d29b-4152-b725-2491478c5cd7",
+      "serialization": "CLAD",
+      "write_characteristic": "30619f2d-0f54-41bd-a65a-7588d8c85b45"
+    },
+    "rest_gateway": {
+      "base_path": "/v1",
+      "description": "gRPC-gateway JSON endpoints for many unary RPCs."
+    },
+    "sdk": {
+      "license": "Apache-2.0",
+      "name": "anki_vector Python",
+      "url": "https://github.com/anki/vector-python-sdk"
+    },
+    "wifi_grpc": {
+      "authentication": {
+        "bearer": "client_token_guid",
+        "tls": "robot self-signed certificate pinning"
+      },
+      "key_state_rpcs": [
+        "BatteryState",
+        "VersionState",
+        "RobotState"
+      ],
+      "port": 443,
+      "rpc_count": 48,
+      "serialization": "protobuf 3",
+      "service": "ExternalInterface",
+      "transport": "HTTP/2 over TLS"
+    }
+  },
+  "state_models": [
+    {
+      "description": "Battery voltage, level, and charging state.",
+      "name": "BatteryState"
+    },
+    {
+      "description": "Robot firmware, OS, engine, and serial identifiers.",
+      "name": "VersionState"
+    },
+    {
+      "description": "Position, pose, lift/head angles, motion, carrying, and status fields emitted on EventStream.",
+      "name": "RobotState"
+    }
+  ]
+}
