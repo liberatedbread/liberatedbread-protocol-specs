@@ -66,11 +66,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Initial device setup (provisioning) coverage:
   - `device.setup` block in `device-specs/schema.json` — onboarding methods,
     factory reset procedures, rebinding, and credential handling
-  - `device.setup` populated for all 27 device specs
+  - `device.setup` populated for every device spec, including the OBD-II
+    vehicles and adapter, where `factory_reset.applicable: false` records
+    that a vehicle has no reset rather than inventing one
   - `docs/protocols/device-setup.md` — cross-device onboarding patterns for
     WiFi (SoftAP) and BLE devices
   - `docs/devices/wemo-setup.md` — Wemo factory reset, provisioning over the
     device's setup AP, and rebinding to a new network via `ReSetup`
+- `scripts/test_wemo_scaffolding.py` — pins the Wemo scaffolding to the spec it
+  verifies, so a script that has drifted cannot pass for a verified document.
+  Skips cleanly when the scripts are removed
 - `scripts/test_wemo_spec.py` — proves the Wemo spec is implementable from the
   spec alone for all three client jobs (discover, control, provision):
   transcribes the published protocol using only the standard library and
@@ -103,12 +108,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Coding, flashing, immobiliser and key work are documented and flagged
   `advanced: true` in the schema rather than excluded — reviving an old bike needs
   them. Only odometer falsification and work on a moving vehicle stay out
-
 - LEDs2Rave4 / Lunchbox Dream LED docs now map each product generation to its design app
   (LED CHORD → SPOTLED → iLEDColor) and document the SPOTLED framed BLE protocol on `0xFF20`,
   corroborated against `python-spotled`
-### Changed
-
 - The Wemo protocol now lives in `device-specs/devices/wemo-devices.yaml`
   rather than in scripts: the SSDP datagram and response handling, the rule
   separating Wemo from other UPnP responders, the description parse rules
@@ -131,6 +133,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   examples shared one top-level key and collided
 - Device specs: removed `local_name_prefix: ""` values, which match every
   BLE device when used as a scan filter
+- `targets/wemo-devices.md` claimed WiFi provisioning was app-only and out of
+  scope, gave the setup AP prefix as `WeMo.Setup.`, and called `InsightParams`
+  colon-delimited — all three contradicted by this branch's own findings
+- `VERIFICATION_REFERENCE.md` now says on its face that it is not reproducible,
+  since its APK column probes the gitignored workspace directory (#18)
 - Wemo SOAP requests put action arguments in the service namespace
   (`<u:BinaryState>`); UPnP arguments are unqualified, and the request body now
   matches the wire format pywemo and ouimeaux send
