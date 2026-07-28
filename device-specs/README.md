@@ -1,12 +1,17 @@
 # Device Specs
 
-Machine-readable specifications for BLE IoT devices. Both the OpenGreenIoT mobile app
-and Home Assistant integration consume these specs.
+Machine-readable specifications for IoT devices — BLE, WiFi and hub-attached.
+Both the OpenGreenIoT mobile app and the Home Assistant integration consume
+these specs, and they are published as JSON by the
+[Data API](../docs/api/index.md).
+
+Reading one: [`docs/api/spec-format.md`](../docs/api/spec-format.md).
 
 ## Format
 
-Device specs are YAML files describing a device's BLE GATT services, characteristics,
-and the commands needed to control them.
+Device specs are YAML files describing how to find a device, how to get it onto
+the network, and how to control it — BLE GATT services and characteristics, or
+HTTP endpoints and MQTT topics for WiFi devices.
 
 ```yaml
 # device-specs/examples/example-bulb.yaml
@@ -84,13 +89,108 @@ entities:
 | `protocol` | Yes | Primary protocol: `ble`, `wifi`, `zigbee`, `zwave`, `obd2` |
 | `notes` | No | Free-text notes about the device |
 | `identification` | No | How to auto-discover during scanning |
+| `discovery` | No | Machine-readable discovery methods and identity keys |
+| `setup` | No | One-time provisioning, factory reset and rebinding |
 
 ### `identification` (optional)
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `local_name_prefix` | No | BLE advertisement local name prefix |
+| `local_name_prefix` | No | BLE advertisement local name prefix. Omit it rather than setting `""` — an empty prefix matches every device. |
 | `service_uuids` | No | BLE service UUIDs (full 128-bit format) |
+
+### `setup` (optional)
+
+Describes how a factory-fresh device is brought onto the network — deliberately
+separate from `discovery` (finding an already-provisioned device) and from
+`initialization` (the per-connection handshake that runs on *every* connect).
+
+A BLE device with an encrypted command channel has both an `initialization`
+block and a `setup` block saying `required: false`. That is not a
+contradiction: there is nothing to provision, but every connection still needs
+a handshake.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `required` | No | Whether provisioning is needed at all. `false` for most BLE devices — say so explicitly; "no setup needed" is a feature. |
+| `confidence` | No | `high` (replayed against hardware or a working open implementation), `medium` (public source/vendor docs), `low` (inferred) |
+| `methods` | No | Ordered onboarding methods, preferred first |
+| `factory_reset` | No | What a reset clears, and the per-variant procedures that trigger it. Set `applicable: false` with an `effect` explaining why when the device genuinely has none — a vehicle reached over a diagnostic connector, say — rather than inventing a procedure to fill the field |
+| `rejoin` | No | Whether a device can be moved to a new network without a reset |
+| `credentials` | No | How the passphrase is protected, what the device stores, what it issues to the client |
+| `notes` | No | Prose overview, including what is and is not confirmed |
+
+#### `methods[]`
+
+`type` is one of `none`, `ble_direct`, `softap_http`, `softap_soap`,
+`ble_provisioning`, `wps`, `smartconfig`, `wired`, `device_ui`,
+`button_pairing`, `hub_pairing`, `cloud_account`.
+
+| Field | Description |
+|-------|-------------|
+| `type` | Onboarding model (above) |
+| `description` | What this method actually does |
+| `verified` | **Always set this.** `true` only if this exact flow has been run against hardware. An absent flag reads as an oversight rather than as "not yet verified". |
+| `softap` / `ble` / `cloud` | Detail block for the relevant transport |
+| `steps` | The flow, in order |
+| `payload_formats` | How to parse non-obvious response payloads, keyed by value name |
+| `timing` | Constants a client must honour |
+| `troubleshooting` | Symptom/causes pairs for known failure modes |
+
+#### `steps[]`
+
+Each step names who acts and what success looks like. `actor` is `user`,
+`client` or `device` — a `user` step cannot be automated, so a client rendering
+these as a wizard knows where to stop and prompt. `expect` is the observable
+success signal. `request` carries `protocol`, `service`, `action` and
+`arguments` when the step is machine-executable.
+
+#### Writing a `setup` block that is actually implementable
+
+The test is whether someone with your hardware and none of your context could
+follow it. In practice that means:
+
+- **Name the response values and how to parse them.** `payload_formats` should
+  spell out the traps — header lines to skip, trailing separators, columns that
+  must be located from the end rather than by index — and carry a literal
+  `example` real enough to test against.
+- **Write encryption as a procedure, not a description.** "AES-128-CBC with a
+  key derived from device metadata" is not implementable. State whether values
+  are UTF-8 or hex-decoded, how many hash rounds, the padding, the output
+  encoding, and any length suffix — including its zero-padding.
+- **Publish test vectors.** They let an implementer verify their crypto against
+  known-good values before touching hardware, turning "it fails and I don't
+  know which half is wrong" into one answerable question. Use a
+  documentation-range MAC and an invented serial so the vectors identify no
+  real device, and add a test asserting they stay reproducible.
+- **Record the timing constants.** Minimum poll timeouts and deliberate
+  duplicate sends look arbitrary and are not.
+- **List the failure modes.** Onboarding fails for a small number of recurring
+  reasons; naming them is often the difference between a working implementation
+  and an abandoned one.
+
+`devices/wemo-devices.yaml` is the worked reference — it is written so a Wemo
+device can be provisioned from that file alone. `scripts/test_wemo_spec.py`
+proves it: the module transcribes the published algorithm using nothing but
+`hashlib`, `base64` and `openssl`, imports none of our own code, and asserts
+the transcription reproduces the spec's own test vectors. If the transcription
+cannot be written, the spec is underspecified and CI fails.
+
+That is also why there is no supported client surface here. Existing libraries
+do discovery, control and provisioning, and are tested against far more
+hardware than we are; the spec is our contribution, and proving it
+implementable is the test. The same module reconstructs the SSDP datagram, the
+description parser and the SOAP request builder from the YAML and diffs each
+against the spec's own published examples.
+
+The Wemo scripts under `scripts/` are not an exception to that: they exist to
+check the spec against hardware while every `verified` flag in it is still
+`false`, and are tracked for deletion once it is done.
+
+Full field-by-field walkthrough:
+[`docs/api/spec-format.md`](../docs/api/spec-format.md). Patterns across
+devices: [`docs/protocols/device-setup.md`](../docs/protocols/device-setup.md).
+`schema.json` is the source of truth for names and enums.
 
 ### `services` (required, array)
 

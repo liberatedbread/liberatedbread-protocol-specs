@@ -29,12 +29,54 @@ mkdocs serve
 
 Then open http://localhost:8000
 
+## What we ship, and what we don't
+
+**The specs are the product.** `device-specs/devices/*.yaml` is written to be
+implementable on its own — discovery, control and provisioning alike — and
+`scripts/test_wemo_spec.py` proves it by transcribing the published protocol
+from the YAML using nothing but the standard library, and checking the
+transcription reproduces the spec's own examples and test vectors.
+
+We deliberately do **not** ship a supported device-client surface. Existing
+libraries ([pywemo](https://github.com/pywemo/pywemo) for Wemo) already do that
+job and are tested against far more hardware than we are; a second
+implementation from us would be a worse copy competing with the thing we tell
+people to use.
+
+### Scaffolding
+
+Some helpers remain under `scripts/` and are **not** a supported client
+surface. They fall into two groups, both tracked for removal:
+
+- **Verification scaffolding** — `wemo_discover.py`, `wemo_control.py`,
+  `wemo_setup.py`. The Wemo spec documents discovery, control and provisioning,
+  but nothing here has been run against real hardware yet; these close that gap.
+  Deleted once the spec is confirmed ([#16](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/16)).
+- **Research scaffolding** — the remaining `*_discover.py` helpers, for device
+  families whose protocol we are still mapping. Each one holds knowledge that
+  belongs in its spec ([#17](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/17)).
+
+Start with [Reading a Device Spec](docs/api/spec-format.md),
+[Initial Device Setup](docs/protocols/device-setup.md) and
+[Wemo setup, reset and rebinding](docs/devices/wemo-setup.md).
+
 ## Adding a New Device
 
 1. Copy `docs/devices/_template.md` to `docs/devices/your-device-name.md`
-2. Fill in the template
-3. Add your device to `docs/devices/index.md`
-4. Submit a PR!
+2. Fill in the template — including the setup, factory reset and rebinding section
+3. Add your device to `docs/devices/index.md` and to `mkdocs.yml`'s nav
+4. Add a spec under `device-specs/devices/` and validate it:
+   `python scripts/validate_specs.py`
+5. Submit a PR!
+
+## Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+ruff check .        # lint the helper scripts
+pytest -q           # run the test suite
+mkdocs build --strict
+```
 
 ## Related Repos
 

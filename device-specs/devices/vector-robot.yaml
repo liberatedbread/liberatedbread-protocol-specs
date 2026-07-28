@@ -37,6 +37,141 @@ device:
       display: "name"
     static_ip_required: false
 
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      Vector is the best-documented onboarding flow in this repository because
+      the BLE provisioning protocol (RTS) is published under Apache 2.0. WiFi
+      credentials never touch a vendor server: they travel over an encrypted
+      BLE channel established by a Curve25519 exchange, with a PIN shown on the
+      robot's own screen as the proof of physical possession. Only the last
+      step — trading a session token for the control GUID — has a cloud
+      dependency, and wire-pod replaces it.
+    methods:
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          Anki RTS over BLE: handshake, PIN confirmation, WiFi scan, credential
+          push, then certificate/GUID retrieval. Versions 2 through 5 of the
+          protocol all carry the same WiFi messages.
+        ble:
+          advertised_name: "Vector-XXXX"
+          protocol: "Anki RTS (CLAD over BLE, NaCl secretbox after handshake)"
+          write_characteristic: "30619f2d-0f54-41bd-a65a-7588d8c85b45"
+          read_characteristic: "7d2a4bda-d29b-4152-b725-2491478c5cd7"
+          pairing_required: true
+          pin_source: "Six-digit PIN rendered on the robot's face display during pairing mode."
+        steps:
+          - action: "Place the robot on its charger and double-click the backpack button to enter pairing mode."
+            actor: "user"
+            expect: "Robot advertises as Vector-XXXX and shows a PIN on its screen."
+          - action: "Connect and complete the RTS handshake (RtsConnRequest / RtsConnResponse / RtsNonceMessage / RtsChallengeMessage)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "Anki RTS"
+              action: "RtsConnRequest"
+            expect: "RtsChallengeSuccessMessage; all later traffic is NaCl-encrypted."
+          - action: "Request a WiFi scan and present the results to the user."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "Anki RTS"
+              action: "RtsWifiScanRequest"
+            expect: "RtsWifiScanResponse listing SSID, signal, auth type, hidden and provisioned flags."
+            timeout_seconds: 30
+          - action: "Send the selected network's credentials."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "Anki RTS"
+              action: "RtsWifiConnectRequest"
+              arguments:
+                - name: "wifi_ssid_hex"
+                  type: "string"
+                  required: true
+                  description: "SSID hex-encoded, not raw text — the field carries the hex string itself."
+                - name: "password"
+                  type: "string"
+                  required: true
+                  description: "Passphrase in the clear inside the already-encrypted BLE channel."
+                - name: "auth_type"
+                  type: "uint8"
+                  required: true
+                - name: "timeout"
+                  type: "uint8"
+                  required: true
+                  description: "Seconds the robot should spend attempting the join before reporting failure."
+            expect: "RtsWifiConnectResponse carrying the resulting WiFi state and connect result."
+            timeout_seconds: 60
+          - action: "Read back the assigned address to confirm the join."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "Anki RTS"
+              action: "RtsWifiIpRequest"
+            expect: "RtsWifiIpResponse with an IPv4 address; the robot now answers _ankivector._tcp.local."
+          - action: "Exchange a session token for the long-lived control GUID."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "Anki RTS"
+              action: "RtsCloudSessionRequest"
+            expect: "client_token_guid returned; store it with the robot's certificate for gRPC sessions."
+            notes: "Only cloud-dependent step. wire-pod issues the token locally instead."
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears WiFi credentials, the owner/account association, enrolled faces
+        and the issued client GUID. The ESN (serial) is hardware identity and
+        survives, so the mDNS name and BLE advertisement stay the same.
+      procedures:
+        - name: "Backpack button held on the charger"
+          hold_seconds: 15
+          indicator: "The screen shows the clear-user-data confirmation and the robot reboots into onboarding."
+          steps:
+            - action: "Place the robot on the charger."
+              actor: "user"
+            - action: "Press and hold the backpack button for about 15 seconds until the clear-user-data screen appears."
+              actor: "user"
+            - action: "Wait for the reboot; the robot returns to BLE pairing mode."
+              actor: "device"
+              timeout_seconds: 180
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving Vector to a new network never needs a factory reset. Re-enter
+        BLE pairing mode and send a fresh RtsWifiConnectRequest;
+        RtsWifiForgetRequest drops one stored network or all of them. Because
+        BLE works regardless of WiFi state, the robot is recoverable even after
+        the old network is gone — the failure mode that strands most WiFi-only
+        devices.
+      steps:
+        - action: "Enter BLE pairing mode and complete the RTS handshake."
+          actor: "user"
+        - action: "Optionally clear stale networks with RtsWifiForgetRequest."
+          actor: "client"
+          request:
+            protocol: "ble_gatt"
+            service: "Anki RTS"
+            action: "RtsWifiForgetRequest"
+        - action: "Send RtsWifiConnectRequest for the new network."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "WiFi credentials for each provisioned network"
+        - "Owner/account association"
+      issued_to_client:
+        - "Robot self-signed TLS certificate (pin it)"
+        - "client_token_guid bearer token for gRPC"
+      notes: >
+        The passphrase is sent as plaintext inside the NaCl-encrypted BLE
+        session, so confidentiality depends on the handshake having been
+        completed with the on-screen PIN rather than on the field itself.
+
 protocols:
   wifi_grpc:
     service: "ExternalInterface"

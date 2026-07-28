@@ -51,6 +51,94 @@ device:
       stable_keys: ["address"]
       display: "local_name"
     static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The CQ60 hub is a BLE device that also needs WiFi, and the two roles are
+      cleanly separated: probes and live readings work over BLE with no setup
+      at all, while cloud/MQTT features need the WiFi credentials that are
+      pushed over the Family C (8A71) provisioning service. A local-first
+      client can stop after BLE and never provision WiFi — worth saying out
+      loud, because the vendor app treats the account as mandatory.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          For local use, no provisioning is required: scan for the local name
+          CQ60, connect, and use the thermometer (048A) and system (9C6F)
+          services directly.
+        ble:
+          advertised_name: "CQ60"
+          pairing_required: false
+        steps:
+          - action: "Scan for a device advertising the local name CQ60 with manufacturer ID 0x05CD and connect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          WiFi credentials are written over the Family C service. The
+          characteristic set is versioned V1/V2/V3 across device generations,
+          so read the network-info characteristic first and match the version
+          before writing.
+        ble:
+          service_uuid: "8a7100fe-babe-b7ae-074f-86d0c0b50089"
+          write_characteristic: "8a71ffa3-babe-b7ae-074f-86d0c0b50089"
+          read_characteristic: "8a71ffa0-babe-b7ae-074f-86d0c0b50089"
+          pairing_required: false
+        steps:
+          - action: "Read the network info characteristic to learn the provisioning version and current state."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "8a7100fe-babe-b7ae-074f-86d0c0b50089"
+              action: "Read 8a71ffa0 (Network Info)"
+          - action: "Read the scanned-network characteristic to enumerate visible access points."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Read 8a71ffa1 (Scanned Network)"
+          - action: "Write the target SSID and passphrase to the set-network characteristic."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Write 8a71ffa3 (Set Wi-Fi Network)"
+            notes: "Payload encoding is version-dependent and has not been replayed against hardware here."
+          - action: "Subscribe to the network info characteristic for the join result."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Notify 8a71ffa0 (Network Info)"
+            timeout_seconds: 60
+    factory_reset:
+      confidence: "low"
+      effect: "Removing the stored credential over BLE unprovisions WiFi without touching probe pairings or the account."
+      procedures:
+        - name: "Remove credential over BLE"
+          steps:
+            - action: "Write to the remove-credential characteristic 8a71ffa5."
+              actor: "client"
+              notes: "Protocol-level unprovision; the hardware button sequence for a full reset is not documented here."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE stays available whatever the WiFi state, so a new network is just
+        another write to 8a71ffa3 — optionally preceded by a remove-credential
+        write to 8a71ffa5. No physical reset needed.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "WiFi credentials"
+        - "AWS IoT device identity for cloud MQTT"
+      issued_to_client: []
+      notes: >
+        BLE writes here are not encrypted or bonded, so the passphrase is
+        exposed to anything sniffing the connection event during provisioning.
+        Provision in a quiet RF environment or skip WiFi entirely for local use.
 services:
   - uuid: "048a00ff-cd06-4d57-a048-ccd5cb9f8f43"
     name: "Thermometer/Probe Service (Family A)"

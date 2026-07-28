@@ -14,7 +14,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
 
-from _lan_discovery import ServiceRecord, browse_mdns
+from _lan_discovery import browse_mdns
 
 MDNS_SERVICE = "_hue._tcp.local."
 SSDP_ADDR = "239.255.255.250"

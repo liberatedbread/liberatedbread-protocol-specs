@@ -84,6 +84,8 @@ def browse_mdns(service_types: list[str], timeout: float) -> list[ServiceRecord]
             browsers.append(ServiceBrowser(zc, service_type, listener))
         time.sleep(timeout)
     finally:
+        for browser in browsers:
+            browser.cancel()
         zc.close()
     return sorted(listener.records.values(), key=lambda r: (r.service_type, r.name, r.hostname))
 
