@@ -101,13 +101,17 @@ protocol.** The tables above describe the stock Tongsheng firmware. Open-source 
 adds fields and, on the 850C/860C/SW102 displays, uses a different and richer link. A
 capture that disagrees with this page most likely means OSF is installed — check first.
 
-## No device spec YAML yet
+## Device spec
 
-Same gap as the BBS02: a spec satisfies the schema via `services` (BLE),
-`http_endpoints` / `mqtt_topics` (Wi-Fi) or `obd` (a vehicle diagnostic connector), and a
-9600-baud display harness is none of those. A `serial` transport block modelled on `obd`
-would cover this device and the BBS02 together — a stream-oriented one, since unlike the
-BBS02 there are no opcodes here to tabulate, just two fixed packet shapes and their rates.
+[`device-specs/devices/tsdz2-tongsheng.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/tsdz2-tongsheng.yaml)
+carries this protocol as a machine-readable `bus` spec (`protocol: uart`, `style: stream`).
+Both packet shapes are catalogued with their `start_byte`, `length`, `rate_hz` and full
+field tables, and the entities bind to decoded fields via `state_field`
+(e.g. `motor_status.speed`) since there is no GATT characteristic to point at.
+
+`display_control` is marked `writes: true` and `advanced` — correctly, because in stream
+style a control packet writes by existing at all. The two undocumented display bytes are
+recorded as `hypothesis` fields rather than silently omitted.
 
 ## Tools Used
 

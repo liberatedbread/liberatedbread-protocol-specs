@@ -93,17 +93,15 @@ page has been observed on our own bus.
 
     Know the recovery path before writing a frame, and do it with the wheel off the ground.
 
-## No device spec YAML yet
+## Device spec
 
-The `obd` block covers vehicles reached through a **diagnostic connector** — its
-`connector.standard` is J1962 / ISO-19689 / proprietary and its `transport.standard` is the
-diagnostic link standards (`iso15765-4`, `iso9141-2`, `iso14230-4`, J1850). A Bosch e-bike
-is an internal CAN bus carrying raw frames, not a diagnostic session over ISO-TP, so `obd`
-is the wrong shape even though both are CAN.
+[`device-specs/devices/bosch-ebike-cx-gen4.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/bosch-ebike-cx-gen4.yaml)
+carries what is known as a machine-readable `bus` spec (`protocol: can`,
+`style: broadcast`): bitrate, the full D-Sub 9 breakout as `wiring` entries, and a message
+catalogue containing exactly one frame, marked `hypothesis` and `advanced`.
 
-If a `serial`/`bus` transport block gets added, this device wants the **raw-CAN** variant:
-bitrate, wiring, and a frame catalogue keyed by CAN ID — no session, no security access, no
-request/response pairing.
+A one-entry catalogue is the honest output here. The spec exists so that captured frames
+have somewhere to land as they are confirmed, not because the protocol is understood.
 
 ## First steps
 
