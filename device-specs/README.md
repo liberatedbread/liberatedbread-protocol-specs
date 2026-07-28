@@ -210,6 +210,48 @@ devices: [`docs/protocols/device-setup.md`](../docs/protocols/device-setup.md).
 | `commands` | No | Named commands for writable characteristics |
 | `format` | No | Binary format for readable/notifiable characteristics |
 
+### Advanced opcodes
+
+Any command may set `advanced: true` with an `advanced_reason` string. This marks an
+opcode that goes further than a typical consumer app would — it can damage hardware, void
+a warranty, or change a vehicle's legal classification.
+
+The project default is to **expose everything the protocol supports**; this flag labels
+the capability, it does not withhold it. See
+[Capability disclosure](../docs/CLEANROOM_RULES.md#capability-disclosure-writing-the-advanced-flag)
+for the full policy.
+
+```yaml
+commands:
+  write_basic_parameters:
+    description: "Write the basic parameter block"
+    advanced: true
+    advanced_reason: "Raises current limits; can overheat the motor if set beyond its rating"
+    template: [0x16, 0x52, "{length}", "{data}", "{checksum}"]
+```
+
+The flag is advisory metadata — it does not change how the command is encoded or sent.
+It is a **signpost, not a gate**: consumers should keep the capability available and put
+it behind a deliberate action (a toggle or a confirmation) so nobody trips into it by
+accident, showing `advanced_reason` at that moment. They should not hide it, require an
+account, or nag — repair cafés and independent technicians are expected users.
+
+Write `advanced_reason` concretely: what changes, the realistic consequence, and how to
+recover. Absent or `false` means an ordinary command.
+
+`advanced` is orthogonal to confidence. It describes what happens **if the command
+works**; how sure we are that it works is a separate `verification` field on the same
+command — `confirmed` / `reported` / `hypothesis`, the same vocabulary the `obd` blocks
+use. A well-verified opcode can still be advanced, and an unverified one can be mundane.
+
+```yaml
+write_parameter:
+  description: "Write a controller register"
+  verification: "hypothesis"   # how sure we are it works
+  advanced: true               # what happens when it does
+  advanced_reason: "..."
+```
+
 ### `entities` (optional, array)
 
 Maps device capabilities to Home Assistant entity types. See the example spec for details.
@@ -338,6 +380,179 @@ example.
 
 `device.protocol: "obd2"` is not yet consumed by the mobile Rust `Protocol` enum, so
 these specs are documentation and tooling targets today rather than mobile-app targets.
+
+## Cloud-dependent devices (`cloud`) and how they get freed (`local_access`)
+
+Some devices have no local path at all. `cloud` records that dependency as data rather than
+as a caveat in a notes field:
+
+```yaml
+device:
+  name: "Example Scooter"
+  manufacturer: "Acme"
+  manufacturer_status: "active"
+  protocol: "wifi"
+
+cloud:
+  required: true                      # the flag that marks a device cloud-only
+  vendor_service: "Acme cloud"
+  hosts: ["https://api.example.com"]
+  failure_mode: >
+    Total loss of documented function; the vehicle still rides but every
+    connected feature stops.
+  data_leaves_device:
+    - "location (personal data about a person, not machine telemetry)"
+  auth:
+    type: "oauth2"
+    endpoint: "/v3/api/oauth2/token"
+  endpoints:
+    - path: "/v5/scooter/list"
+      method: "GET"
+      returns: "Scooters on the account"
+      verification: "reported"
+```
+
+**A spec may satisfy the schema on `cloud` alone.** That is the point: "cloud-only, no local
+path" becomes a state a consumer can read and act on — presenting the device as
+vendor-tethered — instead of silently offering endpoints that will one day 404. Record the
+auth *shape* only; never a real token, account identifier or serial.
+
+### `local_access` — can anything be done about it?
+
+| Status | Meaning |
+|--------|---------|
+| `native` | Speaks a local protocol as shipped. The normal case here. |
+| `bridge_hardware` | A local interface exists but reaching it needs an adapter that isn't part of the product. |
+| `replacement_hardware` | No local interface on the stock part; local control means swapping a component. |
+| `firmware_replacement` | Stock hardware can be freed, but only by replacing its firmware. |
+| `none_known` | No path known today — an honest dead end, not an omission. |
+
+```yaml
+local_access:
+  status: "replacement_hardware"
+  covers:
+    - "motor drive parameters via the replacement part's own BLE app"
+  not_covered:
+    - "telemetry and position — still the vendor's cloud"
+    - "GPS and alarm — advertised as continuing to work, i.e. still tethered"
+  hardware:
+    - name: "Aftermarket Bluetooth Controller"
+      vendor: "example.com"
+      url: "https://example.com/product/..."
+      role: "replacement_part"        # bridge | replacement_part | diagnostic_adapter | programmer
+      replaces: "stock motor controller"
+      reversible: true
+      verification: "reported"
+```
+
+**Fill in `not_covered`.** Aftermarket hardware routinely frees one subsystem and leaves the
+rest tethered — a replacement controller that makes the drivetrain programmable while GPS,
+alarm and telemetry stay on the vendor's cloud has freed the throttle map, not the vehicle.
+A spec that lists only `covers` reads as a bigger win than it is.
+
+Hardware entries are documentation of what exists, not endorsements: we generally have not
+tested them, commercial listings go dead, and parts that raise current limits on a road
+vehicle carry the usual thermal and legal consequences.
+
+## Wired bus devices (`bus`)
+
+For devices with **no radio and no diagnostic connector** — an e-bike motor talking to its
+display over UART, or an internal CAN bus carrying raw frames. Set `device.protocol` to
+`uart` or `can` and describe the bus:
+
+```yaml
+device:
+  name: "Example Mid-Drive"
+  manufacturer: "Acme"
+  manufacturer_status: "active"
+  protocol: "uart"
+
+bus:
+  link:
+    type: "uart"                 # uart | can
+    baud: 9600                   # or `bitrate` for CAN
+    framing: "8N1"
+    wiring:
+      - signal: "motor TX (display RX)"
+        wire_colour: "brown"
+        connector: "6-pin"
+  style: "stream"                # request_response | stream | broadcast
+  checksum:
+    algorithm: "sum8"
+    scope: "8-bit sum of all preceding bytes, both directions"
+  messages:
+    - name: "motor_status"
+      direction: "from_device"
+      start_byte: "43"
+      length: 9
+      rate_hz: 8
+      verification: "reported"
+      fields:
+        - offset: 1
+          name: "battery_level"
+          type: "uint8"
+          encoding: "0x00 red blinking; 0x0A+ full green"
+```
+
+### Choosing a `style`
+
+`style` decides which message fields apply and what a consumer has to implement:
+
+| Style | Shape | Messages carry | Example |
+|-------|-------|----------------|---------|
+| `request_response` | Host asks, device answers | `request`, `response` | Bafang BBS02 |
+| `stream` | Both ends push at a fixed rate | `start_byte`, `rate_hz` | Tongsheng TSDZ2 |
+| `broadcast` | Frames keyed by identifier on a shared bus | `can_id` | Bosch CAN |
+
+`stream` has a consequence worth internalising: a control packet **writes by existing**. It
+re-asserts its fields on every repetition, so `writes: true` there does not mean "sends a
+command once" — it means "continuously asserts state". A read-only consumer of a `stream`
+device must never transmit at all.
+
+### Repeated fields — use `array_len`
+
+Where a block holds one value per level or per channel, say so with `array_len` rather than
+describing it in prose:
+
+```yaml
+- offset: 2
+  name: "assist_current_limit"
+  array_len: 10        # ten consecutive bytes, levels 0-9
+- offset: 12
+  name: "assist_speed_limit"
+  array_len: 10        # then ten more
+```
+
+This is deliberately not expressible as "ten (current, speed) pairs" — a real and easily
+made misreading of exactly this block, which yields plausible values attached to the wrong
+level instead of an obvious failure.
+
+### Entities on a bus device
+
+Bus devices have no GATT characteristic to bind to, so entities use `state_field` with a
+`message_name.field_name` reference:
+
+```yaml
+entities:
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    state_field: "motor_status.speed"
+```
+
+### `bus` vs `obd`
+
+Both can be CAN, and they are still different things. `obd` models a **diagnostic session**
+reached through a standardised socket: connector standard, ECU addressing, UDS services,
+security access, adapter capability tiers. `bus` models an **internal bus** whose traffic is
+simply there to be read — no session, no addressing scheme, no adapter negotiation. A Bosch
+e-bike is CAN but is not OBD-II, and putting it in `obd` would imply a diagnostic layer that
+does not exist.
+
+Messages carry `advanced` / `advanced_reason` with the same meaning and the same enforced
+pairing as BLE commands, plus `writes` and `verification`. Reaching any of these devices
+needs a physical adapter, so specs here are documentation and bridge-building targets rather
+than mobile-app targets today.
 
 ## Extended / optional fields
 
