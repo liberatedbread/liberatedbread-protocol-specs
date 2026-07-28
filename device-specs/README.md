@@ -240,8 +240,17 @@ Write `advanced_reason` concretely: what changes, the realistic consequence, and
 recover. Absent or `false` means an ordinary command.
 
 `advanced` is orthogonal to confidence. It describes what happens **if the command
-works**; how sure we are that it works is recorded separately in the spec's notes. A
-well-verified opcode can still be advanced, and an unverified one can be mundane.
+works**; how sure we are that it works is a separate `verification` field on the same
+command — `confirmed` / `reported` / `hypothesis`, the same vocabulary the `obd` blocks
+use. A well-verified opcode can still be advanced, and an unverified one can be mundane.
+
+```yaml
+write_parameter:
+  description: "Write a controller register"
+  verification: "hypothesis"   # how sure we are it works
+  advanced: true               # what happens when it does
+  advanced_reason: "..."
+```
 
 ### `entities` (optional, array)
 

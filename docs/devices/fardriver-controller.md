@@ -139,7 +139,8 @@ Offsets are into the reassembled 512-byte image.
 
 ### Configuration registers
 
-Read-side only in this spec — see the write-path warning below.
+These are the register addresses the write path below targets. Reading them is ordinary;
+writing them is `advanced` — see the write path.
 
 | Setting | Offset | Bits |
 |---------|--------|------|

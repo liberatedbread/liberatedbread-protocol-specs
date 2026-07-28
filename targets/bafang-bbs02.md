@@ -92,11 +92,13 @@
 
 ## Spec output (clean-room)
 - `docs/devices/bafang-bbs02.md`
-- **No device-spec YAML yet.** The schema's `protocol` enum
-  (`ble`/`wifi`/`zigbee`/`zwave`) and its requirement for a `services`,
-  `http_endpoints` or `mqtt_topics` surface cannot represent a UART-only device without
-  inventing BLE UUIDs. Resolve by either adding a serial/UART transport to the schema, or
-  by scanning a real BLE bridge and speccing the bridge instead.
+- **No device-spec YAML yet.** The schema admits a spec via `services` (BLE),
+  `http_endpoints`/`mqtt_topics` (Wi-Fi) or `obd` (diagnostic connector). A 1200-baud UART
+  on a display harness is none of those — `obd.transport.standard` covers the diagnostic
+  link standards only — so a spec today would mean inventing BLE UUIDs. Resolve by adding
+  a `serial` transport block modelled on `obd` (which already set the precedent for a new
+  top-level key in `anyOf` plus a `protocol` enum value), or by scanning a real BLE bridge
+  and speccing the bridge instead.
 
 ## Open questions
 - Does the EggRider V2 tunnel these opcodes verbatim over BLE, or re-encode them?
