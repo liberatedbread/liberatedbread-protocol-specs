@@ -9,7 +9,9 @@
     { "required": ["services"] },
     { "required": ["http_endpoints"] },
     { "required": ["mqtt_topics"] },
-    { "required": ["obd"] }
+    { "required": ["obd"] },
+    { "required": ["bus"] },
+    { "required": ["cloud"] }
   ],
   "$defs": {
     "uuid": {
@@ -272,8 +274,8 @@
         },
         "protocol": {
           "type": "string",
-          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2"],
-          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); the mobile Rust Protocol enum does NOT yet consume it, so such specs are documentation/tooling targets rather than mobile-app targets today."
+          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2", "uart", "can"],
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge."
         },
         "notes": {
           "type": "string",
@@ -946,9 +948,38 @@
                   "additionalProperties": {
                     "type": "object",
                     "required": ["description"],
+                    "allOf": [
+                      {
+                        "$comment": "An advanced opcode must explain itself: consumers are required to surface advanced_reason at the opt-in point, which is impossible if it is absent or empty.",
+                        "if": {
+                          "properties": { "advanced": { "const": true } },
+                          "required": ["advanced"]
+                        },
+                        "then": {
+                          "required": ["advanced_reason"],
+                          "properties": {
+                            "advanced_reason": { "type": "string", "minLength": 1 }
+                          }
+                        }
+                      }
+                    ],
                     "properties": {
                       "description": {
                         "type": "string"
+                      },
+                      "advanced": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Marks an opcode as advanced: it goes further than a typical consumer app would, because it can damage hardware, void a warranty, alter a vehicle's legal classification, or otherwise carry consequences a casual user would not expect. This is a SIGNPOST, NOT A GATE. Consumers SHOULD keep the capability available and put it behind a deliberate action (a toggle, a confirmation) so nobody trips into it by accident, and SHOULD surface `advanced_reason` at that moment. Consumers SHOULD NOT hide it, require an account for it, or nag: the intended users include repair cafes, independent technicians and owners doing their own maintenance. Absent or false means an ordinary command.",
+                        "$comment": "Advisory metadata: it does not change how the command is encoded or transmitted. Orthogonal to confidence -- `advanced` says what happens if the command works, not how sure we are that it works."
+                      },
+                      "verification": {
+                        "$ref": "#/$defs/verification",
+                        "description": "How much weight this command's byte sequence carries. Same vocabulary the OBD blocks use, so confidence is machine-readable rather than buried in prose. Orthogonal to `advanced`: this says how sure we are the command works, `advanced` says what happens when it does."
+                      },
+                      "advanced_reason": {
+                        "type": "string",
+                        "description": "Short human-readable explanation shown to the user at the opt-in point. State what changes, the realistic consequence, and how to recover -- concrete beats scary. Good: 'Raises the motor current limit; above the motor's rating this can overheat the primary gear. Read and save the current block first so you can restore it.' Bad: 'Dangerous - advanced users only.' Do not moralise or tell the user not to proceed; note the consequence once, factually. Required when `advanced` is true."
                       },
                       "value": {
                         "type": "array",
@@ -1406,6 +1437,314 @@
       }
     },
     "payload_formats": { "$ref": "#/$defs/payload_formats" },
+    "cloud": {
+      "type": "object",
+      "description": "A vendor cloud service the device depends on. Present ONLY to record the dependency honestly -- this is the problem, not the interface we want consumers to build on. A spec may satisfy the schema with `cloud` alone, which is precisely the 'cloud-only, no local path' case: it makes that state machine-readable instead of leaving it as prose in a notes field, so a consumer can say 'this device stops working when the vendor does' rather than silently offering endpoints that will one day 404. Pair with `local_access` to record what, if anything, would free it.",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "True when the device's documented functions do not work without this service. This is the flag that marks a device cloud-only."
+        },
+        "vendor_service": {
+          "type": "string",
+          "description": "Human-readable name of the service, e.g. 'NIU cloud'."
+        },
+        "hosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Base hosts, e.g. 'https://app-api-fk.niu.com'. Note where hosts are region-dependent."
+        },
+        "auth": {
+          "type": "object",
+          "description": "How a client authenticates. Record the shape only -- NEVER a real token, credential, account identifier or device serial.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["oauth2", "bearer_token", "api_key", "basic", "session_cookie", "other"]
+            },
+            "endpoint": { "type": "string", "description": "Path that issues the credential, e.g. '/v3/api/oauth2/token'." },
+            "notes": { "type": "string" },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "endpoints": {
+          "type": "array",
+          "description": "Documented cloud endpoints. Recorded as evidence of the dependency and because they are useful while the service lives -- not as a local control surface.",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string" },
+              "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "default": "GET" },
+              "name": { "type": "string" },
+              "returns": { "type": "string", "description": "What the response carries, in prose." },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "failure_mode": {
+          "type": "string",
+          "description": "What actually stops working when the service goes away or the account is closed. State it concretely -- this is the sentence a user needs before buying or keeping the device."
+        },
+        "data_leaves_device": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Categories of data the device sends to the vendor, e.g. 'location', 'ride history'. Flag anything that is personal data about a person rather than telemetry about a machine."
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "local_access": {
+      "type": "object",
+      "description": "Whether this device can be controlled without the vendor's service, and what it takes. Answers the question a repair café asks first: 'can I actually do anything with this one?' Applies to any spec, not only cloud devices.",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["native", "bridge_hardware", "replacement_hardware", "firmware_replacement", "none_known"],
+          "description": "'native': the device speaks a local protocol as shipped -- the normal case in this registry. 'bridge_hardware': a local interface exists but reaching it needs an adapter that is not part of the product (a BLE-to-UART bridge, a CAN interface). 'replacement_hardware': no local interface exists on the stock part, and local control means swapping a component for an aftermarket one. 'firmware_replacement': the stock hardware can be freed, but only by replacing its firmware. 'none_known': no path known today -- an honest dead end, not an omission.",
+          "default": "native"
+        },
+        "summary": { "type": "string" },
+        "covers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Functions the local path actually gives you."
+        },
+        "not_covered": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Functions that REMAIN cloud- or vendor-dependent even after taking this path. Filling this in matters: aftermarket hardware routinely frees one subsystem while leaving the rest tethered, and a spec that omits this reads as a bigger win than it is."
+        },
+        "hardware": {
+          "type": "array",
+          "description": "Known hardware that provides or restores local access. Recorded as documentation of what exists, not as an endorsement or a purchase recommendation.",
+          "items": {
+            "type": "object",
+            "required": ["name", "role"],
+            "properties": {
+              "name": { "type": "string" },
+              "vendor": { "type": "string" },
+              "url": { "type": "string", "description": "Product or project page. Third-party commercial listings change and go dead; treat as a pointer, not a citation." },
+              "role": {
+                "type": "string",
+                "enum": ["bridge", "replacement_part", "diagnostic_adapter", "programmer"],
+                "description": "'bridge': sits alongside the stock hardware and exposes an existing local interface. 'replacement_part': substitutes a stock component. 'diagnostic_adapter': connects a host to an existing diagnostic or debug interface. 'programmer': writes firmware or parameters."
+              },
+              "replaces": { "type": "string", "description": "Stock component this substitutes, when role is replacement_part." },
+              "fits": { "type": "string", "description": "Models this is sold as fitting." },
+              "reversible": { "type": "boolean", "description": "Whether the stock part can be refitted afterwards. Worth stating -- it is the difference between an experiment and a commitment." },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "bus": {
+      "type": "object",
+      "description": "A plain wired local bus -- UART/TTL serial or raw CAN -- for devices with no radio and no diagnostic connector. An e-bike motor talking to its display lives here. Distinct from `obd`: that models a diagnostic session (connector standard, ECU addressing, UDS services, security access) reached through a standardised socket, whereas this models an internal bus whose traffic is simply there to be read. A consumer needs a physical adapter to reach one of these, so specs here are documentation and bridge-building targets. Vehicles: the same care as `obd` applies -- anything that transmits on a bus with a motor on it is `advanced`.",
+      "required": ["link"],
+      "properties": {
+        "link": {
+          "type": "object",
+          "description": "Physical layer parameters -- what you set on the adapter before any byte makes sense.",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["uart", "can"],
+              "description": "'uart': asynchronous TTL serial, point-to-point on a harness line. 'can': a CAN bus carrying raw frames (NOT ISO-TP diagnostics -- that is `obd`)."
+            },
+            "baud": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "UART baud rate, e.g. 1200 (Bafang BBS02) or 9600 (Tongsheng TSDZ2). Getting this wrong yields plausible-looking garbage, so it is worth stating even when it seems obvious."
+            },
+            "framing": {
+              "type": "string",
+              "description": "UART framing, e.g. '8N1'."
+            },
+            "bitrate": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "CAN bitrate in bit/s, e.g. 500000."
+            },
+            "logic_level": {
+              "type": "string",
+              "description": "Signalling level where it matters for adapter choice, e.g. '3.3V TTL'."
+            },
+            "wiring": {
+              "type": "array",
+              "description": "How to physically reach the bus: which wire or pin carries what.",
+              "items": {
+                "type": "object",
+                "required": ["signal"],
+                "properties": {
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal on this conductor, e.g. 'CAN-H', 'motor TX', 'ground'."
+                  },
+                  "pin": { "type": "integer", "minimum": 1 },
+                  "wire_colour": { "type": "string" },
+                  "connector": {
+                    "type": "string",
+                    "description": "Connector this pin belongs to, e.g. 'D-Sub 9 (CiA DS-102)', '6-pin Tongsheng'."
+                  },
+                  "notes": { "type": "string" },
+                  "verification": { "$ref": "#/$defs/verification" }
+                }
+              }
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "style": {
+          "type": "string",
+          "enum": ["request_response", "stream", "broadcast"],
+          "description": "How traffic is organised, which decides what a consumer must implement. 'request_response': the host asks and the device answers, so messages carry `request`/`response` (Bafang BBS02). 'stream': both ends push fixed-shape packets at a fixed rate with nobody asking, so messages carry `start_byte` and `rate_hz` -- and note that transmitting at all means continuously asserting state (Tongsheng TSDZ2). 'broadcast': nodes emit frames keyed by identifier onto a shared bus, so messages carry `can_id` (Bosch CAN)."
+        },
+        "checksum": {
+          "type": "object",
+          "description": "Integrity scheme. Worth stating precisely: a mismatched checksum rule is the usual reason a first implementation is silently rejected by the device.",
+          "properties": {
+            "algorithm": {
+              "type": "string",
+              "enum": ["sum8", "sum8-mod256", "crc8", "crc16", "none", "other"],
+              "description": "Algorithm over the frame. 'sum8'/'sum8-mod256' is a plain 8-bit additive checksum."
+            },
+            "scope": {
+              "type": "string",
+              "description": "Exactly which bytes are summed, and whether it differs by direction. State this even when it seems obvious -- the Bafang BBS02 sums every preceding byte on a read response but skips the first code byte on a write request, and that asymmetry is the classic cause of rejected writes."
+            },
+            "notes": { "type": "string" },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "messages": {
+          "type": "array",
+          "description": "The message catalogue. One entry per distinct exchange, packet shape or frame, whichever this bus uses; the `fields` array is the part every style shares.",
+          "items": {
+            "type": "object",
+            "required": ["name", "verification"],
+            "allOf": [
+              {
+                "$comment": "Same rule as BLE commands: an advanced message must explain itself.",
+                "if": {
+                  "properties": { "advanced": { "const": true } },
+                  "required": ["advanced"]
+                },
+                "then": {
+                  "required": ["advanced_reason"],
+                  "properties": {
+                    "advanced_reason": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "direction": {
+                "type": "string",
+                "enum": ["to_device", "from_device", "bidirectional"],
+                "description": "Which way this message travels, from the host's point of view."
+              },
+              "request": {
+                "$ref": "#/$defs/hex_bytes",
+                "description": "Bytes the host sends (request_response style). Include any payload and checksum actually required -- not every read is a bare opcode."
+              },
+              "response": {
+                "$ref": "#/$defs/hex_bytes",
+                "description": "Expected reply prefix, where a fixed one exists. '??' marks a variable byte."
+              },
+              "can_id": {
+                "$ref": "#/$defs/can_id",
+                "description": "Frame identifier (broadcast style)."
+              },
+              "start_byte": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{2}$",
+                "description": "Fixed leading byte identifying this packet shape (stream style), e.g. '43'."
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Total frame length in bytes, including any start byte and checksum."
+              },
+              "rate_hz": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "How many times a second this packet is emitted (stream/broadcast style)."
+              },
+              "payload_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Where `fields` offsets are measured from, when they are relative to a payload rather than the whole frame. Omit when offsets are frame-absolute. State it either way rather than leaving a reader to infer it."
+              },
+              "fields": {
+                "type": "array",
+                "description": "Decoded fields. Offsets are frame-absolute unless `payload_offset` says otherwise.",
+                "items": {
+                  "type": "object",
+                  "required": ["offset", "name"],
+                  "properties": {
+                    "offset": { "type": "integer", "minimum": 0 },
+                    "length": { "type": "integer", "minimum": 1, "default": 1 },
+                    "name": { "type": "string" },
+                    "type": {
+                      "type": "string",
+                      "enum": ["uint8", "uint16", "int8", "int16", "uint32", "int32", "bytes", "string", "bitfield", "bool"]
+                    },
+                    "endianness": {
+                      "type": "string",
+                      "enum": ["little", "big"],
+                      "default": "little"
+                    },
+                    "unit": { "type": "string" },
+                    "scale": {
+                      "type": "number",
+                      "description": "Multiplier applied to the raw value to get `unit`."
+                    },
+                    "encoding": {
+                      "type": "string",
+                      "description": "Value encoding in prose where an enum or code table applies, e.g. '0x1F-0x3C = 16in-30in, 0x37 = 700C'."
+                    },
+                    "array_len": {
+                      "type": "integer",
+                      "minimum": 2,
+                      "description": "Number of consecutive same-width entries starting at `offset`. Use this for repeated per-level values instead of describing them in prose -- it is exactly the distinction between ten current limits followed by ten speed limits and ten interleaved pairs, which is the kind of thing that is otherwise got wrong silently."
+                    },
+                    "notes": { "type": "string" },
+                    "verification": { "$ref": "#/$defs/verification" }
+                  }
+                }
+              },
+              "writes": {
+                "type": "boolean",
+                "default": false,
+                "description": "True if this message mutates device state. Note that in 'stream' style a control packet writes by existing at all -- it asserts its fields on every repetition."
+              },
+              "advanced": {
+                "type": "boolean",
+                "default": false,
+                "description": "Same meaning as on BLE commands: goes further than a typical consumer app would. A signpost, not a gate."
+              },
+              "advanced_reason": {
+                "type": "string",
+                "description": "Why, in the terms described for BLE commands: what changes, the realistic consequence, and how to recover."
+              },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
     "entities": {
       "type": "array",
       "items": {
@@ -1434,6 +1773,11 @@
           },
           "state_characteristic": {
             "$ref": "#/$defs/uuid"
+          },
+          "state_field": {
+            "type": "string",
+            "description": "Source of this entity's state on a `bus` device, as 'message_name.field_name' (e.g. 'motor_status.speed'). The bus analogue of `state_characteristic`: bus devices have no GATT characteristic to point at, so an entity binds to a decoded field of a catalogued message instead.",
+            "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
           },
           "state_topic": {
             "type": "string",
