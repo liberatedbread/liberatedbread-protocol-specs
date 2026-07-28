@@ -181,16 +181,21 @@ Each write takes the same payload layout as the matching read returns.
 
 ## No device spec YAML yet
 
-There is deliberately no `device-specs/devices/bafang-bbs02.yaml`. The schema's
-`protocol` enum is `ble` / `wifi` / `zigbee` / `zwave` and it requires a `services`,
-`http_endpoints` or `mqtt_topics` surface — the BBS02 has none of these, because its
-native bus is 1200-baud UART. Writing one would mean inventing BLE UUIDs, and the
-EggRider bridge's UUIDs are not publicly documented.
+There is deliberately no `device-specs/devices/bafang-bbs02.yaml`. A spec satisfies the
+schema by carrying `services` (BLE), `http_endpoints` / `mqtt_topics` (Wi-Fi), or `obd`
+(a vehicle diagnostic connector). The BBS02 has none of these: its native bus is a
+1200-baud UART on the display harness — not a radio, and not a diagnostic connector, so
+`obd` does not fit either. Its `transport.standard` enum covers the diagnostic link
+standards (`iso15765-4`, `iso9141-2`, `iso14230-4`, J1850), and a display harness is none
+of them. Writing a spec today would mean inventing BLE UUIDs, and the EggRider bridge's
+UUIDs are not publicly documented.
 
 Two clean ways forward, either of which makes a spec honest:
 
-1. **Extend the schema** with a `uart`/serial transport (baud, framing, opcode tables).
-   This fits the protocol as it actually is, and would also cover other wired targets.
+1. **Add a serial transport block**, modelled directly on `obd`. That block already set
+   the precedent — a new top-level key in the schema's `anyOf` plus a `protocol` enum
+   value — so a `serial` sibling (baud, framing, opcode tables) would follow a proven
+   shape and cover other wired targets too.
 2. **Scan a real bridge.** If you have an EggRider V2, capture its service and
    characteristic UUIDs and we can spec the bridge as a BLE device that tunnels these
    same opcodes.

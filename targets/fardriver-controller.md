@@ -9,8 +9,9 @@
 - transport(s): BLE (bolt-on bridge module; UUIDs vary per unit)
 - local-only viability: **high** — the controller free-runs telemetry over BLE with no
   cloud dependency and no bonding on HM-10-style bridges. A local dashboard needs only
-  notify-subscribe plus frame decode. Write path is viable but intentionally descoped
-  (road-going vehicle; see guardrails).
+  notify-subscribe plus frame decode. The write path is documented and flagged `advanced`;
+  its frame shape is `reported` and the payload encodings are `hypothesis`, so it needs a
+  capture before it is usable (see guardrails).
 
 ## Known facts (public + observed)
 - Public claims (paraphrase; links in References):
