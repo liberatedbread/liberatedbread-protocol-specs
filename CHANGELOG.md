@@ -63,6 +63,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `704 8D 01 <b1> <b2> <b3>`, a 24-bit big-endian value in kilometres, with
   `5E 01` -> `704 DE` flagging a TFT dash and selecting which mile divisor
   (1.60934 vs 1.6099895) the tool applies
+- Initial device setup (provisioning) coverage:
+  - `device.setup` block in `device-specs/schema.json` — onboarding methods,
+    factory reset procedures, rebinding, and credential handling
+  - `device.setup` populated for every device spec, including the OBD-II
+    vehicles and adapter, where `factory_reset.applicable: false` records
+    that a vehicle has no reset rather than inventing one
+  - `docs/protocols/device-setup.md` — cross-device onboarding patterns for
+    WiFi (SoftAP) and BLE devices
+  - `docs/devices/wemo-setup.md` — Wemo factory reset, provisioning over the
+    device's setup AP, and rebinding to a new network via `ReSetup`
+- `scripts/test_wemo_scaffolding.py` — pins the Wemo scaffolding to the spec it
+  verifies, so a script that has drifted cannot pass for a verified document.
+  Skips cleanly when the scripts are removed
+- `scripts/test_wemo_spec.py` — proves the Wemo spec is implementable from the
+  spec alone for all three client jobs (discover, control, provision):
+  transcribes the published protocol using only the standard library and
+  `openssl`, and asserts the transcription reproduces the spec's own examples
+  and test vectors
+- `docs/api/spec-format.md` — how to read a device spec, with the `setup` block
+  covered field by field
+- `scripts/test_device_specs.py` — cross-spec consistency checks for conventions
+  the schema cannot express (explicit `verified`, reset procedures with steps,
+  `rejoin` answering the router-replacement question, and so on)
+- Schema documents the well-known `setup` extension blocks — `payload_formats`,
+  `timing`, `troubleshooting`, and a much richer `credential_encryption`
+  including `algorithm_steps`, `variants` and `test_vectors`
+- `wemo-devices.yaml` is now implementable on its own: SOAP wire format,
+  `MetaInfo`/`ApList` payload layouts, the encryption algorithm step by step
+  with reproducible test vectors, timing constants and a troubleshooting table
+- `requirements-dev.txt` and `pyproject.toml` — ruff and pytest configuration
+- CI `lint-and-test` job running `ruff check` and `pytest`
 - Initial project structure
 - Device documentation template
 - Getting started guides
@@ -77,7 +108,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Coding, flashing, immobiliser and key work are documented and flagged
   `advanced: true` in the schema rather than excluded — reviving an old bike needs
   them. Only odometer falsification and work on a moving vehicle stay out
-
 - LEDs2Rave4 / Lunchbox Dream LED docs now map each product generation to its design app
   (LED CHORD → SPOTLED → iLEDColor) and document the SPOTLED framed BLE protocol on `0xFF20`,
   corroborated against `python-spotled`
+- The Wemo protocol now lives in `device-specs/devices/wemo-devices.yaml`
+  rather than in scripts: the SSDP datagram and response handling, the rule
+  separating Wemo from other UPnP responders, the description parse rules
+  including Belkin's vendor extensions, the SOAP wire format, and
+  `payload_formats` for `BinaryState`, `InsightParams` and `MetaInfo`.
+  `scripts/wemo_discover.py`, `wemo_control.py` and `wemo_setup.py` are
+  retained only as verification scaffolding until the spec has been checked
+  against hardware, and are marked as such (#16).
+
+### Fixed
+
+- `InsightParams` was documented without the `wifipower` field, which shifts
+  every power reading one column left — now published field by field with an
+  example
+- `test_build_index.py`: hardcoded device list had rotted into a failing test
+- `mkdocs.yml`: ten device pages existed but were missing from the nav
+- `docs/devices/wifi-discovery.md`: content appeared above the page title
+- `docs/devices/vector-robot.md`: corrected the repository URL and a heading level
+- `docs/devices/discovery.yaml`: split into separate YAML documents; the four
+  examples shared one top-level key and collided
+- Device specs: removed `local_name_prefix: ""` values, which match every
+  BLE device when used as a scan filter
+- `targets/wemo-devices.md` claimed WiFi provisioning was app-only and out of
+  scope, gave the setup AP prefix as `WeMo.Setup.`, and called `InsightParams`
+  colon-delimited — all three contradicted by this branch's own findings
+- `VERIFICATION_REFERENCE.md` now says on its face that it is not reproducible,
+  since its APK column probes the gitignored workspace directory (#18)
+- Wemo SOAP requests put action arguments in the service namespace
+  (`<u:BinaryState>`); UPnP arguments are unqualified, and the request body now
+  matches the wire format pywemo and ouimeaux send
+- Wemo setup: the passphrase length suffix was not zero-padded, so any length
+  below 16 produced a blob the device rejects; MetaInfo field order was
+  documented backwards (field 0 is the MAC, field 1 the serial); only one of
+  the three encryption variants was implemented; `ReSetup` was called without
+  its required `Reset` scope argument; and `ApList` parsing did not skip the
+  header line or read the auth/cipher pair from the last column

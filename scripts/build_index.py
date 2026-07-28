@@ -24,7 +24,6 @@ import argparse
 import glob
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -67,8 +66,8 @@ def load_schema() -> Dict[str, Any]:
         return json.load(f)
 
 
-def discover_specs() -> List[Path]:
-    """Return sorted list of YAML spec files under SPECS_DIR."""
+def discover_specs() -> List[str]:
+    """Return sorted list of YAML spec file paths under SPECS_DIR."""
     return sorted(glob.glob(str(SPECS_DIR / "*.yaml")))
 
 

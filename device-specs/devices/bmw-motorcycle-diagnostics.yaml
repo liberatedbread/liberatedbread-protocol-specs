@@ -45,6 +45,59 @@ device:
     with only the address byte changing, so scripts/obd_discover.py --bmw-scan finds the
     live ones by asking each address for the standard VIN DID.
 
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision. The bike is reached by plugging an adapter into its
+      diagnostic connector; the setup that matters is the adapter's, not the
+      vehicle's. BMW's D-CAN addressing needs a per-ECU init sequence, but
+      that is session initialisation rather than onboarding — see
+      obd.transport.
+    methods:
+      - type: "wired"
+        verified: false
+        description: >
+          Plug an adapter into the diagnostic connector and power the ignition.
+          There is no provisioning, no credential exchange and no pairing on
+          the vehicle side — whatever pairing is needed belongs to the adapter
+          (see device-specs/devices/obd2-bluetooth-adapter.yaml).
+        steps:
+          - action: "Locate the diagnostic connector — see obd.connector for its type and position."
+            actor: "user"
+          - action: "Plug in the adapter and switch the ignition on without starting the engine, unless a procedure says otherwise."
+            actor: "user"
+            expect: "The adapter powers up from the connector."
+          - action: "Initialise the adapter for this vehicle's CAN parameters, per obd.transport."
+            actor: "client"
+            notes: >
+              The AT/ST init sequence is vehicle-specific and is recorded in
+              obd.transport.notes; it is not a generic OBD-II session.
+    factory_reset:
+      applicable: false
+      effect: >
+        Not applicable. A vehicle holds no credentials or pairing state a
+        client can clear, so there is nothing a reset would undo. Adaptation
+        writes, coding and flashing are documented elsewhere in this spec and
+        are in scope — see the advanced request definitions and the risk tiers
+        in docs/protocols/obd2-common.md — but they are repair operations with
+        their own recovery paths, not a way to return the vehicle to an
+        unprovisioned state. Do not present them as a setup step.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving to a different adapter or host is a physical swap. The vehicle
+        keeps no record of which tool last connected.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Access control is physical: whoever can reach the connector can talk to
+        the vehicle. Some functions are additionally gated by a security-access
+        seed/key exchange — see the request definitions.
+
 obd:
   role: "vehicle"
 
@@ -59,10 +112,14 @@ obd:
     request_id: "0x6F1"
     verification: "reported"
     notes: >
-      BMW D-CAN. Single tester ID 0x6F1 with CAN extended addressing carrying the target
-      ECU address; replies arrive on 0x600 + address. MotoScan's init, with <aa> as the
-      target address: ATSPB, ATPBC101, ATSH6F1, ATFCSH6F1, ATFCSD<aa>300008, ATFCSM1,
-      ATCEA<aa>, ATCM7FF, ATCF6<aa>, ATST90, ATBI, then STCSEGT1 / STCFCPC on STN adapters.
+      BMW D-CAN. Single tester ID 0x6F1 with CAN extended addressing carrying
+      the target
+      ECU address; replies arrive on 0x600 + address. MotoScan's init, with <aa>
+      as the
+      target address: ATSPB, ATPBC101, ATSH6F1, ATFCSH6F1, ATFCSD<aa>300008,
+      ATFCSM1,
+      ATCEA<aa>, ATCM7FF, ATCF6<aa>, ATST90, ATBI, then STCSEGT1 / STCFCPC on
+      STN adapters.
 
   # BMW's own toolchain describes each module with an EDIABAS SGBD (.prg), selected by a
   # group file (.grp). Naming them lets a consumer resolve jobs, results and scaling from
@@ -84,9 +141,12 @@ obd:
     - "Client-supplied flow control (ATFCSH/ATFCSD/ATFCSM) with a per-target header."
     - "Long messages: coding and adaptation writes exceed a single frame. The UniCarScan UCSI-2100 handles this with a 255-byte message mode; STN adapters use STCSEGT1/STCFCPC."
     - >
-      MotoScan ships its own adapter classification — ELM327_CLONE, ELM327_ORIGINAL,
-      ELM327_UNKNOWN, OBDLINK_LX, OBDLINK_MX, OBDLINK_MX_PLUS, OBDLINK_MX_WIFI, UCSI_2000
-      (UI text "UCSI-2000/2100") — and distinguishes a clone from an original at runtime.
+      MotoScan ships its own adapter classification — ELM327_CLONE,
+      ELM327_ORIGINAL,
+      ELM327_UNKNOWN, OBDLINK_LX, OBDLINK_MX, OBDLINK_MX_PLUS, OBDLINK_MX_WIFI,
+      UCSI_2000
+      (UI text "UCSI-2000/2100") — and distinguishes a clone from an original at
+      runtime.
 
   ecus:
     - name: "KOMBI (instrument cluster)"
