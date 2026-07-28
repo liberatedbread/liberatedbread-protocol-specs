@@ -381,6 +381,79 @@ example.
 `device.protocol: "obd2"` is not yet consumed by the mobile Rust `Protocol` enum, so
 these specs are documentation and tooling targets today rather than mobile-app targets.
 
+## Cloud-dependent devices (`cloud`) and how they get freed (`local_access`)
+
+Some devices have no local path at all. `cloud` records that dependency as data rather than
+as a caveat in a notes field:
+
+```yaml
+device:
+  name: "Example Scooter"
+  manufacturer: "Acme"
+  manufacturer_status: "active"
+  protocol: "wifi"
+
+cloud:
+  required: true                      # the flag that marks a device cloud-only
+  vendor_service: "Acme cloud"
+  hosts: ["https://api.example.com"]
+  failure_mode: >
+    Total loss of documented function; the vehicle still rides but every
+    connected feature stops.
+  data_leaves_device:
+    - "location (personal data about a person, not machine telemetry)"
+  auth:
+    type: "oauth2"
+    endpoint: "/v3/api/oauth2/token"
+  endpoints:
+    - path: "/v5/scooter/list"
+      method: "GET"
+      returns: "Scooters on the account"
+      verification: "reported"
+```
+
+**A spec may satisfy the schema on `cloud` alone.** That is the point: "cloud-only, no local
+path" becomes a state a consumer can read and act on — presenting the device as
+vendor-tethered — instead of silently offering endpoints that will one day 404. Record the
+auth *shape* only; never a real token, account identifier or serial.
+
+### `local_access` — can anything be done about it?
+
+| Status | Meaning |
+|--------|---------|
+| `native` | Speaks a local protocol as shipped. The normal case here. |
+| `bridge_hardware` | A local interface exists but reaching it needs an adapter that isn't part of the product. |
+| `replacement_hardware` | No local interface on the stock part; local control means swapping a component. |
+| `firmware_replacement` | Stock hardware can be freed, but only by replacing its firmware. |
+| `none_known` | No path known today — an honest dead end, not an omission. |
+
+```yaml
+local_access:
+  status: "replacement_hardware"
+  covers:
+    - "motor drive parameters via the replacement part's own BLE app"
+  not_covered:
+    - "telemetry and position — still the vendor's cloud"
+    - "GPS and alarm — advertised as continuing to work, i.e. still tethered"
+  hardware:
+    - name: "Aftermarket Bluetooth Controller"
+      vendor: "example.com"
+      url: "https://example.com/product/..."
+      role: "replacement_part"        # bridge | replacement_part | diagnostic_adapter | programmer
+      replaces: "stock motor controller"
+      reversible: true
+      verification: "reported"
+```
+
+**Fill in `not_covered`.** Aftermarket hardware routinely frees one subsystem and leaves the
+rest tethered — a replacement controller that makes the drivetrain programmable while GPS,
+alarm and telemetry stay on the vendor's cloud has freed the throttle map, not the vehicle.
+A spec that lists only `covers` reads as a bigger win than it is.
+
+Hardware entries are documentation of what exists, not endorsements: we generally have not
+tested them, commercial listings go dead, and parts that raise current limits on a road
+vehicle carry the usual thermal and legal consequences.
+
 ## Wired bus devices (`bus`)
 
 For devices with **no radio and no diagnostic connector** — an e-bike motor talking to its
