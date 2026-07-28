@@ -34,9 +34,9 @@ Protocol source: this implements the flow in pywemo's
 ``pywemo/ouimeaux_device/__init__.py`` (Apache 2.0), which is the maintained
 reference and has been exercised against real hardware across several device
 generations. Its encryption derivation in turn credits Vadim Kantorov's
-``wemosetup``. The encryption here is byte-identical to pywemo's — see
-``scripts/test_wemo.py``. If this script fails against your device, pywemo
-itself is the better-tested fallback.
+``wemosetup``. The encryption reproduces the spec's published test vectors —
+see ``scripts/test_wemo_spec.py`` and ``scripts/test_wemo.py``. If this script
+fails against your device, pywemo itself is the better-tested fallback.
 
 VERIFICATION SCAFFOLDING — NOT A SUPPORTED CLIENT.
 
@@ -583,13 +583,17 @@ def cmd_connect(args: argparse.Namespace) -> int:
         meta = client.meta_info()
         if args.encrypt_method is not None:
             method = args.encrypt_method
-            add_lengths = bool(args.add_lengths)
+            # An explicit method with no --add-lengths uses that method's
+            # natural default (1 and 3 append the lengths, 2 does not) rather
+            # than silently falling to False, which would produce a blob the
+            # device rejects and make the method look broken.
+            add_lengths = method in (1, 3)
         else:
             device = client.device
             assert device is not None
             method, add_lengths = detect_encryption_method(device)
-            if args.add_lengths is not None:
-                add_lengths = args.add_lengths
+        if args.add_lengths is not None:
+            add_lengths = args.add_lengths
         print(f"Encryption: method={method}, add_lengths={add_lengths}")
         encrypted = encrypt_wifi_password(
             password, build_key_data(meta, method), add_lengths
@@ -655,9 +659,17 @@ def cmd_connect(args: argparse.Namespace) -> int:
         )
 
     # 5. Close setup regardless, so a device that did connect is released.
+    #    CloseSetup is absent on some firmware; a device that already joined is
+    #    provisioned whether or not it answers this, so tolerate it failing the
+    #    way pywemo does rather than reporting a successful join as a failure.
     print()
-    close_status = client.call(SERVICE_WIFI, "CloseSetup").get("status", "")
-    print(f"CloseSetup: {close_status}")
+    try:
+        close_status = client.call(SERVICE_WIFI, "CloseSetup").get("status", "")
+    except SetupError:
+        close_status = ""
+        print("CloseSetup: not available on this device")
+    else:
+        print(f"CloseSetup: {close_status}")
 
     if status != STATUS_CONNECTED:
         raise SetupError(
