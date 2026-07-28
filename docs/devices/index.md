@@ -33,6 +33,8 @@ A catalog of IoT devices we've documented (or are documenting).
 | [Nyan BT Image Controller](nyan-bt-image-controller.md) | BLE | Complete | NYAN GEAR / LOY SPACE |
 | [MoTool Slacker](motool-slacker.md) | BLE | In Progress | MoTool |
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | AdMore Lighting Inc. |
+| [ProGlow Motorcycle LED](proglow-motorcycle-led.md) | BLE | Spec Available | ProGlow |
+| [SeeBlue Motorcycle LED](seeblue-motorcycle-led.md) | BLE | Spec Available | SeeBlue |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | Belkin |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Frigidaire (Electrolux) |
 | [Roku External Control Protocol](roku-ecp.md) | WiFi | Complete | Roku / TCL |
@@ -73,6 +75,8 @@ spec's `device.setup` block; the patterns are explained in
 | [Nyan BT Image Controller](nyan-bt-image-controller.md) | BLE | Complete | None needed | NYAN GEAR / LOY SPACE |
 | [MoTool Slacker](motool-slacker.md) | BLE | In Progress | None needed | MoTool |
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | None needed | AdMore Lighting Inc. |
+| [ProGlow Motorcycle LED](proglow-motorcycle-led.md) | BLE | Spec Available | None needed | ProGlow |
+| [SeeBlue Motorcycle LED](seeblue-motorcycle-led.md) | BLE | Spec Available | None needed | SeeBlue |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
