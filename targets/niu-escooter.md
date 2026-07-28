@@ -82,10 +82,14 @@ dependency accurately and to point at the one experiment that could change the p
 
 ## Spec output (clean-room)
 - `docs/devices/niu-escooter.md`
-- **No device-spec YAML yet.** `http_endpoints` is for *local* HTTP on Wi-Fi devices;
-  writing cloud endpoints into it would tell consumers this is locally controllable when
-  the entire point of the entry is that it is not. A spec becomes honest once the BLE link
-  is characterised — at which point it is an ordinary `services` block.
+- `device-specs/devices/niu-escooter.yaml` — a `cloud` spec (`required: true`) with hosts,
+  OAuth2 shape, endpoints, `failure_mode` and `data_leaves_device`. A spec may satisfy the
+  schema on `cloud` alone, which is how "cloud-only, no local path" becomes machine-readable
+  rather than prose.
+- `local_access: replacement_hardware` records the only shipped local route — swapping the
+  motor controller for an aftermarket Bluetooth one — with `covers` limited to drive
+  parameters and `not_covered` listing telemetry, GPS and alarm as still cloud-tethered.
+  Fitting one frees the throttle map, not the scooter.
 
 ## Open questions
 - Does the BLE link work with the cloud unreachable?

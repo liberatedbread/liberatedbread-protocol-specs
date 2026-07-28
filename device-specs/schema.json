@@ -10,7 +10,8 @@
     { "required": ["http_endpoints"] },
     { "required": ["mqtt_topics"] },
     { "required": ["obd"] },
-    { "required": ["bus"] }
+    { "required": ["bus"] },
+    { "required": ["cloud"] }
   ],
   "$defs": {
     "uuid": {
@@ -1436,6 +1437,113 @@
       }
     },
     "payload_formats": { "$ref": "#/$defs/payload_formats" },
+    "cloud": {
+      "type": "object",
+      "description": "A vendor cloud service the device depends on. Present ONLY to record the dependency honestly -- this is the problem, not the interface we want consumers to build on. A spec may satisfy the schema with `cloud` alone, which is precisely the 'cloud-only, no local path' case: it makes that state machine-readable instead of leaving it as prose in a notes field, so a consumer can say 'this device stops working when the vendor does' rather than silently offering endpoints that will one day 404. Pair with `local_access` to record what, if anything, would free it.",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "True when the device's documented functions do not work without this service. This is the flag that marks a device cloud-only."
+        },
+        "vendor_service": {
+          "type": "string",
+          "description": "Human-readable name of the service, e.g. 'NIU cloud'."
+        },
+        "hosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Base hosts, e.g. 'https://app-api-fk.niu.com'. Note where hosts are region-dependent."
+        },
+        "auth": {
+          "type": "object",
+          "description": "How a client authenticates. Record the shape only -- NEVER a real token, credential, account identifier or device serial.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["oauth2", "bearer_token", "api_key", "basic", "session_cookie", "other"]
+            },
+            "endpoint": { "type": "string", "description": "Path that issues the credential, e.g. '/v3/api/oauth2/token'." },
+            "notes": { "type": "string" },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "endpoints": {
+          "type": "array",
+          "description": "Documented cloud endpoints. Recorded as evidence of the dependency and because they are useful while the service lives -- not as a local control surface.",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string" },
+              "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "default": "GET" },
+              "name": { "type": "string" },
+              "returns": { "type": "string", "description": "What the response carries, in prose." },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "failure_mode": {
+          "type": "string",
+          "description": "What actually stops working when the service goes away or the account is closed. State it concretely -- this is the sentence a user needs before buying or keeping the device."
+        },
+        "data_leaves_device": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Categories of data the device sends to the vendor, e.g. 'location', 'ride history'. Flag anything that is personal data about a person rather than telemetry about a machine."
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "local_access": {
+      "type": "object",
+      "description": "Whether this device can be controlled without the vendor's service, and what it takes. Answers the question a repair café asks first: 'can I actually do anything with this one?' Applies to any spec, not only cloud devices.",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["native", "bridge_hardware", "replacement_hardware", "firmware_replacement", "none_known"],
+          "description": "'native': the device speaks a local protocol as shipped -- the normal case in this registry. 'bridge_hardware': a local interface exists but reaching it needs an adapter that is not part of the product (a BLE-to-UART bridge, a CAN interface). 'replacement_hardware': no local interface exists on the stock part, and local control means swapping a component for an aftermarket one. 'firmware_replacement': the stock hardware can be freed, but only by replacing its firmware. 'none_known': no path known today -- an honest dead end, not an omission.",
+          "default": "native"
+        },
+        "summary": { "type": "string" },
+        "covers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Functions the local path actually gives you."
+        },
+        "not_covered": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Functions that REMAIN cloud- or vendor-dependent even after taking this path. Filling this in matters: aftermarket hardware routinely frees one subsystem while leaving the rest tethered, and a spec that omits this reads as a bigger win than it is."
+        },
+        "hardware": {
+          "type": "array",
+          "description": "Known hardware that provides or restores local access. Recorded as documentation of what exists, not as an endorsement or a purchase recommendation.",
+          "items": {
+            "type": "object",
+            "required": ["name", "role"],
+            "properties": {
+              "name": { "type": "string" },
+              "vendor": { "type": "string" },
+              "url": { "type": "string", "description": "Product or project page. Third-party commercial listings change and go dead; treat as a pointer, not a citation." },
+              "role": {
+                "type": "string",
+                "enum": ["bridge", "replacement_part", "diagnostic_adapter", "programmer"],
+                "description": "'bridge': sits alongside the stock hardware and exposes an existing local interface. 'replacement_part': substitutes a stock component. 'diagnostic_adapter': connects a host to an existing diagnostic or debug interface. 'programmer': writes firmware or parameters."
+              },
+              "replaces": { "type": "string", "description": "Stock component this substitutes, when role is replacement_part." },
+              "fits": { "type": "string", "description": "Models this is sold as fitting." },
+              "reversible": { "type": "boolean", "description": "Whether the stock part can be refitted afterwards. Worth stating -- it is the difference between an experiment and a commitment." },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
     "bus": {
       "type": "object",
       "description": "A plain wired local bus -- UART/TTL serial or raw CAN -- for devices with no radio and no diagnostic connector. An e-bike motor talking to its display lives here. Distinct from `obd`: that models a diagnostic session (connector standard, ECU addressing, UDS services, security access) reached through a standardised socket, whereas this models an internal bus whose traffic is simply there to be read. A consumer needs a physical adapter to reach one of these, so specs here are documentation and bridge-building targets. Vehicles: the same care as `obd` applies -- anything that transmits on a bus with a motor on it is `advanced`.",
