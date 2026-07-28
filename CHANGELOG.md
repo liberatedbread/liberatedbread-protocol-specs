@@ -63,6 +63,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `704 8D 01 <b1> <b2> <b3>`, a 24-bit big-endian value in kilometres, with
   `5E 01` -> `704 DE` flagging a TFT dash and selecting which mile divisor
   (1.60934 vs 1.6099895) the tool applies
+- Fardriver ND-series motor controller device doc, target spec and device spec —
+  BLE sine-wave/FOC controllers of the ND72xxx family (QS Motor hub kits,
+  e-motorcycle builds and app-connected classic-scooter EV conversions). Free-running
+  16-byte `0xAA` status notifications reassembled into a 512-byte memory image with
+  CRC16 (poly `0x8005`, init `0x7F3C`), and a documented parameter/system write path
+  carried behind an `advanced` opcode flag. Framing, CRC and field offsets are
+  `reported` from public community RE; the per-unit BLE-bridge UUIDs are `hypothesis`
+  and the Retrospective Project:E vendor attribution inferred — nothing confirmed from
+  a physical unit. No auto-identification block is declared, deliberately: the sole
+  advertised signal (`0xFFE0`) is the generic HM-10 BLE-UART service and unsafe to
+  match on
+- Bafang BBS02 mid-drive device doc, target spec and device spec — the 36–48 V
+  conversion kit sharing a controller and config protocol with the BBS01/BBSHD.
+  A 1200-baud UART request/response configuration bus on the display harness, reached
+  by USB programming cable or over BLE through an aftermarket bridge display
+  (EggRider V2, `com.eggbikes.EggRider`, whose own BLE UUIDs are undocumented). The
+  read/write opcode set, the basic/pedal/throttle parameter blocks and the
+  direction-dependent checksum asymmetry are catalogued, with the four writes flagged
+  `advanced`. The protocol is already public — transcribed from MIT-licensed community
+  work (OpenBafangTool, two bafang-python forks) — so `reported` throughout, not
+  confirmed against a physical unit; the ambiguous write length byte is left unasserted
+- Tongsheng TSDZ2 mid-drive device doc, target spec and device spec — a torque-sensing
+  DIY mid-drive on a plain 9600-baud TTL serial link (not the BBS02's 1200), documented
+  as a continuous bidirectional stream rather than request/response: the motor pushes
+  9-byte `0x43` status frames 8×/s and the display pushes 7-byte `0x59` control frames
+  15×/s, with an 8-bit sum checksum both ways. The control packet is the write path,
+  so `display_control` is marked `writes: true` and `advanced`. `reported` from
+  community work (hurzhurz/tsdz2) and OSF forks, nothing captured from a physical unit;
+  widely-installed open-source firmware changes the protocol, so a mismatching capture
+  most likely means OSF
+- Bosch Performance Line CX (Gen4) e-bike system device doc, target spec and device
+  spec — the most closed mainstream e-bike system (Kiox display, eBike Flow app), where
+  fault detail, component pairing and firmware updates sit behind Bosch dealer tooling.
+  Documented as a starting kit, not a protocol: how to get onto the 500 kbit/s CAN bus
+  (D-Sub 9 / CiA DS-102 breakout, SocketCAN/can-utils tooling) plus a single
+  `hypothesis` frame (`061#00` start/stop) as the entire public message catalogue.
+  Link parameters and wiring are `reported` and reproducible; nothing observed on our
+  own bus. Community CAN RE (bosch-nerds/ebike) is early-stage, and there is no radio
+  to scan — reaching the bus needs a CAN interface and physical harness access
+- NIU electric scooter device doc, target spec and device spec — recorded as a cloud
+  dependency rather than a control surface: the scooter reports over cellular to NIU's
+  servers and the app (`com.niu.manager`) reads everything back via OAuth2
+  (`account-fk.niu.com`, `app-api-fk.niu.com`), so `cloud.required: true` and every
+  documented function 404s if the service is retired. The scooter's own BLE link — the
+  genuine local-first target — is undocumented (no UUIDs, framing or pairing flow), and
+  the only shipped local route is an aftermarket Bluetooth controller that replaces the
+  motor controller and frees drive parameters only, leaving telemetry, GPS and alarm
+  cloud-tethered. `reported` from maintained third-party integrations, none exercised
+  by us and dual-battery captures only; no real token or serial is committed, since a
+  token exposes the owner's live location
+- Motorcycle ground-effect LED controllers — ProGLOW/TTCBLE and Seeblue/LEDGlow device
+  specs on a combined `docs/devices/motorcycle-ground-effect-lighting.md` page, with a
+  shared target spec — white-label BLE underglow modules recovered from static APK
+  analysis. ProGLOW (`com.ttcble.proglow`): unencoded GATT writes on service `0x1000` /
+  characteristic `0x1001`, packets led by a `0x3C` header with no checksum in the
+  command builder. Seeblue (`com.seeblue.ledglow_moto` v1.9.1, `com.seeblue.ledglowv2`
+  v1.4.1): a `[0x95, len, index, protocol_id, payload, checksum]` envelope on service
+  `0xffe5` (TX `0xffe9`, RX `0xffe4`) with an 8-bit two's-complement checksum. Derived
+  from static analysis only — not yet hardware-verified
 - Initial device setup (provisioning) coverage:
   - `device.setup` block in `device-specs/schema.json` — onboarding methods,
     factory reset procedures, rebinding, and credential handling
