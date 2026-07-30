@@ -75,6 +75,12 @@ def build_entry(path, doc: dict, version: str) -> dict:
     handler = doc.get("protocol_handler")
     if handler is not None:
         entry["protocol_handler"] = handler
+    # Only emitted when the spec states it. An absent key means the schema
+    # default, `undocumented` — the same convention protocol_handler uses, and
+    # it keeps the common case from carrying a field that says nothing.
+    openness = device.get("openness")
+    if openness is not None:
+        entry["openness"] = openness.get("status")
     helpful_urls = doc.get("helpful_urls")
     if helpful_urls is not None:
         entry["helpful_urls"] = helpful_urls
