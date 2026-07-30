@@ -5,8 +5,18 @@ device:
   category: environmental
   type: sensor-temperature-humidity
   transport: ble
-  protocol: gatt
-  manufacturer_status: production
+  # 'gatt' is not a schema protocol; GATT is the attribute protocol carried over
+  # BLE, and the services/characteristics below already say the access is GATT.
+  protocol: ble
+  # SensorPush still sells these; the protocol is simply closed. Per the schema's
+  # own guidance that is 'active', not a bespoke 'production'.
+  manufacturer_status: active
+  identification:
+    service_uuids:
+      # V1 (HT1) and V2 (HTP.xw) primary services. Both are advertised for
+      # discovery; only V1's characteristics were individually recovered.
+      - "ef090000-11d6-42ba-93b8-9dd7ec090aa9"
+      - "ef090000-11d6-42ba-93b8-9dd7ec090ab0"
   notes: |
     Protocol documented via community reverse engineering.
     Primary sources: sensorpush-bleak (cryptomcgrath, 5★) and sensorpush-ble (Bluetooth-Devices).
@@ -17,104 +27,117 @@ device:
     Device reports battery voltage + raw temperature sensor in Battery Info characteristic.
     Uses SensorPush BLE Advertisement Detection: name/address prefix check plus UUID slicing.
 
-ble:
-  service_uuids:
-    - uuid: "ef090000-11d6-42ba-93b8-9dd7ec090aa9"
-      name: SensorPush Service (V1/HT1)
-      description: Primary GATT service for HT1 (temperature only)
-    - uuid: "ef090000-11d6-42ba-93b8-9dd7ec090ab0"
-      name: SensorPush Service (V2/HTP.xw)
-      description: Primary GATT service for HTP.xw (temperature + humidity)
+services:
+  # The V1 (HT1) and V2 (HTP.xw) primary services differ only in the final UUID
+  # byte (…aa9 vs …ab0) and are documented by the community libraries as carrying
+  # a parallel characteristic set. Only the V1 characteristic UUIDs were actually
+  # recovered, so they are listed under V1; the V2 service UUID is recorded in
+  # device.identification.service_uuids above rather than invented here.
+  - uuid: "ef090000-11d6-42ba-93b8-9dd7ec090aa9"
+    name: SensorPush Service (V1/HT1)
+    description: Primary GATT service for HT1 (temperature only)
+    notes: >
+      V2/HTP.xw (temperature + humidity) exposes the counterpart service
+      ef090000-11d6-42ba-93b8-9dd7ec090ab0. Its characteristic UUIDs follow the
+      same …ab0 base but were not individually recovered.
+    characteristics:
+      - uuid: "ef090001-11d6-42ba-93b8-9dd7ec090aa9"
+        name: DeviceID
+        properties: ["read"]
+        description: Device unique identifier (integer, variable byte length)
 
-  characteristics:
-    - uuid: "ef090001-11d6-42ba-93b8-9dd7ec090aa9"
-      name: DeviceID
-      type: read
-      description: Device unique identifier (integer, variable byte length)
+      - uuid: "ef090002-11d6-42ba-93b8-9dd7ec090aa9"
+        name: RevisionCode
+        properties: ["read"]
+        description: "7-byte firmware revision: i1_i2.i3_i4.i5_i6.i7 format"
 
-    - uuid: "ef090002-11d6-42ba-93b8-9dd7ec090aa9"
-      name: RevisionCode
-      type: read
-      description: "7-byte firmware revision: i1_i2.i3_i4.i5_i6.i7 format"
+      - uuid: "ef090003-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Unknown17
+        properties: ["read"]
+        description: "Returns single byte (observed value: 5)"
 
-    - uuid: "ef090003-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Unknown17
-      type: read
-      description: "Returns single byte (observed value: 5)"
+      - uuid: "ef090004-11d6-42ba-93b8-9dd7ec090aa9"
+        name: SampleInterval
+        properties: ["read"]
+        description: Logging sample interval in seconds (integer)
 
-    - uuid: "ef090004-11d6-42ba-93b8-9dd7ec090aa9"
-      name: SampleInterval
-      type: read
-      description: Logging sample interval in seconds (integer)
+      - uuid: "ef090005-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Unknown21
+        properties: ["read"]
+        description: "Returns 2 bytes (observed: 0x0808 = 2056)"
 
-    - uuid: "ef090005-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Unknown21
-      type: read
-      description: "Returns 2 bytes (observed: 0x0808 = 2056)"
+      - uuid: "ef090007-11d6-42ba-93b8-9dd7ec090aa9"
+        name: BatteryInfo
+        properties: ["read"]
+        description: "4 bytes: [battery_voltage_u16le / 1000 = volts, raw_temp_u16le]"
 
-    - uuid: "ef090007-11d6-42ba-93b8-9dd7ec090aa9"
-      name: BatteryInfo
-      type: read
-      description: "4 bytes: [battery_voltage_u16le / 1000 = volts, raw_temp_u16le]"
+      - uuid: "ef090008-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Timestamp
+        # Source spec recorded `type: write` with `access: read_write`; the union
+        # of the two is read+write.
+        properties: ["read", "write"]
+        description: "Device clock (4 bytes, u32le, seconds since Unix epoch)"
+        access: read_write
 
-    - uuid: "ef090008-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Timestamp
-      type: write
-      description: "Device clock (4 bytes, u32le, seconds since Unix epoch)"
-      access: read_write
+      - uuid: "ef090009-11d6-42ba-93b8-9dd7ec090aa9"
+        name: BulkData27
+        properties: ["notify"]
+        description: Bulk sample data block (timestamp + 4-byte sample records)
 
-    - uuid: "ef090009-11d6-42ba-93b8-9dd7ec090aa9"
-      name: BulkData27
-      type: notify
-      description: Bulk sample data block (timestamp + 4-byte sample records)
+      - uuid: "ef09000a-11d6-42ba-93b8-9dd7ec090aa9"
+        name: BulkData29
+        properties: ["notify"]
+        description: Bulk sample data block (remote history retrieval)
 
-    - uuid: "ef09000a-11d6-42ba-93b8-9dd7ec090aa9"
-      name: BulkData29
-      type: notify
-      description: Bulk sample data block (remote history retrieval)
+      - uuid: "ef09000b-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Unknown32
+        properties: ["read"]
+        description: Unknown characteristic at handle 32
 
-    - uuid: "ef09000b-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Unknown32
-      type: read
-      description: Unknown characteristic at handle 32
+      - uuid: "ef09000c-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Unknown34
+        properties: ["read"]
+        description: Unknown characteristic at handle 34
 
-    - uuid: "ef09000c-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Unknown34
-      type: read
-      description: Unknown characteristic at handle 34
+      - uuid: "ef09000d-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Unknown36
+        properties: ["read"]
+        description: Unknown characteristic at handle 36
 
-    - uuid: "ef09000d-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Unknown36
-      type: read
-      description: Unknown characteristic at handle 36
+      - uuid: "ef090080-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Temperature
+        # write-then-read: the trigger write and the value read are both real
+        # accesses, so both properties are listed. `access` keeps the ordering.
+        properties: ["read", "write"]
+        description: "Temperature in °C. Write 4-byte trigger (0x01000100), wait 110ms, read 2-byte u16le / 100"
+        access: write_read
+        trigger_write: "01000100"
 
-    - uuid: "ef090080-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Temperature
-      type: read
-      description: "Temperature in °C. Write 4-byte trigger (0x01000100), wait 110ms, read 2-byte u16le / 100"
-      access: write_read
-      trigger_write: "01000100"
+      - uuid: "ef090081-11d6-42ba-93b8-9dd7ec090aa9"
+        name: Humidity
+        properties: ["read", "write"]
+        description: "Humidity in %RH. Write 4-byte trigger (0x01000100), wait 110ms, read 2-byte u16le / 100"
+        access: write_read
+        trigger_write: "01000100"
 
-    - uuid: "ef090081-11d6-42ba-93b8-9dd7ec090aa9"
-      name: Humidity
-      type: read
-      description: "Humidity in %RH. Write 4-byte trigger (0x01000100), wait 110ms, read 2-byte u16le / 100"
-      access: write_read
-      trigger_write: "01000100"
-
-    # TI CC2540 OAD firmware update service
-    - uuid: "f000ffc1-0451-4000-b000-000000000000"
-      name: OADImageIdentify
-      type: write
-      description: TI OAD firmware image identification
-    - uuid: "f000ffc2-0451-4000-b000-000000000000"
-      name: OADImageBlock
-      type: write
-      description: TI OAD firmware image block transfer
-    - uuid: "f000ffc5-0451-4000-b000-000000000000"
-      name: OADImageCount
-      type: write
-      description: TI OAD firmware block count
+  # TI CC2540 OAD firmware update service. The three OAD characteristics were
+  # recovered without their parent service UUID; f000ffc0-… is the standard TI
+  # OAD service that owns f000ffc1/c2/c5 (same UUID used by the Airthings spec).
+  - uuid: "f000ffc0-0451-4000-b000-000000000000"
+    name: TI OAD Firmware Update Service
+    characteristics:
+      - uuid: "f000ffc1-0451-4000-b000-000000000000"
+        name: OADImageIdentify
+        properties: ["write"]
+        description: TI OAD firmware image identification
+      - uuid: "f000ffc2-0451-4000-b000-000000000000"
+        name: OADImageBlock
+        properties: ["write"]
+        description: TI OAD firmware image block transfer
+      - uuid: "f000ffc5-0451-4000-b000-000000000000"
+        name: OADImageCount
+        properties: ["write"]
+        description: TI OAD firmware block count
 
 advertising:
   discovery_method: service_uuid_and_name
