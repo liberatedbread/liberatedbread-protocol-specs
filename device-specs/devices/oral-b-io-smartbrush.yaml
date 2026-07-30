@@ -22,6 +22,66 @@ device:
     Two device classes: Brush (FFxx UUIDs) and Charger (3Cxx UUIDs).
     Supports OTA firmware updates via dedicated characteristic set.
 
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      The brush needs no provisioning. It advertises manufacturer-specific data
+      under P&G's manufacturer ID (0xDC00) whenever it is switched on, and
+      exposes its state and control characteristics to any client that connects.
+      The Oral-B app's account is for storing brushing history in P&G's cloud;
+      the brush is not bound to it.
+
+      Confidence is medium: the UUID scheme and device classes are recovered
+      from the decompiled app, but the connect flow has not been exercised
+      against hardware here. Note that discovery is by manufacturer data, not by
+      service UUID — a scanner filtering on services will not see the brush.
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT to a brush (FFxx UUIDs) or its charger (3Cxx UUIDs)
+          and read state directly. No pairing or account is involved.
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Switch the brush on, or seat it on its charger, so it advertises."
+            actor: user
+          - action: >
+              Scan for manufacturer-specific advertisement data under
+              manufacturer ID 0xDC00, requiring at least 14 bytes of payload.
+            actor: client
+          - action: "Connect over GATT and discover the A0F0xxxx-5047-4D53-8208-4F72616C2D42 services."
+            actor: client
+          - action: >
+              Read the protocol version characteristic to select the right
+              command set — generations differ across V001 to V009.
+            actor: client
+            expect: "A version string in the V001-V009 range."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. The brush stores brushing session history and per-mode
+        configuration that a reset would clear, but no reset command was
+        identified in the decompiled app, and the same characteristic set
+        carries the OTA firmware path — a wrong guess there risks the firmware,
+        not just the settings.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The brush joins no network and holds no bond, so any client may connect
+        once the previous one disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only; no WiFi passphrase is transferred. The P&G account credential
+        is held by the app, not by the brush. The link is unauthenticated, so
+        brushing data is readable by anyone in range.
+
 services:
   - uuid: "A0F0FF00-5047-4D53-8208-4F72616C2D42"
     name: Oral-B iO Brush Service
