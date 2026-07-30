@@ -96,7 +96,10 @@ device:
       (ATCommandSetFrame parsing suggests challenge-response auth path).
     methods:
       - type: "ble_direct"
-        verified: true
+        # Not run against hardware here: the service map and ASR/ASRACP flow are
+        # recovered from the app, which is why the block claims medium and not
+        # high confidence.
+        verified: false
         description: >
           Scan for Airthings service UUIDs (manufacturer ID 820), connect,
           read standard BLE characteristics for live readings, or use
@@ -113,14 +116,17 @@ device:
           - action: "Connect and read sensor data via standard BLE characteristics or ASR notifications."
             actor: "client"
     factory_reset:
+      # The procedure that used to sit here was a guess ("hold the button for
+      # 10+ seconds") under a heading that admitted as much. A guess formatted
+      # as a procedure reads like a verified one, so it is stated as unknown
+      # instead.
+      applicable: "unknown"
       confidence: "low"
-      effect: "Unknown. Likely hold button for extended period."
-      procedures:
-        - name: "Unknown — requires hardware testing"
-          steps:
-            - action: "Hold device button for 10+ seconds."
-              actor: "user"
-              expect: "Device resets and re-advertises."
+      effect: >
+        Not established. A reset would clear the device's logged sensor history
+        and any ASRACP password, but neither the trigger nor its effect was
+        recovered from the app, and the family spans six models whose buttons
+        differ. Requires hardware testing.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -379,13 +385,27 @@ services:
         properties: ["read", "notify"]
 
   # === View Plus Service ===
+  # NOTE: b42e77de-… was previously nested here as a *characteristic*, but it is
+  # the Hub/Bridge device's primary SERVICE UUID, not a characteristic of View
+  # Plus. It is already recorded machine-readably in
+  # device.identification.service_uuids and device.discovery, so the fact is
+  # preserved; it is restated here because a service with no recovered
+  # characteristics cannot currently be expressed as a `services` entry (the
+  # schema makes `characteristics` required with minItems 1).
   - uuid: "b42e90a2-ade7-11e4-89d3-123b93f75cba"
     name: "View Plus Air Sensor Service"
     variants: ["View Plus"]
-    characteristics:
-      - uuid: "b42e77de-ade7-11e4-89d3-123b93f75cba"
-        name: "Hub/Bridge Service"
-        notes: "Hub device uses this as primary service UUID."
+    notes: >
+      Sibling service: b42e77de-ade7-11e4-89d3-123b93f75cba is the Airthings
+      Hub/Bridge device's primary service UUID.
+      View Plus's own ASR/ASRACP characteristic UUIDs were not extracted from the
+      app; the family shares the ASR/ASRACP profile documented on the Wave and
+      Wave Plus services above, but the View Plus UUIDs are unconfirmed and are
+      deliberately not guessed here.
+    # No characteristics: View Plus's own ASR/ASRACP UUIDs were never recovered.
+    # This service therefore cannot validate against the current schema, which
+    # requires `characteristics` with minItems 1. Left deliberately incomplete
+    # rather than populated with guessed or borrowed UUIDs. See the PR body.
 
   # === Product Provisioning (Albatross) ===
   - uuid: "b42eb4a6-ade7-11e4-89d3-123b93f75cba"
@@ -448,58 +468,78 @@ services:
             type: "uint8"
             unit: "%"
 
-  - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
-    name: "Temperature Characteristic"
-    properties: ["read", "notify"]
-    notes: "Standard BLE temperature. Available on most models as individual characteristic."
-    format:
-      - offset: 0
-        length: 2
-        name: "temperature"
-        type: "sint16"
-        scale: 0.01
-        unit: "°C"
+  # These five were filed directly in `services` although they are
+  # characteristics (they carry `properties`/`format`, not `characteristics`).
+  # They are re-nested below under the Bluetooth SIG services that define them.
+  # NOTE: the two parent service UUIDs are the SIG-standard owners of these
+  # characteristic UUIDs, not values observed on the device.
+  - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
+    name: "Environmental Sensing Service"
+    notes: >
+      Bluetooth SIG standard Environmental Sensing Service (0x181A), the defined
+      owner of the temperature/humidity/pressure/dew-point characteristics below.
+      The service UUID is inferred from the SIG assignment rather than captured;
+      the characteristic UUIDs themselves came from the decompiled app.
+    characteristics:
+      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
+        name: "Temperature Characteristic"
+        properties: ["read", "notify"]
+        notes: "Standard BLE temperature. Available on most models as individual characteristic."
+        format:
+          - offset: 0
+            length: 2
+            name: "temperature"
+            type: "int16"
+            scale: 0.01
+            unit: "°C"
 
-  - uuid: "00002a6f-0000-1000-8000-00805f9b34fb"
-    name: "Humidity Characteristic"
-    properties: ["read", "notify"]
-    notes: "Standard BLE humidity."
-    format:
-      - offset: 0
-        length: 2
-        name: "humidity"
-        type: "uint16"
-        scale: 0.01
-        unit: "%RH"
+      - uuid: "00002a6f-0000-1000-8000-00805f9b34fb"
+        name: "Humidity Characteristic"
+        properties: ["read", "notify"]
+        notes: "Standard BLE humidity."
+        format:
+          - offset: 0
+            length: 2
+            name: "humidity"
+            type: "uint16"
+            scale: 0.01
+            unit: "%RH"
 
-  - uuid: "00002a6d-0000-1000-8000-00805f9b34fb"
-    name: "Pressure Characteristic"
-    properties: ["read", "notify"]
-    notes: "Standard BLE pressure. Available on Wave Plus."
-    format:
-      - offset: 0
-        length: 4
-        name: "pressure"
-        type: "uint32"
-        scale: 0.1
-        unit: "Pa"
+      - uuid: "00002a6d-0000-1000-8000-00805f9b34fb"
+        name: "Pressure Characteristic"
+        properties: ["read", "notify"]
+        notes: "Standard BLE pressure. Available on Wave Plus."
+        format:
+          - offset: 0
+            length: 4
+            name: "pressure"
+            type: "uint32"
+            scale: 0.1
+            unit: "Pa"
 
-  - uuid: "00002a7b-0000-1000-8000-00805f9b34fb"
-    name: "Dew Point Characteristic"
-    properties: ["read", "notify"]
-    notes: "Standard BLE dew point. Available on Wave Plus."
-    format:
-      - offset: 0
-        length: 2
-        name: "dew_point"
-        type: "sint16"
-        scale: 0.01
-        unit: "°C"
+      - uuid: "00002a7b-0000-1000-8000-00805f9b34fb"
+        name: "Dew Point Characteristic"
+        properties: ["read", "notify"]
+        notes: "Standard BLE dew point. Available on Wave Plus."
+        format:
+          - offset: 0
+            length: 2
+            name: "dew_point"
+            type: "int16"
+            scale: 0.01
+            unit: "°C"
 
-  - uuid: "00002a08-0000-1000-8000-00805f9b34fb"
-    name: "Current Time"
-    properties: ["read", "write"]
-    notes: "Device RTC. Write to set device clock."
+  - uuid: "00001805-0000-1000-8000-00805f9b34fb"
+    name: "Current Time Service"
+    notes: >
+      Bluetooth SIG standard Current Time Service (0x1805), the defined owner of
+      the Current Time characteristic below. Service UUID inferred from the SIG
+      assignment rather than captured.
+    characteristics:
+      - uuid: "00002a08-0000-1000-8000-00805f9b34fb"
+        name: "Current Time"
+        properties: ["read", "write"]
+        notes: "Device RTC. Write to set device clock."
 
   # === TI OAD Firmware Update Service ===
   - uuid: "f000ffc0-0451-4000-b000-000000000000"

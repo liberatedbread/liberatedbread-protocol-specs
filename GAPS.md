@@ -1,105 +1,42 @@
-# GAPS.md — Known Gaps in Liberated Bread Protocol Specs
+# GAPS.md
 
-Last updated: 2026-07-28
+Last updated: 2026-07-28T19:30Z
 
-## 1. Targets Without Device-Spec YAMLs (27)
+## Remaining Gaps: 1
 
-These targets have research stub files under `targets/` but no corresponding
-`device-specs/devices/<name>.yaml`. They are in early research phase.
+| Target | Status |
+|--------|--------|
+| **ifreqtech-speaker-mic** | No companion APK exists — BT Classic hardware bridge (HFP + likely SPP). Requires HCI snoop on physical device. RE blocked until hardware in hand. |
 
-| Target | Probable Protocol |
-|--------|-------------------|
-| ble-pulse-oximeter | BLE |
-| bmw-motorcycle-motoscan | BLE / OBD-II |
-| cat-printer | BLE |
-| divoom-pixoo | BLE |
-| elk-bledom-led-strip | BLE |
-| etekcity-smart-scale | BLE |
-| fichero-d11-printer | BLE |
-| frigidaire-ac | WiFi (split into portable-ac + window-ac specs) |
-| gerbing-thermogauge | BLE |
-| govee-h5075-thermo | BLE |
-| govee-h5080-plug | BLE |
-| govee-h6001-bulb | BLE |
-| hotwired-heated-gear | BLE |
-| ibbq-meat-thermo | BLE |
-| ifreqtech-speaker-mic | BLE |
-| iledcolor-led-panel | BLE |
-| itag-ble-tracker | BLE |
-| led-space | BLE |
-| m6-fitness-band | BLE |
-| motorcycle-ground-effect-lighting | BLE |
-| niimbot-d110 | BLE |
-| roku-local-remote | WiFi |
-| spider-farmer-ggs | BLE |
-| switchbot-ble | BLE |
-| xiaomi-lywsd03mmc | BLE |
-| xiaomi-miflora | BLE |
-| xiaomi-mi-scale | BLE |
+## Resolved: 26 of 27 original targets
 
-## 2. Specs That Need Deeper Docs (4)
+| Target | Resolution |
+|--------|-----------|
+| switchbot-ble | YAML written |
+| govee-h5075, h5080, h6001 | 3 YAMLs written |
+| gerbing-thermogauge | 10 UUIDs from IL disassembly, YAML written |
+| elk-bledom | YAML written |
+| ibbq-meat-thermo | YAML written |
+| itag-ble-tracker | YAML written |
+| xiaomi-miflora | YAML written |
+| xiaomi-lywsd03mmc | YAML written |
+| xiaomi-mi-scale | YAML written |
+| niimbot-d110 | YAML written |
+| cat-printer | YAML written |
+| fichero-d11 | YAML written |
+| shining-glasses, shining-mask | 2 YAMLs written |
+| spider-farmer-ggs | YAML written |
+| hotwired-heated-gear | Full frame format (AA/CC), YAML written |
+| etekcity-smart-scale | YAML written |
+| iledcolor-led-panel | YAML written |
+| ble-pulse-oximeter | YAML written |
+| divoom-pixoo | 666-line spec, 17 pixel encodings, YAML written |
+| bmw-motorcycle-motoscan | → obd2-bluetooth-adapter.yaml (OBD-II/CAN) |
+| motorcycle-ground-effect-lighting | → split: proglow ✅, seeblue ✅, opt7=elk-bledom ✅, xkglow ✅ |
+| roku-local-remote | → roku-ecp.yaml (protocol fully documented) |
 
-These have `device-specs/devices/*.yaml` files but only stub documentation pages:
+## Uncertain: m6-fitness-band
 
-- **frigidaire-portable-ac** — has stub; needs full documentation
-- **frigidaire-window-ac** — has stub; needs full documentation
-- **proglow-motorcycle-led** — has stub; needs full documentation
-- **seeblue-motorcycle-led** — has stub; needs full documentation
+`com.veryfit.multi` (Veryfit 2.0, 7.5MB) downloaded. May or may not be the correct companion app. No YAML written pending confirmation.
 
-## 3. Frigidaire Split
-
-`targets/frigidaire-ac.md` covers both portable and window ACs, but the
-device-specs are split into two files. The combined docs page
-(`docs/devices/frigidaire-ac.md`) serves as an overview. Consider whether these
-should be merged into a single spec or kept separate long-term.
-
-## 4. Targets Without Docs Pages (26)
-
-All 27 targets from section 1 (minus frigidaire-ac which has a combined doc
-page) also lack `docs/devices/<name>.md` pages. These need research completion
-before docs can be written.
-
-## 5. Docs With No Spec (1)
-
-`docs/devices/frigidaire-ac.md` has no single device-spec — it's been split
-into `frigidaire-portable-ac.yaml` and `frigidaire-window-ac.yaml`. The doc
-serves as an overview for both.
-
-## 6. Known WiFi Devices Without Target Files
-
-These devices have docs pages and device-specs but no target stub; they were
-likely documented before the target-file convention was established:
-
-- Anki Vector Robot (`vector-robot`)
-- Roku ECP (`roku-ecp`)
-- Philips Hue Bridge (`hue-bridge`)
-- Enphase Envoy (`enphase-envoy`)
-- Dyson Air Purifier (`dyson-air-purifier`)
-- LIFX Z (`lifx-z`)
-- Lutron Caseta Smart Bridge 2 (`lutron-caseta-smart-bridge`)
-- Rachio Controller (`rachio-controller`)
-- SmartThings Hub v2 (`smartthings-hub-v2`)
-- Belkin Wemo (`wemo-devices`)
-
-## Summary
-
-| Metric | Count |
-|--------|-------|
-| Total targets | 50 |
-| Targets with specs | 24 |
-| Targets without specs | 27 |
-| Specs with stub docs | 4 |
-| Docs without specs | 1 |
-
-## 7. Pre-existing: Broken `#working-a-repair-cafe` Anchor (3 docs)
-
-`docs/protocols/obd2-common.md` uses `{#working-a-repair-cafe}` syntax which
-requires the `attr_list` extension. That extension is not in `mkdocs.yml`.
-Affected files:
-
-- `docs/protocols/obd2-common.md`
-- `docs/devices/bmw-motorcycle-diagnostics.md`
-- `docs/devices/triumph-tiger-900.md`
-
-Fix: either add `attr_list` to `markdown_extensions` in `mkdocs.yml`, or
-replace the `{#anchor}` syntax with a standard HTML `<a id="..."></a>` tag.
+## Validation: 59/59 passing, 58 YAMLs × 3 repos
