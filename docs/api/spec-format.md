@@ -21,7 +21,7 @@ device:              # identity, discovery, and one-time setup
   manufacturer: ...
   manufacturer_status: ...   # abandoned | shutdown | unsupported | active
   openness: ...              # was this protocol published, or did we recover it?
-  protocol: ...              # ble | wifi | zigbee | zwave
+  protocol: ...              # ble | wifi | zigbee | zwave | obd2 | uart | can
   identification: ...        # how to recognise it while scanning
   discovery: ...             # how to FIND one that is already on the network
   setup: ...                 # how to GET one onto the network
@@ -36,7 +36,12 @@ helpful_videos: ...  # optional human video references: teardown/setup/capture w
 ```
 
 A spec must have `device` plus at least one transport block such as `services`,
-`http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`. Everything else is optional, and the schema is deliberately
+`http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`. The one exception is a
+**reference spec** — a `device.type` beginning `reference-` (SAE J1979 PIDs, ISO
+14229 UDS services, ISO 15765-2 framing) documents a published standard that
+other specs cite instead of restating, so it carries protocol tables rather than
+an access surface of its own and is exempt from the transport requirement.
+Everything else is optional, and the schema is deliberately
 permissive — unknown keys are allowed so device-specific detail can travel
 alongside the standard fields. Consumers parse the subset they understand.
 
@@ -145,12 +150,16 @@ Two separate claims, and reading them wrong wastes time:
 | Field | Question | Values |
 |---|---|---|
 | `setup.confidence` | How well is this flow understood? | `high` — replayed against hardware, or there is a working open implementation. `medium` — from public source or vendor docs. `low` — inferred; go and capture it. |
-| `methods[].verified` | Has *this project* run this exact flow against hardware? | Currently `false` everywhere. |
+| `methods[].verified` | Has *this project* run this exact flow against hardware? | `false` on nearly every spec; set `true` only when the flow was actually replayed on the device. |
 
 `verified: false` is not a warning label — it is the honest default, and it
 tells you what to go and confirm. A `low`-confidence block naming its gaps is
 far more useful than an absent one; "the onboarding exchange has not been
-captured" is information, silence is not.
+captured" is information, silence is not. Reserve `verified: true` for a flow
+run against real hardware here: a fact recovered from an APK or a community
+repository is `false` no matter how sure the source seems, the same way
+`verification: reported` — not `confirmed` — is the label for a byte sequence
+that was read out of someone else's code rather than off the wire.
 
 ### Methods
 
