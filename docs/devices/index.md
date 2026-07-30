@@ -53,6 +53,7 @@ A catalog of IoT devices we've documented (or are documenting).
 | [Tongsheng TSDZ2 Mid-Drive](tsdz2-tongsheng.md) | UART (9600 baud) | Research | Tongsheng |
 | [Bosch Performance Line CX Gen4](bosch-ebike-cx-gen4.md) | CAN | Research | Bosch eBike Systems |
 | [NIU Electric Scooter](niu-escooter.md) | Cloud HTTP + BLE | Research | Niu Technologies |
+| [WLED Addressable LED Controller](wled-controller.md) | WiFi | Complete | WLED project (open firmware) |
 The **Setup** column records how a factory-fresh device is provisioned, and how
 well that flow is understood. The full machine-readable version lives in each
 spec's `device.setup` block; the patterns are explained in
@@ -88,6 +89,25 @@ spec's `device.setup` block; the patterns are explained in
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Uncaptured (low) | Rachio |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
+| [WLED Addressable LED Controller](wled-controller.md) | WiFi | Complete | SoftAP portal (medium) | WLED project (open firmware) |
+
+## Not everything here was liberated
+
+Almost every entry above is a reconstruction — somebody worked the protocol out
+from captures, firmware or an app teardown. A few are not, and specs say which
+they are in `device.openness`:
+
+| Status | Means |
+|---|---|
+| `open_by_design` | Published protocol; third-party clients are the point. Read upstream, not us |
+| `documented_api` | Official interface exists, product otherwise closed. Part cited, part reconstructed |
+| `undocumented` | Nothing published. Our best reconstruction — the default here, and the usual case |
+| `hostile` | Vendor actively fights third-party clients. Documented anyway; expect breakage |
+
+[WLED](wled-controller.md) is the worked `open_by_design` example, and it is
+here partly to keep the distinction honest: a registry framed around liberating
+documentation should be able to say when there was nothing to liberate. See
+[Reading a Device Spec](../api/spec-format.md) for the field.
 
 ## Guides
 
