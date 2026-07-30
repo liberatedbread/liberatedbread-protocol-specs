@@ -20,6 +20,7 @@ device:              # identity, discovery, and one-time setup
   name: ...
   manufacturer: ...
   manufacturer_status: ...   # abandoned | shutdown | unsupported | active
+  openness: ...              # was this protocol published, or did we recover it?
   protocol: ...              # ble | wifi | zigbee | zwave
   identification: ...        # how to recognise it while scanning
   discovery: ...             # how to FIND one that is already on the network
@@ -78,6 +79,49 @@ Keeping these apart is the single most useful thing to know when reading a spec:
 A BLE device with an encrypted command channel has an `initialization` block
 and a `setup` block saying `required: false`. Those are not in tension: there
 is nothing to provision, but every connection still needs a handshake.
+
+### `openness` — did we have to recover this?
+
+`manufacturer_status` says what the vendor is doing. `openness` says something
+different and easy to conflate with it: whether the protocol was ever
+published. A vendor can be very much in business and completely open, and a
+vendor can be long gone having never documented a byte.
+
+| Status | Means | Read this spec as |
+|---|---|---|
+| `open_by_design` | Published by the people who build it; third-party clients are the point | A summary of upstream — go read upstream |
+| `documented_api` | Official interface exists, product otherwise closed | Part citation, part reconstruction |
+| `undocumented` | Nothing published; worked out by observation | Our best reconstruction, and it can be wrong |
+| `hostile` | Vendor actively fights third-party clients | Documented anyway; expect deliberate breakage |
+
+Omitting the block means `undocumented`, which is the default because it is
+what nearly every spec here is. State it explicitly when it is anything else.
+
+```yaml
+openness:
+  status: "open_by_design"
+  reverse_engineered: false
+  source_code: "https://github.com/wled/WLED"
+  license: "EUPL-1.2"
+  upstream_docs:
+    - url: "https://kno.wled.ge/interfaces/json-api/"
+      covers: "Endpoint paths and the state/info objects."
+```
+
+`reverse_engineered` is tracked separately from `status` because the two come
+apart in practice: a vendor with a documented API usually leaves the
+interesting half undocumented, so a `documented_api` spec is commonly both
+cited and reconstructed. On an `open_by_design` spec it should be `false` —
+that is the whole point of the field. It marks the spec as interoperability
+work rather than liberation, and it keeps the registry from taking credit for
+prising open a door that was never locked.
+
+`license` is worth stating separately from the rest. An open protocol lets you
+talk to the device; an open licence on its firmware lets you replace what is
+running on it. The second is the larger freedom, and it is the one that means
+a device can outlive anybody's interest in supporting it.
+
+[`wled-controller`](../devices/wled-controller.md) is the worked example.
 
 ## The `setup` block
 
