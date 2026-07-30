@@ -42,9 +42,16 @@ A 16-bit UUID `XXXX` is shorthand for:
 ```
 
 The registry stores full 128-bit UUIDs (the `uuid` pattern in `schema.json`
-requires them), which is unambiguous and correct. But knowing the rule tells you
-at a glance that `0000180f-…-34fb` **is** the standard Battery Service and not a
-vendor coincidence — the `-0000-1000-8000-00805f9b34fb` suffix is the tell.
+requires them), which is unambiguous and correct. But be precise about what the
+suffix proves: `-0000-1000-8000-00805f9b34fb` marks a UUID as a **16-bit short
+value**, *not* as a **SIG-assigned** one. Vendors squat on short UUIDs of exactly
+this shape — CoolLEDX's custom `0xFFF0`/`0xFFF1` service and characteristic
+(`coolledx-led-sign.yaml`) are indistinguishable from a standard service by suffix
+alone. `0000180f-…-34fb` is known to be the standard Battery Service only because
+`180F` is listed in
+[Assigned Numbers](https://www.bluetooth.com/specifications/assigned-numbers/), not
+because of its shape. **Always confirm `xxxx` in the registry before treating a
+service or characteristic as standard.**
 
 ### Standard characteristics already in use here
 
@@ -81,10 +88,12 @@ standards govern that data:
   Discovery matching on `manufacturer_data.company_id` and service-data UUIDs is
   reading these structures.
 - **[BTHome v2](https://bthome.io/)** — an **open** advertisement payload format
-  for sensor data, already spoken by several devices documented here (the pvvx
-  ATC firmware for the Xiaomi LYWSD03MMC emits it) and consumed natively by Home
-  Assistant. When a device speaks BTHome, a spec can name the format and skip
-  re-documenting the byte layout entirely.
+  for sensor data, carried in service data under BTHome's own SIG-allocated UUID
+  `0xFCD2` (not to be confused with a device's custom service data — the pvvx ATC
+  firmware for the Xiaomi LYWSD03MMC can emit BTHome on `0xFCD2` *or* its own ATC
+  format on `0x181A`). Consumed natively by Home Assistant. When a device speaks
+  BTHome, a spec can name the format and the `0xFCD2` UUID and skip re-documenting
+  the byte layout entirely.
 
 Passive-beacon devices are currently modelled with a workaround (a `format`-less
 characteristic plus a `notes` disclaimer). A first-class `advertisement` block is
