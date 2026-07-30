@@ -3,7 +3,7 @@
     "manufacturer": "Subaru Corporation",
     "manufacturer_status": "active",
     "name": "Subaru Impreza / WRX / STi",
-    "notes": "Subaru uses SSM (Subaru Select Monitor), a proprietary diagnostic protocol layered on top of either ISO 9141-2 K-line (2002–2007) or ISO 15765-4 CAN (2008+). SSM exposes roughly 10× more live data than generic OBD-II Mode 01 PIDs — knock correction, per-cylinder roughness, AVCS cam angles, AF Learning by airflow range, boost error, ethanol content, and hundreds of ECU-internal parameters.\nTwo transports, one protocol:\nK-line (2002–2007) — 4800 baud, 8N1, 5-baud init then SSM framing:\n  [0x80, dest, 0xF0, length, COMMAND, payload..., checksum]\n  Checksum = Σ bytes (excluding checksum) mod 65536, stored as 1 byte.\n  Dest addresses: 0x10=engine, 0x18=transmission, 0x30=ABS.\n\nCAN (2008+) — 500 kbps, 11-bit IDs:\n  Request:  CAN ID = 0x7E0 + (dest_addr - 0x10) → [ID_hi, ID_lo, COMMAND, payload...]\n  Response: CAN ID = 0x7E8 + (dest_addr - 0x10) → [ID_hi, ID_lo, RESPONSE, payload...]\n  No SSM header, no checksum — handled by CAN CRC.\n\nThe protocol is identical: same commands, same parameter addresses. Only the framing differs. This is the foundation of RomRaider's portability — swap the transport driver, keep the protocol logic.\nSOURCE: RomRaider/src/main/java/com/romraider/io/protocol/ssm/ - iso9141/SSMProtocol.java      (K-line transport) - iso9141/SSMChecksumCalculator.java - iso15765/SSMProtocol.java     (CAN transport) - iso15765/SSMResponseProcessor.java - logger/ecu/comms/query/SSMEcuInit.java\nDTCs are NOT a separate protocol command. They are regular SSM parameters stored at memory addresses defined in the ECU definition XML. Each DTC is a single bit at a (memaddr, bit) location — read that address, check the bit, and if set the DTC is active. Clearing a DTC means writing 0x00 to its memory address. RomRaider defines DTCs via <dtcode> elements with memaddr and bit attributes.\n",
+    "notes": "Subaru uses SSM (Subaru Select Monitor), a proprietary diagnostic protocol layered on top of either ISO 9141-2 K-line (2002–2007) or ISO 15765-4 CAN (2008+). SSM exposes roughly 10× more live data than generic OBD-II Mode 01 PIDs — knock correction, per-cylinder roughness, AVCS cam angles, AF Learning by airflow range, boost error, ethanol content, and hundreds of ECU-internal parameters.\nTwo transports, one protocol:\nK-line (2002–2007) — 4800 baud, 8N1, 5-baud init then SSM framing:\n  [0x80, dest, 0xF0, length, COMMAND, payload..., checksum]\n  Checksum = Σ bytes (excluding checksum) mod 65536, stored as 1 byte.\n  Dest addresses: 0x10=engine, 0x18=transmission, 0x30=ABS.\n\nCAN (2008+) — 500 kbps, 11-bit IDs:\n  Request/response IDs are per-ECU and listed in the `ecus` block below\n  (engine 0x7E0/0x7E8, transmission 0x7E1/0x7E9, ABS 0x7E3/0x7EB) — the\n  standard ISO 15765-4 diagnostic pairs, response = request + 8. Do NOT\n  compute them from the K-line dest address: those addresses (0x10, 0x18,\n  0x30) are not contiguous, so an earlier \"0x7E0 + (dest - 0x10)\" formula\n  here was wrong — it mapped the transmission onto 0x7E8 (the engine's\n  response ID) and the ABS onto 0x800. Payload after the ID is\n  [COMMAND, payload...] on request, [RESPONSE, payload...] on reply.\n  No SSM header, no checksum — handled by CAN CRC.\n\nThe protocol is identical: same commands, same parameter addresses. Only the framing differs. This is the foundation of RomRaider's portability — swap the transport driver, keep the protocol logic.\nSOURCE: RomRaider/src/main/java/com/romraider/io/protocol/ssm/ - iso9141/SSMProtocol.java      (K-line transport) - iso9141/SSMChecksumCalculator.java - iso15765/SSMProtocol.java     (CAN transport) - iso15765/SSMResponseProcessor.java - logger/ecu/comms/query/SSMEcuInit.java\nDTCs are NOT a separate protocol command. They are regular SSM parameters stored at memory addresses defined in the ECU definition XML. Each DTC is a single bit at a (memaddr, bit) location — read that address, check the bit, and if set the DTC is active. Clearing a DTC means writing 0x00 to its memory address. RomRaider defines DTCs via <dtcode> elements with memaddr and bit attributes.\n",
     "protocol": "obd2",
     "setup": {
       "confidence": "high",
@@ -38,7 +38,7 @@
             }
           ],
           "type": "wired",
-          "verified": true
+          "verified": false
         }
       ],
       "notes": "Plug in an adapter, key on, send ECU init, read the response. No provisioning, pairing, or credentials. The green diagnostic connectors must be DISCONNECTED for normal reads. Join them for flash writes.\n",
@@ -97,7 +97,7 @@
         "notes": "K-line: 0x80 0x10 0xF0 0x01 0xBF 0x40 <cs> CAN:    0x7E 0x00 0xAA\nK-line response: 0x80 0xF0 0x10 <len> 0xFF <3 unknown> <5 ECU ID bytes> <params_bitmask...> <cs> CAN response:    0x7E 0x80 0xEA <3 unknown> <5 ECU ID bytes> <params_bitmask...>\nThe ECU ID is 5 bytes starting at offset 3 in the data portion, encoded as hex ASCII. The parameter bitmask starts at offset 8. Each bit represents one parameter (ecubyteindex/ecubit in the logger XML); if set, the ECU supports that parameter.\n",
         "response": "0xFF",
         "response_can": "0xEA",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -106,7 +106,7 @@
         "name": "READ_ADDRESS",
         "notes": "K-line: 0x80 0x10 0xF0 <len> 0xA8 0x00 <addr1_3bytes> <addr2_3bytes>... <cs>\n        0xA8 0x01 for continuous fast-poll (padding byte = 0x01).\nCAN:    0x7E 0x00 0xA8 0x00 <addr1_3bytes> <addr2_3bytes>...\nEach address is 3 bytes big-endian. The ECU returns all values concatenated in the response. The client knows each parameter's width from the ECU definition (1, 2, or 4 bytes).\n",
         "response": "0xE8",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -115,7 +115,7 @@
         "name": "READ_MEMORY",
         "notes": "K-line: 0x80 0x10 0xF0 <len> 0xA0 0x00 <addr_3bytes> <num_bytes_minus_1> <cs> CAN: throws UnsupportedProtocolException. RomRaider only uses read-address on CAN.\n",
         "response": "0xE0",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -124,7 +124,7 @@
         "name": "WRITE_ADDRESS",
         "notes": "K-line: 0x80 0x10 0xF0 <len> 0xB8 <addr_3bytes> <value> <cs> CAN:    0x7E 0x00 0xB8 <addr_3bytes> <value>\nUsed for: ECU reset (address 0x000060, value 0x40), DTC clear (write 0x00 to DTC memory addresses), actuator tests, and tuning parameter writes.\n",
         "response": "0xF8",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": true
       },
       {
@@ -132,7 +132,7 @@
         "description": "Bulk memory write — K-line only. NOT SUPPORTED on CAN.",
         "name": "WRITE_MEMORY",
         "response": "0xF0",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": true
       },
       {
@@ -142,7 +142,7 @@
         "name": "ECU_RESET",
         "notes": "Send WRITE_ADDRESS to 0x000060 with value 0x40. K-line: 0x80 0x10 0xF0 0x05 0xB8 0x00 0x00 0x60 0x40 <cs> CAN:    0x7E 0x00 0xB8 0x00 0x00 0x60 0x40 Response: 0x7E 0x80 0xF8 0x40\n",
         "value": "0x40",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": true
       }
     ],
@@ -153,32 +153,32 @@
         {
           "pin": 16,
           "signal": "battery +12V",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         {
           "pin": 4,
           "signal": "chassis ground",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         {
           "pin": 5,
           "signal": "signal ground",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         {
           "pin": 7,
           "signal": "K-line (2002–2007, ISO 9141-2)",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         {
           "pin": 6,
           "signal": "CAN-H (2008+, ISO 15765-4)",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         {
           "pin": 14,
           "signal": "CAN-L (2008+, ISO 15765-4)",
-          "verification": "confirmed"
+          "verification": "reported"
         }
       ],
       "standard": "sae-j1962"
@@ -191,7 +191,7 @@
         "source": "P1, ecubyteindex=8, ecubit=7",
         "type": "uint8",
         "unit": "raw",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000008",
@@ -200,7 +200,7 @@
         "source": "P2, ecubyteindex=8, ecubit=6",
         "type": "uint8",
         "unit": "°C",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000009",
@@ -209,7 +209,7 @@
         "source": "P3, ecubyteindex=8, ecubit=5",
         "type": "uint8",
         "unit": "%",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x00000A",
@@ -218,7 +218,7 @@
         "source": "P4, ecubyteindex=8, ecubit=4",
         "type": "uint8",
         "unit": "%",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x00000D",
@@ -227,7 +227,7 @@
         "source": "P7, ecubyteindex=8, ecubit=1",
         "type": "uint8",
         "unit": "psi",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x00000E",
@@ -236,7 +236,7 @@
         "source": "P8, length=2, ecubyteindex=8, ecubit=0",
         "type": "uint16",
         "unit": "rpm",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000010",
@@ -245,7 +245,7 @@
         "source": "P9, ecubyteindex=9, ecubit=7",
         "type": "uint8",
         "unit": "mph",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000011",
@@ -254,7 +254,7 @@
         "source": "P10, ecubyteindex=9, ecubit=6",
         "type": "uint8",
         "unit": "° BTDC",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000012",
@@ -263,7 +263,7 @@
         "source": "P11, ecubyteindex=9, ecubit=5",
         "type": "uint8",
         "unit": "°C",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000013",
@@ -272,7 +272,7 @@
         "source": "P12, length=2, ecubyteindex=9, ecubit=4",
         "type": "uint16",
         "unit": "g/s",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000015",
@@ -281,7 +281,7 @@
         "source": "P13, ecubyteindex=9, ecubit=3",
         "type": "uint8",
         "unit": "%",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x000016",
@@ -290,7 +290,7 @@
         "source": "P14, length=2, ecubyteindex=9, ecubit=2",
         "type": "uint16",
         "unit": "lambda",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x00001A",
@@ -299,7 +299,7 @@
         "source": "P16, ecubyteindex=9, ecubit=0",
         "type": "uint16",
         "unit": "lambda",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x00001B",
@@ -308,7 +308,7 @@
         "source": "P17, ecubyteindex=10, ecubit=7",
         "type": "uint8",
         "unit": "V",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "did": "0x00001C",
@@ -350,7 +350,7 @@
           "actuator tests (write-address, ROM-specific)"
         ],
         "tester": "0xF0",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "address": "0x18",
@@ -402,7 +402,7 @@
           "custom_headers"
         ],
         "ssm_command": "ECU_INIT",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -411,7 +411,7 @@
         "name": "ssm_read_ecu_id",
         "notes": "The CAL ID is the first 5 data bytes after the 3-byte unknown prefix — e.g. 'A2WC522N'.",
         "ssm_command": "ECU_INIT",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -424,7 +424,7 @@
           "multiframe_rx"
         ],
         "ssm_command": "READ_ADDRESS",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -433,7 +433,7 @@
         "name": "ssm_read_dtc",
         "notes": "Read the DTC's memaddr via READ_ADDRESS, then check the bit. If 1, the DTC is active.",
         "ssm_command": "READ_ADDRESS",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -443,7 +443,7 @@
         "name": "ssm_clear_dtc",
         "notes": "Some ECUs also reset AF Learning when clearing DTCs. Check your ROM revision.",
         "ssm_command": "WRITE_ADDRESS",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": true
       },
       {
@@ -452,7 +452,7 @@
         "description": "Soft-reset ECU — clears learned parameters without clearing DTCs.",
         "name": "ssm_ecu_reset",
         "ssm_command": "ECU_RESET",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": true
       },
       {
@@ -463,7 +463,7 @@
           "single_frame"
         ],
         "service": "01",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -471,7 +471,7 @@
         "description": "Standard OBD-II Mode 03 DTC read.",
         "name": "obd2_mode03",
         "service": "03",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -479,7 +479,7 @@
         "description": "Standard OBD-II Mode 04 clear DTCs.",
         "name": "obd2_mode04",
         "service": "04",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": true
       },
       {
@@ -490,7 +490,7 @@
           "multiframe_rx"
         ],
         "service": "09",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       },
       {
@@ -498,7 +498,7 @@
         "description": "Check if a parameter is supported by checking its bit in the init-response bitmask.",
         "name": "ssm_check_support",
         "notes": "Each parameter in the logger XML has ecubyteindex and ecubit. After ECU init, check byte[ecubyteindex] & (1 << (7 - ecubit)). If non-zero, the parameter is supported. This is how RomRaider dynamically adapts to any ROM revision.\n",
-        "verification": "confirmed",
+        "verification": "reported",
         "writes": false
       }
     ],
@@ -510,7 +510,7 @@
           "function": "test mode / flash mode enable",
           "location": "under dash near OBD-II port, taped together",
           "pins": 1,
-          "verification": "confirmed"
+          "verification": "reported"
         },
         {
           "color": "white",
@@ -528,7 +528,7 @@
       "request_id": "0x7E0",
       "response_id": "0x7E8",
       "standard": "iso15765-4",
-      "verification": "confirmed"
+      "verification": "reported"
     }
   }
 }
