@@ -5,13 +5,30 @@
   "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). Permissive by design: unknown keys are allowed so bespoke, device-specific metadata (e.g. protobuf/state_machine blocks) can travel alongside the standard fields. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
   "type": "object",
   "required": ["device"],
-  "anyOf": [
-    { "required": ["services"] },
-    { "required": ["http_endpoints"] },
-    { "required": ["mqtt_topics"] },
-    { "required": ["obd"] },
-    { "required": ["bus"] },
-    { "required": ["cloud"] }
+  "allOf": [
+    {
+      "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own.",
+      "if": {
+        "required": ["device"],
+        "properties": {
+          "device": {
+            "required": ["type"],
+            "properties": { "type": { "pattern": "^reference-" } }
+          }
+        }
+      },
+      "then": true,
+      "else": {
+        "anyOf": [
+          { "required": ["services"] },
+          { "required": ["http_endpoints"] },
+          { "required": ["mqtt_topics"] },
+          { "required": ["obd"] },
+          { "required": ["bus"] },
+          { "required": ["cloud"] }
+        ]
+      }
+    }
   ],
   "$defs": {
     "uuid": {
@@ -93,6 +110,27 @@
       "enum": ["confirmed", "reported", "hypothesis"],
       "description": "How much weight this fact carries. 'confirmed' = observed in our own capture or read back from the device; 'reported' = stated by vendor/community documentation but not reproduced here; 'hypothesis' = inferred and not yet tested. Anything not 'confirmed' must not be executed against a vehicle without review.",
       "default": "hypothesis"
+    },
+    "helpful_reference": {
+      "type": "object",
+      "required": ["title", "url"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human title for the link. Use the page or video title when it is clear; otherwise write the shortest label that tells a reader why to open it."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "description": "HTTP(S) URL only. These links are for human follow-up, so verify they resolve before adding them; a dead link is worse than no link."
+        },
+        "description": {
+          "type": "string",
+          "description": "Why this reference is useful for this device. Do not make the reader guess whether a link is a teardown, a protocol write-up, vendor documentation, forum evidence, or a working implementation."
+        }
+      }
     },
     "initialization": {
       "type": "array",
@@ -276,6 +314,10 @@
           "type": "string",
           "enum": ["ble", "wifi", "zigbee", "zwave", "obd2", "uart", "can"],
           "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge."
+        },
+        "type": {
+          "type": "string",
+          "description": "Free-form device class, e.g. 'smart-scale' or 'ebike-controller'. One value is load-bearing: a `type` starting with 'reference-' (e.g. 'reference-diagnostic-protocol', 'reference-transport-protocol') marks the file as a published-protocol reference rather than a device. Reference specs document a standard other specs cite instead of restating -- SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing -- and so are exempt from the rule that a spec must document an access surface (`services`, `http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`)."
         },
         "notes": {
           "type": "string",
@@ -762,9 +804,9 @@
               "description": "How to return the device to its unprovisioned state. Required knowledge for rebinding a device to a new network or a new owner.",
               "properties": {
                 "applicable": {
-                  "type": "boolean",
+                  "anyOf": [{ "type": "boolean" }, { "const": "unknown" }],
                   "default": true,
-                  "description": "Set false when the device has no meaningful factory reset — a vehicle reached over a diagnostic connector, or hardware with no stored state to clear. State why in `effect` and omit `procedures`; inventing a procedure to fill the field is worse than saying there is none, and on safety-relevant hardware it is actively dangerous."
+                  "description": "Set false when the device has no meaningful factory reset — a vehicle reached over a diagnostic connector, or hardware with no stored state to clear. Set 'unknown' when the device probably has one but nobody has established it; that requires `confidence: low` and no `procedures`. State why in `effect` and omit `procedures` in both cases; inventing a procedure to fill the field is worse than saying there is none, and on safety-relevant hardware it is actively dangerous."
                 },
                 "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
                 "effect": { "type": "string", "description": "What a reset actually clears (credentials, name, rules, pairings, telemetry history)." },
@@ -868,6 +910,16 @@
       }
     },
     "initialization": { "$ref": "#/$defs/initialization" },
+    "helpful_urls": {
+      "type": "array",
+      "description": "Human-oriented references for this device: teardowns, protocol write-ups, vendor documentation, forum threads and working open implementations. This is not a proof chain for every field; it is the short list that helps the next person understand or reproduce the work without spelunking through notes.",
+      "items": { "$ref": "#/$defs/helpful_reference" }
+    },
+    "helpful_videos": {
+      "type": "array",
+      "description": "Human-oriented video references for this device: teardown footage, setup walkthroughs, capture demonstrations or protocol explainers. Do not restrict this to YouTube; PeerTube, Vimeo, Invidious and direct video URLs are just as valid when they resolve and are relevant.",
+      "items": { "$ref": "#/$defs/helpful_reference" }
+    },
     "protocol_handler": {
       "type": "string",
       "description": "Names a consumer-side (e.g. Rust) handler implementation to dispatch to for devices whose protocol cannot be fully expressed in YAML (image assembly, custom crypto, etc.). Lets a registry select the right code path automatically instead of hardcoding a device->handler map."
@@ -907,7 +959,17 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["uuid", "name", "characteristics"],
+        "required": ["uuid", "name"],
+        "allOf": [
+          {
+            "$comment": "A service with no characteristics is only worth listing if it says why none are documented. Without that, a reader cannot tell 'this service is empty' from 'nobody has dumped it yet', and the gap invites someone to guess UUIDs -- which is exactly what this repo does not do.",
+            "if": { "not": { "required": ["characteristics"] } },
+            "then": {
+              "required": ["notes"],
+              "properties": { "notes": { "type": "string", "minLength": 1 } }
+            }
+          }
+        ],
         "properties": {
           "uuid": {
             "$ref": "#/$defs/uuid",
@@ -916,6 +978,10 @@
           "name": {
             "type": "string",
             "description": "Human-readable service name."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free-form notes about the service. Required when `characteristics` is omitted, where it must say why no characteristic is documented -- e.g. the service is advertised by a variant whose UUIDs were never extracted."
           },
           "initialization": { "$ref": "#/$defs/initialization" },
           "characteristics": {
@@ -1218,9 +1284,9 @@
       "properties": {
         "role": {
           "type": "string",
-          "enum": ["vehicle", "adapter", "module"],
+          "enum": ["vehicle", "adapter", "module", "reference"],
           "default": "vehicle",
-          "description": "What this device IS on the diagnostic link, which is the first thing that distinguishes OBD-II specs from each other. 'vehicle' = the thing being diagnosed (a bike, a car). 'adapter' = the dongle that bridges a host to the connector; its `adapter_profile` says what it can do. 'module' = a single ECU or accessory documented on its own rather than as part of a whole vehicle."
+          "description": "What this device IS on the diagnostic link, which is the first thing that distinguishes OBD-II specs from each other. 'vehicle' = the thing being diagnosed (a bike, a car). 'adapter' = the dongle that bridges a host to the connector; its `adapter_profile` says what it can do. 'module' = a single ECU or accessory documented on its own rather than as part of a whole vehicle. 'reference' = no physical device at all: a published protocol table (SAE J1979 PIDs, ISO 14229 UDS services) that other specs cite instead of restating; pair it with a `device.type` starting with 'reference-'."
         },
         "adapter_profile": {
           "type": "object",
@@ -1416,8 +1482,42 @@
             "properties": {
               "did": {
                 "type": "string",
-                "pattern": "^0x[0-9A-Fa-f]{4}$",
-                "description": "Two-byte data identifier in hex, e.g. '0xF190'."
+                "pattern": "^0x([0-9A-Fa-f]{4}|[0-9A-Fa-f]{6})$",
+                "description": "Data identifier in hex. Four digits is the ISO 14229 two-byte DID used by ReadDataByIdentifier (0x22), e.g. '0xF190'. Six digits is a three-byte read address, which is what vendor dialects that predate UDS put on the wire -- Subaru SSM addresses such as '0x000008' are three address bytes, so truncating them to two would name a different location."
+              },
+              "name": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["bool", "uint8", "uint16", "uint32", "bytes", "string", "date"],
+                "description": "How the response payload decodes."
+              },
+              "unit": { "type": "string" },
+              "scale": {
+                "type": "number",
+                "description": "Multiplier applied to the raw value to get `unit`. Use `formula` instead when the conversion has an offset or is otherwise not a single multiply."
+              },
+              "formula": {
+                "type": "string",
+                "description": "Decode expression in terms of the raw value `x`, e.g. 'x - 40' or '(x - 128) * 0.78125'. Present because most real scalings carry an offset, which `scale` alone cannot express -- reducing '(x - 128) * 0.78125' to 0.78125 silently drops the offset and yields a wrong reading."
+              },
+              "source": {
+                "type": "string",
+                "description": "Where this identifier and its scaling came from, e.g. a vendor ECU definition entry."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "extended_parameters": {
+          "type": "array",
+          "description": "Vendor logging parameters whose read address is not a constant: it is defined per-ROM in an ECU definition file and differs between calibrations, so it cannot be written down here. RomRaider's Subaru 'extended' params are the case this exists for. They are identified by the vendor's parameter id and resolved against the matching ECU def at read time -- listing one under `data_identifiers` would mean inventing an address.",
+          "items": {
+            "type": "object",
+            "required": ["logparam", "name", "verification"],
+            "properties": {
+              "logparam": {
+                "type": "string",
+                "description": "Vendor parameter id as the ECU definition names it, e.g. 'E21'."
               },
               "name": { "type": "string" },
               "type": {
@@ -1429,6 +1529,14 @@
               "scale": {
                 "type": "number",
                 "description": "Multiplier applied to the raw value to get `unit`."
+              },
+              "formula": {
+                "type": "string",
+                "description": "Decode expression in terms of the raw value `x`."
+              },
+              "source": {
+                "type": "string",
+                "description": "Which ECU definition this parameter and its scaling came from."
               },
               "verification": { "$ref": "#/$defs/verification" }
             }

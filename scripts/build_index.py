@@ -185,6 +185,16 @@ def build_manifest(
             "manufacturer": raw.get("device", {}).get("manufacturer", ""),
             "protocol": raw.get("device", {}).get("protocol", ""),
             "status": raw.get("device", {}).get("manufacturer_status", ""),
+            **(
+                {"helpful_urls": raw["helpful_urls"]}
+                if "helpful_urls" in raw
+                else {}
+            ),
+            **(
+                {"helpful_videos": raw["helpful_videos"]}
+                if "helpful_videos" in raw
+                else {}
+            ),
             "updated_at": updated_at,
             "url": f"/api/v1/devices/{spec.id}.json",
             "checksum": spec.checksum,

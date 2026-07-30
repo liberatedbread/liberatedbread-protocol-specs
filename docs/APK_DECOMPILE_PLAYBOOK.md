@@ -62,7 +62,7 @@ adb pull <path>/base.apk ~/research/<device-dir>/<package_id>.apk
 ```
 
 This is actually the most trustable source when available — it's the exact APK the vendor shipped
-to a device. See [`scripts/pull_apks_adb.sh`](../scripts/pull_apks_adb.sh).
+to a device. See [`scripts/pull_apks_adb.sh`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/scripts/pull_apks_adb.sh).
 
 ### ❌ Do not use: curl/wget on mirror websites
 
@@ -297,5 +297,5 @@ Only these go into the repo — everything else stays in `~/research/`:
 
 ## Currently hunting
 
-See [`GAPS.md`](../GAPS.md) for the current list of targets that need device-spec YAMLs.
+See [`GAPS.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/GAPS.md) for the current list of targets that need device-spec YAMLs.
 27 targets are in early research phase — pick one and run the playbook.

@@ -16,6 +16,10 @@ The most valuable contribution. If you have an abandoned IoT device:
 - Include hex dumps and protocol byte layouts where possible
 - Reference specific BLE UUIDs, HTTP endpoints, or MQTT topics
 - Credit any existing research you're building on
+- Put human reference material in top-level `helpful_urls` and
+  `helpful_videos` entries. Each entry needs `title` and an HTTP(S) `url`;
+  `description` is optional. Do not invent links, and verify that every link
+  resolves before adding it.
 
 ## Code Contributions
 

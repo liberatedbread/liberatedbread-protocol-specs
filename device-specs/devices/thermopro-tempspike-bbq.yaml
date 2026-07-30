@@ -5,8 +5,11 @@ device:
   category: kitchen
   type: bbq-thermometer
   transport: ble_mesh
-  protocol: ble_mesh_gatt_proxy
-  manufacturer_status: production
+  # The schema `protocol` enum has no BLE Mesh member; 'ble' is the closest
+  # bearer. The mesh layer is not lost: `transport: ble_mesh` above and the
+  # `mesh_protocol:` block below carry it.
+  protocol: ble
+  manufacturer_status: active
   notes: |
     Extracted from com.thermopro.thermopro v1.21 (87MB, TempPro APKPure XAPK).
     Decompiled: 14,930 classes. Package: cn.com.adsmart.wifibbq.
@@ -18,17 +21,109 @@ device:
     Three distinct device change-utility families identified in the code:
     TP9012, TP940 (4-probe BBQ), TP980 (advanced with history and IEEE 754 float encoding).
 
-ble:
-  service_uuid: "1086FFF0-3343-4817-8BB2-B32206336CE8"
-  characteristics:
-    - uuid: "1086FFF1-3343-4817-8BB2-B32206336CE8"
-      name: ReadWrite
-      type: write
-      description: BLE Mesh GATT proxy read/write characteristic for mesh commands
-    - uuid: "1086FFF2-3343-4817-8BB2-B32206336CE8"
-      name: Notification
-      type: notify
-      description: BLE Mesh GATT proxy notification characteristic for mesh responses
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      This one is not a plain GATT device: it is a BLE Mesh node, so it must be
+      provisioned before it will answer anything. The phone acts as the mesh
+      provisioner, and provisioning is what assigns the node its unicast address
+      and gives it the network and application keys. Until that happens the
+      thermometer only emits unprovisioned device beacons.
+
+      The practical consequence for a replacement client: you cannot simply
+      connect and read, the way you can with the BLE sensors elsewhere in this
+      repo. You need a mesh stack, and you need the network key — which means
+      either provisioning the node yourself (removing it from the vendor app's
+      network) or extracting the keys from the app's own store.
+
+      Confidence is medium: BLE Mesh provisioning is a published standard and
+      the app's use of it is clear from the decompiled code, but the exchange
+      has not been run against a device here.
+    methods:
+      - type: ble_provisioning
+        description: >
+          Provision the thermometer as a BLE Mesh node over the PB-GATT bearer,
+          then talk to it through the GATT Proxy using the resulting network and
+          application keys.
+        verified: false
+        ble:
+          pairing_required: true
+        steps:
+          - action: >
+              Power the thermometer on. If it was previously provisioned, reset
+              it to the unprovisioned state first — it will otherwise ignore a
+              new provisioner.
+            actor: user
+          - action: >
+              Scan for unprovisioned device beacons, matching local name prefix
+              TP, TempPro, BBQ or iBBQ.
+            actor: client
+          - action: "Connect over the PB-GATT provisioning bearer."
+            actor: client
+          - action: >
+              Run the BLE Mesh provisioning exchange, assigning the node a
+              unicast address and issuing the network key.
+            actor: client
+          - action: >
+              Bind an application key to the node's models so its temperature
+              messages can be decrypted.
+            actor: client
+            expect: >
+              The node publishes temperature messages to the configured
+              destination address.
+          - action: >
+              Reconnect through the GATT Proxy service for ongoing reads;
+              provisioning itself uses a different bearer.
+            actor: client
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A reset to the unprovisioned state is required before a new provisioner
+        can take the node, and it clears the node's address and keys. BLE Mesh
+        defines this as a Node Reset message, but the button sequence that
+        triggers it locally differs across the TP9012, TP940 and TP980 families
+        and was not established from the app. Consult the model's manual rather
+        than guessing.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Moving the thermometer to a different mesh network means re-provisioning
+        it, which requires resetting it to the unprovisioned state first — a
+        node can belong to one network at a time. A client that already holds
+        the network key rejoins the existing network without any reset.
+    credentials:
+      # No WiFi passphrase exists — the device is BLE Mesh only, despite the
+      # `cn.com.adsmart.wifibbq` package name. The secrets that do matter here
+      # are the mesh keys, recorded below.
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Mesh network key (NetKey)"
+        - "Application key (AppKey) bound to the node's models"
+        - "Assigned unicast address"
+      issued_to_client:
+        - "Nothing — the provisioner issues the keys rather than receiving them"
+      notes: >
+        No WiFi passphrase is involved; the thermometer is BLE Mesh only,
+        despite the `cn.com.adsmart.wifibbq` package name. The mesh keys are the
+        credentials that matter: without the NetKey a client cannot decrypt the
+        node's messages, which is why replacing the app means either
+        re-provisioning or recovering the keys from it.
+
+services:
+  - uuid: "1086FFF0-3343-4817-8BB2-B32206336CE8"
+    name: BLE Mesh GATT Proxy Service
+    characteristics:
+      - uuid: "1086FFF1-3343-4817-8BB2-B32206336CE8"
+        name: ReadWrite
+        properties: ["write"]
+        description: BLE Mesh GATT proxy read/write characteristic for mesh commands
+      - uuid: "1086FFF2-3343-4817-8BB2-B32206336CE8"
+        name: Notification
+        properties: ["notify"]
+        description: BLE Mesh GATT proxy notification characteristic for mesh responses
 
 mesh_protocol:
   description: |
