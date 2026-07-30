@@ -30,12 +30,40 @@ services: ...        # BLE GATT services and characteristics
 http_endpoints: ...  # REST/SOAP endpoints for WiFi devices
 mqtt_topics: ...     # MQTT topics
 entities: ...        # how capabilities map to Home Assistant entities
+helpful_urls: ...    # optional human references: docs, write-ups, forums, repos
+helpful_videos: ...  # optional human video references: teardown/setup/capture walkthroughs
 ```
 
-A spec must have `device` plus at least one of `services`, `http_endpoints` or
-`mqtt_topics`. Everything else is optional, and the schema is deliberately
+A spec must have `device` plus at least one transport block such as `services`,
+`http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`. Everything else is optional, and the schema is deliberately
 permissive — unknown keys are allowed so device-specific detail can travel
 alongside the standard fields. Consumers parse the subset they understand.
+
+### Further reading and watch links
+
+Use top-level `helpful_urls` and `helpful_videos` for human-oriented reference
+material that helps someone understand or reproduce the spec work. Put these
+beside `device`, `services` and `features`, not inside `device`: they describe
+the document's evidence trail and learning material, not device identity.
+
+```yaml
+helpful_urls:
+  - title: "Reverse-engineering the Mi Scale protocol"
+    url: "https://github.com/oliexdev/openScale"
+    description: "Production Android app; source of the weight frame format."
+
+helpful_videos:
+  - title: "Mi Scale teardown"
+    url: "https://video.example.com/watch/mi-scale-teardown"
+    description: "Shows the board and load-cell wiring."
+```
+
+Both arrays are optional. Each entry requires `title` and `url`; `description`
+is optional but strongly preferred when the title alone does not say why the
+link matters. URLs must be HTTP or HTTPS. Do not invent links, and verify that
+they resolve before adding them. A dead or wrong reference is worse than an
+absent one. Videos are not YouTube-only; PeerTube, Vimeo, Invidious and direct
+video files are valid when they resolve and are relevant.
 
 ### Three things that sound alike
 

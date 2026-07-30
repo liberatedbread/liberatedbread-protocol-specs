@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Optional top-level `helpful_urls` and `helpful_videos` fields in device specs,
+  with HTTP(S)-only reference entries and generated index/API exposure for
+  website "Further reading / Watch" sections
 - SPOTLED LED panel device doc, device spec and target starter — the OEM matrix-panel family
   (hats, badges, packs, banner signs) behind `com.led.spotled`, now the canonical home for the
   `0xFF20` protocol

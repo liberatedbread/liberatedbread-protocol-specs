@@ -40,6 +40,89 @@ device:
     Pairing/auth flow understood at protocol level from public docs.
     CRC-16 implementation confirmed (XModem/CCITT, poly 0x1021, reflected).
 
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      Unlike most devices in this repo, the Nuki lock genuinely must be
+      provisioned before it will do anything: every command after pairing
+      carries an authorization ID that only the pairing exchange can issue.
+      Pairing is public-key based (CMD 3 PublicKeyRequest, CMD 4/5
+      challenge-response) and gated by a 6-digit security PIN the owner sets on
+      first setup.
+
+      The lock is put into pairing mode physically, by holding its button. That
+      is deliberate: it means possession of the door, not proximity to it, is
+      what authorises a new client.
+
+      Confidence is medium — the flow is understood from the decompiled app and
+      Nuki's public BLE API documentation, but has not been run against a lock
+      here. Treat the step ordering as documented rather than observed.
+    methods:
+      - type: ble_provisioning
+        description: >
+          Pair over BLE by exchanging public keys, answering the
+          challenge-response, and verifying the security PIN. On success the
+          lock issues an authorization ID that authenticates all later commands.
+        verified: false
+        ble:
+          pairing_required: true
+        steps:
+          - action: >
+              Put the lock into pairing mode by holding its button until the
+              ring LED indicates it is discoverable.
+            actor: user
+          - action: "Connect over BLE and discover the keyturner pairing service."
+            actor: client
+          - action: "Exchange public keys (CMD 3: PublicKeyRequest / PublicKeyResponse)."
+            actor: client
+          - action: >
+              Complete challenge-response authentication (CMD 4:
+              ChallengeResponse, CMD 5: AuthorizationAuthenticatorRequest).
+            actor: client
+          - action: "Enter the 6-digit security PIN when the client asks for it."
+            actor: user
+          - action: "Verify the PIN (CMD 32: VerifySecurityPinRequest)."
+            actor: client
+            expect: >
+              The lock returns an authorization ID. Store it with the keypair —
+              losing it means re-pairing.
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A factory reset exists and clears authorizations, the security PIN and
+        calibration — the lock must be re-taught its door afterwards. The exact
+        button sequence is not established here: it is documented by Nuki per
+        hardware generation and differs between Smart Lock 1.0-4.0 and Pro, and
+        a guessed sequence on a door lock can leave someone locked out of their
+        home. Consult Nuki's documentation for the specific model.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A previously paired client rejoins with its stored keypair and
+        authorization ID; no reset is needed. A reset is only required to revoke
+        an authorization that can no longer be removed through the app — for
+        example after losing the phone that held it. The optional WiFi bridge is
+        provisioned separately and is not part of this flow.
+    credentials:
+      # No WiFi passphrase exists here: the lock is BLE-only and the optional
+      # bridge handles network credentials separately. The secrets that do cross
+      # this link are recorded below and in `notes`.
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Client public keys and their authorization IDs"
+        - "6-digit security PIN"
+      issued_to_client:
+        - "Authorization ID, issued on successful pairing"
+        - "Lock public key, from the key exchange"
+      notes: >
+        No WiFi passphrase crosses this link — the lock itself is BLE-only, and
+        the separate WiFi bridge handles network credentials on its own. The
+        security PIN is user-chosen and verified over the encrypted channel
+        established by the key exchange.
+
 identification:
   manufacturer_id: "Nuki"
   model_detection:
@@ -56,154 +139,154 @@ ble:
     preferred_mtu: 185
     bonding_required: true
 
-  services:
-    # --- Keyturner (Smart Lock) ---
-    - uuid: "A92EE000-5501-11E4-916C-0800200C9A66"
-      name: "Keyturner Service"
-      description: "Primary GATT service for Nuki Smart Lock (Keyturner)"
-      device: "smart_lock"
-      characteristics:
-        - uuid: "A92EE101-5501-11E4-916C-0800200C9A66"
-          name: "Keyturner Data"
-          type: "data"
-          description: >
-            Command/response characteristic for lock operations, configuration,
-            state queries, and firmware updates. Supports write, read, notify.
-          properties: ["write", "read", "notify", "indicate"]
-        - uuid: "A92EE100-5501-11E4-916C-0800200C9A66"
-          name: "Keyturner Pairing Service"
-          type: "pairing"
-          description: "Pairing/security service for initial device bonding"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92EEF00-5501-11E4-916C-0800200C9A66"
-          name: "Keyturner Pairing Data"
-          type: "pairing_data"
-          description: "Pairing data characteristic"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92EE200-5501-11E4-916C-0800200C9A66"
-          name: "Keyturner Firmware Service"
-          type: "firmware"
-          description: "Firmware update service"
-          properties: ["write", "notify"]
-        - uuid: "A92EE201-5501-11E4-916C-0800200C9A66"
-          name: "Keyturner Firmware Data"
-          type: "firmware_data"
-          description: "Firmware transfer data"
-          properties: ["write", "notify"]
-        - uuid: "A92EE202-5501-11E4-916C-0800200C9A66"
-          name: "Keyturner Firmware Status"
-          type: "firmware_status"
-          description: "Firmware transfer status"
-          properties: ["notify", "read"]
-        - uuid: "A92EE203-5501-11E4-916C-0800200C9A66"
-          name: "Keyturner Firmware Verify"
-          type: "firmware_verify"
-          description: "Firmware verification"
-          properties: ["write", "read"]
+services:
+  # --- Keyturner (Smart Lock) ---
+  - uuid: "A92EE000-5501-11E4-916C-0800200C9A66"
+    name: "Keyturner Service"
+    description: "Primary GATT service for Nuki Smart Lock (Keyturner)"
+    device: "smart_lock"
+    characteristics:
+      - uuid: "A92EE101-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Data"
+        type: "data"
+        description: >
+          Command/response characteristic for lock operations, configuration,
+          state queries, and firmware updates. Supports write, read, notify.
+        properties: ["write", "read", "notify", "indicate"]
+      - uuid: "A92EE100-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Pairing Service"
+        type: "pairing"
+        description: "Pairing/security service for initial device bonding"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92EEF00-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Pairing Data"
+        type: "pairing_data"
+        description: "Pairing data characteristic"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92EE200-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Service"
+        type: "firmware"
+        description: "Firmware update service"
+        properties: ["write", "notify"]
+      - uuid: "A92EE201-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Data"
+        type: "firmware_data"
+        description: "Firmware transfer data"
+        properties: ["write", "notify"]
+      - uuid: "A92EE202-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Status"
+        type: "firmware_status"
+        description: "Firmware transfer status"
+        properties: ["notify", "read"]
+      - uuid: "A92EE203-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Verify"
+        type: "firmware_verify"
+        description: "Firmware verification"
+        properties: ["write", "read"]
 
-    # --- Keypad (paired with Keyturner) ---
-    - uuid: "A92EE400-5501-11E4-916C-0800200C9A66"
-      name: "Keypad Pairing Service"
-      description: "Keypad pairing with parent Smart Lock"
-      device: "keypad"
-      characteristics:
-        - uuid: "A92EE300-5501-11E4-916C-0800200C9A66"
-          name: "Keypad Data Service"
-          type: "data"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92EE301-5501-11E4-916C-0800200C9A66"
-          name: "Keypad Data"
-          type: "data"
-          properties: ["write", "read", "notify"]
+  # --- Keypad (paired with Keyturner) ---
+  - uuid: "A92EE400-5501-11E4-916C-0800200C9A66"
+    name: "Keypad Pairing Service"
+    description: "Keypad pairing with parent Smart Lock"
+    device: "keypad"
+    characteristics:
+      - uuid: "A92EE300-5501-11E4-916C-0800200C9A66"
+        name: "Keypad Data Service"
+        type: "data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92EE301-5501-11E4-916C-0800200C9A66"
+        name: "Keypad Data"
+        type: "data"
+        properties: ["write", "read", "notify"]
 
-    # --- Opener ---
-    - uuid: "A92AE000-5501-11E4-916C-0800200C9A66"
-      name: "Opener Service"
-      description: "Primary GATT service for Nuki Opener (door intercom opener)"
-      device: "opener"
-      characteristics:
-        - uuid: "A92AE101-5501-11E4-916C-0800200C9A66"
-          name: "Opener Data"
-          type: "data"
-          properties: ["write", "read", "notify", "indicate"]
-        - uuid: "A92AE100-5501-11E4-916C-0800200C9A66"
-          name: "Opener Pairing Service"
-          type: "pairing"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92AEF00-5501-11E4-916C-0800200C9A66"
-          name: "Opener Pairing Data"
-          type: "pairing_data"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92AE200-5501-11E4-916C-0800200C9A66"
-          name: "Opener Firmware"
-          type: "firmware"
-          properties: ["write", "notify"]
-        - uuid: "A92AE201-5501-11E4-916C-0800200C9A66"
-          name: "Opener Firmware Data"
-          type: "firmware_data"
-          properties: ["write", "notify"]
-        - uuid: "A92AE202-5501-11E4-916C-0800200C9A66"
-          name: "Opener Firmware Status"
-          type: "firmware_status"
-          properties: ["notify", "read"]
-        - uuid: "A92AE203-5501-11E4-916C-0800200C9A66"
-          name: "Opener Firmware Verify"
-          type: "firmware_verify"
-          properties: ["write", "read"]
+  # --- Opener ---
+  - uuid: "A92AE000-5501-11E4-916C-0800200C9A66"
+    name: "Opener Service"
+    description: "Primary GATT service for Nuki Opener (door intercom opener)"
+    device: "opener"
+    characteristics:
+      - uuid: "A92AE101-5501-11E4-916C-0800200C9A66"
+        name: "Opener Data"
+        type: "data"
+        properties: ["write", "read", "notify", "indicate"]
+      - uuid: "A92AE100-5501-11E4-916C-0800200C9A66"
+        name: "Opener Pairing Service"
+        type: "pairing"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AEF00-5501-11E4-916C-0800200C9A66"
+        name: "Opener Pairing Data"
+        type: "pairing_data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AE200-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware"
+        type: "firmware"
+        properties: ["write", "notify"]
+      - uuid: "A92AE201-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware Data"
+        type: "firmware_data"
+        properties: ["write", "notify"]
+      - uuid: "A92AE202-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware Status"
+        type: "firmware_status"
+        properties: ["notify", "read"]
+      - uuid: "A92AE203-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware Verify"
+        type: "firmware_verify"
+        properties: ["write", "read"]
 
-    # --- Door Sensor ---
-    - uuid: "A92AA000-5501-11E4-916C-0800200C9A66"
-      name: "Door Sensor Service"
-      description: "Nuki Door Sensor — magnetic door open/close detection"
-      device: "door_sensor"
-      characteristics:
-        - uuid: "A92AA101-5501-11E4-916C-0800200C9A66"
-          name: "Door Sensor Data"
-          type: "data"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92AA100-5501-11E4-916C-0800200C9A66"
-          name: "Door Sensor Pairing"
-          type: "pairing"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92AAF00-5501-11E4-916C-0800200C9A66"
-          name: "Door Sensor Pairing Data"
-          type: "pairing_data"
-          properties: ["write", "read", "notify"]
-        - uuid: "A92AA200-5501-11E4-916C-0800200C9A66"
-          name: "Door Sensor Firmware"
-          type: "firmware"
-          properties: ["write", "notify"]
-        - uuid: "A92AA201-5501-11E4-916C-0800200C9A66"
-          name: "Door Sensor Firmware Data"
-          type: "firmware_data"
-          properties: ["write", "notify"]
-        - uuid: "A92AA202-5501-11E4-916C-0800200C9A66"
-          name: "Door Sensor Firmware Status"
-          type: "firmware_status"
-          properties: ["notify", "read"]
-        - uuid: "A92AA203-5501-11E4-916C-0800200C9A66"
-          name: "Door Sensor Firmware Verify"
-          type: "firmware_verify"
-          properties: ["write", "read"]
+  # --- Door Sensor ---
+  - uuid: "A92AA000-5501-11E4-916C-0800200C9A66"
+    name: "Door Sensor Service"
+    description: "Nuki Door Sensor — magnetic door open/close detection"
+    device: "door_sensor"
+    characteristics:
+      - uuid: "A92AA101-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Data"
+        type: "data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AA100-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Pairing"
+        type: "pairing"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AAF00-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Pairing Data"
+        type: "pairing_data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AA200-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware"
+        type: "firmware"
+        properties: ["write", "notify"]
+      - uuid: "A92AA201-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware Data"
+        type: "firmware_data"
+        properties: ["write", "notify"]
+      - uuid: "A92AA202-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware Status"
+        type: "firmware_status"
+        properties: ["notify", "read"]
+      - uuid: "A92AA203-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware Verify"
+        type: "firmware_verify"
+        properties: ["write", "read"]
 
-    # --- Standard Device Information ---
-    - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
-      name: "Device Information Service"
-      description: "Standard BLE Device Information (model, serial, firmware)"
-      device: "all"
-      characteristics:
-        - uuid: "00002A24-0000-1000-8000-00805F9B34FB"
-          name: "Model Number String"
-          type: "device_info"
-          properties: ["read"]
-        - uuid: "00002A25-0000-1000-8000-00805F9B34FB"
-          name: "Serial Number String"
-          type: "device_info"
-          properties: ["read"]
-        - uuid: "00002A26-0000-1000-8000-00805F9B34FB"
-          name: "Firmware Revision String"
-          type: "device_info"
-          properties: ["read"]
+  # --- Standard Device Information ---
+  - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
+    name: "Device Information Service"
+    description: "Standard BLE Device Information (model, serial, firmware)"
+    device: "all"
+    characteristics:
+      - uuid: "00002A24-0000-1000-8000-00805F9B34FB"
+        name: "Model Number String"
+        type: "device_info"
+        properties: ["read"]
+      - uuid: "00002A25-0000-1000-8000-00805F9B34FB"
+        name: "Serial Number String"
+        type: "device_info"
+        properties: ["read"]
+      - uuid: "00002A26-0000-1000-8000-00805F9B34FB"
+        name: "Firmware Revision String"
+        type: "device_info"
+        properties: ["read"]
 
 advertising:
   discovery_method: "ble_scan"
