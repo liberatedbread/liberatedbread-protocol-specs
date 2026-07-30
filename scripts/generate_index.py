@@ -12,6 +12,8 @@ Enumerates every VALID device spec (validated against schema.json, reusing
       "protocol":            <device.protocol>,
       "manufacturer":        <device.manufacturer>,
       "manufacturer_status": <device.manufacturer_status>,
+      "helpful_urls":        <top-level helpful_urls, present only if set>,
+      "helpful_videos":      <top-level helpful_videos, present only if set>,
       "protocol_handler":    <top-level protocol_handler, present only if set>,
       "schema_version":      <JSON Schema dialect version, e.g. "2020-12">
     }
@@ -73,6 +75,12 @@ def build_entry(path, doc: dict, version: str) -> dict:
     handler = doc.get("protocol_handler")
     if handler is not None:
         entry["protocol_handler"] = handler
+    helpful_urls = doc.get("helpful_urls")
+    if helpful_urls is not None:
+        entry["helpful_urls"] = helpful_urls
+    helpful_videos = doc.get("helpful_videos")
+    if helpful_videos is not None:
+        entry["helpful_videos"] = helpful_videos
     entry["schema_version"] = version
     return entry
 

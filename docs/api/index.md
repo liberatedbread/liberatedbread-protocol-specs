@@ -35,6 +35,12 @@ for specs that changed.
       "manufacturer": "AdMore Lighting Inc.",
       "protocol": "ble",
       "status": "active",
+      "helpful_urls": [
+        {
+          "title": "AdMore Connect App Help",
+          "url": "https://admorelighting.com/admore-connect-app-help/"
+        }
+      ],
       "updated_at": "2026-03-12T01:11:51+00:00",
       "url": "/api/v1/devices/admore-light-bar.json",
       "checksum": "sha256:5c04e0af..."
@@ -68,8 +74,10 @@ Each device entry:
 | `id` | string | Device identifier (matches `target_id` in `targets.csv`) |
 | `name` | string | Human-readable device name |
 | `manufacturer` | string | Original manufacturer |
-| `protocol` | string | Primary protocol (`ble`, `wifi`, `zigbee`, `zwave`) |
+| `protocol` | string | Primary protocol (`ble`, `wifi`, `zigbee`, `zwave`, `obd2`, `uart`, `can`) |
 | `status` | string | Manufacturer support status (`active`, `abandoned`, `shutdown`, `unsupported`) |
+| `helpful_urls` | array | Optional top-level human references from the source spec; omitted when absent |
+| `helpful_videos` | array | Optional top-level video references from the source spec; omitted when absent |
 | `updated_at` | string | UTC ISO 8601 timestamp of the spec's last git commit |
 | `url` | string | Path to the per-device JSON endpoint |
 | `checksum` | string | `sha256:<hex>` of the per-device JSON file bytes (content-addressable) |
@@ -77,8 +85,10 @@ Each device entry:
 ## Per-device endpoint (`/api/v1/devices/<id>.json`)
 
 Returns the full device specification as JSON, structurally identical to
-the source YAML.  The top-level keys are `device`, plus one or more of
-`services`, `http_endpoints`, or `mqtt_topics`, and optionally `entities`.
+the source YAML.  The top-level keys are `device`, plus one or more transport
+blocks such as `services`, `http_endpoints`, `mqtt_topics`, `obd`, `bus` or
+`cloud`, and optional blocks such as `entities`, `helpful_urls` and
+`helpful_videos`.
 
 ```
 GET /api/v1/devices/chef-iq-sense.json
@@ -94,9 +104,22 @@ GET /api/v1/devices/chef-iq-sense.json
     "identification": { ... }
   },
   "services": [ ... ],
-  "entities": [ ... ]
+  "entities": [ ... ],
+  "helpful_urls": [
+    {
+      "title": "Protocol write-up",
+      "url": "https://example.com/protocol",
+      "description": "Explains the frame format."
+    }
+  ]
 }
 ```
+
+The checked-in `device-specs/index.json` carries `helpful_urls` and
+`helpful_videos` only for specs that define them. Absent fields are omitted,
+not emitted as empty arrays. Each reference entry requires `title` and an
+HTTP(S) `url`; `description` is optional. Contributors should only add links
+they have verified resolve.
 
 ## Recommended update-polling flow
 
