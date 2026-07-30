@@ -28,6 +28,71 @@ device:
       - "BT-912"
       - "BT-712"
 
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      Each garment is an independent BLE module with no provisioning of any
+      kind: it advertises as BT-912 or BT-712 and accepts AA/55 framed commands
+      from anything that connects. The "pairing" in the vendor app is a UI
+      grouping — it associates the left and right glove modules in the app's own
+      state so one slider drives both — and does not create a BLE bond or any
+      binding on the hardware.
+
+      SAFETY: because there is no bond, key or authentication, any device in
+      range can set the heat level. Treat the absence of setup as a hazard to
+      surface to the user, not as a convenience. Never send a level above 10
+      (0x0A).
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT to a garment module and write 8-byte AA/55 framed
+          commands, confirming each by the echoed acknowledgment rather than a
+          heartbeat.
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Connect the garment to 12V power so its module powers up and advertises."
+            actor: user
+          - action: >
+              Scan for advertisement name BT-912 or BT-712, or for service
+              0000ffb0; fall back to the fee0 service family for older modules.
+            actor: client
+          - action: "Connect over GATT — no bonding is offered or required."
+            actor: client
+          - action: >
+              Write an 8-byte AA/55 framed command and wait for the echoed
+              acknowledgment, retrying on no echo.
+            actor: client
+            expect: "The module echoes the command frame back."
+          - action: >
+              For gloves, repeat for the second module and associate the two in
+              client state; the hardware has no concept of a pair.
+            actor: client
+    factory_reset:
+      applicable: false
+      confidence: high
+      effect: >
+        There is nothing to clear. The module holds no credential, no bond and
+        no persisted configuration — heat level is commanded live and lost on
+        power-down. Disconnecting the garment from 12V returns it to its
+        power-on state, which is the only state it has.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network is joined and no bond is held, so a new client connects
+        immediately once the previous one disconnects. This is also the failure
+        mode: control is taken, not handed over.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No credentials exist anywhere in this protocol. That is the security
+        finding, not an omission — see the warnings in `device.notes`.
+
 services:
   - uuid: "0000ffb0-0000-1000-8000-00805f9b34fb"
     name: "HOTWIRED Heated Gear Control Service"

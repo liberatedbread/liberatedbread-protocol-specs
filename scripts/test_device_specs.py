@@ -65,13 +65,29 @@ def setups(specs: dict[str, dict]):
             yield device_id, setup
 
 
+def is_reference(spec: dict) -> bool:
+    """True for published-protocol references rather than devices.
+
+    A `device.type` of 'reference-*' (SAE J1979 PIDs, ISO 14229 UDS services,
+    ISO 15765-2 framing) marks a file that documents a standard other specs
+    cite instead of restating. There is no hardware to set up, so the setup
+    conventions below do not apply. schema.json exempts these from the
+    access-surface requirement for the same reason.
+    """
+    return spec["device"].get("type", "").startswith("reference-")
+
+
 def test_every_device_documents_setup(specs):
     """Setup is not optional in practice — 'nothing to provision' is an answer.
 
     A missing block is indistinguishable from nobody having looked, which is
     the ambiguity this whole section exists to remove.
     """
-    missing = [d for d, spec in specs.items() if "setup" not in spec["device"]]
+    missing = [
+        d
+        for d, spec in specs.items()
+        if "setup" not in spec["device"] and not is_reference(spec)
+    ]
     assert not missing, f"specs without a device.setup block: {missing}"
 
 
@@ -181,6 +197,11 @@ def test_factory_reset_is_described_not_just_declared(specs):
     does not. Those must say so with `applicable: false` and explain why,
     rather than carrying an invented procedure, which on safety-relevant
     hardware is worse than an admission of nothing to document.
+
+    `applicable: unknown` is the third answer, for a device that probably has a
+    reset that nobody has established yet. It is deliberately uncomfortable —
+    low confidence, no procedures — because the alternative is a plausible
+    guess that reads exactly like a verified one.
     """
     for device_id, setup in setups(specs):
         reset = setup["factory_reset"]
@@ -193,6 +214,16 @@ def test_factory_reset_is_described_not_just_declared(specs):
             assert not reset.get("procedures"), (
                 f"{device_id}: factory_reset is marked not applicable but "
                 "still lists procedures"
+            )
+            continue
+
+        if reset.get("applicable") == "unknown":
+            assert not reset.get("procedures"), (
+                f"{device_id}: factory_reset is marked unknown but still lists "
+                "procedures — say which one you established instead"
+            )
+            assert reset.get("confidence") == "low", (
+                f"{device_id}: an unestablished factory reset is low confidence"
             )
             continue
 
@@ -228,17 +259,34 @@ def test_rejoin_answers_the_router_replacement_question(specs):
 
 def test_credentials_declare_passphrase_handling(specs):
     """How the user's WiFi passphrase is protected is never 'unspecified'."""
-    for device_id, setup in setups(specs):
+    for device_id, spec in specs.items():
+        setup = spec["device"].get("setup")
+        if setup is None:
+            continue
         credentials = setup["credentials"]
         protection = credentials.get("wifi_passphrase_protection")
         assert protection in PASSPHRASE_PROTECTION, (
             f"{device_id}: wifi_passphrase_protection {protection!r} not in "
             f"{PASSPHRASE_PROTECTION}"
         )
-        # not_applicable is only honest when no passphrase crosses the wire.
+        # not_applicable is only honest when no passphrase crosses a link this
+        # spec documents. What settles that is the method type, not the device
+        # protocol: `protocol: wifi` here means "reached over IP", and plenty of
+        # such devices never receive a passphrase from a client — the hue-bridge
+        # is cabled, roku-ecp takes it through the TV's own on-screen UI, and
+        # niu-escooter is already online when a client first meets it.
+        #
+        # `ble_provisioning` needs the same care in the other direction. It used
+        # to be treated as proof on its own, but it covers BLE-only cases with no
+        # WiFi anywhere: flashing custom firmware (xiaomi-lywsd03mmc), BLE Mesh
+        # provisioning (thermopro-tempspike-bbq), lock pairing (nuki-smart-lock).
+        # It only implicates a passphrase when the device has WiFi to join.
         if protection == "not_applicable":
             types = {m["type"] for m in setup["methods"]}
-            assert not (types & {"softap_http", "softap_soap", "ble_provisioning"}), (
+            hands_over_credentials = bool(
+                types & {"softap_http", "softap_soap", "wps", "smartconfig"}
+            ) or ("ble_provisioning" in types and spec["device"]["protocol"] == "wifi")
+            assert not hands_over_credentials, (
                 f"{device_id}: claims no passphrase is transferred, but "
                 f"documents a credential-carrying method ({sorted(types)})"
             )
