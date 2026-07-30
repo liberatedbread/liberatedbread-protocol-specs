@@ -113,10 +113,15 @@ knowledge of the [GATT Specification Supplement](https://www.bluetooth.com/speci
 A consumer cannot tell "this is standard Battery Level `0x2A19`, decode as
 uint8 percent" from a vendor characteristic that happens to look similar.
 
-**Evidence.** 9 specs reference `0x180A`/`0x180F`/`0x181A` and the standard
-characteristics under them. In `xiaomi-lywsd03mmc.yaml` the Environmental Sensing
-Temperature characteristic `0x2A6E` is listed with `properties: [read]` and **no
-`format`** — its decode (`sint16` ×0.01 °C) lives only in the reader's head.
+**Evidence.** 9 specs reference `0x180A`/`0x180F` and the standard characteristics
+under them. In `xiaomi-lywsd03mmc.yaml` the Battery Level (`0x2A19`) and the Device
+Information strings (`0x2A29`/`0x2A24`/`0x2A26`) are genuinely exposed GATT
+characteristics listed with `properties: [read]` and **no `format`** — their decode
+is left to the reader's knowledge of the GSS rather than stated. (The same spec's
+`0x2A6E` entry is deliberately *not* cited here: it is a passive-beacon placeholder
+whose decode already lives in `payload_formats`, which is [P6](#p6)'s territory, not
+P2's — marking it `standard: true` would wrongly point a consumer at a GATT read
+that does not exist.)
 
 **Proposal.** An optional boolean on services and characteristics:
 
@@ -253,9 +258,11 @@ that points at it:
 ```yaml
 advertisement:
   service_data:
-    uuid: "0000181a-0000-1000-8000-00805f9b34fb"
+    uuid: "0000fcd2-0000-1000-8000-00805f9b34fb"   # BTHome v2's own SIG-allocated service-data UUID
     format: "bthome-v2"        # a named open format (see standards page) …
-  # … or an explicit field layout, reusing the format/payload_formats machinery
+  # … or a custom layout under the device's own service-data UUID: the ATC/PVVX
+  #   formats live on 0x181A, not 0xFCD2, and would give an explicit field layout
+  #   here reusing the format/payload_formats machinery
 entities:
   - platform: "sensor"
     name: "Temperature"
