@@ -593,7 +593,9 @@ and prints a `PASS`/`FAIL` line per file with the failing JSON path on error.
 `device-specs/index.json` is a generated manifest that lets consumers enumerate
 specs automatically instead of hardcoding a file list. It is a JSON array,
 sorted by path, of `{ name, path, protocol, manufacturer, manufacturer_status,
-protocol_handler (if set), schema_version }`. Regenerate it with:
+helpful_urls (if set), helpful_videos (if set), protocol_handler (if set),
+schema_version }`. Absent helpful-reference fields are omitted rather than
+emitted as empty arrays. Regenerate it with:
 
 ```bash
 python scripts/generate_index.py        # idempotent: no diff on re-run
