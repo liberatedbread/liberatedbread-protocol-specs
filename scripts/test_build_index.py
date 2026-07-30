@@ -288,15 +288,22 @@ def test_per_device_json():
         per_device = json.loads(json_text)
         assert "device" in per_device
         # Must carry at least one transport block. The accepted set is READ FROM
-        # the schema's top-level anyOf rather than restated here: this test used
-        # to hardcode the list and claim to mirror it, which meant every new
-        # transport (bus, cloud) failed a test that was only ever out of date.
+        # the schema rather than restated here: this test used to hardcode the
+        # list and claim to mirror it, which meant every new transport (bus,
+        # cloud) failed a test that was only ever out of date. The rule lives in
+        # the top-level allOf as the `else` of the reference-spec exemption.
         transports = [
             required
-            for branch in schema["anyOf"]
+            for clause in schema["allOf"]
+            for branch in clause.get("else", {}).get("anyOf", [])
             for required in branch.get("required", [])
         ]
-        assert transports, "schema anyOf declares no transport blocks"
+        assert transports, "schema declares no transport blocks"
+        # Reference specs (SAE J1979, ISO 14229, ISO 15765-2) document a
+        # published protocol other specs cite, so they carry protocol tables
+        # rather than a transport block. The schema exempts them; so does this.
+        if per_device["device"].get("type", "").startswith("reference-"):
+            continue
         assert any(k in per_device for k in transports), (
             f"{Path(path).stem} missing transport (expected one of {transports})"
         )
