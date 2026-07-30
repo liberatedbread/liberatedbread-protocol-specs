@@ -12,6 +12,7 @@ Enumerates every VALID device spec (validated against schema.json, reusing
       "protocol":            <device.protocol>,
       "manufacturer":        <device.manufacturer>,
       "manufacturer_status": <device.manufacturer_status>,
+      "openness":            <device.openness.status, present only if set>,
       "helpful_urls":        <top-level helpful_urls, present only if set>,
       "helpful_videos":      <top-level helpful_videos, present only if set>,
       "protocol_handler":    <top-level protocol_handler, present only if set>,
