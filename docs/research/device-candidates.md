@@ -245,12 +245,102 @@ abandoned. Extends `inkbird-bbq-thermometer`, `ibbq-meat-thermo`,
 | **Weber / iDevices iGrill 2, mini, v3** | [1mckenna/esp32_iGrill](https://github.com/1mckenna/esp32_iGrill), [fransakeson/ESP32_iGrill](https://github.com/fransakeson/ESP32_iGrill), [pilot1981/weber-igrill-integration-HA](https://github.com/pilot1981/weber-igrill-integration-HA) | **$17.99** used iGrill 2 | App still updated (v4.9.1, Jan 2025) — **not** abandoned |
 | **MEATER / MEATER+** | [nathanfaber/meaterble](https://github.com/nathanfaber/meaterble) | **$19.99** open-box MEATER+ | Active |
 | **Fellow Stagg EKG+ / EKG Pro** | [tlyakhov/fellow-stagg-ekg-plus](https://github.com/tlyakhov/fellow-stagg-ekg-plus), [calvinmclean/stagg-ekg-plus](https://github.com/calvinmclean/stagg-ekg-plus), `breiflabb/ekg-pro-ble-lib` | **$44** EKG Pro (parts-only); working units higher | Active |
-| **Anova Precision Cooker (BT)** | [Aldaviva/SousVide](https://github.com/Aldaviva/SousVide), [pyanova](https://github.com/c3V6a2Vy/pyanova); Anova also publishes BLE docs for Nano/Mini | Not surveyed | Anova **cancelled** its Sept-2025 EOL and committed to indefinite support, but added an app subscription |
+| **Anova** | See the dedicated section below — three protocol generations | **$9.99** used circulator | Active, but app is now paywalled for new accounts |
 
-The Stagg is the most technically interesting: BLE serial-port service
-`0x1820` / characteristic `0x2A80`, `0xEFDD` frame separator, and a magic
-init sequence the kettle requires before it will talk — a clean worked example
-for the BLE patterns page.
+The Stagg is the most technically interesting single device here: BLE
+serial-port service `0x1820` / characteristic `0x2A80`, `0xEFDD` frame
+separator, and a magic init sequence the kettle requires before it will talk —
+a clean worked example for the BLE patterns page.
+
+---
+
+## Anova kitchen gear — three protocol generations
+
+Anova earns its own section: it is not one device but three distinct protocol
+families, two of which the **vendor documents publicly**, and the cheapest
+hardware on this page that has a first-party protocol reference.
+
+### Vendor status — the nuance that matters
+
+| Date | What happened |
+|---|---|
+| Jul 2024 | Anova announced it would cut remote connectivity for the original **Bluetooth and Bluetooth+** cookers on 2025-09-28, with a 50%-off trade-up that expired 2024-08-01 |
+| 2024-08-21 | App went **subscription**: $1.99/mo or $9.99/yr. Accounts created before this date are grandfathered free. Account creation, previously optional, became mandatory |
+| 2025-01-16 | Anova **rescinded** the shutdown: "we will continue to support all versions of our products indefinitely" |
+
+So Anova is not an abandoned vendor — credit where due, they reversed the
+shutdown. The reason it still belongs here is the **interaction between the
+grandfather clause and the used market**: a $10 circulator bought on eBay today
+is being paired with a *new* account, which is not grandfathered. The hardware
+outlives the entitlement. A local spec is what makes second-hand Anova gear
+usable without a subscription — which is the same rescue as a dead cloud,
+arriving by a different route.
+
+### Generation 1 — original Precision Cooker (2014, "Anova PC"), 800W BT / 900W Wi-Fi
+
+| | |
+|---|---|
+| Transport | BLE — a single service with a **single characteristic** carrying both TX and RX |
+| Encoding | ASCII strings terminated with `\r`; responses arrive as notifications, possibly chunked across several |
+| Vendor docs | [A2/A3 protocol overview](https://developer.anovaculinary.com/docs/devices/a2-a3/overview) — covers the 800W BT-only and 900W Wi-Fi variants |
+| Public RE | [Aldaviva/SousVide](https://github.com/Aldaviva/SousVide) (+ its [Communication Protocol wiki](https://github.com/Aldaviva/SousVide/wiki/Communication-Protocol), tested against a 2014 PC 1.0), [pyanova](https://github.com/c3V6a2Vy/pyanova), `jshridha/anovamaster`, openHAB binding |
+| Cheap unit | **$9.99** untested 900W · **$20.00** working 800W (BIN) · $25.99–$33.49 tested/excellent |
+
+The easiest spec on this page to write and verify: line-oriented ASCII over one
+characteristic, two independent descriptions to cross-check (vendor docs *and*
+a community RE with a protocol wiki), and $10–$20 hardware. Note the quirk
+worth capturing — one characteristic for both directions is unusual enough that
+naive GATT clients get it wrong.
+
+### Generation 2 — Nano and Mini (2018+)
+
+| | |
+|---|---|
+| Transport | BLE — service `0e140000-0af1-4582-a242-773e63054c68`, three characteristics: **TX**, **RX**, **ASYNC** (unsolicited status) |
+| Encoding | `[Domain byte][Message type byte][optional protobuf payload]`, **COBS**-encoded to strip zero bytes, zero-byte terminator, then chunked for the BLE MTU |
+| Vendor docs | [Nano overview](https://developer.anovaculinary.com/docs/devices/nano/overview); separate pages for Mini and A2/A3 |
+| Cheap unit | **$14.99** Nano (Wi-Fi+BT) · $25 Nano BT-only · **$19.95** Mini AN300-US00 (BIN) · $28 Mini open-box |
+
+The most valuable of the three for the repo. **COBS framing appears nowhere in
+`device-specs/` today** — protobuf does (`admore-light-bar`, `vector-robot`)
+but consistent-overhead byte stuffing does not, and it is a recurring pattern
+in BLE protocols that need a clean packet delimiter. A separate ASYNC
+notification channel is also worth documenting as a pattern. First-party UUIDs
+and encoding means the spec can be written with high confidence and then
+confirmed against $15 hardware.
+
+### Generation 3 — Wi-Fi devices and the Precision Oven
+
+| | |
+|---|---|
+| Transport | WebSocket, real-time messaging |
+| Auth | Personal access token, generated in the app under **More → Developer → Generate Personal Access Token** |
+| Vendor docs | [Wi-Fi implementation example](https://developer.anovaculinary.com/docs/devices/wifi/implementation-example) — covers both Precision Cookers and Precision Ovens, with an official Python CLI reference implementation |
+| Public RE | [bogd/anova-oven-api](https://github.com/bogd/anova-oven-api) (documents the oven API), [awgneo/anova-homeassistant](https://github.com/awgneo/anova-homeassistant) (local WebSocket control), [andr83/hacs-anova-oven](https://github.com/andr83/hacs-anova-oven), [kmdm/hass_anova_cooker](https://github.com/kmdm/hass_anova_cooker) |
+| Cheap unit | Oven: **$50 parts-only** · $300–$400 faulty · **$783–$850** working/new. Wi-Fi circulator: **$25.99** |
+
+Do the Wi-Fi *circulator* here, not the oven. The oven is the one genuinely
+expensive item surveyed, and several 1.0 listings report the same
+"temperature runaway" fault — poor value as a verification unit when the same
+WebSocket API can be exercised on a $26 Wi-Fi cooker.
+
+Worth flagging honestly: a token minted through the vendor app is a cloud
+dependency, even though the transport is local. The spec should say so plainly
+and record what happens to an already-issued token if the account lapses —
+that is the question a subscription-era owner actually needs answered, and it
+is exactly the kind of thing that goes unrecorded until the answer stops
+mattering.
+
+### Recommendation
+
+Two specs, roughly **$35** of hardware:
+
+1. **`anova-precision-cooker.yaml`** — Gen 1 ASCII/BLE, verified on a $20 unit.
+   Fastest to land, two independent references.
+2. **`anova-precision-cooker-nano.yaml`** — Gen 2 COBS+protobuf/BLE, verified
+   on a $15 Nano. Brings a new framing pattern into the repo.
+
+Gen 3 can wait for the `$26` Wi-Fi circulator; skip the oven.
 
 ---
 
@@ -279,9 +369,11 @@ Ordered by cost. Every price is the cheapest listing observed on 2026-07-30;
 | JK-BMS (4S entry) | $6.35 | New | 3 |
 | TP-Link Kasa HS103 | $6.74 | Used | 6 |
 | Tuya Fingerbot | $8.99 | New | 4 |
+| Anova Precision Cooker, original BT | $9.99 (untested) / $20.00 working | Used | Anova |
 | Logitech Harmony Hub | $9.99 | Used | 1 |
 | JBD / Xiaoxiang BLE module | $12.35 | New | 3 |
 | Insteon Hub 2245-222 | $14.88 | Used | 1 |
+| Anova Precision Cooker Nano | $14.99 | Used | Anova |
 | Govee H5074-class thermo-hygrometer | $15.00 + ship | New | 2 |
 | Weber iGrill 2 | $17.99 | Used | 7 |
 | Xiaomi M365 BLE dashboard board | $18.78 | New | 5 |
@@ -312,10 +404,12 @@ roughly **$160** and covers five protocol families the repo has no spec for.
 2. **Logitech Harmony Hub** — $10 hardware, two documented local APIs.
 3. **BMS family (JK / JBD / Daly)** — cheapest hardware, best-documented
    protocols, opens the energy category.
-4. **Tuya BLE platform spec** — one spec, hundreds of devices.
-5. **Zengge / Magic Home** — largest uncovered LED family, $2 hardware.
-6. **Spotify Car Thing** — highest-profile orphan; needs the most new writing.
-7. **Neato local serial** — highest value per unit rescued, most hands-on work.
+4. **Anova Gen 1 and Gen 2** — ~$35 for both units, and the vendor documents
+   both protocols; Gen 2 brings COBS framing into the repo.
+5. **Tuya BLE platform spec** — one spec, hundreds of devices.
+6. **Zengge / Magic Home** — largest uncovered LED family, $2 hardware.
+7. **Spotify Car Thing** — highest-profile orphan; needs the most new writing.
+8. **Neato local serial** — highest value per unit rescued, most hands-on work.
 
 ## Sources
 
@@ -327,7 +421,9 @@ Vendor status and shutdown timelines:
 - [Neato: announcement, 6 Oct 2025](https://support.neatorobotics.com/support/solutions/articles/204000073686-announcement-6th-oct-2025) ·
   [Vorwerk explains the Neato cloud shutdown](https://www.wespeakiot.com/vorwerk-explains-neato-cloud-shutdown-why-your-smart-vacuum-just-got-dumb/)
 - [TechCrunch: Spotify Car Thing refunds](https://techcrunch.com/2024/05/30/spotify-begins-offering-car-thing-refunds-as-it-faces-lawsuit-over-bricking-the-streaming-device)
-- [Anova: ongoing product support](https://anovaculinary.com/blogs/blog/good-news-about-ongoing-product-support)
+- [Anova: ongoing product support, updated 2025-01-16](https://anovaculinary.com/blogs/blog/good-news-about-ongoing-product-support) ·
+  [Anova sous vide subscription FAQ](https://support.anovaculinary.com/hc/en-us/articles/29269573803405-The-New-Anova-Sous-Vide-Subscription-FAQ) ·
+  [Engadget on the subscription](https://www.engadget.com/home/kitchen-tech/anova-will-charge-customers-to-use-its-sous-vide-app-because-everything-must-be-a-subscription-151906912.html)
 - [HA blog: Logitech Harmony removes local API](https://www.home-assistant.io/blog/2018/12/17/logitech-harmony-removes-local-api/)
 - [Forrester: Insteon and the internet of bricks](https://www.forrester.com/blogs/insteon-and-the-internet-of-bricks)
 
