@@ -25,9 +25,36 @@ This page answers two questions at once:
     copy. Follow [Clean-room Rules](../CLEANROOM_RULES.md): cite the source,
     re-derive the protocol, and never lift code or vendor assets into a spec.
 
+## Vendor-risk classification (A / B / C)
+
+The device tiers below sort candidates by *technical* fit. This axis is
+orthogonal: it sorts by *how urgently the vendor relationship is failing the
+owner*, which is what decides whether a spec is a rescue or just a nicety.
+
+- **A — already subscription-gated or abandoned.** The cloud is off, the app
+  is paywalled, or the company is in bankruptcy. Owners are hurting *now*. A
+  spec is a rescue.
+- **B — likely to land in A.** Going-concern warnings, a parent company
+  folding related lines, a subscription on new models that will spread to old,
+  or a track record of doing exactly this. Documenting ahead of the shutdown
+  means the spec exists *before* owners need it.
+- **C — unlikely to be abandoned, but still worthwhile** purely for local-first
+  independence: one fewer cloud account, one fewer app, one less thing that
+  phones home. Lower urgency, real value.
+
+Each candidate below carries an **[A]**, **[B]** or **[C]** tag. The
+[at-risk device groups](#at-risk-device-groups-subscription-and-abandonment-watch)
+section near the end is organised entirely around this axis and collects the
+groups surfaced specifically by scanning for subscription and shutdown risk.
+
 ---
 
 ## Tier 1 — Orphaned by the vendor (highest mission fit)
+
+**Every device in this tier is risk class [A]** — orphaned or subscription-gated
+by definition; that is what "Tier 1" means. The A/B/C tags matter more in the
+lower tiers and in the [at-risk groups](#at-risk-device-groups-subscription-and-abandonment-watch)
+section, where fit and urgency diverge.
 
 These are the devices the project exists for: hardware that still works but
 whose cloud has been switched off.
@@ -123,7 +150,9 @@ capture work.
 ## Tier 2 — Cheap BLE sensors that extend families we already cover
 
 Low cost, low risk, and each one broadens an existing spec cluster rather than
-starting a new one.
+starting a new one. **All risk class [C]** — these vendors are fine; the value
+is local-first sensor reads with no app. (RuuviTag is barely even that: the
+vendor publishes the format, so it's cooperative rather than a rescue.)
 
 | Device | Why | Public RE | Cheap unit |
 |---|---|---|---|
@@ -238,7 +267,10 @@ target, not a quick spec.
 
 Documentable and inexpensive; lower mission fit because nothing here is
 abandoned. Extends `inkbird-bbq-thermometer`, `ibbq-meat-thermo`,
-`thermopro-tempspike-bbq` and `chef-iq-sense`.
+`thermopro-tempspike-bbq` and `chef-iq-sense`. **Mostly risk class [C]**, but
+Anova (its own section below) is the cautionary tale for the whole tier — a
+subscription arrived on a "still alive" kitchen vendor, which nudges the rest
+of this group toward **[B]** on a long horizon.
 
 | Device | Public RE | Cheap unit | Vendor status |
 |---|---|---|---|
@@ -344,6 +376,150 @@ Gen 3 can wait for the `$26` Wi-Fi circulator; skip the oven.
 
 ---
 
+## At-risk device groups (subscription and abandonment watch)
+
+This section is the result of scanning specifically for **groups of devices
+likely to be abandoned or to have a subscription bolted on** — the failure
+modes the project exists to pre-empt. It is organised by the A/B/C axis, not by
+transport, because here the *timing of the vendor's decision* is the point.
+Prices are eBay US, observed 2026-07-30 unless noted.
+
+### Group A — already abandoned or subscription-gated
+
+The urgent ones. Owners are already losing function or paying for what they
+used to own.
+
+#### iRobot Roomba (900 / 960 / 980 / i / e series)
+
+| | |
+|---|---|
+| Risk | **A** — iRobot filed **Chapter 11 on 2025-12-15** and is being taken private by Picea Robotics; a March 2025 going-concern warning preceded it |
+| Transport | Wi-Fi LAN — local command channel, no cloud required |
+| Public RE | [koalazak/dorita980](https://github.com/koalazak/dorita980) (900/960/980/i7/e5/690 and more), [koalazak/rest980](https://github.com/koalazak/rest980) (local REST wrapper) |
+| Cheap unit | **$32.50** Wi-Fi robot w/ dock · **$40–$70** for a tested 980 |
+
+The strongest single A-group find. A ~50-million-device installed base whose
+maker is in bankruptcy, and the local protocol is *already* mapped in a mature,
+widely-forked library that talks straight to the robot over the LAN. The spec
+almost writes itself from dorita980, and $33 hardware verifies it. This is the
+canonical case the project was built for.
+
+#### Eight Sleep Pod (Pod 2 / Pod 3)
+
+| | |
+|---|---|
+| Risk | **A** — core features (Autopilot, temperature scheduling, sleep tracking) were retroactively moved behind a **mandatory ~$25/mo subscription**; the device also needs the internet to change temperature, so an AWS outage left beds stuck |
+| Transport | Local network — the community firmware replaces the cloud-facing `dac` process and talks to the Pod's microcontrollers directly |
+| Public RE | [LiamSnow/opensleep](https://github.com/LiamSnow/opensleep) (full open firmware), [bobobo1618/ninesleep](https://github.com/bobobo1618/ninesleep), [throwaway31265/free-sleep](https://github.com/throwaway31265/free-sleep), [freesleep-notes](https://github.com/appositeit/freesleep-notes), [ZeroSleep root-access writeup](https://blopker.com/writing/04-zerosleep-1/) |
+| Cheap unit | Pod 3 hub **$60 parts/repair**; working cover+hub sets $579+ |
+
+Unusually mature liberation ecosystem — there is already *complete open
+firmware*, so a spec here is documentation of a solved problem, high-confidence
+and high-value. The catch is hardware cost: the cover is expensive, and the
+cheap listings are hub-only. Document from the existing firmware; buy a
+$60 hub if bench verification is needed.
+
+#### Snoo Smart Sleeper (Happiest Baby)
+
+| | |
+|---|---|
+| Risk | **A** — in **July 2024** Happiest Baby paywalled features that shipped free (weaning/"sleepytime", car-ride mode) behind **$20/mo**; buyers before 2024-07-15 grandfathered, so the used market is squarely affected |
+| Transport | Cloud API + PubNub messaging (not local today) |
+| Public RE | [rado0x54/pysnoo](https://github.com/rado0x54/pysnoo), [DanPatten/pysnoo2](https://github.com/DanPatten/pysnoo2), [swar/homeassistant-snoo-smart-bassinet](https://github.com/swar/homeassistant-snoo-smart-bassinet) |
+| Cheap unit | **$399** used bassinet (a $1,695 device new) |
+
+Textbook subscription bait-and-switch, and the same grandfather-clause trap as
+Anova: a used Snoo pairs to a new account that isn't grandfathered. Honesty
+flag — the public work is all **cloud-API** RE via PubNub; nobody has a local
+channel yet. So this is a *cloud-protocol* spec (how to talk to the Snoo
+backend without the paywalled app), not a local rescue, and the spec must say
+so. Lower priority than the local-capable A devices.
+
+#### June Oven (Weber)
+
+| | |
+|---|---|
+| Risk | **A** — Weber will **shut down all June connected services on 2026-09-22**; remote control and the in-oven camera die with the servers. A change.org petition is asking Weber to open-source the app |
+| Transport | Wi-Fi / cloud |
+| Public RE | Minimal — no complete local protocol map located; the petition exists precisely because owners have no fallback |
+| Cheap unit | **$60 parts-only**; working Gen3 units $950 |
+
+High-profile scheduled shutdown, but be honest about readiness: there is no
+mature RE base and working hardware is expensive. This is a **research
+target** — worth capturing app/API traffic *before* 2026-09-22 while the
+servers are still up, which is a genuinely time-boxed opportunity. Don't buy a
+$950 oven to do it; capture from an owner's unit if one is available.
+
+#### Echelon Connect bikes / fitness gear
+
+| | |
+|---|---|
+| Risk | **A** — a **July 2025** firmware update forced a server connection; offline, resistance and metrics are disabled, and a **$40/mo** plan is needed for more than basics |
+| Transport | BLE (the machine's own sensor/resistance channel) |
+| Public RE | **Legally blocked.** A working jailbreak won a $20k Fulu Foundation bounty but **cannot be released** — DMCA §1201. See [404 Media](https://www.404media.co/developer-unlocks-newly-enshittified-echelon-exercise-bikes-but-cant-legally-release-his-software/), [TechSpot](https://www.techspot.com/news/109241-echelon-exercise-machines-lose-offline-functionality-after-update.html) |
+| Cheap unit | Parts only in this survey; complete bikes not surfaced in the sorted results |
+
+Included as a **documented non-starter**, deliberately. The protocol is
+understood by at least one developer, but the legal situation makes a public
+spec a §1201 problem in a way the rest of this page is not — most candidates
+here rest on freely-published RE, whereas Echelon's is under a bounty NDA. Flag
+it, watch it, and let a right-to-repair exemption or the older
+pre-update-firmware BLE profile be the opening before spending effort. This is
+the clearest example of *why the legal note at the top of the page matters*.
+
+### Group B — likely to land in A
+
+Not gated yet, but the signals are there: a subscription on new models that
+will creep to old, a parent company shedding related lines, or a history of
+exactly this move.
+
+| Device group | Why B | Public RE | Cheap unit |
+|---|---|---|---|
+| **Owlet Smart Sock** | Baby vitals behind an app + cloud (Ayla Networks); FDA history already forced one product change, and vitals-as-a-service is the obvious paywall | [puco/owlet-api](https://github.com/puco/owlet-api), [ryanbdclark/pyowletapi](https://github.com/ryanbdclark/pyowletapi), [mbevand/owlet_monitor](https://github.com/mbevand/owlet_monitor) | Base station **$10–$18** |
+| **Nanit / cloud baby cams** | Live view and history increasingly subscription-tied; no vendor RTSP, so local viewing already needs a proxy | [gregory-m/nanit](https://github.com/gregory-m/nanit) (local restream proxy) | Varies; not surveyed |
+| **Furbo / Petcube pet cameras** | Newer Furbo models **require** a paid plan just to activate; AI alerts and history already paywalled — the direction of travel is clear | Community integrations exist; protocol not fully mapped | Not surveyed (new models subscription-locked) |
+| **Tonal** | Movement library, training modes and Apple Watch link are subscription-locked today; hardware is inert without it — one bad quarter from an Echelon-style enforcement | None public located | Not surveyed |
+
+Owlet is the actionable one: the Ayla Networks cloud API is well-documented by
+three independent projects, base stations are $10, and it slots beside the
+sensor specs the repo already carries. The rest are watch-list — record the
+signal now so the work is scoped when the paywall lands.
+
+### Group C — unlikely to be abandoned, but worth it for local-first
+
+These vendors are healthy; the value is purely fewer clouds and fewer apps.
+
+| Device group | Why still worth it | Public RE | Cheap unit |
+|---|---|---|---|
+| **Wyze Cam (v2 / v3 / Pan)** | Vendor pulled the official RTSP firmware and pushes cloud/AI plans; local streaming already needs community help | [mrlt8/docker-wyze-bridge](https://github.com/mrlt8/docker-wyze-bridge/discussions/1356), [thingino firmware](https://grokipedia.com/page/Thingino), [openmiko](https://github.com/openmiko/openmiko), [wyzecam PyPI](https://pypi.org/project/wyzecam/) | **$4.65–$12** camera |
+| **TP-Link Kasa** | Healthy vendor, but a fully local TCP/9999 JSON protocol already exists — trivial spec, zero cloud | `python-kasa` | **$6.74** (already in Tier 6) |
+| **Tile trackers** | Life360 keeps nudging Premium, but basic BLE find still works; a passive-advertisement spec removes the app entirely | BLE advertisement decoders | Low; not surveyed |
+| **Zengge / Magic Home LED** | Active vendor, but local BLE/Wi-Fi control is fully mapped — no reason to route $2 LED controllers through a cloud | [flux_led](https://github.com/lightinglibs/flux_led) (already in Tier 6) | **$1.99** (already in Tier 6) |
+
+Wyze is the standout C: cameras are almost free on the used market, the vendor
+keeps trimming local features, and there is a deep community firmware base
+([Thingino](https://grokipedia.com/page/Thingino), OpenMiko) plus a local
+Python library. Not abandoned, but the direction is unmistakable and the
+hardware is disposable-cheap.
+
+### At-risk groups — buy list
+
+| Device | Risk | Cheapest observed | Public RE ready? |
+|---|---|---|---|
+| Wyze Cam v3 / Pan | C | $4.65 | Yes (bridge + firmware) |
+| iRobot Roomba 980 | A | $32.50 | **Yes (dorita980)** |
+| Owlet base station | B | $10.00 | Yes (3 projects) |
+| Eight Sleep Pod 3 hub | A | $60.00 (parts) | **Yes (opensleep)** |
+| June Oven | A | $60.00 (parts) | No — capture before 2026-09-22 |
+| Snoo bassinet | A | $399.00 | Cloud-only RE |
+| Echelon bike | A | — | Blocked (DMCA) |
+
+**Best first moves in this section:** Roomba (A, mature RE, $33) and Wyze (C,
+mature RE, ~$5) — both cheap, both with protocols already mapped, one urgent
+and one local-first. Owlet (B) is the cheap pre-emptive pick.
+
+---
+
 ## Considered and deprioritised
 
 Recording these so the same ground is not re-covered.
@@ -354,7 +530,8 @@ Recording these so the same ground is not re-covered.
 | **Chamberlain / LiftMaster Security+ 2.0** | [ratgdo](https://paulwieland.github.io/ratgdo/) already solves it properly with a wired board, and the rolling-code serial protocol is obfuscated. Document only if we can add something ratgdo has not. |
 | **Logitech POP buttons** | Bricked in 2025 with two weeks' notice, but the hardware is a thin bridge-dependent button — little protocol surface to liberate. |
 | **Broadlink RM4** | `python-broadlink` covers it and eBay results were all accessories; no clean price signal. Low priority. |
-| **Wink / Lowe's Iris hubs** | Iris hubs stopped working in 2019 and no local protocol documentation surfaced in this survey. Would need ground-up research. |
+| **Wink / Lowe's Iris hubs** | Iris hubs stopped working in 2019, and Wink is the archetypal [A] cautionary tale — a "no monthly fees" hub that imposed a mandatory $5/mo in 2020 with one week's notice, then suffered multi-day outages. But no local protocol documentation surfaced in this survey, so a spec would need ground-up research. Cited in the write-up as *why the B watch-list exists* more than as a candidate. |
+| **June Oven** | Promoted to an [A] entry in the [at-risk groups](#at-risk-device-groups-subscription-and-abandonment-watch) section — scheduled 2026-09-22 shutdown — but stays a research target: no mature RE base, $950 working hardware. |
 
 ---
 
@@ -400,16 +577,26 @@ roughly **$160** and covers five protocol families the repo has no spec for.
 
 ## Suggested order of work
 
-1. **Bose SoundTouch** — published API, cheap hardware, fastest spec to land.
-2. **Logitech Harmony Hub** — $10 hardware, two documented local APIs.
-3. **BMS family (JK / JBD / Daly)** — cheapest hardware, best-documented
+1. **iRobot Roomba (dorita980)** — risk [A], a bankrupt vendor with a ~50M
+   installed base, a mature local library, and $33 hardware. The single
+   highest-urgency-times-readiness item on the page.
+2. **Bose SoundTouch** — published API, cheap hardware, fastest spec to land.
+3. **Logitech Harmony Hub** — $10 hardware, two documented local APIs.
+4. **BMS family (JK / JBD / Daly)** — cheapest hardware, best-documented
    protocols, opens the energy category.
-4. **Anova Gen 1 and Gen 2** — ~$35 for both units, and the vendor documents
+5. **Anova Gen 1 and Gen 2** — ~$35 for both units, and the vendor documents
    both protocols; Gen 2 brings COBS framing into the repo.
-5. **Tuya BLE platform spec** — one spec, hundreds of devices.
-6. **Zengge / Magic Home** — largest uncovered LED family, $2 hardware.
-7. **Spotify Car Thing** — highest-profile orphan; needs the most new writing.
-8. **Neato local serial** — highest value per unit rescued, most hands-on work.
+6. **Tuya BLE platform spec** — one spec, hundreds of devices.
+7. **Zengge / Magic Home** — largest uncovered LED family, $2 hardware.
+8. **Spotify Car Thing** — highest-profile orphan; needs the most new writing.
+9. **Neato local serial** — highest value per unit rescued, most hands-on work.
+
+**Time-boxed exception:** capture June Oven app/API traffic *before its
+2026-09-22 shutdown* if any owner's unit is reachable — that window does not
+reopen, unlike everything else here.
+
+**Pre-emptive [B] pick:** Owlet Smart Sock — $10 hardware, three independent RE
+projects, documents a vitals cloud API before the obvious paywall lands.
 
 ## Sources
 
@@ -426,5 +613,22 @@ Vendor status and shutdown timelines:
   [Engadget on the subscription](https://www.engadget.com/home/kitchen-tech/anova-will-charge-customers-to-use-its-sous-vide-app-because-everything-must-be-a-subscription-151906912.html)
 - [HA blog: Logitech Harmony removes local API](https://www.home-assistant.io/blog/2018/12/17/logitech-harmony-removes-local-api/)
 - [Forrester: Insteon and the internet of bricks](https://www.forrester.com/blogs/insteon-and-the-internet-of-bricks)
+
+At-risk groups — subscription and abandonment:
+
+- [CNBC: iRobot going-concern warning](https://www.cnbc.com/2025/03/12/shares-of-irobot-tank-30percent-after-roomba-maker-issues-going-concern.html) ·
+  [Manufacturing Dive: iRobot Chapter 11, acquisition by Picea](https://www.manufacturingdive.com/news/roomba-braava-maker-irobot-chapter-11-bankruptcy-acquisition-picea-china/807997/)
+- [Washington Post: Snoo subscription backlash](https://www.washingtonpost.com/business/2025/01/18/snoo-bassinet-subscriptions/) ·
+  [STAT: the Snoo paywall](https://www.statnews.com/2024/09/04/snoo-premium-features-sids-insurance/)
+- [The Spoon: the June Oven is cooked (2026-09-22 shutdown)](https://thespoon.tech/its-all-but-official-the-june-oven-is-cooked/) ·
+  [Change.org: demand a final June firmware](https://www.change.org/p/demand-a-final-firmware-update-for-june-ovens)
+- [404 Media: Echelon unlock can't be legally released (DMCA §1201)](https://www.404media.co/developer-unlocks-newly-enshittified-echelon-exercise-bikes-but-cant-legally-release-his-software/) ·
+  [TechSpot: Echelon offline lockout](https://www.techspot.com/news/109241-echelon-exercise-machines-lose-offline-functionality-after-update.html)
+- [Tom's Guide: Peloton $40/mo to keep the treadmill working](https://www.tomsguide.com/news/peloton-will-brick-your-dollar4300-treadmill-if-you-dont-pay-the-dollar40-monthly-fee)
+- [Consumer Reports: Wink pay-up-or-be-disabled](https://www.consumerreports.org/smart-home/wink-tells-users-pay-up-or-we-will-disable-smart-home-hub/)
+- [Furbo: features available without the Nanny plan](https://help.furbo.com/hc/en-us/articles/17462722245785-Basic-Features-you-can-use-without-Furbo-Nanny)
+- [Wyze: RTSP firmware (withdrawn) support note](https://support.wyze.com/hc/en-us/articles/360026245231-Wyze-Cam-RTSP)
+- Eight Sleep mandatory subscription and local-control gap:
+  [ZeroSleep root-access writeup](https://blopker.com/writing/04-zerosleep-1/)
 
 Protocol references are linked inline in each candidate's row.
