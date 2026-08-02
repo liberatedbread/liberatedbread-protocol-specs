@@ -47,6 +47,29 @@ Each candidate below carries an **[A]**, **[B]** or **[C]** tag. The
 section near the end is organised entirely around this axis and collects the
 groups surfaced specifically by scanning for subscription and shutdown risk.
 
+## What this repo should actually spend effort on
+
+Two filters decide whether a candidate is *our* work, applied in order. Both
+must pass:
+
+1. **Can it be saved locally at all?** If the device only ever talks to the
+   vendor cloud with no LAN path (Cosori/VeSync, and — on the evidence — June),
+   then no amount of RE gives local control; you'd be building a self-hosted
+   cloud replacement. Those are parked in
+   [No local path](#no-local-path-cloud-only-architecture), not worked now.
+2. **Is the protocol written down cleanly anywhere, or does it only live inside
+   client code?** A maintained HA/ESPHome integration is a *client*, not a
+   spec — but if it already documents the wire format well (Roomba via
+   dorita980, RuuviTag, TTLock), re-specifying adds little. The differentiated
+   work is protocols that exist **only as source code or scattered forum
+   posts**: those are where a clean, implementation-independent spec is the
+   thing nobody else has written.
+
+The sweet spot is **cheap + dead-local + protocol-unwritten** — which, after
+this survey, is mostly [undocumented BLE gadgets](#undocumented-local-ble-protocol-lives-only-in-client-code)
+(desk controllers, blind motors, the Qingping frame). Expensive or cloud-only
+candidates are kept but clearly marked as heavier or parked.
+
 ---
 
 ## Tier 1 — Orphaned by the vendor (highest mission fit)
@@ -440,15 +463,17 @@ so. Lower priority than the local-capable A devices.
 | | |
 |---|---|
 | Risk | **A** — Weber will **shut down all June connected services on 2026-09-22**; remote control and the in-oven camera die with the servers. A change.org petition is asking Weber to open-source the app |
-| Transport | Wi-Fi / cloud |
+| Transport | Wi-Fi / **cloud-only** — the app appears to reach the oven only through Weber's hosted service, with no local LAN control path |
 | Public RE | Minimal — no complete local protocol map located; the petition exists precisely because owners have no fallback |
 | Cheap unit | **$60 parts-only**; working Gen3 units $950 |
 
-High-profile scheduled shutdown, but be honest about readiness: there is no
-mature RE base and working hardware is expensive. This is a **research
-target** — worth capturing app/API traffic *before* 2026-09-22 while the
-servers are still up, which is a genuinely time-boxed opportunity. Don't buy a
-$950 oven to do it; capture from an owner's unit if one is available.
+The honest revision: June has **no confirmed local path**, so it belongs with
+the [no-local-path group](#no-local-path-cloud-only-architecture) — a clean RE
+likely yields "impersonate the June cloud," not "control the oven on the LAN,"
+and that is a self-hosted-server project, not a spec. Its one genuinely useful,
+**time-boxed** action is capturing app↔cloud traffic *before 2026-09-22* while
+the servers still answer — that window does not reopen. Don't buy a $950 oven
+for it; capture from an owner's unit if one surfaces.
 
 #### Echelon Connect bikes / fitness gear
 
@@ -514,9 +539,112 @@ hardware is disposable-cheap.
 | Snoo bassinet | A | $399.00 | Cloud-only RE |
 | Echelon bike | A | — | Blocked (DMCA) |
 
-**Best first moves in this section:** Roomba (A, mature RE, $33) and Wyze (C,
-mature RE, ~$5) — both cheap, both with protocols already mapped, one urgent
-and one local-first. Owlet (B) is the cheap pre-emptive pick.
+**Reading this section against the effort filter:** Roomba and Wyze are the
+highest-*urgency* items here, but their protocols are already mapped and
+documented — so for us they are **link-and-setup-guide**, not spec work (see
+[Already liberated elsewhere](#already-liberated-elsewhere-link-dont-spec)).
+Owlet (B) is the cheap pre-emptive pick where a written spec still has value,
+because the cloud API is only encoded in three scattered projects.
+
+---
+
+## Undocumented local BLE (protocol lives only in client code)
+
+**This is the sweet spot** the effort filter points at: devices that are cheap,
+controlled entirely over local BLE with no cloud in the loop, and whose
+protocol has been figured out but **only exists inside a client** (an ESPHome
+sketch, a homebridge plugin) — never written as an implementation-independent
+spec. Writing that spec is exactly what this repo is for, and none of these
+need an expensive unit to verify.
+
+All three are risk class **[C]** on the vendor axis (the makers are fine) but
+top of the list on the *effort* axis.
+
+| Device | Local? | Protocol state | Public RE (code-only) | Cheap unit |
+|---|---|---|---|---|
+| **Qingping CGG1 / CGDK2** thermo-hygrometer | BLE advertisement, fully passive | **Undocumented** — Theengs/ble_monitor decode the MiBeacon frames but explicitly *not* the Qingping-format frames these also emit | [ble_monitor by brand](https://home-is-where-you-hang-your-hack.github.io/ble_monitor/by_brand) | ~$10–14 AliExpress (no eBay listings 2026-07-30) |
+| **AM43 / A-OK blind & shade motors** | BLE, single-client | RE'd, but the frame format lives in code, not prose | [buxtronix/am43](https://github.com/buxtronix/am43) (ESP32/MQTT), [renssies/homebridge-am43-blinds](https://github.com/renssies/homebridge-am43-blinds), [openHAB AM43 binding](https://community.openhab.org/t/new-binding-am43-blind-drive-motor-binding/90272) | **$30** open-box motor; $39 typical |
+| **Jiecang / Uplift / Desky standing desks** | BLE (RJ-12 add-on), local | Clean `F1 F1 … 7E` framing with opcode/len/checksum — documented only in blog posts and sketches | [SitStand writeup](https://gregraiz.com/blog/sitstand-bluetooth-desk-controller/), [Desky ESPHome (HA)](https://community.home-assistant.io/t/desky-standing-desk-esphome-works-with-desky-uplift-jiecang-assmann-others/383790), [Ordspilleren/DeskControl](https://github.com/Ordspilleren/DeskControl) | controller box **$25** open-box |
+
+Notes that make these good spec targets, not just good devices:
+
+- **Qingping** is a documented *hole*, not a guess — the decoders tell you
+  exactly which frames they refuse, so the spec has a precise, testable scope.
+  It slots straight beside the existing `xiaomi-lywsd03mmc` MiBeacon work.
+- **AM43** has a one-client-at-a-time quirk (the app and any controller can't
+  both be connected) that belongs in the spec's connection notes — the kind of
+  operational detail that only survives if it's written down.
+- **Desks** share one BLE profile across many resellers (Uplift, Desky,
+  Assmann, Jiecang OEM), so a single spec covers a whole shelf of hardware —
+  the same leverage the SPOTLED and CoolLEDX specs already give the repo.
+
+**Recommended first spec of the whole page:** the **standing-desk BLE
+profile.** $25 to verify, one profile covering many badges, a clean framed
+protocol, and nothing but code to cite today. AM43 is the close second.
+
+---
+
+## No local path (cloud-only architecture)
+
+Parked, deliberately. These devices only ever talk to the vendor cloud — there
+is **no LAN control path to reverse-engineer**, so RE yields at best a
+self-hosted replacement of the vendor's servers, not local control of the
+device. That is a materially bigger project than a protocol spec, and it is
+**not what we're taking on right now.**
+
+| Device | Why it's here | Shutdown / gate |
+|---|---|---|
+| **June Oven** | App reaches the oven only through Weber's hosted service; no confirmed local path | Services off **2026-09-22** |
+| **Cosori / VeSync air fryers** | Control is the VeSync cloud API with cloud token auth; no local network control | Vendor active, fully cloud-bound |
+| **Snoo** (cloud-RE only) | RE exists but via the Snoo backend + PubNub, not a local channel | Paywalled July 2024 |
+| **Traeger WiFire** | WiFi path relays through the vendor socket (the BLE-capable grills are the exception) | Vendor active |
+
+### If we ever come back to these
+
+Two lighter-weight ideas were floated and are worth recording — both are
+**future work, not now**:
+
+- **Reclaim the domain on shutdown.** When a vendor turns off and lets its
+  service domain lapse (June's, say), re-registering it and standing up a
+  minimal look-alike endpoint could let already-configured devices keep
+  working. Depends entirely on the device not pinning TLS certs and on the
+  domain actually dropping — neither guaranteed, and it carries real
+  operational and trust burden.
+- **Local DNS redirect.** Rather than owning the public domain, point the
+  device at a self-hosted endpoint from the user's own network — e.g. a DNS
+  override on their Home Assistant / Pi-hole box that maps the vendor host to a
+  local replacement server. Per-user setup, but no domain race and no
+  cert-pinning fight if the device tolerates it.
+
+Both need the same prerequisite: capturing the cloud protocol **while the
+servers are still up**. For June specifically that means before 2026-09-22.
+Until we decide to build a replacement server, the only cheap insurance is that
+capture — everything past it is the heavier lift we're choosing not to start.
+
+---
+
+## Already liberated elsewhere (link, don't spec)
+
+Lower priority by design: a maintained tool already gives local control **and**
+documents the protocol well enough that a fresh spec would just compete with
+it — exactly the pywemo situation the README describes. The useful contribution
+here is a pointer (and maybe a setup guide or video), not a YAML.
+
+| Device | Use this | Local? |
+|---|---|---|
+| iRobot Roomba (900/i/e/j) | [dorita980](https://github.com/koalazak/dorita980) / roombapy + HA native | Yes (LAN) |
+| TP-Link Kasa | `python-kasa` + HA | Yes (TCP/9999) |
+| Zengge / Magic Home | [flux_led](https://github.com/lightinglibs/flux_led) + HA `led_ble` | Yes |
+| JK / JBD / Victron | [esphome-jk-bms](https://github.com/syssi/esphome-jk-bms), [victron-ble](https://github.com/keshavdv/victron-ble) | Yes (BLE) |
+| Wyze Cam | [docker-wyze-bridge](https://github.com/mrlt8/docker-wyze-bridge), [thingino](https://grokipedia.com/page/Thingino) | Yes |
+| Logitech Harmony Hub | [harmonyhub-api](https://github.com/JordanMartin/harmonyhub-api) + HA native | Yes (WS) |
+| Neato Botvac (serial) | [OpenNeato](https://github.com/renjfk/OpenNeato), [botvac-wifi](https://github.com/sstadlberger/botvac-wifi) | Yes (UART) |
+| Eight Sleep Pod | [opensleep](https://github.com/LiamSnow/opensleep) firmware | Yes (post-flash) |
+| Husqvarna Automower | [automower-ble](https://pypi.org/project/automower-ble/) | Yes (BLE) |
+
+Where the protocol is *not* cleanly written even though a client exists — Neato
+serial is the clearest case — it can graduate back up to a spec candidate. The
+rest are genuinely done.
 
 ---
 
@@ -531,7 +659,7 @@ Recording these so the same ground is not re-covered.
 | **Logitech POP buttons** | Bricked in 2025 with two weeks' notice, but the hardware is a thin bridge-dependent button — little protocol surface to liberate. |
 | **Broadlink RM4** | `python-broadlink` covers it and eBay results were all accessories; no clean price signal. Low priority. |
 | **Wink / Lowe's Iris hubs** | Iris hubs stopped working in 2019, and Wink is the archetypal [A] cautionary tale — a "no monthly fees" hub that imposed a mandatory $5/mo in 2020 with one week's notice, then suffered multi-day outages. But no local protocol documentation surfaced in this survey, so a spec would need ground-up research. Cited in the write-up as *why the B watch-list exists* more than as a candidate. |
-| **June Oven** | Promoted to an [A] entry in the [at-risk groups](#at-risk-device-groups-subscription-and-abandonment-watch) section — scheduled 2026-09-22 shutdown — but stays a research target: no mature RE base, $950 working hardware. |
+| **June Oven** | Moved to [No local path](#no-local-path-cloud-only-architecture): [A] urgency (2026-09-22 shutdown) but cloud-only, so it's a capture-before-shutdown investigation, not a local spec. |
 
 ---
 
@@ -546,6 +674,9 @@ Ordered by cost. Every price is the cheapest listing observed on 2026-07-30;
 | JK-BMS (4S entry) | $6.35 | New | 3 |
 | TP-Link Kasa HS103 | $6.74 | Used | 6 |
 | Tuya Fingerbot | $8.99 | New | 4 |
+| Qingping CGG1 / CGDK2 | ~$10–14 (AliExpress) | New | BLE gap |
+| AM43 / A-OK blind motor | $30.00 | Open box | BLE gap |
+| Standing-desk BLE controller | $25.00 | Open box | BLE gap |
 | Anova Precision Cooker, original BT | $9.99 (untested) / $20.00 working | Used | Anova |
 | Logitech Harmony Hub | $9.99 | Used | 1 |
 | JBD / Xiaoxiang BLE module | $12.35 | New | 3 |
@@ -577,19 +708,39 @@ roughly **$160** and covers five protocol families the repo has no spec for.
 
 ## Suggested order of work
 
-1. **iRobot Roomba (dorita980)** — risk [A], a bankrupt vendor with a ~50M
-   installed base, a mature local library, and $33 hardware. The single
-   highest-urgency-times-readiness item on the page.
-2. **Bose SoundTouch** — published API, cheap hardware, fastest spec to land.
-3. **Logitech Harmony Hub** — $10 hardware, two documented local APIs.
-4. **BMS family (JK / JBD / Daly)** — cheapest hardware, best-documented
-   protocols, opens the energy category.
-5. **Anova Gen 1 and Gen 2** — ~$35 for both units, and the vendor documents
-   both protocols; Gen 2 brings COBS framing into the repo.
-6. **Tuya BLE platform spec** — one spec, hundreds of devices.
-7. **Zengge / Magic Home** — largest uncovered LED family, $2 hardware.
-8. **Spotify Car Thing** — highest-profile orphan; needs the most new writing.
-9. **Neato local serial** — highest value per unit rescued, most hands-on work.
+Re-ordered against the effort filter — **local + protocol-unwritten first**,
+not raw urgency. The already-liberated urgent devices (Roomba, Wyze, BMS,
+Zengge) drop off this list to the
+[link registry](#already-liberated-elsewhere-link-dont-spec); they don't need a
+spec from us.
+
+1. **Standing-desk BLE profile** — $25, one profile across many resellers,
+   clean framed protocol, only code to cite today. Best effort-to-value on the
+   page.
+2. **AM43 / A-OK blind motors** — $30, dead-local BLE, protocol only in client
+   code; the one-client quirk is worth writing down.
+3. **Qingping CGG1 / CGDK2 frame** — ~$12, a precisely-scoped documented hole
+   next to the existing MiBeacon work.
+4. **Spotify Car Thing** — $40, high-profile orphan with no protocol spec
+   anywhere; the most new writing but the most visible payoff.
+5. **Neato serial command spec** — a client exists ([OpenNeato](https://github.com/renjfk/OpenNeato))
+   but the command set isn't written as a spec; graduate it up from the link
+   registry.
+6. **Insteon PLM / powerline message format** — $15 hub, and the powerline
+   layer is a transport the repo has zero coverage of.
+7. **Anova Gen 1 and Gen 2** — ~$35, vendor-documented; Gen 2 brings COBS
+   framing into the repo.
+8. **Bose SoundTouch** — published API, cheap hardware; fast to land but
+   already has an HA client, so lower differentiated value.
+
+**Time-boxed, separate track:** capture June Oven cloud traffic before
+**2026-09-22** if a unit is reachable — the only cheap action on the parked
+[no-local-path](#no-local-path-cloud-only-architecture) group.
+
+**Not spec work:** point owners of Roomba, Wyze, Kasa, Zengge, BMS, Harmony,
+Eight Sleep and Automower at the existing tools (and, where you want to add
+something, record a setup guide or video — the schema's `helpful_videos` field
+is built for exactly that).
 
 **Time-boxed exception:** capture June Oven app/API traffic *before its
 2026-09-22 shutdown* if any owner's unit is reachable — that window does not
