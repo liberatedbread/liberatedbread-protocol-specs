@@ -74,12 +74,14 @@ must pass:
    posts**: those are where a clean, implementation-independent spec is the
    thing nobody else has written.
 
-The sweet spot is **cheap + phone-direct BLE + protocol-unwritten** — which,
-after this survey, is a short list of
+The sweet spot is **cheap + phone-direct + protocol-unwritten**, on either
+radio — a short list of
 [undocumented BLE gadgets](#undocumented-local-ble-protocol-lives-only-in-client-code)
-the phone can drive with no added hardware: the Qingping frame, blind motors,
-and Bluetooth-equipped desks. Expensive, cloud-only, or ESP-bridge-only
-candidates are kept but clearly marked as heavier or parked.
+(the Qingping frame, blind motors, Bluetooth-equipped desks) and
+[LAN-controllable Wi-Fi devices](#undocumented-local-wi-fi-lan-controllable-phone-direct)
+(WiZ lights, AVRs) the phone can drive with no added hardware. Expensive,
+cloud-only, or ESP-bridge-only candidates are kept but clearly marked as
+heavier or parked.
 
 ---
 
@@ -602,6 +604,47 @@ receiver.
 
 ---
 
+## Undocumented local Wi-Fi (LAN-controllable, phone-direct)
+
+The Wi-Fi sibling of the section above, held to the same three filters — the
+phone reaches the device **on the LAN** (UDP/TCP/HTTP), no cloud, no added
+hardware, and the protocol is unwritten. The repo already carries LAN specs of
+exactly this shape (`lifx-z` UDP, `wemo-devices` SOAP, `roku-ecp`), so these
+slot in as siblings rather than a new category.
+
+The trap here is filter #1: **most "smart Wi-Fi" gear is cloud-only** and has no
+LAN path at all (see [No local path](#no-local-path-cloud-only-architecture)).
+The winners are the few that expose a genuine local API the vendor app itself
+uses on-network.
+
+| Device | Local transport | Hardware to add | Protocol state | Public RE | Cheap unit |
+|---|---|---|---|---|---|
+| **WiZ (Philips) lights** | UDP :38899 JSON, **no auth**, UDP-broadcast discovery | **None** — phone sends JSON straight to the bulb | **No official spec** — protocol only in [pywizlight](https://github.com/sbidy/pywizlight) and blog posts | [pywizlight](https://github.com/sbidy/pywizlight), [wiz-hack](https://github.com/myselfshravan/wiz-hack), [CLI writeup](https://aleksandr.rogozin.us/blog/2021/8/13/hacking-philips-wiz-lights-via-command-line) | **$7.99** open-box bulb |
+| **Denon / Marantz AVRs** | Telnet + an **undocumented HTTP API**; single connection | **None** — phone talks to the receiver directly | Telnet is semi-known; the **HTTP API is undocumented** (the real gap) | [HA denonavr](https://www.home-assistant.io/integrations/denonavr/), [openHAB denonmarantz](https://www.openhab.org/addons/bindings/denonmarantz/) | **$15–30** used networked AVR |
+| **Govee Wi-Fi (LAN-API models)** | UDP multicast 4001/4002, control :4003 | **None** (must toggle LAN API on in the app) | **Partly documented** — Govee's own "LAN API 101" + [govee2mqtt LAN.md](https://github.com/wez/govee2mqtt/blob/main/docs/LAN.md) | [wez/govee-lan-hass](https://github.com/wez/govee-lan-hass) | **$9.99** Wi-Fi bulb |
+
+Notes:
+
+- **WiZ is the standout** — the LAN equivalent of Qingping. Unauthenticated
+  UDP+JSON, $8 hardware, one of the most common budget bulbs sold, and *no*
+  vendor spec exists. It sits right next to `lifx-z` and would be one of the
+  fastest, most reusable Wi-Fi specs on the page.
+- **Denon/Marantz** brings a whole new category (AV receivers). Scope the spec
+  to the **undocumented HTTP API** — the telnet side is already semi-covered by
+  vendor PDFs, so the differentiated work is the HTTP layer. Used hardware is
+  cheap but bulky.
+- **Govee LAN** extends the repo's existing Govee BLE specs (`govee-h5075`,
+  `-h5080`, `-h6001`) to Wi-Fi, but it's only *partly* a gap since Govee
+  published a LAN primer — worth doing for family completeness, lower novelty.
+
+**Already local but already written → link, don't spec:** **Yeelight** (TCP
+:55443 JSON-RPC — but Yeelight [published an Inter-Operation Spec](https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf))
+and **Venstar thermostats** (a [vendor-published local REST API](https://venstar.com/localapi/)).
+Both are excellent local-first devices; neither is a spec gap, so they belong
+in the [link registry](#already-liberated-elsewhere-link-dont-spec).
+
+---
+
 ## No local path (cloud-only architecture)
 
 Parked, deliberately. These devices only ever talk to the vendor cloud — there
@@ -659,6 +702,8 @@ here is a pointer (and maybe a setup guide or video), not a YAML.
 | Neato Botvac (serial) | [OpenNeato](https://github.com/renjfk/OpenNeato), [botvac-wifi](https://github.com/sstadlberger/botvac-wifi) | Yes (UART) |
 | Eight Sleep Pod | [opensleep](https://github.com/LiamSnow/opensleep) firmware | Yes (post-flash) |
 | Husqvarna Automower | [automower-ble](https://pypi.org/project/automower-ble/) | Yes (BLE) |
+| Yeelight | [python-yeelight](https://gitlab.com/stavros/python-yeelight); vendor [Inter-Op Spec](https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf) | Yes (TCP :55443) |
+| Venstar thermostats | [vendor local REST API](https://venstar.com/localapi/) + HA native | Yes (HTTP) |
 
 Neato is the honest edge case: its protocol *isn't* cleanly written, but every
 route (OpenNeato, botvac-wifi) solders an **ESP32 onto the robot's serial
@@ -694,8 +739,11 @@ Ordered by cost. Every price is the cheapest listing observed on 2026-07-30;
 | Zengge / Magic Home LED controller | $1.99 | New | 6 |
 | JK-BMS (4S entry) | $6.35 | New | 3 |
 | TP-Link Kasa HS103 | $6.74 | Used | 6 |
+| WiZ (Philips) smart bulb | $7.99 | Open box | WiFi gap |
 | Tuya Fingerbot | $8.99 | New | 4 |
+| Govee Wi-Fi bulb (LAN-API) | $9.99 | New | WiFi gap |
 | Qingping CGG1 / CGDK2 | ~$10–14 (AliExpress) | New | BLE gap |
+| Denon / Marantz networked AVR | $15–30 | Used | WiFi gap |
 | AM43 / A-OK blind motor | $30.00 | Open box | BLE gap |
 | Standing-desk BLE controller | $25.00 | Open box | BLE gap |
 | Anova Precision Cooker, original BT | $9.99 (untested) / $20.00 working | Used | Anova |
@@ -741,16 +789,20 @@ spec work by the phone-direct filter.
    existing MiBeacon work. The cleanest phone-direct spec on the page.
 2. **AM43 / A-OK blind motors** — $30, phone talks BLE straight to the motor
    (confirmed, no ESP); the one-client quirk is worth writing down.
-3. **BT-equipped standing desks** — $25 receiver, phone-direct for units with
+3. **WiZ lights** — $8, unauthenticated UDP+JSON on the LAN, no vendor spec,
+   sibling to `lifx-z`. The Wi-Fi twin of Qingping and just as clean.
+4. **BT-equipped standing desks** — $25 receiver, phone-direct for units with
    the factory BLE box, one framed profile across many resellers. Scope to the
    receiver; keypad-only desks are out.
-4. **Spotify Car Thing** — $40, high-profile orphan with no protocol spec
+5. **Denon / Marantz undocumented HTTP API** — a new category (AVRs); the
+   telnet side is semi-covered, the HTTP layer is the gap. Cheap used hardware.
+6. **Spotify Car Thing** — $40, high-profile orphan with no protocol spec
    anywhere. Not BLE (USB/host), but it liberates the device itself rather than
    adding hardware, so it passes the spirit of the filter.
-5. **Insteon PLM / powerline message format** — $15 hub; the hub HTTP layer is
+7. **Insteon PLM / powerline message format** — $15 hub; the hub HTTP layer is
    phone-reachable and the powerline layer is a transport the repo has zero
    coverage of.
-6. **Anova Gen 1 and Gen 2** — ~$35, vendor-documented, phone-direct BLE; Gen 2
+8. **Anova Gen 1 and Gen 2** — ~$35, vendor-documented, phone-direct BLE; Gen 2
    brings COBS framing into the repo.
 
 **Time-boxed, separate track:** capture June Oven cloud traffic before
