@@ -597,6 +597,14 @@ Notes that make these good spec targets, not just good devices:
   give the repo. Scope the spec to the BLE receiver, and say plainly that
   keypad-only desks are an ESP-bridge job we don't cover.
 
+**Also phone-direct BLE, but pricier hardware:** **Acaia / Felicita / Bookoo
+coffee scales.** The protocol is a genuine gap — it lives only in
+[pyacaia](https://github.com/lucapinello/pyacaia) and
+[AcaiaArduinoBLE](https://github.com/tatemazer/AcaiaArduinoBLE) code, the phone
+talks BLE straight to the scale, and it's a popular niche. The catch is cost:
+the RE'd scales run **$95+** (Bookoo SC-mini $95, Acaia $100+), so it's a good
+spec for someone who already owns one, not a cheap bench buy.
+
 **Recommended first specs:** **Qingping** and **AM43** — both are pure
 phone-direct (no added hardware at all), cheap, and unwritten. The
 **BT-equipped desk** is a strong third, scoped to units with the factory
@@ -622,6 +630,9 @@ uses on-network.
 | **WiZ (Philips) lights** | UDP :38899 JSON, **no auth**, UDP-broadcast discovery | **None** — phone sends JSON straight to the bulb | **No official spec** — protocol only in [pywizlight](https://github.com/sbidy/pywizlight) and blog posts | [pywizlight](https://github.com/sbidy/pywizlight), [wiz-hack](https://github.com/myselfshravan/wiz-hack), [CLI writeup](https://aleksandr.rogozin.us/blog/2021/8/13/hacking-philips-wiz-lights-via-command-line) | **$7.99** open-box bulb |
 | **Denon / Marantz AVRs** | Telnet + an **undocumented HTTP API**; single connection | **None** — phone talks to the receiver directly | Telnet is semi-known; the **HTTP API is undocumented** (the real gap) | [HA denonavr](https://www.home-assistant.io/integrations/denonavr/), [openHAB denonmarantz](https://www.openhab.org/addons/bindings/denonmarantz/) | **$15–30** used networked AVR |
 | **Govee Wi-Fi (LAN-API models)** | UDP multicast 4001/4002, control :4003 | **None** (must toggle LAN API on in the app) | **Partly documented** — Govee's own "LAN API 101" + [govee2mqtt LAN.md](https://github.com/wez/govee2mqtt/blob/main/docs/LAN.md) | [wez/govee-lan-hass](https://github.com/wez/govee-lan-hass) | **$9.99** Wi-Fi bulb |
+| **Ecowitt GW1000/GW1100** weather gateway | HTTP `/get_livedata_info` JSON on the LAN | **None** — phone/HTTP polls the gateway | **Undocumented** — this JSON endpoint isn't in Ecowitt's docs (their published protocol is a separate TCP one) | [ecowitt_local](https://github.com/alexlenk/ecowitt_local), [gw1000-http](https://github.com/bmrzycki/gw1000-http) | **$22.99** open-box gateway |
+| **Daikin Wi-Fi AC (BRP069A/B)** | HTTP REST on :80, **no auth** | **None** — phone hits the module directly | Older API community-documented; the **firmware-2.8+ `/dsiot/multireq` JSON is under-documented** (newest C4x modules are cloud-only — see below) | [daimik local-API docs](https://github.com/daimik/Daikin-BRP069C4x-Local-API), [ael-code/daikin-control](https://github.com/ael-code/daikin-control), pydaikin | adapter **$130** (or built into the unit) |
+| **Yamaha AVRs (YNCA)** | Telnet `:50000` text protocol | **None** — phone talks to the receiver | Semi-gap — YNCA is less documented than MusicCast's leaked YXC spec | [mvdwetering/yamaha_ynca](https://github.com/mvdwetering/yamaha_ynca) | **$20–40** used networked AVR |
 
 Notes:
 
@@ -629,19 +640,36 @@ Notes:
   UDP+JSON, $8 hardware, one of the most common budget bulbs sold, and *no*
   vendor spec exists. It sits right next to `lifx-z` and would be one of the
   fastest, most reusable Wi-Fi specs on the page.
-- **Denon/Marantz** brings a whole new category (AV receivers). Scope the spec
-  to the **undocumented HTTP API** — the telnet side is already semi-covered by
-  vendor PDFs, so the differentiated work is the HTTP layer. Used hardware is
-  cheap but bulky.
+- **Ecowitt** is the second cheap standout: a $23 gateway with an *undocumented*
+  local JSON endpoint, and a whole weather-sensor category the repo doesn't
+  touch. The vendor documents a TCP protocol but not this HTTP one — a precise,
+  testable hole like Qingping.
+- **Daikin** opens HVAC — a big, high-value category — over a no-auth local
+  HTTP API. Two honest caveats: the *newest* BRP069**C4x** modules are
+  cloud-only (parked below), and the standalone adapter is ~$130, so this is
+  best done by someone who already owns a Daikin, not bought to bench.
+- **Denon/Marantz** and **Yamaha YNCA** together stake out AV receivers. Scope
+  Denon to its **undocumented HTTP API** (telnet is semi-covered by vendor
+  PDFs); YNCA is the lighter-documented Yamaha equivalent. Cheap used, just
+  bulky.
 - **Govee LAN** extends the repo's existing Govee BLE specs (`govee-h5075`,
   `-h5080`, `-h6001`) to Wi-Fi, but it's only *partly* a gap since Govee
   published a LAN primer — worth doing for family completeness, lower novelty.
 
-**Already local but already written → link, don't spec:** **Yeelight** (TCP
-:55443 JSON-RPC — but Yeelight [published an Inter-Operation Spec](https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf))
-and **Venstar thermostats** (a [vendor-published local REST API](https://venstar.com/localapi/)).
-Both are excellent local-first devices; neither is a spec gap, so they belong
-in the [link registry](#already-liberated-elsewhere-link-dont-spec).
+**Already local but already written → link, don't spec:** a surprising number
+of LAN protocols are *already cleanly documented*, so they go straight to the
+[link registry](#already-liberated-elsewhere-link-dont-spec) rather than
+becoming spec work:
+
+- **Yeelight** — TCP :55443 JSON-RPC, but Yeelight [published an Inter-Operation Spec](https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf).
+- **Venstar thermostats** — a [vendor-published local REST API](https://venstar.com/localapi/).
+- **Onkyo / Pioneer eISCP** — commands come from an [official Excel spec](https://github.com/miracle2k/onkyo-eiscp) (parsed into YAML). Documented.
+- **Vizio SmartCast TVs** — the community already maintains [full API docs](https://github.com/exiva/Vizio_SmartCast_API) (token-paired, port 7345).
+- **LG webOS TVs** — the local websocket protocol is well-mapped ([aiowebostv](https://github.com/home-assistant-libs/aiowebostv)).
+- **PurpleAir** — local sensor JSON is [community-documented](https://community.purpleair.com/t/sensor-json-documentation/6917).
+
+These are the WiFi analogue of the Roomba/dorita980 case: real local control,
+but re-specifying would just duplicate an existing written protocol.
 
 ---
 
@@ -659,6 +687,7 @@ device. That is a materially bigger project than a protocol spec, and it is
 | **Cosori / VeSync air fryers** | Control is the VeSync cloud API with cloud token auth; no local network control | Vendor active, fully cloud-bound |
 | **Snoo** (cloud-RE only) | RE exists but via the Snoo backend + PubNub, not a local channel | Paywalled July 2024 |
 | **Traeger WiFire** | WiFi path relays through the vendor socket (the BLE-capable grills are the exception) | Vendor active |
+| **Daikin BRP069C4x** (newest modules) | Unlike the BRP069A/B, the current-gen module is cloud-only — no local API. Buy the older module or a unit with it | Vendor active |
 
 ### If we ever come back to these
 
@@ -744,8 +773,12 @@ Ordered by cost. Every price is the cheapest listing observed on 2026-07-30;
 | Govee Wi-Fi bulb (LAN-API) | $9.99 | New | WiFi gap |
 | Qingping CGG1 / CGDK2 | ~$10–14 (AliExpress) | New | BLE gap |
 | Denon / Marantz networked AVR | $15–30 | Used | WiFi gap |
-| AM43 / A-OK blind motor | $30.00 | Open box | BLE gap |
+| Yamaha AVR (YNCA) | $20–40 | Used | WiFi gap |
+| Ecowitt GW1100 weather gateway | $22.99 | Open box | WiFi gap |
 | Standing-desk BLE controller | $25.00 | Open box | BLE gap |
+| AM43 / A-OK blind motor | $30.00 | Open box | BLE gap |
+| Acaia / Bookoo BLE coffee scale | $95+ | New | BLE gap (pricey) |
+| Daikin BRP069A/B Wi-Fi adapter | $130 (or built-in) | New | WiFi gap (pricey) |
 | Anova Precision Cooker, original BT | $9.99 (untested) / $20.00 working | Used | Anova |
 | Logitech Harmony Hub | $9.99 | Used | 1 |
 | JBD / Xiaoxiang BLE module | $12.35 | New | 3 |
@@ -791,19 +824,26 @@ spec work by the phone-direct filter.
    (confirmed, no ESP); the one-client quirk is worth writing down.
 3. **WiZ lights** — $8, unauthenticated UDP+JSON on the LAN, no vendor spec,
    sibling to `lifx-z`. The Wi-Fi twin of Qingping and just as clean.
-4. **BT-equipped standing desks** — $25 receiver, phone-direct for units with
+4. **Ecowitt GW1100** — $23, an undocumented local JSON endpoint, opens the
+   weather-sensor category. Precise, testable hole.
+5. **BT-equipped standing desks** — $25 receiver, phone-direct for units with
    the factory BLE box, one framed profile across many resellers. Scope to the
    receiver; keypad-only desks are out.
-5. **Denon / Marantz undocumented HTTP API** — a new category (AVRs); the
-   telnet side is semi-covered, the HTTP layer is the gap. Cheap used hardware.
-6. **Spotify Car Thing** — $40, high-profile orphan with no protocol spec
+6. **Denon / Marantz (+ Yamaha YNCA)** — the AV-receiver category; scope Denon
+   to its undocumented HTTP API, YNCA is the lighter Yamaha equivalent. Cheap
+   used hardware.
+7. **Spotify Car Thing** — $40, high-profile orphan with no protocol spec
    anywhere. Not BLE (USB/host), but it liberates the device itself rather than
    adding hardware, so it passes the spirit of the filter.
-7. **Insteon PLM / powerline message format** — $15 hub; the hub HTTP layer is
+8. **Insteon PLM / powerline message format** — $15 hub; the hub HTTP layer is
    phone-reachable and the powerline layer is a transport the repo has zero
    coverage of.
-8. **Anova Gen 1 and Gen 2** — ~$35, vendor-documented, phone-direct BLE; Gen 2
+9. **Anova Gen 1 and Gen 2** — ~$35, vendor-documented, phone-direct BLE; Gen 2
    brings COBS framing into the repo.
+
+**Higher-value but pricier hardware** (do if you already own one): **Daikin**
+BRP069A/B local HTTP (HVAC category, ~$130 adapter) and **Acaia/Bookoo** BLE
+coffee scales (protocol gap, $95+).
 
 **Time-boxed, separate track:** capture June Oven cloud traffic before
 **2026-09-22** if a unit is reachable — the only cheap action on the parked
