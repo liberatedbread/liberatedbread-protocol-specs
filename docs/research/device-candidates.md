@@ -57,7 +57,16 @@ must pass:
    then no amount of RE gives local control; you'd be building a self-hosted
    cloud replacement. Those are parked in
    [No local path](#no-local-path-cloud-only-architecture), not worked now.
-2. **Is the protocol written down cleanly anywhere, or does it only live inside
+2. **Does the user's phone speak to the device's own radio, or must they add
+   hardware?** This is the one that matters most for the sibling
+   [Flutter BLE app](https://github.com/PigsCanFlyLabs/opengreeniot-mobile).
+   Many "local" solutions are really an **ESP32 bridge** wired or soldered into
+   the device — that's a different product, not a phone-native protocol. We
+   want specs a phone app can implement to talk to the device's *existing*
+   radio directly, the same path the vendor app uses. Anything whose only route
+   is "add an ESP32" (Neato's serial pads, a keypad-only desk's pass-through
+   dongle) fails this filter, however cheap.
+3. **Is the protocol written down cleanly anywhere, or does it only live inside
    client code?** A maintained HA/ESPHome integration is a *client*, not a
    spec — but if it already documents the wire format well (Roomba via
    dorita980, RuuviTag, TTLock), re-specifying adds little. The differentiated
@@ -65,9 +74,11 @@ must pass:
    posts**: those are where a clean, implementation-independent spec is the
    thing nobody else has written.
 
-The sweet spot is **cheap + dead-local + protocol-unwritten** — which, after
-this survey, is mostly [undocumented BLE gadgets](#undocumented-local-ble-protocol-lives-only-in-client-code)
-(desk controllers, blind motors, the Qingping frame). Expensive or cloud-only
+The sweet spot is **cheap + phone-direct BLE + protocol-unwritten** — which,
+after this survey, is a short list of
+[undocumented BLE gadgets](#undocumented-local-ble-protocol-lives-only-in-client-code)
+the phone can drive with no added hardware: the Qingping frame, blind motors,
+and Bluetooth-equipped desks. Expensive, cloud-only, or ESP-bridge-only
 candidates are kept but clearly marked as heavier or parked.
 
 ---
@@ -551,36 +562,43 @@ because the cloud API is only encoded in three scattered projects.
 ## Undocumented local BLE (protocol lives only in client code)
 
 **This is the sweet spot** the effort filter points at: devices that are cheap,
-controlled entirely over local BLE with no cloud in the loop, and whose
-protocol has been figured out but **only exists inside a client** (an ESPHome
-sketch, a homebridge plugin) — never written as an implementation-independent
-spec. Writing that spec is exactly what this repo is for, and none of these
-need an expensive unit to verify.
+driven entirely over local BLE **by the phone's own radio** (no ESP32, no
+soldering, no controller swap), and whose protocol has been figured out but
+**only exists inside a client** — never written as an implementation-independent
+spec. Writing that spec is exactly what the Flutter app needs, and none of
+these need an expensive unit to verify.
 
 All three are risk class **[C]** on the vendor axis (the makers are fine) but
-top of the list on the *effort* axis.
+top of the list on the *effort* axis. The **Hardware** column is the decider:
+"phone only" means a phone app talks straight to the device, the same path the
+vendor app uses.
 
-| Device | Local? | Protocol state | Public RE (code-only) | Cheap unit |
+| Device | Hardware to add | Protocol state | Public RE (code-only) | Cheap unit |
 |---|---|---|---|---|
-| **Qingping CGG1 / CGDK2** thermo-hygrometer | BLE advertisement, fully passive | **Undocumented** — Theengs/ble_monitor decode the MiBeacon frames but explicitly *not* the Qingping-format frames these also emit | [ble_monitor by brand](https://home-is-where-you-hang-your-hack.github.io/ble_monitor/by_brand) | ~$10–14 AliExpress (no eBay listings 2026-07-30) |
-| **AM43 / A-OK blind & shade motors** | BLE, single-client | RE'd, but the frame format lives in code, not prose | [buxtronix/am43](https://github.com/buxtronix/am43) (ESP32/MQTT), [renssies/homebridge-am43-blinds](https://github.com/renssies/homebridge-am43-blinds), [openHAB AM43 binding](https://community.openhab.org/t/new-binding-am43-blind-drive-motor-binding/90272) | **$30** open-box motor; $39 typical |
-| **Jiecang / Uplift / Desky standing desks** | BLE (RJ-12 add-on), local | Clean `F1 F1 … 7E` framing with opcode/len/checksum — documented only in blog posts and sketches | [SitStand writeup](https://gregraiz.com/blog/sitstand-bluetooth-desk-controller/), [Desky ESPHome (HA)](https://community.home-assistant.io/t/desky-standing-desk-esphome-works-with-desky-uplift-jiecang-assmann-others/383790), [Ordspilleren/DeskControl](https://github.com/Ordspilleren/DeskControl) | controller box **$25** open-box |
+| **Qingping CGG1 / CGDK2** thermo-hygrometer | **None** — phone passively listens to advertisements | **Undocumented** — Theengs/ble_monitor decode the MiBeacon frames but explicitly *not* the Qingping-format frames these also emit | [ble_monitor by brand](https://home-is-where-you-hang-your-hack.github.io/ble_monitor/by_brand) | ~$10–14 AliExpress (no eBay listings 2026-07-30) |
+| **AM43 / A-OK blind & shade motors** | **None** — the motor *is* the BLE peripheral; the phone connects to it directly ([homebridge-am43](https://github.com/renssies/homebridge-am43-blinds) confirms host-BLE, no ESP) | RE'd, but the frame format lives in code, not prose | [buxtronix/am43](https://github.com/buxtronix/am43) (ESP is *optional*, for MQTT), [homebridge-am43-blinds](https://github.com/renssies/homebridge-am43-blinds), [openHAB AM43 binding](https://community.openhab.org/t/new-binding-am43-blind-drive-motor-binding/90272) | **$30** open-box motor; $39 typical |
+| **Jiecang / Uplift / Desky desks — BT-equipped only** | **None** *if* the desk has the factory BLE receiver ([JCP35N-BLT](https://www.jiecang.com/product/jcp35n-blt.html)); the vendor app already drives it over BLE. Keypad-only desks need an ESP dongle — **out of scope** | Clean `F1 F1 … 7E` framing with opcode/len/checksum — documented only in blog posts and sketches | [SitStand writeup](https://gregraiz.com/blog/sitstand-bluetooth-desk-controller/), [graiz/sitstand](https://github.com/graiz/sitstand), [tzermias/deskctl](https://github.com/tzermias/deskctl) | receiver box **$25** open-box |
 
 Notes that make these good spec targets, not just good devices:
 
 - **Qingping** is a documented *hole*, not a guess — the decoders tell you
   exactly which frames they refuse, so the spec has a precise, testable scope.
-  It slots straight beside the existing `xiaomi-lywsd03mmc` MiBeacon work.
+  It slots straight beside the existing `xiaomi-lywsd03mmc` MiBeacon work, and
+  it's the purest phone-direct case on the page: no connection at all, just
+  advertisement decode.
 - **AM43** has a one-client-at-a-time quirk (the app and any controller can't
   both be connected) that belongs in the spec's connection notes — the kind of
   operational detail that only survives if it's written down.
 - **Desks** share one BLE profile across many resellers (Uplift, Desky,
-  Assmann, Jiecang OEM), so a single spec covers a whole shelf of hardware —
-  the same leverage the SPOTLED and CoolLEDX specs already give the repo.
+  Assmann, Jiecang OEM) *that carry the receiver box*, so a single spec covers
+  a whole shelf of hardware — the same leverage the SPOTLED and CoolLEDX specs
+  give the repo. Scope the spec to the BLE receiver, and say plainly that
+  keypad-only desks are an ESP-bridge job we don't cover.
 
-**Recommended first spec of the whole page:** the **standing-desk BLE
-profile.** $25 to verify, one profile covering many badges, a clean framed
-protocol, and nothing but code to cite today. AM43 is the close second.
+**Recommended first specs:** **Qingping** and **AM43** — both are pure
+phone-direct (no added hardware at all), cheap, and unwritten. The
+**BT-equipped desk** is a strong third, scoped to units with the factory
+receiver.
 
 ---
 
@@ -642,9 +660,12 @@ here is a pointer (and maybe a setup guide or video), not a YAML.
 | Eight Sleep Pod | [opensleep](https://github.com/LiamSnow/opensleep) firmware | Yes (post-flash) |
 | Husqvarna Automower | [automower-ble](https://pypi.org/project/automower-ble/) | Yes (BLE) |
 
-Where the protocol is *not* cleanly written even though a client exists — Neato
-serial is the clearest case — it can graduate back up to a spec candidate. The
-rest are genuinely done.
+Neato is the honest edge case: its protocol *isn't* cleanly written, but every
+route (OpenNeato, botvac-wifi) solders an **ESP32 onto the robot's serial
+pads** — there is no radio the phone can reach, so it fails the phone-direct
+filter and stays here rather than graduating to a spec candidate. If a device
+here turns out to be protocol-unwritten *and* phone-reachable, that one can
+graduate up; Neato can't.
 
 ---
 
@@ -708,39 +729,40 @@ roughly **$160** and covers five protocol families the repo has no spec for.
 
 ## Suggested order of work
 
-Re-ordered against the effort filter — **local + protocol-unwritten first**,
-not raw urgency. The already-liberated urgent devices (Roomba, Wyze, BMS,
-Zengge) drop off this list to the
-[link registry](#already-liberated-elsewhere-link-dont-spec); they don't need a
-spec from us.
+Re-ordered against the effort filter — **phone-direct + protocol-unwritten
+first**, not raw urgency. Already-liberated urgent devices (Roomba, Wyze, BMS,
+Zengge) drop off to the
+[link registry](#already-liberated-elsewhere-link-dont-spec); anything whose
+only route is an added ESP32 (Neato serial, keypad-only desks) is excluded from
+spec work by the phone-direct filter.
 
-1. **Standing-desk BLE profile** — $25, one profile across many resellers,
-   clean framed protocol, only code to cite today. Best effort-to-value on the
-   page.
-2. **AM43 / A-OK blind motors** — $30, dead-local BLE, protocol only in client
-   code; the one-client quirk is worth writing down.
-3. **Qingping CGG1 / CGDK2 frame** — ~$12, a precisely-scoped documented hole
-   next to the existing MiBeacon work.
+1. **Qingping CGG1 / CGDK2 frame** — ~$12, zero added hardware (passive
+   advertisement listen), a precisely-scoped documented hole next to the
+   existing MiBeacon work. The cleanest phone-direct spec on the page.
+2. **AM43 / A-OK blind motors** — $30, phone talks BLE straight to the motor
+   (confirmed, no ESP); the one-client quirk is worth writing down.
+3. **BT-equipped standing desks** — $25 receiver, phone-direct for units with
+   the factory BLE box, one framed profile across many resellers. Scope to the
+   receiver; keypad-only desks are out.
 4. **Spotify Car Thing** — $40, high-profile orphan with no protocol spec
-   anywhere; the most new writing but the most visible payoff.
-5. **Neato serial command spec** — a client exists ([OpenNeato](https://github.com/renjfk/OpenNeato))
-   but the command set isn't written as a spec; graduate it up from the link
-   registry.
-6. **Insteon PLM / powerline message format** — $15 hub, and the powerline
-   layer is a transport the repo has zero coverage of.
-7. **Anova Gen 1 and Gen 2** — ~$35, vendor-documented; Gen 2 brings COBS
-   framing into the repo.
-8. **Bose SoundTouch** — published API, cheap hardware; fast to land but
-   already has an HA client, so lower differentiated value.
+   anywhere. Not BLE (USB/host), but it liberates the device itself rather than
+   adding hardware, so it passes the spirit of the filter.
+5. **Insteon PLM / powerline message format** — $15 hub; the hub HTTP layer is
+   phone-reachable and the powerline layer is a transport the repo has zero
+   coverage of.
+6. **Anova Gen 1 and Gen 2** — ~$35, vendor-documented, phone-direct BLE; Gen 2
+   brings COBS framing into the repo.
 
 **Time-boxed, separate track:** capture June Oven cloud traffic before
 **2026-09-22** if a unit is reachable — the only cheap action on the parked
 [no-local-path](#no-local-path-cloud-only-architecture) group.
 
-**Not spec work:** point owners of Roomba, Wyze, Kasa, Zengge, BMS, Harmony,
-Eight Sleep and Automower at the existing tools (and, where you want to add
-something, record a setup guide or video — the schema's `helpful_videos` field
-is built for exactly that).
+**Not spec work (link, don't build):** point owners of Roomba, Wyze, Kasa,
+Zengge, BMS, Harmony, Eight Sleep and Automower at the existing tools. Neato
+belongs here too — its only route is an ESP on the serial pads, so it's a
+hardware-mod to link to, not a phone-native spec to write. Where you want to
+add value, record a setup guide or video — the schema's `helpful_videos` field
+is built for exactly that.
 
 **Time-boxed exception:** capture June Oven app/API traffic *before its
 2026-09-22 shutdown* if any owner's unit is reachable — that window does not
