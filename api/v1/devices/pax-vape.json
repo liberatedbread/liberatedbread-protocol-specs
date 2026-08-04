@@ -32,7 +32,7 @@
     "manufacturer": "PAX Labs",
     "manufacturer_status": "unsupported",
     "name": "PAX Vaporizer",
-    "notes": "Supports PAX 3, PAX Era, PAX Era Pro. Uses AES-128 OFB encryption. Master key (hex): f7c866c38f78753086293bd57dd32540. This key is LOCALLY verified: it appears as the decimal byte array {247,200,102,195,143,120,117,48,134,41,59,213,125,211,37,64} at com/pax/peace/encryption/b.java:60 (which is why a text grep for the hex string \"F7C866\" finds nothing). It is also independently documented in public PAX reverse-engineering (e.g. blraaz.me / open-source pax libraries). Key derivation: read 8-char serial, duplicate to 16 bytes, AES-128-ECB encrypt with master key -> per-device key. Encrypt: AES-128-OFB with per-device key and random 16-byte IV. Wire format: [IV (16 bytes)] + [ciphertext]. On read, first 16 bytes = IV. Default IV: deadbeefdeadbeefdeadbeefdeadbeef (fallback only). Also has AES-128-CTR mode for initial pairing/enrollment (service ...0210, char ...0212). Temperature encoding: uint16 LE, value / 10 = degrees C. Nordic Semiconductor chipset. FCC ID: 2AJWD-PAX3. PAX is explicitly allowed by project policy.\nEnrich-branch evidence annotations: the advertised 128-bit service UUID 8e320200-64d2-11e6-bdf4-0800200c9a66 is from PaxServiceType.kt. BLE local name is user-customizable and therefore a weak signal. AdvertisingInformation.kt shows manufacturer-specific data contains a 2-byte status bitfield and 8-byte ASCII serial number after decryption; ManufacturerBitField.kt unpacks the little-endian bitfield, but exact semantics remain partly unresolved. Device Information Service serial-number characteristic 00002a25 is read to obtain the 8-character serial for key derivation. AESEncryption.kt confirms the master key byte array and AES/OFB128/NoPadding data-plane cipher. The enrich branch found app code returning ciphertext plus trailing IV on encrypt and reading the IV from the last 16 bytes on decrypt; it also reclassified deadbeefdeadbeefdeadbeefdeadbeef as the fixed AES-CTR pairing/enrollment IV, not an OFB fallback. Attribute IDs are multiplexed by byte 0 and map to PAXAttribute.kt; STATUS_UPDATE and many per-attribute payloads remain documented in prose because the schema cannot express all variants.\n",
+    "notes": "Supports PAX 3, PAX Era, PAX Era Pro. AES-128-OFB encryption applies to the Era and PAX 3; the Era Pro uses a more sophisticated protocol with nonces, AES-CTR mode and a connection handshake. Master key (hex): f7c866c38f78753086293bd57dd32540. This key is LOCALLY verified: it appears as the decimal byte array {247,200,102,195,143,120,117,48,134,41,59,213,125,211,37,64} at com/pax/peace/encryption/b.java:60 (which is why a text grep for the hex string \"F7C866\" finds nothing). It is also independently documented in public PAX reverse-engineering (e.g. blraaz.me / open-source pax libraries). Key derivation: read 8-char serial, duplicate to 16 bytes, AES-128-ECB encrypt with master key -> per-device key. Encrypt: AES-128-OFB with per-device key and random 16-byte IV. Wire format: [ciphertext] + [IV (16 bytes)]. On read, the LAST 16 bytes = IV. The IV deadbeefdeadbeefdeadbeefdeadbeef belongs to the AES-CTR pairing/enrollment path, not OFB (reclassified — see annotations below). Also has AES-128-CTR mode for initial pairing/enrollment (service ...0210, char ...0212). Temperature encoding: uint16 LE, value / 10 = degrees C. Nordic Semiconductor chipset. FCC ID: 2AJWD-PAX3. PAX is explicitly allowed by project policy.\nEnrich-branch evidence annotations: the advertised 128-bit service UUID 8e320200-64d2-11e6-bdf4-0800200c9a66 is from PaxServiceType.kt. BLE local name is user-customizable and therefore a weak signal. AdvertisingInformation.kt shows manufacturer-specific data contains a 2-byte status bitfield and 8-byte ASCII serial number after decryption; ManufacturerBitField.kt unpacks the little-endian bitfield, but exact semantics remain partly unresolved. Device Information Service serial-number characteristic 00002a25 is read to obtain the 8-character serial for key derivation. AESEncryption.kt confirms the master key byte array and AES/OFB128/NoPadding data-plane cipher. The enrich branch found app code returning ciphertext plus trailing IV on encrypt and reading the IV from the last 16 bytes on decrypt; it also reclassified deadbeefdeadbeefdeadbeefdeadbeef as the fixed AES-CTR pairing/enrollment IV, not an OFB fallback. Attribute IDs are multiplexed by byte 0 and map to PAXAttribute.kt; STATUS_UPDATE and many per-attribute payloads remain documented in prose because the schema cannot express all variants.\nEcosystem update (2026-07): PAX shut down its hosted Web Bluetooth app web-app.pax.com/device in May 2026 (it now redirects to pax.com); the Android app is at 6.4.1 and the iOS app has been off the App Store since Nov 2019. varenc/pax-app-bluetooth-server preserves the captured official web-app bundle and is the best public source for the Era Pro enrollment UUIDs. The TristWiki protocol notes (live site down; Wayback captures) archive a 33-entry attribute table including ENCRYPTION_EXCHANGE=49 and ENCRYPTION_PACKET=50 (Era Pro session-key negotiation).\n",
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -95,20 +95,22 @@
     {
       "device_class": "temperature",
       "name": "Temperature",
+      "notes": "Decrypted read packet with message_type 0x01 (ACTUAL_TEMP); stage it via request_status_update with bit (1 << 1) set, then read.\n",
       "platform": "sensor",
       "state_characteristic": "8e320201-64d2-11e6-bdf4-0800200c9a66",
       "state_mapping": {
-        "value": "message_type"
+        "value": "temperature"
       },
       "unit": "C"
     },
     {
       "device_class": "battery",
       "name": "Battery",
+      "notes": "Decrypted read packet with message_type 0x03 (BATTERY); stage it via request_status_update with bit (1 << 3) set, then read.\n",
       "platform": "sensor",
       "state_characteristic": "8e320201-64d2-11e6-bdf4-0800200c9a66",
       "state_mapping": {
-        "value": "message_type"
+        "value": "battery"
       },
       "unit": "%"
     }
@@ -123,6 +125,11 @@
       "description": "Open-source PAX BLE controller (Swift, ISC); source of the protocol details cited by the device page. Archived upstream.",
       "title": "tristanseifert/pax-controller-test",
       "url": "https://github.com/tristanseifert/pax-controller-test"
+    },
+    {
+      "description": "Preserves the official PAX Web Bluetooth app bundle (captured April 2026 before the May 2026 shutdown); best public source for the Era Pro enrollment path.",
+      "title": "varenc/pax-app-bluetooth-server",
+      "url": "https://github.com/varenc/pax-app-bluetooth-server"
     }
   ],
   "protocol_handler": "pax_ofb",
@@ -137,14 +144,33 @@
           },
           "format": [
             {
+              "description": "Attribute ID: 0x01 = ACTUAL_TEMP, 0x02 = HEATER_SET_POINT, 0x03 = BATTERY, 0x18 = SUPPORTED_ATTRIBUTES (PaxMessageType enum)",
               "length": 1,
               "name": "message_type",
               "offset": 0,
               "type": "uint8"
+            },
+            {
+              "description": "Valid when message_type == 0x01 (ACTUAL_TEMP): uint16 LE, value / 10 = degrees C (GenericTemperatureMessage, tristanseifert PaxMessage.swift)",
+              "endianness": "little",
+              "length": 2,
+              "name": "temperature",
+              "offset": 1,
+              "scale": 0.1,
+              "type": "uint16",
+              "unit": "C"
+            },
+            {
+              "description": "Valid when message_type == 0x03 (BATTERY): state of charge 0-100 in one byte (BatteryMessage, tristanseifert PaxMessage.swift)",
+              "length": 1,
+              "name": "battery",
+              "offset": 1,
+              "type": "uint8",
+              "unit": "%"
             }
           ],
           "name": "Read Data",
-          "notes": "Read payload is AES-128-OFB encrypted; first 16 bytes of each read = IV. Confidence HIGH. Evidence: com/pax/peace/encryption/b.java:58 (AES/OFB128), b.java:60 (16-byte ECB key-derivation key), g/p/f.java:33 (this char UUID).\n",
+          "notes": "Read payload is AES-128-OFB encrypted; the LAST 16 bytes of each read = IV (ciphertext first). Confidence HIGH. Evidence: com/pax/peace/encryption/b.java:58 (AES/OFB128), b.java:60 (16-byte ECB key-derivation key), g/p/f.java:33 (this char UUID).\n",
           "properties": [
             "read"
           ],
@@ -153,27 +179,77 @@
         {
           "commands": {
             "get_actual_temp": {
-              "description": "Request current temperature (encrypted, type 0x01)",
+              "description": "Current temperature attribute (type 0x01). No public client polls with a bare attribute byte — the documented mechanism is request_status_update with the attribute's bit set, then a read; TristWiki marks ACTUAL_TEMP write unsupported.",
               "value": [
                 1
               ]
             },
             "get_battery": {
-              "description": "Request battery level (encrypted, type 0x03)",
+              "description": "Battery attribute (type 0x03). As above: poll via request_status_update bitmask + read, not a bare [0x03] write.",
               "value": [
                 3
               ]
             },
             "get_supported_attributes": {
-              "description": "Request supported attributes bitfield (type 0x18)",
+              "description": "Supported-attributes bitfield (type 0x18). As above: poll via request_status_update bitmask + read. Per-model attribute support varies, so clients should rely on this rather than a fixed model table.",
               "value": [
                 24
               ]
             },
             "request_status_update": {
-              "description": "Request full status update (type 0xFE)",
-              "value": [
-                254
+              "description": "Request status update: type 0xFE followed by an 8-byte LE bitmask of attribute IDs (a bare [0xFE] with no mask is malformed). The device stages the requested attributes for reading from the read characteristic.",
+              "parameters": {
+                "mask_0": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mask_1": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mask_2": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mask_3": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mask_4": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mask_5": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mask_6": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mask_7": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                254,
+                "{mask_0}",
+                "{mask_1}",
+                "{mask_2}",
+                "{mask_3}",
+                "{mask_4}",
+                "{mask_5}",
+                "{mask_6}",
+                "{mask_7}"
               ]
             },
             "set_heater_setpoint": {
@@ -217,20 +293,15 @@
             "static_key": "F7C866C38F78753086293BD57DD32540"
           },
           "name": "Write Command",
-          "notes": "static_key is the hardcoded AES-128-ECB KEY-DERIVATION key, NOT the payload key. The actual OFB session key = AES-ECB(static_key, peripheral_serial duplicated to 16 bytes); the write payload is then AES-128-OFB(session_key, random 16-byte IV) with the IV prepended on the wire. A secondary AES-128-CTR path (enrollment/pairing, key stored in the app DB) also exists. Confidence HIGH. Evidence: com/pax/peace/encryption/b.java:53,58,60,65,70,74; a.java:26 (AES/CTR); com/pax/peace/d.java:8-9 (service/write UUIDs).\n",
+          "notes": "static_key is the hardcoded AES-128-ECB KEY-DERIVATION key, NOT the payload key. The actual OFB session key = AES-ECB(static_key, peripheral_serial duplicated to 16 bytes); the write payload is then AES-128-OFB(session_key, random 16-byte IV) with the IV appended on the wire (ciphertext || IV). A secondary AES-128-CTR path (enrollment/pairing, key stored in the app DB) also exists. Confidence HIGH. Evidence: com/pax/peace/encryption/b.java:53,58,60,65,70,74; a.java:26 (AES/CTR); com/pax/peace/d.java:8-9 (service/write UUIDs).\n",
           "properties": [
             "write"
           ],
           "uuid": "8e320202-64d2-11e6-bdf4-0800200c9a66"
         },
         {
-          "encryption": {
-            "algorithm": "aes-128-ofb",
-            "key_derivation": "device-specific",
-            "static_key": "F7C866C38F78753086293BD57DD32540"
-          },
           "name": "Notification Trigger",
-          "notes": "Data-ready notify characteristic; notified payloads use the same AES-128-OFB session key as the read/write characteristics. Confidence HIGH. Evidence: com/pax/peace/g/p/f.java:31 (this char UUID).\n",
+          "notes": "Data-ready notify characteristic. The notification carries a single byte — the first byte of the encrypted packet waiting on the read characteristic — and clients discard it and simply issue a read; it is NOT an OFB-encrypted payload. Confidence HIGH. Evidence: com/pax/peace/g/p/f.java:31 (this char UUID); single-byte semantics per blraaz.me and tristanseifert PaxDevice.swift.\n",
           "properties": [
             "read",
             "notify"

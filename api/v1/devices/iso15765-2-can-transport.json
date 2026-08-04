@@ -3,7 +3,7 @@
     "category": "automotive",
     "manufacturer": "ISO",
     "manufacturer_status": "active",
-    "model": "ISO 15765-2:2016 (all addressing modes, all frame types)",
+    "model": "ISO 15765-2:2016 (all addressing modes, all frame types; withdrawn 2024-04-05, replaced by ISO 15765-2:2024 — frame formats unchanged in substance)",
     "name": "ISO 15765-2 CAN Transport Layer (ISO-TP) Reference",
     "notes": "ISO 15765-2 (ISO-TP) is the segmentation layer between raw CAN frames and\nUDS/KWP2000 application data. Any diagnostic message longer than 7 bytes\nmust be segmented by ISO-TP; any message 7 bytes or shorter can be sent as\na single frame. This is the most common failure point for clone adapters:\nthey cannot reassemble multi-frame responses, or they ignore the ECU's\nrequested separation time, or they cannot SEND segmented requests at all.\n\nThis is a REFERENCE spec. Vehicle specs reference this instead of\nre-inventing the frame format. Every OBD device in this repo uses ISO-TP\nunless it explicitly says `raw_frames` or `ATCAF0`.\n\nThe frame types below use CAN FD-aware notation where the Data Length Code\nfield is the actual data length, not the classic CAN encoding; on classic\nCAN, DLC=8 means \"up to 8 bytes\" and a single frame can be shorter.\n",
     "protocol": "can",
@@ -21,8 +21,8 @@
       },
       "mixed": {
         "description": "Some frames on one ID with raw bytes (no ISO-TP), others with ISO-TP on a different ID. Used by the Triumph Tiger 900 immo/ABS stacks.",
-        "name": "Mixed addressing",
-        "note": "ATCAF0 on one stack, ISO-TP formatting on the other. The adapter must be reconfigured between them."
+        "name": "Mixed raw/ISO-TP stacks (not ISO \"mixed addressing\")",
+        "note": "ATCAF0 on one stack, ISO-TP formatting on the other. The adapter must be reconfigured between them. Terminology caveat: ISO 15765-2:2016 §10.3.5 defines 'mixed addressing' as the remote-diagnostics addressing format that combines the CAN identifier with an N_AE address-extension byte carried as data byte 1 (Tables 30-33) — a different concept from the raw + ISO-TP coexistence described here, so this mode is deliberately not called mixed addressing."
       },
       "normal_fixed": {
         "can_id_width": 29,
@@ -63,6 +63,7 @@
     },
     "frame_types": [
       {
+        "can_fd_escape": "On CAN FD, a data_length nibble of 0 is an escape: the real SF length (8-62 with normal addressing) is in byte 1 (Table 8/§9.6.2), so a CAN-FD single frame can carry up to 62 payload bytes, not 7.",
         "description": "One frame carries the entire message (7 bytes or fewer)",
         "example": {
           "description": "Single frame, 3 payload bytes: UDS ReadDataByIdentifier(0xF190) = VIN",
@@ -96,11 +97,12 @@
           }
         ],
         "nibble": "0",
-        "padding": "0xAA, 0x00, or 0x55 depending on ECU",
+        "padding": "0xAA, 0x00, or 0x55 depending on ECU; the standard's own recommended padding byte is 0xCC (§10.4.2.1, chosen to minimize stuff-bit insertions)",
         "type": "SingleFrame"
       },
       {
         "description": "First of a multi-frame message. Carries the total length and first 6 payload bytes.",
+        "escape_sequence": "For messages over 4095 bytes the 12-bit FF_DL is set to 0 (low nibble of byte0 = 0, byte1 = 0) and a 32-bit length follows in bytes 2-5 (§9.6.3.1/Table 15), raising the maximum to 4 GiB. max_total_length 4095 holds for the classic 12-bit encoding only.",
         "example": {
           "description": "First frame, total 20 (0x14) bytes: response 62 F1 90 <VIN...>",
           "raw": "10 14 62 F1 90 57 42 53"
@@ -185,11 +187,12 @@
           },
           {
             "byte": 2,
-            "description": "Minimum time between consecutive frames. Unit depends on value: 0-127 = ms (STmin in ms), 0xF1-0xF9 = 100-900 µs. Clone adapters frequently ignore STmin below 5ms.",
+            "description": "Minimum time between consecutive frames. Unit depends on value: 0-127 = ms (STmin in ms), 0xF1-0xF9 = 100-900 µs. Reserved values (0x80-0xF0, 0xFA-0xFF) must be treated as 127 ms by the sender (§9.6.5.5) — a rule real implementations get wrong. Clone adapters frequently ignore STmin below 5ms.",
             "name": "separation_time_min"
           }
         ],
         "nibble": "3",
+        "note": "N_WFTmax (§9.7): receiver-local limit on how many consecutive FC.WAIT frames a receiver may send; a sender that keeps receiving WAIT beyond that local limit should treat the transfer as failed.",
         "sticky": {
           "adapter": "Clone ELM327 adapters frequently ignore STmin values. An advanced-stn adapter (OBDLink, UniCarScan) respects them. If a function works with one adapter and not another at the same STmin, the adapter's flow-control implementation is the variable."
         },
@@ -240,7 +243,7 @@
         "item": "When an adapter produces 7F 78 (RequestCorrectlyReceived-ResponsePending), the ECU needs more time. Poll 3E 00 every second until the final response arrives."
       },
       {
-        "item": "The 12-bit total length in a FirstFrame limits ISO-TP messages to 4095 bytes. In practice, most ECUs cap much lower (255 bytes is common)."
+        "item": "The 12-bit total length in a FirstFrame limits ISO-TP messages to 4095 bytes in the classic encoding (the FF escape sequence with a 32-bit length covers larger messages). In practice, most ECUs cap much lower (255 bytes is common)."
       },
       {
         "item": "On classic CAN with DLC=8, a single frame always occupies 8 bytes on the wire. The data_length field tells you how many are real."
@@ -249,6 +252,7 @@
   },
   "source": {
     "date_spec": "2026-07-28",
-    "standard": "ISO 15765-2:2016"
+    "standard": "ISO 15765-2:2016",
+    "superseded_by": "ISO 15765-2:2024 (fourth edition; 2016 edition withdrawn 2024-04-05. The 2024 edition restructures the service interface around ISO 14229-2 primitives; the PCI/frame formats documented here are unchanged in substance.)"
   }
 }

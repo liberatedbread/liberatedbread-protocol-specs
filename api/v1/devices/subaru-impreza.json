@@ -3,7 +3,7 @@
     "manufacturer": "Subaru Corporation",
     "manufacturer_status": "active",
     "name": "Subaru Impreza / WRX / STi",
-    "notes": "Subaru uses SSM (Subaru Select Monitor), a proprietary diagnostic protocol layered on top of either ISO 9141-2 K-line (2002–2007) or ISO 15765-4 CAN (2008+). SSM exposes roughly 10× more live data than generic OBD-II Mode 01 PIDs — knock correction, per-cylinder roughness, AVCS cam angles, AF Learning by airflow range, boost error, ethanol content, and hundreds of ECU-internal parameters.\nTwo transports, one protocol:\nK-line (2002–2007) — 4800 baud, 8N1, 5-baud init then SSM framing:\n  [0x80, dest, 0xF0, length, COMMAND, payload..., checksum]\n  Checksum = Σ bytes (excluding checksum) mod 65536, stored as 1 byte.\n  Dest addresses: 0x10=engine, 0x18=transmission, 0x30=ABS.\n\nCAN (2008+) — 500 kbps, 11-bit IDs:\n  Request/response IDs are per-ECU and listed in the `ecus` block below\n  (engine 0x7E0/0x7E8, transmission 0x7E1/0x7E9, ABS 0x7E3/0x7EB) — the\n  standard ISO 15765-4 diagnostic pairs, response = request + 8. Do NOT\n  compute them from the K-line dest address: those addresses (0x10, 0x18,\n  0x30) are not contiguous, so an earlier \"0x7E0 + (dest - 0x10)\" formula\n  here was wrong — it mapped the transmission onto 0x7E8 (the engine's\n  response ID) and the ABS onto 0x800. Payload after the ID is\n  [COMMAND, payload...] on request, [RESPONSE, payload...] on reply.\n  No SSM header, no checksum — handled by CAN CRC.\n\nThe protocol is identical: same commands, same parameter addresses. Only the framing differs. This is the foundation of RomRaider's portability — swap the transport driver, keep the protocol logic.\nSOURCE: RomRaider/src/main/java/com/romraider/io/protocol/ssm/ - iso9141/SSMProtocol.java      (K-line transport) - iso9141/SSMChecksumCalculator.java - iso15765/SSMProtocol.java     (CAN transport) - iso15765/SSMResponseProcessor.java - logger/ecu/comms/query/SSMEcuInit.java\nDTCs are NOT a separate protocol command. They are regular SSM parameters stored at memory addresses defined in the ECU definition XML. Each DTC is a single bit at a (memaddr, bit) location — read that address, check the bit, and if set the DTC is active. Clearing a DTC means writing 0x00 to its memory address. RomRaider defines DTCs via <dtcode> elements with memaddr and bit attributes.\n",
+    "notes": "Subaru uses SSM (Subaru Select Monitor), a proprietary diagnostic protocol layered on top of either ISO 9141-2 K-line (2002–2007) or ISO 15765-4 CAN (2008+). SSM exposes roughly 10× more live data than generic OBD-II Mode 01 PIDs — knock correction, per-cylinder roughness, AVCS cam angles, AF Learning by airflow range, boost error, ethanol content, and hundreds of ECU-internal parameters.\nTwo transports, one protocol:\nK-line (2002–2007) — 4800 baud, 8N1, 5-baud init then SSM framing:\n  [0x80, dest, 0xF0, length, COMMAND, payload..., checksum]\n  Checksum = Σ bytes (excluding checksum) mod 65536, stored as 1 byte.\n  Dest addresses: 0x10=engine, 0x18=transmission, 0x30=ABS.\n\nCAN (2008+) — 500 kbps, 11-bit IDs:\n  Request/response IDs are per-ECU and listed in the `ecus` block below\n  (engine 0x7E0/0x7E8, transmission 0x7E1/0x7E9, ABS 0x7E3/0x7EB) — the\n  standard ISO 15765-4 diagnostic pairs, response = request + 8. Do NOT\n  compute them from the K-line dest address: those addresses (0x10, 0x18,\n  0x30) are not contiguous, so an earlier \"0x7E0 + (dest - 0x10)\" formula\n  here was wrong — it mapped the transmission onto 0x7E8 (the engine's\n  response ID) and the ABS onto 0x800. Payload after the ID is\n  [COMMAND, payload...] on request, [RESPONSE, payload...] on reply.\n  No SSM header, no checksum — handled by CAN CRC.\n\nThe protocol is identical: same commands, same parameter addresses. Only the framing differs. This is the foundation of RomRaider's portability — swap the transport driver, keep the protocol logic.\nSOURCE: RomRaider/src/main/java/com/romraider/io/protocol/ssm/ - iso9141/SSMProtocol.java      (K-line transport) - iso9141/SSMChecksumCalculator.java - iso15765/SSMProtocol.java     (CAN transport) - iso15765/SSMResponseProcessor.java - logger/ecu/comms/query/SSMEcuInit.java\nDTCs are NOT a separate protocol command. They are regular SSM parameters stored at memory addresses defined in the logger definition XML. Each DTC is a single bit at a (memaddr, bit) location — read that address, check the bit, and if set the DTC is active. Clearing a DTC means writing 0x00 to its memory address. RomRaider defines DTCs via <dtcode> elements with memaddr and bit attributes.\n",
     "protocol": "obd2",
     "setup": {
       "confidence": "high",
@@ -186,11 +186,11 @@
     "data_identifiers": [
       {
         "did": "0x000007",
-        "formula": "x",
+        "formula": "x * 100 / 255",
         "name": "Engine Load (Relative)",
         "source": "P1, ecubyteindex=8, ecubit=7",
         "type": "uint8",
-        "unit": "raw",
+        "unit": "%",
         "verification": "reported"
       },
       {
@@ -222,7 +222,7 @@
       },
       {
         "did": "0x00000D",
-        "formula": "x * 0.01933677",
+        "formula": "x * 37 / 255",
         "name": "Manifold Absolute Pressure",
         "source": "P7, ecubyteindex=8, ecubit=1",
         "type": "uint8",
@@ -267,7 +267,7 @@
       },
       {
         "did": "0x000013",
-        "formula": "x * 0.039275",
+        "formula": "x / 100",
         "name": "Mass Airflow",
         "source": "P12, length=2, ecubyteindex=9, ecubit=4",
         "type": "uint16",
@@ -285,53 +285,29 @@
       },
       {
         "did": "0x000016",
-        "formula": "x * 0.0048876",
+        "formula": "x / 200",
         "name": "Front O2 Sensor #1",
         "source": "P14, length=2, ecubyteindex=9, ecubit=2",
         "type": "uint16",
-        "unit": "lambda",
+        "unit": "V",
         "verification": "reported"
       },
       {
         "did": "0x00001A",
-        "formula": "x * 0.0048876",
+        "formula": "x / 200",
         "name": "Front O2 Sensor #2",
         "source": "P16, ecubyteindex=9, ecubit=0",
         "type": "uint16",
-        "unit": "lambda",
-        "verification": "reported"
-      },
-      {
-        "did": "0x00001B",
-        "formula": "x * 0.08",
-        "name": "Battery Voltage",
-        "source": "P17, ecubyteindex=10, ecubit=7",
-        "type": "uint8",
         "unit": "V",
         "verification": "reported"
       },
       {
         "did": "0x00001C",
-        "formula": "(x - 128) * 0.78125",
-        "name": "AF Learning #1 (Range B)",
+        "formula": "x * 0.08",
+        "name": "Battery Voltage",
+        "source": "P17, ecubyteindex=10, ecubit=7",
         "type": "uint8",
-        "unit": "%",
-        "verification": "reported"
-      },
-      {
-        "did": "0x00001D",
-        "formula": "(x - 128) * 0.78125",
-        "name": "AF Learning #1 (Range C)",
-        "type": "uint8",
-        "unit": "%",
-        "verification": "reported"
-      },
-      {
-        "did": "0x00001E",
-        "formula": "(x - 128) * 0.78125",
-        "name": "AF Learning #1 (Range D)",
-        "type": "uint8",
-        "unit": "%",
+        "unit": "V",
         "verification": "reported"
       }
     ],
@@ -497,7 +473,7 @@
         "command_class": "basic",
         "description": "Check if a parameter is supported by checking its bit in the init-response bitmask.",
         "name": "ssm_check_support",
-        "notes": "Each parameter in the logger XML has ecubyteindex and ecubit. After ECU init, check byte[ecubyteindex] & (1 << (7 - ecubit)). If non-zero, the parameter is supported. This is how RomRaider dynamically adapts to any ROM revision.\n",
+        "notes": "Each parameter in the logger XML has ecubyteindex and ecubit. After ECU init, check byte[ecubyteindex] & (1 << ecubit) — NO bit inversion (RomRaider LoggerDefinitionHandler.isSupportedParameter: (bytes[i] & 1 << ecuBit) > 0). If non-zero, the parameter is supported. This is how RomRaider dynamically adapts to any ROM revision.\n",
         "verification": "reported",
         "writes": false
       }

@@ -27,7 +27,7 @@
     "manufacturer": "XKGlow",
     "manufacturer_status": "active",
     "name": "XKGlow XKChrome Motorcycle LED Controller",
-    "notes": "BLE motorcycle LED controller from XKGlow. Single custom GATT service with 8 characteristics. Supports RGB color control, mono brightness, LED animation sequences, and multi-zone configuration. The controller auto-discovers zone count and type (color vs mono) from device config on connect.\nAll UUIDs are in the vendor base 458A7133-xxxx-4E37-A4A4-5D8492586977 with the xxxx suffix encoding the characteristic function.\nWRITE TYPE: All writes to ZONE_COMMAND use WRITE_TYPE_NO_RESPONSE (1).\nZONE INDEX: 0-based. Zone 1 = byte 0x00, Zone 2 = byte 0x01, etc. Zone count is discovered from CONTROLLER_CONFIG byte 1 on connect.\nCOLOR WRITE FORMAT: 6-byte payload: [0x00, zone, 0x04, R, G, B]. Each channel 0-255.\nMONO WRITE FORMAT: 6-byte payload: [0x00, zone, 0x04, B, B, B] where all three B bytes are the same brightness value 0-255.\nSTOP ANIMATION: 4-byte payload: [0x00, zone, 0x05, 0x00].\nANIMATION: Payload partitioned into 19-byte chunks sent at 20ms intervals. Each chunk prefixed with header byte: (total_chunks - 1) << 4 | chunk_index.\nINITIALIZATION SEQUENCE (chained reads):\n  1. Read CONTROLLER_NAME → triggers read of ZONE_1_NAME\n  2. Read ZONE_1_NAME → triggers read of ZONE_2_NAME\n  3. Read ZONE_2_NAME → triggers read of SETTING\n  4. Read SETTING → triggers read of CONTROLLER_CONFIG\n  5. Read CONTROLLER_CONFIG → device ready\n\nSCAN FILTER: Advertised service UUID 458A7133-0000-4E37-A4A4-5D8492586977. Device name from BLE advertisement.\nCONFIDENCE: HIGH for all UUIDs and primary command formats. Animation protocol header byte confirmed; per-LED animation data format is not fully decoded (app creates proprietary byte sequences for effects).\n",
+    "notes": "BLE motorcycle LED controller from XKGlow. Single custom GATT service with 7 characteristics (the 8th UUID in the app's attribute table is the service itself). Supports RGB color control, mono brightness, LED animation sequences, and multi-zone configuration. The controller auto-discovers zone count and type (color vs mono) from device config on connect.\nFCC ID 2AIKCXK-CHROME (grantee XKGLOW INC, 2016); internal photos show a potted PCB silkscreened \"RGB Controller V1.0 XKGlow\".\nNO FIRMWARE UPDATES: the XKchrome (3rd gen) hardware has no firmware-update capability at all — the vendor's own XKchrome-vs-XKmax comparison attributes firmware updates only to the 5th-gen XKmax line, and the APK contains no OTA code or firmware URLs. Firmware revision is only exposed read-only via CONTROLLER_CONFIG byte 2.\nAll UUIDs are in the vendor base 458A7133-xxxx-4E37-A4A4-5D8492586977 with the xxxx suffix encoding the characteristic function.\nWRITE TYPE: All writes to ZONE_COMMAND use WRITE_TYPE_NO_RESPONSE (1).\nZONE INDEX: 0-based. Zone 1 = byte 0x00, Zone 2 = byte 0x01, etc. Zone count is discovered from CONTROLLER_CONFIG byte 1 on connect.\nCOLOR WRITE FORMAT: 6-byte payload: [0x00, zone, 0x04, R, G, B]. Each channel 0-255.\nMONO WRITE FORMAT: 6-byte payload: [0x00, zone, 0x04, B, B, B] where all three B bytes are the same brightness value 0-255.\nSTOP ANIMATION: 4-byte payload: [0x00, zone, 0x05, 0x00].\nANIMATION: Payload partitioned into 19-byte chunks sent at 20ms intervals. Each chunk prefixed with header byte: (total_chunks - 1) << 4 | chunk_index.\nINITIALIZATION SEQUENCE (chained reads):\n  1. Read CONTROLLER_NAME → triggers read of ZONE_1_NAME\n  2. Read ZONE_1_NAME → triggers read of ZONE_2_NAME\n  3. Read ZONE_2_NAME → triggers read of SETTING\n  4. Read SETTING → triggers read of CONTROLLER_CONFIG\n  5. Read CONTROLLER_CONFIG → device ready\n\nSCAN FILTER: Advertised service UUID 458A7133-0000-4E37-A4A4-5D8492586977. Device name from BLE advertisement.\nCONFIDENCE: HIGH for all UUIDs and primary command formats. Animation protocol header byte confirmed; per-LED animation data format is not fully decoded (app creates proprietary byte sequences for effects).\n",
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -111,28 +111,31 @@
       "characteristics": [
         {
           "name": "Controller Name",
-          "notes": "Human-readable controller name. UTF-8 string. Read triggers the initialization chain: on receive, app reads ZONE_1_NAME.\n",
+          "notes": "Human-readable controller name. UTF-8 string. Read triggers the initialization chain: on receive, app reads ZONE_1_NAME. Also writable — EditDeviceInfo renames the controller through the app's write chain.\n",
           "properties": [
             "read",
-            "notify"
+            "notify",
+            "write"
           ],
           "uuid": "458a7133-0002-4e37-a4a4-5d8492586977"
         },
         {
           "name": "Zone 1 Name",
-          "notes": "Human-readable name for zone 1. UTF-8 string. On receive, app reads ZONE_2_NAME (if multi-zone) or SETTING.\n",
+          "notes": "Human-readable name for zone 1. UTF-8 string. On receive, app reads ZONE_2_NAME (if multi-zone) or SETTING. Also writable — EditDeviceInfo renames zones (after a zone-1 rename, firmware revisions with (fwRev & 0x0F) == 8 trigger a chained settings write).\n",
           "properties": [
             "read",
-            "notify"
+            "notify",
+            "write"
           ],
           "uuid": "458a7133-0006-4e37-a4a4-5d8492586977"
         },
         {
           "name": "Zone 2 Name",
-          "notes": "Human-readable name for zone 2. UTF-8 string. On receive, app reads SETTING.\n",
+          "notes": "Human-readable name for zone 2. UTF-8 string. On receive, app reads SETTING. Also writable — EditDeviceInfo renames zones.\n",
           "properties": [
             "read",
-            "notify"
+            "notify",
+            "write"
           ],
           "uuid": "458a7133-0007-4e37-a4a4-5d8492586977"
         },
@@ -152,10 +155,11 @@
             }
           ],
           "name": "Settings",
-          "notes": "Controller settings. 2+ bytes. Byte 0: brake enabled (0=disabled, non-zero=enabled). Byte 1: auto-off enabled (0=disabled, non-zero=enabled). On receive, app reads CONTROLLER_CONFIG.\n",
+          "notes": "Controller settings. 2+ bytes. Byte 0: brake enabled (0=disabled, non-zero=enabled). Byte 1: auto-off enabled (0=disabled, non-zero=enabled). On receive, app reads CONTROLLER_CONFIG. Also writable — EditDeviceInfo writes settings as 7-byte frames containing a 0x2C byte.\n",
           "properties": [
             "read",
-            "notify"
+            "notify",
+            "write"
           ],
           "uuid": "458a7133-0003-4e37-a4a4-5d8492586977"
         },
@@ -181,7 +185,7 @@
             }
           ],
           "name": "Controller Config",
-          "notes": "Controller configuration. 3+ bytes. Byte 0: controller type code (1=color/RGB, other=mono). Byte 1: total number of zones. Byte 2: firmware revision. On receive, app finalizes device setup and marks it ready.\n",
+          "notes": "Controller configuration. 3+ bytes. Byte 0: controller type code (1=color/RGB, other=mono). Byte 1: total number of zones. Byte 2: firmware revision. On receive, app finalizes device setup and marks it ready. Byte 2 gates app behavior: (fwRev & 0x0F) == 8 → chained settings write after a zone-1 rename; (fwRev & 0x0F) == 9 → ramp-mode writes to the Time characteristic (0005); fwRev ∈ {0x10, 0x11, 0x18} → smart-sensor pattern support.\n",
           "properties": [
             "read",
             "notify"
@@ -319,9 +323,8 @@
         },
         {
           "name": "Time Characteristic",
-          "notes": "Time characteristic. Written to and read from by the app. Exact format not fully decoded; likely sets the controller's internal clock for scheduled operation.\n",
+          "notes": "TIME_CHARACTERISTIC in the app. Its only observed use is 4-byte ramp-mode control: after a settings write, when (firmware_revision & 0x0F) == 9 the app writes [0x54, 0x03, 0x00, 0x00] (ramp on) or [0x00, 0x00, 0x00, 0x00] (ramp off). A clock-sync use may exist elsewhere but nothing in the smali supports the earlier \"internal clock\" guess, and a read property is unverifiable from app code (0005 is not in the chained read sequence).\n",
           "properties": [
-            "read",
             "write"
           ],
           "uuid": "458a7133-0005-4e37-a4a4-5d8492586977"

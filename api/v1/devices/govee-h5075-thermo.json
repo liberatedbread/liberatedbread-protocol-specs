@@ -33,7 +33,7 @@
     "manufacturer": "Govee (Shenzhen Intellirocks Tech Co., Ltd.)",
     "manufacturer_status": "active",
     "name": "Govee H5075 Thermometer/Hygrometer",
-    "notes": "BLE thermometer and hygrometer that broadcasts temperature and humidity via manufacturer-specific advertisement data — no connection required for live readings. $10-15. Also covers H5072, H5074, H5100, H5101, H5104, H5105, H5110, H5111, H5174, H5177, H5179 variants with similar advertisement formats.\nADVERTISEMENT DECODING (H5075, manufacturer ID 0xEC88, 6-byte data):\n  bytes 1-3: 24-bit value encoding temperature + humidity\n    Bit 23 = sign (1 = negative)\n    Bits 22-0 = temp*10000 + humidity*10 (combined integer)\n    temp = (value & 0x7FFFFF) / 10000.0  (apply sign if bit 23 set)\n    humidity = (value % 1000) / 10.0\n  byte 4: battery percentage (0-100)\n\nH5074 (manufacturer 0xEC88, 7-byte data):\n  bytes 1-2: temperature (int16 BE) / 100.0\n  bytes 3-4: humidity (uint16 BE) / 100.0\n  byte 5: battery percentage\n\nH5177/H5174/H5100 (manufacturer 0x0001, 6-byte data):\n  bytes 2-4: same 24-bit temp/humidity encoding as H5075\n  byte 5: battery percentage\n\nH5179 (manufacturer 0xEC88, 9-byte data):\n  bytes 4-5: temperature (int16 BE) / 100.0\n  bytes 6-7: humidity (uint16 BE) / 100.0\n  byte 8: battery percentage\n\nAll models also advertise a custom 128-bit service UUID:\n  494e5445-4c4c-495f-524f-434b535f4857\nwhich spells \"INTELLI_ROCKS_HW\" in ASCII (little-endian encoding).\nHISTORY DOWNLOAD: available for H5177 (1 month storage). Connect over GATT, write to characteristic ...2012 to request data, read notifications from ...2013. Write char: 494e5445-4c4c-495f-524f-434b535f2012, notify char: 494e5445-4c4c-495f-524f-434b535f2013.\nADDRESS TYPE: most models use public address. H5100/H5105 require LE_RANDOM_ADDRESS.\nCONFIDENCE: HIGH for advertisement decoding formats, manufacturer IDs, custom UUIDs, and history download characteristics — sourced from github.com/wcbonner/GoveeBTTempLogger, a production C++ logger used in Home Assistant and other integrations. Advertised name patterns (\"GVH5075_XXXX\", \"Govee_H5074_XXXX\", \"GVH5174_XXXX\") are confirmed across all implementations.\n",
+    "notes": "BLE thermometer and hygrometer that broadcasts temperature and humidity via manufacturer-specific advertisement data — no connection required for live readings. $10-15. Also covers H5072, H5074, H5100, H5101, H5104, H5105, H5110, H5111, H5174, H5177, H5179 variants with similar advertisement formats.\nADVERTISEMENT DECODING (H5075, manufacturer ID 0xEC88, 6-byte data):\n  bytes 1-3: 24-bit value encoding temperature + humidity\n    Bit 23 = sign (1 = negative)\n    Bits 22-0 = temp*10000 + humidity*10 (combined integer)\n    temp = (value & 0x7FFFFF) / 10000.0  (apply sign if bit 23 set)\n    humidity = (value % 1000) / 10.0\n  byte 4: battery percentage (0-100)\n\nH5074 (manufacturer 0xEC88, 7-byte data):\n  bytes 1-2: temperature (int16 LE) / 100.0\n  bytes 3-4: humidity (uint16 LE) / 100.0\n  byte 5: battery percentage\n  (Little-endian — wcbonner goveebttemplogger.cpp:610 and govee-ble\n  parser.py:533 `<hHB`; proven against logged capture\n  `ec88:00 f8 09 9f 1c 64 02` → 25.52 °C / 73.27 %, LE-only decode.)\n\nH5177/H5174/H5100 (manufacturer 0x0001, 6-byte data):\n  bytes 2-4: same 24-bit temp/humidity encoding as H5075\n  byte 5: battery percentage\n\nH5179 (manufacturer 0xEC88, 9-byte data):\n  bytes 4-5: temperature (int16 LE) / 100.0\n  bytes 6-7: humidity (uint16 LE) / 100.0\n  byte 8: battery percentage\n  (Little-endian — wcbonner goveebttemplogger.cpp:689, govee-ble\n  parser.py:622 `<hHB`, Heckie75 govee-h5075.py:114.)\n\nAll models also advertise a custom 128-bit service UUID:\n  494e5445-4c4c-495f-524f-434b535f4857\nwhich spells \"INTELLI_ROCKS_HW\" in ASCII (little-endian encoding).\nHISTORY DOWNLOAD: available on most models (~20 days storage; H5177 holds 1 month of 1-minute records). Connect over GATT, subscribe to notifications on 494e5445-4c4c-495f-524f-434b535f2013, write requests to 494e5445-4c4c-495f-524f-434b535f2012. All packets are 20 bytes, byte 19 = XOR checksum of bytes 0-18:\n  - start: write `33 01 <start u32 LE> <end u32 LE>` (record offsets)\n  - history records stream back as notifications on ...2013\n  - keep-alive: send `aa 01` roughly every 75 notifications\n  - end: device sends `ee 01`, or stop when offset <= 6\nCharacteristic ...2011 (DeviceData) carries a rich command set: `aa 01` current measurement, `aa 03/04` alarms, `aa 06/07` calibration offsets, `aa 08` battery, `aa 0c` MAC+serial, `aa 0d` hardware rev, `aa 0e` firmware rev; `33 03/04/06/07` set alarms/offsets. (Sources: wcbonner README \"Download Details\", NHaag87 H5105_protocol.md, Heckie75 govee-h5075.py.)\nENCRYPTED GATT (newer firmware): GATT sessions may require an app-layer auth handshake (not BLE pairing) before commands/history work — H5105 disconnects if written unencrypted. Auth service 00010203-0405-0607-0809-0a0b0c0d1910, chars ...2b10 (notify), ...2b11 (write), ...2b12 (config). Handshake: write encrypted `e7 01` (TX1) → RX1 carries the 16-byte session key → write `e7 02` (TX2). Encryption: AES-128-ECB on bytes 0-15 + RC4 on bytes 16-19; hardcoded app PSK is ASCII \"MakingLifeSmarte\" (goveebttemplogger.cpp:3389). Advertisement decoding needs no auth.\nBATTERY: there is NO standard Battery Service 0x180F/0x2A19 — it is absent from every primary source including a full GATT map of the sibling H5105. Battery comes from the advertisement byte (MSB = error flag per govee-ble parser.py:61, `batt = data[-1] & 0x7F`) or the `aa 08` command on characteristic ...2011.\nADDRESS TYPE: most models use public address. H5100/H5105 require LE_RANDOM_ADDRESS.\nCONFIDENCE: HIGH for advertisement decoding formats, manufacturer IDs, custom UUIDs, and history download characteristics — sourced from github.com/wcbonner/GoveeBTTempLogger, a production C++ logger used in Home Assistant and other integrations. Advertised name patterns (\"GVH5075_XXXX\", \"Govee_H5074_XXXX\", \"GVH5174_XXXX\") are confirmed across all implementations.\n",
     "payload_formats": {
       "H5075_Advertisement": {
         "description": "6-byte manufacturer data for H5075 (company ID 0xEC88).",
@@ -218,8 +218,8 @@
     {
       "device_class": "battery",
       "name": "Battery",
+      "notes": "Decoded from the advertisement battery byte (MSB = sensor error flag, value = byte & 0x7F) or via `aa 08` on char ...2011 — this family has no standard Battery Service 0x180F/0x2A19.\n",
       "platform": "sensor",
-      "state_characteristic": "00002a19-0000-1000-8000-00805f9b34fb",
       "unit": "%"
     }
   ],
@@ -227,8 +227,18 @@
     {
       "characteristics": [
         {
+          "name": "Device Data / Command",
+          "notes": "Command channel (wcbonner: DeviceData). 20-byte packets, byte 19 = XOR checksum. `aa 01` current measurement, `aa 03/04` read alarms, `aa 06/07` read calibration offsets, `aa 08` battery, `aa 0c` MAC+serial, `aa 0d` hardware rev, `aa 0e` firmware rev, `aa 0f` MAC; `33 03/04/06/07` set alarms/offsets. On newer firmware these writes require the encrypted handshake on the 00010203-…-1910 auth service first.\n",
+          "properties": [
+            "read",
+            "write",
+            "notify"
+          ],
+          "uuid": "494e5445-4c4c-495f-524f-434b535f2011"
+        },
+        {
           "name": "History Download Request",
-          "notes": "Write requests to download historical data (H5177, ~1 month). Protocol details TBD from additional capture.\n",
+          "notes": "Write `33 01 <start u32 LE> <end u32 LE>` to download stored records (most models ~20 days; H5177 ~1 month of 1-minute records). 20-byte packets, byte 19 = XOR checksum. Send `aa 01` keep-alive every ~75 notifications; transfer ends on `ee 01` or when the offset reaches <= 6.\n",
           "properties": [
             "write",
             "write_without_response"
@@ -251,16 +261,35 @@
     {
       "characteristics": [
         {
-          "name": "Battery Level",
-          "notes": "Standard BLE battery level. Also available in advertisements.",
+          "name": "Auth Notify",
+          "notes": "Carries RX1 (session key) and later encrypted responses.",
           "properties": [
-            "read"
+            "notify"
           ],
-          "uuid": "00002a19-0000-1000-8000-00805f9b34fb"
+          "uuid": "00010203-0405-0607-0809-0a0b0c0d2b10"
+        },
+        {
+          "name": "Auth Write",
+          "notes": "Write encrypted TX1 (`e7 01`) / TX2 (`e7 02`) handshake packets.",
+          "properties": [
+            "write",
+            "write_without_response"
+          ],
+          "uuid": "00010203-0405-0607-0809-0a0b0c0d2b11"
+        },
+        {
+          "name": "Auth Config",
+          "notes": "Handshake configuration characteristic.",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "00010203-0405-0607-0809-0a0b0c0d2b12"
         }
       ],
-      "name": "Battery Service",
-      "uuid": "0000180f-0000-1000-8000-00805f9b34fb"
+      "name": "Govee Auth Service (newer firmware)",
+      "notes": "App-layer encrypted handshake required on newer firmware before GATT commands/history (not BLE pairing). Write encrypted `e7 01` (TX1) → RX1 notification carries the 16-byte session key → write `e7 02` (TX2). Encryption: AES-128-ECB on bytes 0-15 + RC4 on bytes 16-19; app PSK is ASCII \"MakingLifeSmarte\" (wcbonner goveebttemplogger.cpp:3389; NHaag87 H5105_protocol.md).\n",
+      "uuid": "00010203-0405-0607-0809-0a0b0c0d1910"
     }
   ]
 }

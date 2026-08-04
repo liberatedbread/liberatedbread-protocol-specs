@@ -63,7 +63,7 @@
     "manufacturer": "Samsung SmartThings",
     "manufacturer_status": "active",
     "name": "SmartThings Hub v2",
-    "notes": "SmartThings Hub v2 advertises local SmartThings, Edge driver, and Matter bridge services via mDNS. The primary identity is the _smartthings._tcp TXT id value. _smartthings-hedge._tcp on port 8766 exposes Edge driver control features, and _matter._tcp advertises the Matter bridge endpoint.\n",
+    "notes": "SmartThings Hub v2 advertises local SmartThings, Edge driver, and Matter services via mDNS. The primary identity is the _smartthings._tcp TXT id value. _smartthings-hedge._tcp on port 8766 exposes Edge driver control features, and _matter._tcp advertises the hub's Matter operational node endpoint — the hub is a Matter CONTROLLER only, not a bridge: attached Zigbee/Z-Wave devices are not exposed to other Matter fabrics (no bridge-to-third-party-fabrics shipped through firmware 0.57.x). Security note: Cisco Talos disclosed 20 vulnerabilities (incl. RCE chains) in SmartThings Hub firmware 0.20.17 in 2018 (TALOS-2018-0539 … TALOS-2018-0581).\n",
     "protocol": "wifi",
     "setup": {
       "confidence": "low",
@@ -127,7 +127,7 @@
           "verified": false
         }
       ],
-      "notes": "The hub is Ethernet-only and its onboarding is entirely cloud-mediated: the welcome code printed on the underside is redeemed against Samsung's service, and the hub receives its identity and driver set from there. Local Edge drivers run on the hub afterwards, but there is no documented way to claim an unclaimed hub without the cloud, which is the key risk if the service is retired.\n",
+      "notes": "The hub is Ethernet-only and its onboarding is entirely cloud-mediated: the welcome code printed on the underside is redeemed against Samsung's service, and the hub receives its identity and driver set from there. Local Edge drivers run on the hub afterwards, but there is no documented way to claim an unclaimed hub without the cloud, which is the key risk if the service is retired — and there is precedent: Samsung shut down the hub v1 cloud on 2021-06-30, rendering those hubs useless.\n",
       "rejoin": {
         "in_place_supported": true,
         "notes": "Moving the hub to a different router is a cable move; the cloud claim is unaffected.",
@@ -144,7 +144,7 @@
       "state_topic": "smartthings://{hub_id}"
     },
     {
-      "name": "Matter Bridge",
+      "name": "Matter Controller",
       "platform": "binary_sensor",
       "state_topic": "matter://{hub_id}"
     }
@@ -176,14 +176,29 @@
   },
   "http_endpoints": [
     {
-      "description": "Primary _smartthings._tcp service endpoint on port 8081. Edge control is advertised separately on the hedge WebSocket service.",
+      "description": "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge WebSocket service.",
       "method": "GET",
       "name": "SmartThings Local Service Root",
-      "path": "/"
+      "path": "/",
+      "status": "unverified"
+    },
+    {
+      "description": "Undocumented local HTTPS API on port 9495 used by the official SmartThings CLI (edge:drivers:logcat). Requires Samsung OAuth bearer headers; TLS server certificate pinned to the hub identity.",
+      "method": "GET",
+      "name": "Edge Drivers (port 9495)",
+      "path": "/drivers"
+    },
+    {
+      "description": "Server-Sent Events live log stream on port 9495, same OAuth + TLS pinning as /drivers (official CLI logcat.ts).",
+      "method": "GET",
+      "name": "Edge Driver Logs SSE (port 9495)",
+      "path": "/drivers/logs"
     }
   ],
   "smartthings_local_protocol": {
     "edge_driver_service": {
+      "confidence": "unverified",
+      "notes": "Service and port are corroborated by community observation (Nov 2024), but the WebSocket transport and the feat=ctrl TXT key rest solely on this spec's own probe — no public source documents them.\n",
       "port": 8766,
       "service_type": "_smartthings-hedge._tcp.local.",
       "transport": "WebSocket",
@@ -191,7 +206,14 @@
         "feat": "ctrl"
       }
     },
-    "matter_bridge": {
+    "local_https_api": {
+      "notes": "Undocumented local API used by the official SmartThings CLI (edge:drivers:logcat, defaultLiveLogPort = 9495): GET /drivers and GET /drivers/logs (Server-Sent Events), authenticated with Samsung OAuth bearer headers; the CLI pins the hub's TLS server certificate against its identity. Source: SmartThingsCommunity/smartthings-cli src/commands/edge/drivers/logcat.ts.\n",
+      "port": 9495,
+      "transport": "HTTPS"
+    },
+    "matter_controller": {
+      "confidence": "unverified",
+      "notes": "Hub v2 is a CSA-certified Matter CONTROLLER (not a bridge — see device notes). TXT T=6 is the Matter operational-discovery kTcpSupported bitmask (TCP client + server). Port 49722 is probe-observed only: Matter operational discovery uses ephemeral ports, so treat it as instance-specific, not normative.\n",
       "port": 49722,
       "service_type": "_matter._tcp.local.",
       "txt": {

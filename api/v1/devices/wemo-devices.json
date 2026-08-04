@@ -35,6 +35,7 @@
               "example": "M-SEARCH * HTTP/1.1\nHOST: 239.255.255.250:1900\nMAN: \"ssdp:discover\"\nMX: 2\nST: urn:Belkin:service:basicevent:1\n",
               "line_ending": "CRLF",
               "mx": 2,
+              "mx_notes": "pywemo sends MX 1, and the identification.ssdp.headers block above shows that value. This request block shows 2 because the repo's own verification scaffolding (scripts/wemo_discover.py) uses 2 and scripts/test_wemo_scaffolding.py parity-pins this field to it. Both are legal SSDP — MX is only the device's upper bound on how long it may delay its reply.\n",
               "socket_options": {
                 "IP_MULTICAST_TTL": 2
               },
@@ -105,7 +106,7 @@
               "urn:Belkin:device:controllee:1",
               "urn:Belkin:device:socket:1",
               "urn:Belkin:device:insight:1",
-              "urn:Belkin:device:Lightswitch:1",
+              "urn:Belkin:device:lightswitch:1",
               "urn:Belkin:device:dimmer:1",
               "urn:Belkin:device:bridge:1",
               "urn:Belkin:device:Maker:1",
@@ -122,9 +123,10 @@
             ],
             "timing": {
               "http_fetch_timeout_seconds": 5,
-              "port_probe_timeout_seconds": 2,
-              "response_wait_notes": "Wait per search target, not in total. MX is the device's own upper bound on how long it may delay its reply, so the listen window must be at least MX.\n",
-              "response_wait_seconds": 3
+              "port_probe_timeout_seconds": 10,
+              "response_wait_notes": "Matches pywemo's DISCOVER_TIMEOUT, which bounds the whole scan. MX is the device's own upper bound on how long it may delay its reply, so the listen window must be at least MX.\n",
+              "response_wait_seconds": 5,
+              "timeout_source": "Port probing matches pywemo's REQUESTS_TIMEOUT (10 s), which pywemo also uses for the HTTP fetch. The fetch timeout here stays at 5 s because the repo's verification scaffolding (scripts/wemo_discover.py) uses 5 and scripts/test_wemo_scaffolding.py parity-pins this field.\n"
             }
           },
           "type": "ssdp"
@@ -178,7 +180,7 @@
           "urn:Belkin:device:controllee:1",
           "urn:Belkin:device:socket:1",
           "urn:Belkin:device:insight:1",
-          "urn:Belkin:device:Lightswitch:1",
+          "urn:Belkin:device:lightswitch:1",
           "urn:Belkin:device:dimmer:1",
           "urn:Belkin:device:bridge:1",
           "urn:Belkin:device:Maker:1",
@@ -211,13 +213,13 @@
     "manufacturer": "Belkin",
     "manufacturer_status": "shutdown",
     "name": "Belkin Wemo Smart Devices",
-    "notes": "ALL Wemo devices are discovered via SSDP (Simple Service Discovery Protocol). NO static IP configuration is needed. Send an M-SEARCH to 239.255.255.250:1900 with ST matching a device or service search target, then fetch and parse setup.xml at the LOCATION URL to get the control URL, UDN, friendly name, serial/MAC metadata, service list, and deviceType.\nDiscovery order: 1. SSDP M-SEARCH; 2. parse LOCATION /setup.xml; 3. match deviceType and UDN prefix to a variant; 4. call SOAP actions at the service controlURL from setup.xml. Device ordering should use stable identity first: UDN, then serialNumber, then macAddress, with friendlyName used only as user-facing display text.\nPort instability: Wemo Mini and related devices may change HTTP ports after a power cycle or reconnect. Always rediscover with SSDP or probe ports 49152-49159 in the pywemo order recorded below.\nCONFIDENCE: SSDP discovery and SOAP action values HIGH (verified by pywemo, Home Assistant, ouimeaux lineage, and APK decompilation). Per-device command mappings MEDIUM; verified against public libraries but not validated via live capture for every appliance class.\n",
+    "notes": "ALL Wemo devices are discovered via SSDP (Simple Service Discovery Protocol). NO static IP configuration is needed. Send an M-SEARCH to 239.255.255.250:1900 with ST matching a device or service search target, then fetch and parse setup.xml at the LOCATION URL to get the control URL, UDN, friendly name, serial/MAC metadata, service list, and deviceType.\nDiscovery order: 1. SSDP M-SEARCH; 2. parse LOCATION /setup.xml; 3. match deviceType and UDN prefix to a variant; 4. call SOAP actions at the service controlURL from setup.xml. Device ordering should use stable identity first: UDN, then serialNumber, then macAddress, with friendlyName used only as user-facing display text.\nPort instability: Wemo Mini and related devices may change HTTP ports after a power cycle or reconnect. Always rediscover with SSDP or probe ports 49152-49159 in the pywemo order recorded below.\nCONFIDENCE: SSDP discovery and SOAP action values HIGH (verified by pywemo, Home Assistant, ouimeaux lineage, and APK decompilation). Per-device command mappings MEDIUM; verified against public libraries but not validated via live capture for every appliance class.\nPost-shutdown status: Belkin ended Wemo support on 2026-01-31 (app, remote access, voice integrations and firmware updates all dead). Only the Thread-based WLS0503, WSC010 and WSP100 plus the WDC010 doorbell remain supported; any HomeKit-configured Wemo (WLS0403, WDS060, WSP080 among them) keeps working through HomeKit. Local SSDP/SOAP discovery, provisioning and control are unaffected, and pywemo remains actively maintained.\n",
     "protocol": "wifi",
     "setup": {
       "confidence": "high",
       "credentials": {
         "issued_to_client": [],
-        "notes": "No token or certificate is issued to the client: post-setup control is unauthenticated SOAP to anyone on the LAN. Treat network segmentation, not device auth, as the security control for Wemo hardware.\n",
+        "notes": "No token or certificate is issued to the client: post-setup control is unauthenticated SOAP to anyone on the LAN. Treat network segmentation, not device auth, as the security control for Wemo hardware. Published advisories on these exact surfaces underline that: CVE-2023-27217 (unauthenticated stack overflow in basicevent#ChangeFriendlyName on the F7C063 Mini, unpatched — Belkin declined as EOL), CVE-2023-33768 (WSP080 firmware-signature verification flaw enabling DoS via crafted firmware) and CVE-2018-6692 (Insight RCE via libUPnPHndlr.so).\n",
         "stored_on_device": [
           "Home network SSID and passphrase",
           "Friendly name and local rules/timers"
@@ -632,12 +634,12 @@
             "connect_send_count": 2,
             "connect_send_gap_ms": 100,
             "connect_send_notes": "Send ConnectHomeNetwork twice about 100ms apart. pywemo reports a markedly higher success rate when it is repeated; the reason is not understood, but it is cheap and harmless.\n",
-            "notes": "Devices routinely take 10-15 seconds to join, so a poll timeout below 20 seconds produces false failures. Status 3 usually flips to 1 within a few more seconds — wait rather than retrying.\n",
+            "notes": "Devices routinely take 10-15 seconds to join, so a poll timeout below 20 seconds produces false failures; pywemo's setup timeout defaults to 20 s and it enforces a 20 s floor. Status 3 usually flips to 1 within a few more seconds — wait rather than retrying.\n",
             "reboot_after_reset_seconds": 90,
             "status_3_extra_wait_seconds": 3,
             "status_poll_interval_seconds": 1,
             "status_poll_minimum_seconds": 20,
-            "status_poll_timeout_seconds": 25
+            "status_poll_timeout_seconds": 20
           },
           "troubleshooting": [
             {
@@ -770,7 +772,7 @@
             "actions": [
               "GetDeviceInformation"
             ],
-            "control_url": "/upnp/control/deviceinf1"
+            "control_url": "/upnp/control/deviceinfo1"
           },
           "metainfo": {
             "actions": [
@@ -877,7 +879,7 @@
             "wemo_lightswitch_2gen",
             "wemo_lightswitch3way"
           ],
-          "device_type": "urn:Belkin:device:Lightswitch:1",
+          "device_type": "urn:Belkin:device:lightswitch:1",
           "friendly_name_pattern": "Light Switch",
           "udn_prefixes": [
             "uuid:Lightswitch-1_0",
@@ -1384,6 +1386,18 @@
       }
     }
   },
+  "helpful_urls": [
+    {
+      "description": "Post-shutdown open-source app/bridge (created ~2026-03) keeping the F7C063, WSP070 and WSP080 usable after the Belkin app shutdown.",
+      "title": "open-wemo",
+      "url": "https://github.com/blackbxdev/open-wemo"
+    },
+    {
+      "description": "Full F7C029 Insight hardware/firmware teardown (RT5350F SoC, u-boot env independently confirming the 10.22.22.1 setup network, cloud endpoints) with a mainline OpenWrt port and package feed.",
+      "title": "Wemo Insight teardown and OpenWrt port",
+      "url": "https://svenschwermer.de/wemo"
+    }
+  ],
   "http_endpoints": [
     {
       "description": "PRIMARY Wemo identification endpoint. Fetch the LOCATION URL returned by SSDP discovery. Parse deviceType for variant matching, UDN/serial/MAC for stable identity and ordering, friendlyName for display naming, and serviceList for per-device controlURL and eventSubURL values.\n",
@@ -1502,10 +1516,10 @@
       }
     },
     {
-      "description": "Extended device information. Required SOAPACTION header: \"urn:Belkin:service:deviceinf:1#GetDeviceInformation\". Not present on every device or firmware; treat a SOAP fault as \"not supported\" rather than as an error.\n",
+      "description": "Extended device information. Required SOAPACTION header: \"urn:Belkin:service:deviceinfo:1#GetDeviceInformation\". Not present on every device or firmware; treat a SOAP fault as \"not supported\" rather than as an error.\n",
       "method": "POST",
       "name": "GetDeviceInformation",
-      "path": "/upnp/control/deviceinf1"
+      "path": "/upnp/control/deviceinfo1"
     },
     {
       "description": "Insight-only SOAP action. Required SOAPACTION header: \"urn:Belkin:service:insight:1#GetInsightParams\".\n",
@@ -1703,6 +1717,11 @@
         ],
         "control_url": "/upnp/control/metainfo1",
         "service_type": "urn:Belkin:service:metainfo:1"
+      },
+      "smartsetup": {
+        "availability": "Undocumented service seen in real-hardware captures (pywemo VCR cassettes) alongside WiFiSetup:1 on the light switch, Maker, outdoor plug and humidifier. Its action surface is not yet mapped; it is suspected to be the newer-generation provisioning surface. Resolve the controlURL from setup.xml like any other service.\n",
+        "control_url": "/upnp/control/smartsetup1",
+        "service_type": "urn:Belkin:service:smartsetup:1"
       },
       "timesync": {
         "actions": [

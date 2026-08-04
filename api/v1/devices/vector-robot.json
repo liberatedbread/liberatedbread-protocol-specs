@@ -40,9 +40,9 @@
       "mdns_service_type": "_ankivector._tcp.local."
     },
     "manufacturer": "Anki / Digital Dream Labs",
-    "manufacturer_status": "active",
+    "manufacturer_status": "shutdown",
     "name": "Vector Robot",
-    "notes": "Desktop companion robot with primary local control over WiFi using gRPC and protobuf 3 over TLS on port 443. Discovery uses mDNS service _ankivector._tcp.local. Connections require robot certificate pinning and a GUID bearer token obtained during onboarding. BLE onboarding uses Anki RTS protocol with CLAD serialization and NaCl/libsodium encryption. The anki_vector Python SDK is available under Apache 2.0 and documents the ExternalInterface service.\n",
+    "notes": "Desktop companion robot with primary local control over WiFi using gRPC and protobuf 3 over TLS on port 443. Discovery uses mDNS service _ankivector._tcp.local. Connections require robot certificate pinning and a GUID bearer token obtained during onboarding. BLE onboarding uses Anki RTS protocol with CLAD serialization and libsodium encryption (crypto_kx + XChaCha20-Poly1305). The anki_vector Python SDK is available under Apache 2.0 and documents the ExternalInterface service. DDL is widely reported defunct since ~2023 and all official OTA/firmware servers fail DNS (tested 2026-07-31), so robots can no longer pull official OTAs; the anki.bot support portal remains online. Latest official firmware is 2.0.1.6076 (Vector 2.0 + Gen 1, 2022-09-26); 1.8.1.6051 was the last Gen-1 production build. The actively maintained community path is wire-pod plus WireOS (os-vector/wire-os, 3.0.1.32 at verification time) for unlocked robots; DDL open-sourced vector-cloud (MIT) and vector-bluetooth before disappearing.\n",
     "protocol": "wifi",
     "setup": {
       "confidence": "high",
@@ -51,7 +51,7 @@
           "Robot self-signed TLS certificate (pin it)",
           "client_token_guid bearer token for gRPC"
         ],
-        "notes": "The passphrase is sent as plaintext inside the NaCl-encrypted BLE session, so confidentiality depends on the handshake having been completed with the on-screen PIN rather than on the field itself.\n",
+        "notes": "The passphrase is sent as plaintext inside the encrypted BLE session, so confidentiality depends on the handshake having been completed with the on-screen PIN rather than on the field itself.\n",
         "stored_on_device": [
           "WiFi credentials for each provisioned network",
           "Owner/account association"
@@ -59,26 +59,44 @@
         "wifi_passphrase_protection": "device_encrypted"
       },
       "factory_reset": {
-        "confidence": "medium",
-        "effect": "Clears WiFi credentials, the owner/account association, enrolled faces and the issued client GUID. The ESN (serial) is hardware identity and survives, so the mDNS name and BLE advertisement stay the same.\n",
+        "confidence": "high",
+        "effect": "Clear User Data wipes WiFi credentials, the owner/account association, enrolled faces and the issued client GUID. The ESN (serial) is hardware identity and survives, so the mDNS name and BLE advertisement stay the same. Do not confuse the two button procedures: holding the backpack button ~15 s boots Firmware Recovery Mode (factory firmware, shows anki.com/v, KEEPS user data), while Clear User Data is a separate menu path (DDL support articles 383 and 384).\n",
         "procedures": [
           {
-            "hold_seconds": 15,
-            "indicator": "The screen shows the clear-user-data confirmation and the robot reboots into onboarding.",
-            "name": "Backpack button held on the charger",
+            "indicator": "Diagnostics menu appears; after confirming Clear User Data the robot reboots into onboarding (ddl.io/v setup screen).",
+            "name": "Clear User Data menu (double-click backpack button)",
             "steps": [
               {
                 "action": "Place the robot on the charger.",
                 "actor": "user"
               },
               {
-                "action": "Press and hold the backpack button for about 15 seconds until the clear-user-data screen appears.",
+                "action": "Double-click the backpack button to open the diagnostics menu.",
+                "actor": "user"
+              },
+              {
+                "action": "Navigate the menu with the lift and treads to Clear User Data and confirm.",
                 "actor": "user"
               },
               {
                 "action": "Wait for the reboot; the robot returns to BLE pairing mode.",
                 "actor": "device",
                 "timeout_seconds": 180
+              }
+            ]
+          },
+          {
+            "hold_seconds": 15,
+            "indicator": "Screen shows anki.com/v; robot boots the factory recovery firmware without deleting user data.",
+            "name": "Firmware Recovery Mode (recovery only, keeps user data)",
+            "steps": [
+              {
+                "action": "Place the robot on the charger.",
+                "actor": "user"
+              },
+              {
+                "action": "Press and hold the backpack button for about 15 seconds until the recovery screen appears.",
+                "actor": "user"
               }
             ]
           }
@@ -90,7 +108,7 @@
             "advertised_name": "Vector-XXXX",
             "pairing_required": true,
             "pin_source": "Six-digit PIN rendered on the robot's face display during pairing mode.",
-            "protocol": "Anki RTS (CLAD over BLE, NaCl secretbox after handshake)",
+            "protocol": "Anki RTS (CLAD over BLE, XChaCha20-Poly1305 after handshake)",
             "read_characteristic": "7d2a4bda-d29b-4152-b725-2491478c5cd7",
             "write_characteristic": "30619f2d-0f54-41bd-a65a-7588d8c85b45"
           },
@@ -104,7 +122,7 @@
             {
               "action": "Connect and complete the RTS handshake (RtsConnRequest / RtsConnResponse / RtsNonceMessage / RtsChallengeMessage).",
               "actor": "client",
-              "expect": "RtsChallengeSuccessMessage; all later traffic is NaCl-encrypted.",
+              "expect": "RtsChallengeSuccessMessage; all later traffic is XChaCha20-Poly1305 encrypted.",
               "request": {
                 "action": "RtsConnRequest",
                 "protocol": "ble_gatt",
@@ -142,15 +160,21 @@
                     "type": "string"
                   },
                   {
+                    "description": "Seconds the robot should spend attempting the join before reporting failure.",
+                    "name": "timeout",
+                    "required": true,
+                    "type": "uint8"
+                  },
+                  {
                     "name": "auth_type",
                     "required": true,
                     "type": "uint8"
                   },
                   {
-                    "description": "Seconds the robot should spend attempting the join before reporting failure.",
-                    "name": "timeout",
+                    "description": "Set when joining a hidden (non-broadcast) SSID.",
+                    "name": "hidden",
                     "required": true,
-                    "type": "uint8"
+                    "type": "bool"
                   }
                 ],
                 "protocol": "ble_gatt",
@@ -289,6 +313,7 @@
     "SetMasterVolume",
     "ExternalAudioStreamPlayback",
     "EventStream",
+    "AssumeBehaviorControl",
     "BehaviorControl",
     "CameraFeed",
     "AudioFeed",
@@ -301,6 +326,28 @@
     "CancelActionByIdTag",
     "RollBlock",
     "CaptureSingleImage"
+  ],
+  "helpful_urls": [
+    {
+      "description": "Actively maintained open firmware for unlocked (OSKR/dev) robots; 3.0.1.32 at verification time. The only fully supported path now that official OTA servers are dead.",
+      "title": "WireOS",
+      "url": "https://github.com/os-vector/wire-os"
+    },
+    {
+      "description": "Community replacement for the cloud GUID/token step, built on DDL's open-sourced vector-cloud.",
+      "title": "wire-pod",
+      "url": "https://github.com/kercre123/wire-pod"
+    },
+    {
+      "description": "DDL's MIT-licensed robot cloud/gateway server, open-sourced alongside vector-bluetooth before the company went dark.",
+      "title": "DDL vector-cloud",
+      "url": "https://github.com/digital-dream-labs/vector-cloud"
+    },
+    {
+      "description": "Still online; articles 383/384 document Firmware Recovery Mode vs Clear User Data, article 108 the firmware changelog.",
+      "title": "DDL support portal",
+      "url": "https://support.anki.bot/"
+    }
   ],
   "http_endpoints": [
     {
@@ -518,12 +565,6 @@
       "path": "/v1/flash_cube_lights"
     },
     {
-      "description": "Set cube light pattern.",
-      "method": "POST",
-      "name": "SetCubeLights",
-      "path": "/v1/set_cube_lights"
-    },
-    {
       "description": "Forget preferred cube.",
       "method": "POST",
       "name": "ForgetPreferredCube",
@@ -584,12 +625,6 @@
       "path": "/v1/say_text"
     },
     {
-      "description": "Set speaker master volume.",
-      "method": "POST",
-      "name": "SetMasterVolume",
-      "path": "/v1/set_master_volume"
-    },
-    {
       "description": "Enable or disable mirror mode.",
       "method": "POST",
       "name": "EnableMirrorMode",
@@ -628,7 +663,7 @@
   ],
   "protocols": {
     "ble_onboarding": {
-      "encryption": "NaCl/libsodium Curve25519 key exchange + secretbox",
+      "encryption": "libsodium crypto_kx (Curve25519) key exchange, PIN mixed into session keys via crypto_generichash, crypto_aead_xchacha20poly1305_ietf (XChaCha20-Poly1305) session cipher",
       "name": "RTS",
       "read_characteristic": "7d2a4bda-d29b-4152-b725-2491478c5cd7",
       "serialization": "CLAD",
@@ -636,7 +671,7 @@
     },
     "rest_gateway": {
       "base_path": "/v1",
-      "description": "gRPC-gateway JSON endpoints for many unary RPCs."
+      "description": "gRPC-gateway JSON endpoints for many unary RPCs (49 google.api.http annotations in the proto). SetCubeLights and SetMasterVolume carry no HTTP annotation and are gRPC-only, so they are absent from the list below; the four annotated streaming endpoints (/v1/assume_behavior_control, /v1/audio_feed, /v1/camera_feed, /v1/nav_map_feed) also exist but are omitted here.\n"
     },
     "sdk": {
       "license": "Apache-2.0",
@@ -650,11 +685,10 @@
       },
       "key_state_rpcs": [
         "BatteryState",
-        "VersionState",
-        "RobotState"
+        "VersionState"
       ],
       "port": 443,
-      "rpc_count": 48,
+      "rpc_count": 69,
       "serialization": "protobuf 3",
       "service": "ExternalInterface",
       "transport": "HTTP/2 over TLS"

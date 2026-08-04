@@ -34,7 +34,7 @@
     "manufacturer": "iDotMatrix / Tech",
     "manufacturer_status": "unsupported",
     "name": "iDotMatrix",
-    "notes": "Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers, schedules). No pairing required.\nPRIMARY (recovered) protocol — service 0xFEE9, from jadx of com.tech.idotmatrix: framed binary packets with a 16-byte header per 4096-byte payload chunk:\n  [0-1]  total packet length (uint16 BE)\n  [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase\n  [3]    sub-type: 0x00 data / 0x02 MultiColor/Phrase\n  [4]    chunk flag: 0=first, 2=continuation\n  [5-8]  total data length (uint32 LE)\n  [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)\n  [13-14] time/delay (uint16 BE)\n  [15]   speed/type byte\n  [16+]  payload\nBLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for GIF/image, 50 ms/chunk for text. Notify response: [?,0,cmd_type,sub_type,status] with status 0=invalid, 1=next-chunk, 2=error, 3=finished. Display sizes (ScreenData.getLedSize): 1010=10x10, 1001=1x100, 1116=16x11, 1318=18x13, 1619=19x16, 1920=20x19, 2020=32x32 (default), 2010=10x20, 3010=10x30, 3820=20x38. FLAGGED: exact image pixel encoding (RGB565 bitmap laid out by device type) needs live BLE capture to confirm; text glyph width varies by device/font. CONFIDENCE: UUIDs, framing header, CRC32, chunk sizes, command types, response format all HIGH; image pixel layout MEDIUM. Evidence: Ble.java:354-362 (UUIDs), GifAgreement.java:160-196/271-286 (framing, CRC32, response), ScreenData.java (display sizes), CrcUtils.java (java.util.zip.CRC32).\nALTERNATE (legacy) protocol — service 0xFA02: some iDotMatrix units / the popular community \"python-idotmatrix\" library speak an unframed 0xFA02 protocol with short length-prefixed byte commands ([len, 0x00, cmd, ...]). That command set is preserved below as a second service (\"iDotMatrix Legacy (0xFA02) Service\") for those devices; a given unit speaks one protocol or the other. Name prefix \"IDM-\".\n",
+    "notes": "Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers, schedules). No pairing required.\nFramed upload protocol — 16-byte header per 4096-byte payload chunk:\n  [0-1]  total packet length (uint16 LE)\n  [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase\n  [3]    sub-type: 0x00 data / 0x02 MultiColor/Phrase\n  [4]    chunk flag: 0=first, 2=continuation\n  [5-8]  total data length (uint32 LE)\n  [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)\n  [13-14] time/delay (uint16 BE)\n  [15]   speed/type byte\n  [16+]  payload\nBLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for GIF/image, 50 ms/chunk for text. Notify response: [?,0,cmd_type,sub_type,status] with status 0=invalid, 1=next-chunk, 2=error, 3=finished. On all hardware-documented units this framed CRC32 upload runs over 0xFA02 together with the short commands below (8none1 btsnoop captures, derkalle4/python3-idotmatrix-library gif.py, Homey docs/idm.md §4.17). Header bytes [0-1] are LITTLE-endian (8none1 decoding_bytes.md: \"de 0c\" is 0x0cde = 3294 total; derkalle4 to_bytes(2,'little'); Homey §4.17 size_lo/size_hi) — masked on full 4112-byte chunks because 0x1010 is byte-palindromic, it only bites on final/short chunks. Display sizes (ScreenData.getLedSize): 1010=10x10, 1001=1x100, 1116=16x11, 1318=18x13, 1619=19x16, 1920=20x19, 2020=32x32 (default), 2010=10x20, 3010=10x30, 3820=20x38. 64x64 panels exist and use the same IDM- / 0x00FA protocol family. FLAGGED: exact image pixel encoding (RGB565 bitmap laid out by device type) needs live BLE capture to confirm; text glyph width varies by device/font. CONFIDENCE: framing header, CRC32, chunk sizes, command types 1=GIF/3=Text and response format HIGH (hardware-verified on 0xFA02); command types 2=Image/6=Phrase and image pixel layout MEDIUM; the 0xFEE9 service UNPROVEN (see below). Evidence: 8none1/idotmatrix decoding_bytes.md + btsnoop, derkalle4/python3-idotmatrix-library (const.py, common.py, gif.py), fbnlrz/homeyidotmatrix docs/idm.md (nRF-Connect-verified); app-side jadx: GifAgreement.java:160-196/271-286 (framing, CRC32, response), ScreenData.java (display sizes), CrcUtils.java (java.util.zip.CRC32).\nShort command protocol — service 0xFA02: unframed length-prefixed byte commands ([len, 0x00, cmd, ...]) written to characteristic 0xFA02, with acks/notifications on 0xFA03. This is the protocol every public client (python-idotmatrix, go-idot, Homey) speaks; name prefix \"IDM-\".\nUNPROVEN — service 0xFEE9 with characteristics d44bc439-abfd-45a2-b575-925416129600/9601: present in jadx of com.tech.idotmatrix (Ble.java:354-362), but no public source has observed this service on iDotMatrix hardware; that UUID pair is a stock NXP BLE-UART demo pair reused by many unrelated products. Kept below for completeness — do not treat the framed protocol as FEE9-exclusive, and do not rely on 0xFEE9 being present.\n",
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -127,7 +127,7 @@
             "max_chunk_size": 4096
           },
           "name": "Data Write/Read",
-          "notes": "All framed protocol commands (GIF/Image/Text/Phrase) are written here. 16-byte header + up to 4096-byte payload per frame; CRC32 (java.util.zip.CRC32) over the whole data payload. Evidence: Ble.java:355-356, GifAgreement.java:160-196.\n",
+          "notes": "All framed protocol commands (GIF/Image/Text/Phrase) are written here on units that expose this service. 16-byte header (length field at [0-1] is uint16 LITTLE-endian) + up to 4096-byte payload per frame; CRC32 (java.util.zip.CRC32) over the whole data payload. Evidence: Ble.java:355-356, GifAgreement.java:160-196; same framing verified on 0xFA02 by 8none1, derkalle4 gif.py and Homey docs/idm.md §4.17.\n",
           "properties": [
             "write",
             "read"
@@ -175,7 +175,8 @@
           "uuid": "d44bc439-abfd-45a2-b575-925416129601"
         }
       ],
-      "name": "iDotMatrix Data Service",
+      "name": "iDotMatrix Data Service (unproven)",
+      "notes": "Found only in the vendor app (Ble.java:354-362). No public source has observed this service on iDotMatrix hardware — the d44bc439-…-9600/9601 pair is a stock NXP BLE-UART demo pair reused by unrelated products. On all hardware-documented units the framed protocol described here runs over 0xFA02 alongside the short commands.\n",
       "uuid": "0000fee9-0000-1000-8000-00805f9b34fb"
     },
     {
@@ -183,7 +184,7 @@
         {
           "name": "OTA Write",
           "properties": [
-            "write"
+            "write_without_response"
           ],
           "uuid": "0000ae01-0000-1000-8000-00805f9b34fb"
         },
@@ -196,6 +197,7 @@
         }
       ],
       "name": "iDotMatrix OTA Service",
+      "notes": "Jieli (杰理) OTA stack (com.jieli.jl_bt_ota.* in the app; Jieli's OTA SDK is public as Jieli-Tech/Android-JL_OTA). Payloads are AES-256-CBC with a hard-coded ASCII key in the app (com.heaton.baselib.utils.AESUtils, app v2.1.1) and IV = 16 x ASCII '0'; not yet unlocked publicly — a session-dependent component is unsolved (235/256 two-byte inputs elicit responses). Evidence: fbnlrz/homeyidotmatrix docs/AE-SERVICE.md (hardware-probed).\n",
       "uuid": "0000ae00-0000-1000-8000-00805f9b34fb"
     },
     {
@@ -245,6 +247,25 @@
                 0
               ]
             },
+            "reset_step_1": {
+              "description": "Factory reset, step 1 of 2 — follow with reset_step_2 (Homey docs/idm.md; found by 8none1)",
+              "value": [
+                4,
+                0,
+                3,
+                128
+              ]
+            },
+            "reset_step_2": {
+              "description": "Factory reset, step 2 of 2 — completes the reset started by reset_step_1",
+              "value": [
+                5,
+                0,
+                4,
+                128,
+                80
+              ]
+            },
             "screen_off": {
               "description": "Turn screen off",
               "value": [
@@ -280,6 +301,36 @@
                 4,
                 128,
                 "{brightness}"
+              ]
+            },
+            "set_fullscreen_color": {
+              "description": "Fill the whole screen with one RGB color (Homey docs/idm.md)",
+              "parameters": {
+                "blue": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "color_order": "rgb",
+                "green": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "red": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                7,
+                0,
+                2,
+                2,
+                "{red}",
+                "{green}",
+                "{blue}"
               ]
             },
             "set_password": {
@@ -337,14 +388,17 @@
           "uuid": "0000fa02-0000-1000-8000-00805f9b34fb"
         },
         {
-          "name": "Read Data",
+          "name": "Notify/Ack Data",
+          "notes": "Primarily the notify/ack channel: upload-progress responses and command acks (05 00 <cmd> <sub> 01) arrive here; also readable.\n",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "0000fa03-0000-1000-8000-00805f9b34fb"
         }
       ],
-      "name": "iDotMatrix Legacy (0xFA02) Service",
+      "name": "iDotMatrix Command/Upload Service (0xFA02)",
+      "notes": "The protocol every public client speaks (derkalle4/python3-idotmatrix-library, nj-designs/go-idot, fbnlrz/homeyidotmatrix — hardware-verified). The short length-prefixed commands below and the framed CRC32 upload protocol (16-byte header, length at [0-1] uint16 LE) both run on this service. Additional opcodes from Homey docs/idm.md: set-time 0b 00 01 80 …, clock 08 00 06 01 …, countdown 07 00 08 80 …, chronograph 05 00 09 80 …, scoreboard 08 00 0a 80 …, built-in effects [len, 0, 03, 02, style, 90, count, rgb…], music sync 06 00 00 02 …. Command acks arrive on 0xFA03 as 05 00 <cmd> <sub> 01.\n",
       "uuid": "0000fa02-0000-1000-8000-00805f9b34fb"
     }
   ]

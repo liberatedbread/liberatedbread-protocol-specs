@@ -10,12 +10,16 @@
       "methods": [
         {
           "ble": {
+            "local_name": {
+              "match": "prefix",
+              "value": "ihoment_H6001"
+            },
             "manufacturer_data": {
-              "company_id": 63678,
-              "description": "Govee identifies devices by parsing a 'goodsType' byte from the manufacturer-specific data section of the BLE scan record. Bulb family is goodsType=20. The actual encoding is TBD (needs HCI snoop capture).\n"
+              "company_id": 60552,
+              "description": "Company ID 0xEC88 (= 60552; magic bytes 88 EC in the manufacturer-specific AD structure — the APK broadcast parser requires them, BleUtil.java:49). Govee parses a 'goodsType' value from this structure (2 bytes at offset +5/+6, BleUtil.parseBleBroadcastPact); the bulb family is goodsType=20. A previous revision listed 63678 (0xF8BE), which matches nothing in the APK or any public source.\n"
             },
             "service_uuids": [
-              "0000ffe0-0000-1000-8000-00805f9b34fb"
+              "00010203-0405-0607-0809-0a0b0c0d1910"
             ]
           },
           "type": "ble_scan"
@@ -24,15 +28,15 @@
       "static_ip_required": false
     },
     "identification": {
-      "local_name_prefix": "Govee_H6001",
+      "local_name_prefix": "ihoment_H6001",
       "service_uuids": [
-        "0000ffe0-0000-1000-8000-00805f9b34fb"
+        "00010203-0405-0607-0809-0a0b0c0d1910"
       ]
     },
     "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
     "manufacturer_status": "active",
     "name": "Govee H6001 Smart Bulb",
-    "notes": "BLE-only smart bulb from Govee's legacy bulb family (H6001, H6101, H6104). Protocol uses 20-byte fixed packets with XOR checksum in final byte. Three command prefixes: 0xAA (ACK), 0x33 (control), 0xA3 (extended). The app's internal namespace \"com.ihoment.base2app\" reveals Govee's corporate identity as iHoment/Shenzhen Intellirocks. CONFIDENCE: MODERATE for UUIDs (from APK static analysis — the 0xFFE0/0xFFE1 UUIDs appear in H6104 and H6101 BleComm classes); HIGH for command format (corroborated by independent RE at github.com/chvolkmann/govee_btled).\n",
+    "notes": "BLE-only smart bulb from Govee's legacy bulb family (H6001, H6005; H6101/H6104 are sibling classes with a different GATT profile). Protocol uses 20-byte fixed packets with XOR checksum in final byte. Command prefixes: 0x33 (control) and 0xAA (ACK/keep-alive — the app sends AA 01 00..00 AB every ~2 s while connected). 0xA3 (extended) exists in the wider Govee family but has not been captured on H6001. The app's internal namespace \"com.ihoment.base2app\" reveals Govee's corporate identity as iHoment/Shenzhen Intellirocks. GATT: service 00010203-0405-0607-0809-0a0b0c0d1910, write char …2b11, notify char …2b10 — from on-device HCI-snoop RE of a real H6001 (chvolkmann/govee_btled bluetooth_led.py), the egold555 H6127.md UUID table, and the blog.coding.kiwi GATT dump. In the APK, H6001 routes via OldBulbUtil + the generic com.govee.rgblight path (00010203 scheme); the 0xFFE0/0xFFE1 UUIDs belong to the H6101/H6104 BleComm classes, not to H6001. CONFIDENCE: HIGH for command format and GATT profile (on-device captures, corroborated by multiple independent RE efforts); the advertised name pattern is unconfirmed (siblings advertise ihoment_<model>_<hex>; Minger-branded H6001s exist).\n",
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -114,6 +118,16 @@
       "characteristics": [
         {
           "commands": {
+            "keep_alive": {
+              "description": "Connection keep-alive, sent every ~2 s (H6127.md). Packet: [0xAA, 0x01, 0x00*17, 0xAB]",
+              "encoding": "bytes",
+              "payload": {
+                "bytes": [
+                  170,
+                  1
+                ]
+              }
+            },
             "power_off": {
               "description": "Turn bulb off. Packet: [0x33, 0x01, 0x00, 0x00...0x00, <xor>]",
               "encoding": "bytes",
@@ -137,7 +151,7 @@
               }
             },
             "set_brightness": {
-              "description": "Set brightness 0-255. Packet: [0x33, 0x04, <val>, 0x00*17, <xor>]",
+              "description": "Set brightness 0-255 (app maps 1%-100% to ~0x14-0xFE). Packet: [0x33, 0x04, <val>, 0x00*17, <xor>]",
               "encoding": "bytes",
               "payload": {
                 "bytes": [
@@ -148,7 +162,7 @@
               }
             },
             "set_color": {
-              "description": "Set RGB color. Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*14, <xor>]",
+              "description": "Set RGB color (mode byte 0x02 = manual). Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*14, <xor>]",
               "encoding": "bytes",
               "payload": {
                 "bytes": [
@@ -160,19 +174,44 @@
                   255
                 ]
               }
+            },
+            "set_color_white": {
+              "description": "White / color-temperature control via fixed warm/cold shades (not arbitrary Kelvin). Packet: [0x33, 0x05, 0x02, 0xFF, 0xFF, 0xFF, 0x01, <shade R>, <shade G>, <shade B>, 0x00*10, <xor>] — the 0x01 flag selects the warm/cold-white LED set (govee_btled set_color_white).\n",
+              "encoding": "bytes",
+              "payload": {
+                "bytes": [
+                  51,
+                  5,
+                  2,
+                  255,
+                  255,
+                  255,
+                  1
+                ]
+              }
             }
           },
           "name": "Control Write",
-          "notes": "Primary write characteristic for all control commands. Commands are 20-byte fixed-length packets with XOR checksum.\n",
+          "notes": "Primary write characteristic for all control commands. Commands are 20-byte fixed-length packets with XOR checksum. App sends keep-alive AA 01 00..00 AB every ~2 s while connected. Additional color-mode sub-commands (H6127.md, explicitly deferred to by H6001.md): music 0x01, scene 0x04, DIY 0x0a; mic mode 0x06 in govee_btled's LedMode.\n",
           "properties": [
             "write",
+            "write_without_response"
+          ],
+          "uuid": "00010203-0405-0607-0809-0a0b0c0d2b11"
+        },
+        {
+          "name": "Control Notify",
+          "notes": "Read/notify characteristic paired with …2b11 (ACKs and responses).\n",
+          "properties": [
+            "read",
             "notify"
           ],
-          "uuid": "0000ffe1-0000-1000-8000-00805f9b34fb"
+          "uuid": "00010203-0405-0607-0809-0a0b0c0d2b10"
         }
       ],
       "name": "Govee Legacy Bulb Service",
-      "uuid": "0000ffe0-0000-1000-8000-00805f9b34fb"
+      "notes": "On-device GATT profile of the H6001 (HCI-snoop confirmed). The 0xFFE0/0xFFE1 profile listed in earlier revisions belongs to the H6101/H6104 classes in the APK, not to H6001.\n",
+      "uuid": "00010203-0405-0607-0809-0a0b0c0d1910"
     },
     {
       "characteristics": [
@@ -192,7 +231,7 @@
         }
       ],
       "name": "Govee OTA Service",
-      "notes": "Firmware update service. Not needed for control.\n",
+      "notes": "Firmware update service. Not needed for control. Present in the APK (OtaManagerV1) and H6001 gained OTA capability in newer firmware, but no public H6001 GATT dump confirms 0xfd00 on-device — treat as unverified.\n",
       "uuid": "0000fd00-0000-1000-8000-00805f9b34fb"
     }
   ]

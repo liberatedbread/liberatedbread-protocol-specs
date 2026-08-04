@@ -48,13 +48,12 @@
             "verification": "reported"
           },
           {
-            "encoding": "bits: low voltage, unknown, motor running, PAS status",
+            "encoding": "bit0 low voltage, bit1 unknown, bit2 motor running (if not in speed limit), bit3 PAS status / pedals spinning",
             "length": 1,
             "name": "status_flags",
-            "notes": "Exact bit order worth confirming by diffing single-variable changes.",
             "offset": 2,
             "type": "bitfield",
-            "verification": "hypothesis"
+            "verification": "reported"
           },
           {
             "length": 1,
@@ -80,9 +79,11 @@
             "verification": "reported"
           },
           {
+            "encoding": "wheel-rotation PERIOD in ~2.04 ms units, NOT a speed: standstill is the maximum 0x0707 (1799); LCDs ignore values above 0x6D6",
             "endianness": "little",
             "length": 2,
             "name": "speed",
+            "notes": "A consumer must invert and scale by wheel circumference to get km/h (worked example in hurzhurz/serial-communication.md). Read raw, this value decreases as the bike speeds up.",
             "offset": 6,
             "type": "uint16",
             "verification": "reported"
@@ -117,21 +118,20 @@
             "verification": "reported"
           },
           {
-            "encoding": "bits: headlight, assist levels 2-4, assist off, 6 km/h walk mode, assist level 1, hidden level",
+            "encoding": "bit0 headlight, bit1 assist 2, bit2 assist 3, bit3 assist 4, bit4 assist off, bit5 6 km/h walk mode, bit6 assist 1, bit7 hidden/unused assist level",
             "length": 1,
             "name": "control_flags",
-            "notes": "Bit positions described but not precisely pinned; confirm by diffing one change at a time.",
             "offset": 1,
             "type": "bitfield",
-            "verification": "hypothesis"
+            "verification": "reported"
           },
           {
             "length": 1,
-            "name": "unknown_byte_2",
-            "notes": "Undocumented in the sources. Unknown, not known-zero -- capture before assuming.",
+            "name": "unused_byte_2",
+            "notes": "Documented as \"unused\" upstream (0x00 in the reference example).",
             "offset": 2,
             "type": "uint8",
-            "verification": "hypothesis"
+            "verification": "reported"
           },
           {
             "encoding": "range 6-29; default 0x1A (26 inch)",
@@ -145,10 +145,10 @@
           {
             "length": 1,
             "name": "unknown_byte_4",
-            "notes": "Undocumented in the sources. Unknown, not known-zero.",
+            "notes": "Documented upstream as \"unknown, probably unused by LCD\". Unknown, not known-zero.",
             "offset": 4,
             "type": "uint8",
-            "verification": "hypothesis"
+            "verification": "reported"
           },
           {
             "encoding": "minimum 0x0E (14); default 0x19 (25)",
@@ -182,7 +182,7 @@
     "manufacturer": "Tongsheng",
     "manufacturer_status": "active",
     "name": "Tongsheng TSDZ2 Mid-Drive",
-    "notes": "Torque-sensing e-bike mid-drive conversion kit. No radio and no app: the controller talks to the display over plain 9600-baud TTL serial on the main harness, so reaching it from a phone or hub needs a bridge.\nUnlike the Bafang BBS02 this is NOT a request/response configuration protocol. Both ends push fixed-shape packets continuously and neither waits for the other -- the motor reports status 8 times a second, the display asserts control 15 times a second. There is no \"read the settings block\" exchange.\nCONSEQUENCE FOR IMPLEMENTERS: the display packet IS the write path. Wheel size and max speed are re-asserted on every repetition, so anything that transmits on this bus is setting them, continuously. A read-only tool here means listen-only -- never transmit.\nFIRMWARE MATTERS: the layouts below describe the STOCK Tongsheng firmware. Open-source firmware (OSF) is widely installed and changes both the feature set and, on 850C/860C/SW102 displays, the link itself. A capture that disagrees with this spec most likely means OSF is installed -- establish which firmware is running before concluding the spec is wrong.\nVERIFICATION: `reported` throughout -- documented by community work (hurzhurz/tsdz2) and corroborated by independent OSF forks, but nothing here has been captured from a physical unit by us. Display packet bytes 2 and 4 are undocumented even in the sources: unknown, NOT assumed zero.\n",
+    "notes": "Torque-sensing e-bike mid-drive conversion kit. No radio and no app: the controller talks to the display over plain 9600-baud TTL serial on the main harness, so reaching it from a phone or hub needs a bridge.\nUnlike the Bafang BBS02 this is NOT a request/response configuration protocol. Both ends push fixed-shape packets continuously and neither waits for the other -- the motor reports status 8 times a second, the display asserts control 15 times a second. There is no \"read the settings block\" exchange.\nCONSEQUENCE FOR IMPLEMENTERS: the display packet IS the write path. Wheel size and max speed are re-asserted on every repetition, so anything that transmits on this bus is setting them, continuously. A read-only tool here means listen-only -- never transmit.\nFIRMWARE MATTERS: the layouts below describe the STOCK Tongsheng firmware. Open-source firmware (OSF) is widely installed and changes both the feature set and, on 850C/860C/SW102 displays, the link itself. A capture that disagrees with this spec most likely means OSF is installed -- establish which firmware is running before concluding the spec is wrong.\nVERIFICATION: `reported` throughout -- documented by community work (hurzhurz/tsdz2) and corroborated by independent OSF forks, but nothing here has been captured from a physical unit by us.\nPROJECT STATUS: the original casainho/OpenSourceEBike TSDZ2-Smart-EBike is discontinued (\"not in development anymore\"); the active stock-display OSF line is emmebrusa/TSDZ2-Smart-EBike-1 (\"mbrusa\"), whose releases are source-only (compiled locally with SDCC via a Java configurator). HARDWARE REVISION CAVEAT: Enerdan-sold \"V2\" controllers ship an Infineon XMC1300 instead of the STM8S105 -- OSF cannot be flashed on those. WIRELESS BRIDGE: OpenSource-EBike-firmware/TSDZ2_wireless is a ~25 EUR nRF52840 DIY board on the display connector bridging the motor to BLE/ANT+ LEV displays and Garmin/Wahoo head units -- the community answer to the \"needs a bridge\" note above. Project docs have moved to opensourceebike.github.io; the old opensourceebikefirmware.bitbucket.io links are dead.\nFIRMWARE ARTIFACTS: OSF v1.1.2 hex plus full stock STM8 flash/EEPROM/option dumps (hurzhurz) are archived in the research store -- the stock dumps are effectively the only public stock-firmware image.\n",
     "protocol": "uart",
     "setup": {
       "confidence": "medium",
@@ -196,7 +196,7 @@
       },
       "methods": [
         {
-          "description": "Connect a 3.3V USB-TTL adapter to the brown (motor TX) and orange (motor RX) harness lines at 9600 8N1. The telemetry stream is already running; nothing needs to be requested or negotiated.\n",
+          "description": "Connect a 5V-tolerant USB-TTL adapter to the brown (motor TX) and orange (motor RX) harness lines at 9600 8N1. Both serial lines run at 5V logic levels with ~5k pull-ups (hurzhurz/pinout.md) — a 3.3V-only adapter risks damage on the brown motor-TX line. The telemetry stream is already running; nothing needs to be requested or negotiated.\n",
           "type": "wired",
           "verified": false
         }
@@ -213,6 +213,7 @@
     {
       "device_class": "speed",
       "name": "Speed",
+      "notes": "Raw field is a rotation period (~2.04 ms/unit, standstill = max 0x0707) — invert and scale by wheel circumference before presenting as speed, or the reading runs backwards.",
       "platform": "sensor",
       "state_field": "motor_status.speed"
     },

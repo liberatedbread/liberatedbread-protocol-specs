@@ -58,7 +58,7 @@
             "verification": "reported"
           },
           {
-            "encoding": "0x00=24V, 0x01=36V, 0x02=48V, 0x03=60V",
+            "encoding": "0x00=24V, 0x01=36V, 0x02=48V, 0x03=60V, 0x04=24-48V, 0x05+=24-60V",
             "length": 1,
             "name": "voltage_setting",
             "offset": 14,
@@ -139,9 +139,10 @@
             "verification": "reported"
           },
           {
-            "encoding": "bits 1-2: 00 external, 01 internal, 10 motor phase",
+            "encoding": "bits 7-6 (top two bits): 00 external, 01 internal, 10 motor phase",
             "length": 1,
             "name": "speedmeter_model",
+            "notes": "Bit position is the TOP two bits of byte 23 per both working implementations (OpenBafangTool: (data[23] & 0b11000000) >> 6; bafang-python protocol.py: MSB-first 2-bit field). The enum values were never in doubt; an earlier \"bits 1-2\" phrasing came from bafang-python's README and is only correct under MSB-first bit numbering.\n",
             "offset": 23,
             "type": "bitfield",
             "verification": "reported"
@@ -338,32 +339,56 @@
         "writes": false
       },
       {
+        "description": "Power specification code string, e.g. 'MAX_DS48V250W' (OpenBafangTool docs).",
+        "direction": "to_device",
+        "name": "read_power_spec_code",
+        "request": "14 12",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "System code string, e.g. 'MAX01_V2.2_DSW' (OpenBafangTool docs).",
+        "direction": "to_device",
+        "name": "read_system_code",
+        "request": "14 13",
+        "verification": "reported",
+        "writes": false
+      },
+      {
+        "description": "Model/date string, e.g. '20160808' — an upstream documentation example, not a captured real unit value.",
+        "direction": "to_device",
+        "name": "read_model_date",
+        "request": "14 16",
+        "verification": "reported",
+        "writes": false
+      },
+      {
         "advanced": true,
         "advanced_reason": "Sets the current limit and low-voltage cutoff. Current limits are thermal limits: above the motor's rating this cooks the nylon primary gear or the controller MOSFETs, and the motor will not stop you. Lowering the low-voltage cutoff below the pack's real cutoff drives cells into over-discharge. Read and archive the block first -- the write replaces all 24 bytes, so the saved copy is your restore path.\n",
-        "description": "Write the 24-byte basic block. Payload layout is identical to read_basic_parameters. The length byte is deliberately not asserted here -- see the KNOWN AMBIGUITY note in device.notes.\n",
+        "description": "Write the 24-byte basic block. Payload layout is identical to read_basic_parameters. Length byte 0x18 = 24, the true data length -- see the WRITE LENGTH BYTES note in device.notes.\n",
         "direction": "to_device",
         "name": "write_basic_parameters",
-        "request": "16 52",
+        "request": "16 52 18",
         "verification": "reported",
         "writes": true
       },
       {
         "advanced": true,
         "advanced_reason": "Sets assist speed limiting and start behaviour. Raising the speed limit can move the bike out of pedelec/EAPC classification, changing what licence, insurance and road access apply. Read and archive the block first; the write replaces all 11 bytes.\n",
-        "description": "Write the 11-byte pedal assist block. Payload layout is identical to read_pedal_assist_parameters.\n",
+        "description": "Write the 11-byte pedal assist block. Payload layout is identical to read_pedal_assist_parameters. Length byte 0x0B = 11, the true data length.\n",
         "direction": "to_device",
         "name": "write_pedal_assist_parameters",
-        "request": "16 53",
+        "request": "16 53 0B",
         "verification": "reported",
         "writes": true
       },
       {
         "advanced": true,
         "advanced_reason": "Sets throttle behaviour including throttle-from-zero and its speed limit, which is the setting most likely to change the bike's legal classification. Read and archive the block first; the write replaces all 6 bytes.\n",
-        "description": "Write the 6-byte throttle block. Payload layout is identical to read_throttle_parameters.\n",
+        "description": "Write the 6-byte throttle block. Payload layout is identical to read_throttle_parameters. Length byte 0x06 = 6, the true data length.\n",
         "direction": "to_device",
         "name": "write_throttle_parameters",
-        "request": "16 54",
+        "request": "16 54 06",
         "verification": "reported",
         "writes": true
       },
@@ -384,7 +409,7 @@
     "manufacturer": "Suzhou Bafang Electric Motor Science-Technology",
     "manufacturer_status": "active",
     "name": "Bafang BBS02 Mid-Drive",
-    "notes": "36-48 V mid-drive conversion kit sharing a controller architecture and configuration protocol with the BBS01 and BBSHD. No radio and no official app: Bafang Go / BESST targets the newer CAN-bus M-series (M500/M510/M600), not this family. Everything that talks to a BBS02 does so over 1200-baud UART on the display harness -- via a USB programming cable, or via an aftermarket BLE bridge display (EggRider V2, app com.eggbikes.EggRider, whose own BLE UUIDs are undocumented).\nThis is a request/response CONFIGURATION protocol, not a telemetry stream. Reads return parameter blocks; writes replace a whole block. Contrast the Tongsheng TSDZ2, which is a continuous stream at 9600 baud -- a different family entirely, not a variant.\nWRITE SEMANTICS: a write replaces the ENTIRE block. Always read the block first and keep a copy: a partial edit means writing back fields you did not intend to change, and the archived block is the restore path.\nCHECKSUM ASYMMETRY (most common cause of rejected writes): read responses sum every preceding byte; write requests sum only the SECOND code byte, the length byte and the data bytes -- skipping the first code byte.\nVERIFICATION: `reported` throughout -- block sizes, field order and encodings are corroborated across three independent implementations (OpenBafangTool and two bafang-python forks), but nothing here has been read back from a physical unit by us.\nKNOWN AMBIGUITY: sources give write length bytes 0x24 (basic) and 0x11 (pedal) where the corresponding read responses carry 0x18 (24) and 0x0B (11). 0x24 and 0x11 are exactly 24 and 11 written as if decimal were hex, which looks like a documentation slip propagated between forks -- but it could be a real write-side convention. The write messages below therefore omit a literal length byte rather than assert a wrong one. Capture a vendor-tool write before filling it in.\n",
+    "notes": "36-48 V mid-drive conversion kit sharing a controller architecture and configuration protocol with the BBS01 and BBSHD. No radio and no official end-user app: the consumer Bafang Go app targets the newer CAN-bus M-series (M500/M510/M600), not this family. The dealer tool BESST does also program UART BBS/BBSHD controllers, but it is login-gated to dealers, so the conclusion for owners stands. Everything that talks to a BBS02 does so over 1200-baud UART on the display harness -- via a USB programming cable, or via an aftermarket BLE bridge display (EggRider V2, app com.eggbikes.EggRider, whose own BLE UUIDs are undocumented).\nThis is a request/response CONFIGURATION protocol, not a telemetry stream. Reads return parameter blocks; writes replace a whole block. Contrast the Tongsheng TSDZ2, which is a continuous stream at 9600 baud -- a different family entirely, not a variant.\nWRITE SEMANTICS: a write replaces the ENTIRE block. Always read the block first and keep a copy: a partial edit means writing back fields you did not intend to change, and the archived block is the restore path.\nCHECKSUM ASYMMETRY (most common cause of rejected writes): read responses sum every preceding byte; write requests sum only the SECOND code byte, the length byte and the data bytes -- skipping the first code byte.\nVERIFICATION: `reported` throughout -- block sizes, field order and encodings are corroborated across three independent implementations (OpenBafangTool and two bafang-python forks), but nothing here has been read back from a physical unit by us.\nWRITE LENGTH BYTES (former KNOWN AMBIGUITY, resolved): sources gave write length bytes 0x24 (basic) and 0x11 (pedal) where the corresponding read responses carry 0x18 (24) and 0x0B (11). 0x24 and 0x11 are exactly 24 and 11 written as if decimal were hex -- documentation slips in the bafang-python README. Actively maintained code known to work on real hardware (OpenBafangTool) sends the true data length, and bafang-python's own protocol.py emits a real length byte too. The write messages below therefore carry 0x18 (basic), 0x0B (pedal) and 0x06 (throttle).\n",
     "protocol": "uart",
     "setup": {
       "confidence": "medium",

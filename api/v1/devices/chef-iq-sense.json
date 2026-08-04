@@ -40,7 +40,7 @@
     "manufacturer": "Chefman / Chef iQ",
     "manufacturer_status": "unsupported",
     "name": "Chef iQ Sense",
-    "notes": "Smart thermometer hub (CQ60) with wireless probes and ESP32-WROOM-E chipset. Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi for cloud (AWS IoT MQTT). React Native app with Hermes bytecode (v96); protocol logic decompiled via hermes-dec. Five BLE UUID families for different device generations and functions. BLE manufacturer ID: 0x05CD. Device name: exactly \"CQ60\". Temperatures are IEEE 754 single-precision floats, natively in Fahrenheit. Probe data uses TLV (Tag-Length-Value) binary encoding with typed attribute IDs. Three command channels: thermometer (048A), system (9C6F), FTP/OTA (F640). Cloud: api.chefiq.com (REST), graph.chefiq.com (GraphQL), iot.chefiq.com (MQTT). Auth: AWS Cognito. The identity-pool id us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259 is a PUBLIC client-side identifier (region:uuid format), NOT a secret credential -- it ships in every copy of the app and grants nothing without a valid user login. Retained here (and in docs/devices/chef-iq-sense.md) for interoperability; no vendor secret is published. No certificate pinning. MQTT topics: ciq-v2/dt/thermometer/{cognito_id}~{device_id}/+. Wi-Fi provisioning over BLE via Family C (8A71) characteristics, versioned V1/V2/V3. FCC ID: ESP32WROVERE.\n",
+    "notes": "Smart thermometer hub (CQ60) with wireless probes and ESP32-WROVER-E chipset. Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi for cloud (AWS IoT MQTT). React Native app with Hermes bytecode (v96); protocol logic decompiled via hermes-dec. Five BLE UUID families for different device generations and functions. BLE manufacturer ID: 0x05CD. Device name: exactly \"CQ60\". Temperatures are IEEE 754 single-precision floats, natively in Fahrenheit. Probe data uses TLV (Tag-Length-Value) binary encoding with typed attribute IDs. Three command channels: thermometer (048A), system (9C6F), FTP/OTA (F640). Cloud: api.chefiq.com (REST), graph.chefiq.com (GraphQL), iot.chefiq.com (MQTT). Auth: AWS Cognito. The identity-pool id us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259 is a PUBLIC client-side identifier (region:uuid format), NOT a secret credential -- it ships in every copy of the app and grants nothing without a valid user login. Retained here (and in docs/devices/chef-iq-sense.md) for interoperability; no vendor secret is published. No certificate pinning. MQTT topics: ciq-v2/dt/thermometer/{cognito_id}~{device_id}/+. Wi-Fi provisioning over BLE via Family C (8A71) characteristics, versioned V1/V2/V3. ADVERTISEMENT PATH (connectionless, no GATT needed): probes broadcast temperatures and battery unauthenticated in manufacturer data 0x05CD -- a simpler local integration than the GATT protocol below. Packet type is the low nibble of byte 0 (0x0 ASCII name, 0x1 temperature, 0x3 status with MAC + battery on newer versions); the remaining nibbles carry a major.minor.patch protocol version (V2/V3 documented; 5.0.0 seen on current CQ60). Temperatures are signed int16 little-endian in tenths of a degree C; an unmeasured ring sends a sentinel >= 0x7FF0 (0x7FFB typical). Battery byte 0-255 maps to 0-100 %. The hub advertises under the same manufacturer ID with a longer (>= 20 B) payload -- a clean programmatic discriminator from probes. Sources: Invader444/chefiq-ble (PyPI), ble_monitor >= 12.8.0, ITSpecialist111 ChefIQ integration. FCC IDs: hub 2AC7Z-ESP32WROVERE (modular approval, ESP32-WROVER-E); probes 2A2YP-CQ60QPROBE (earlier v1 grant 2A2YP-CQ60PROBE).\n",
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -150,6 +150,7 @@
     {
       "device_class": "temperature",
       "name": "Internal Temperature",
+      "notes": "Consumes TLV attribute 36 (InternalTemp, float32) from the Probe Data notify — attribute ID and type confirmed in the app v5.3.0 decompile; see that characteristic's notes for the TLV frame layout (no fixed offsets — parse the envelope). The connectionless advertisement path (int16 LE, 0.1 °C) is the alternative and reports in °C, not °F.\n",
       "platform": "sensor",
       "state_characteristic": "048af000-cd06-4d57-a048-ccd5cb9f8f43",
       "unit": "F"
@@ -157,6 +158,7 @@
     {
       "device_class": "temperature",
       "name": "Ambient Temperature",
+      "notes": "Consumes TLV attribute 37 (AmbientTemp, float32) from the Probe Data notify — same decode path and caveats as Internal Temperature; the advertisement path remains the °C alternative.\n",
       "platform": "sensor",
       "state_characteristic": "048af000-cd06-4d57-a048-ccd5cb9f8f43",
       "unit": "F"
@@ -174,6 +176,7 @@
       "characteristics": [
         {
           "name": "Probe Data",
+          "notes": "Notifications carry TLV (Tag-Length-Value) records with typed attribute IDs; temperatures are IEEE 754 float32 (SingleFloat), natively Fahrenheit (the app applies no unit conversion in the decode path; the display unit is governed by the 9C6FFFC0 Temperature Unit characteristic). TLV frame layout, read directly from the app's own parser (processBLEData / parseBytesData in the v5.3.0 Hermes bundle decompile; research/chef-iq-sense/app/): a sequence of attribute entries, each [attr_id uint16 LE][type uint8][length uint8][value length bytes]. The per-entry type byte (DataTypeEnum: 0 bool, 1-6 signed/unsigned 8/16/32-bit LE ints, 9 float32 LE rounded to 2 decimals, 11 utf8 string, 12 hex byte array, 13 MAC address, 14 JSON) drives decoding. One notification can carry several per-probe records: a new record starts when an attribute ID repeats, and attribute 16 (probe_address, MAC) is the record delimiter. Attribute IDs (AttributeEnum, confirmed in the same decompile): 16 ProbeAddress, 34 BatteryLevel (uint8), 35 IcTemp (f32), 36 InternalTemp (f32), 37 AmbientTemp (f32), 38 IsOverheat (bool), 39 IsSensorFail (bool), 40-43 Tip1-Tip4 temps (f32), 44 Ext1Temp (f32). Because records are tagged, fields have NO fixed byte offsets, so no declarative format block is possible — parse the TLV envelope instead. Confidence: confirmed against the app's parser code, not yet against hardware. Neither downloaded RE implementation (Invader444/chefiq-ble, ble_monitor) decodes this GATT characteristic; both document only the connectionless advertisement path (manufacturer data 0x05CD, signed int16 LE in 0.1 °C, sentinel >= 0x7FF0, per-probe slots), which does NOT mirror this notify's encoding (int16 0.1 °C vs float32). Consumers who just need probe temperatures can also use the documented advertisement path in the device notes above.\n",
           "properties": [
             "notify"
           ],
@@ -211,6 +214,7 @@
         },
         {
           "name": "System Notification",
+          "notes": "Payload is a plain UTF-8 JSON object (JSON.parse of the raw bytes) — NOT TLV. Evidence: app v5.3.0 decompile.\n",
           "properties": [
             "notify"
           ],
@@ -218,6 +222,7 @@
         },
         {
           "name": "Session Notification",
+          "notes": "Payload is a plain UTF-8 JSON object (JSON.parse of the raw bytes) — NOT TLV. Evidence: app v5.3.0 decompile.\n",
           "properties": [
             "notify"
           ],
@@ -225,6 +230,7 @@
         },
         {
           "name": "Cooking State Notification",
+          "notes": "Payload is a plain UTF-8 JSON object (JSON.parse of the raw bytes) — NOT TLV. Evidence: app v5.3.0 decompile.\n",
           "properties": [
             "notify"
           ],
@@ -373,6 +379,7 @@
         },
         {
           "name": "Thermometer Command Response",
+          "notes": "Responses carry an 8-byte header: commandId u8 @0, requestId u32 LE @1, responseCode int8 @5, size u16 LE @6, followed by `size` payload bytes. Attribute-bearing commands (e.g. get_probe_attributes, start_session) return payloads in the same TLV encoding as 048af000 Probe Data. Evidence: app v5.3.0 decompile (processHeaderInfo).\n",
           "properties": [
             "notify"
           ],
@@ -401,7 +408,16 @@
           "uuid": "9c6ff050-0420-41c1-bd98-7a015c45dc5a"
         },
         {
+          "format": [
+            {
+              "length": 1,
+              "name": "battery_status",
+              "offset": 0,
+              "type": "uint8"
+            }
+          ],
           "name": "Battery Status",
+          "notes": "Charge state enum: 0 = discharging, 1 = charging (BatteryStatus enum in the app; an absent value defaults to discharging). Evidence: app v5.3.0 Hermes bundle decompile (research/chef-iq-sense/app/).\n",
           "properties": [
             "read",
             "notify"
@@ -409,9 +425,19 @@
           "uuid": "9c6ff051-0420-41c1-bd98-7a015c45dc5a"
         },
         {
+          "format": [
+            {
+              "length": 2,
+              "name": "battery_level",
+              "offset": 0,
+              "type": "int16"
+            }
+          ],
           "name": "Battery Level",
+          "notes": "Signed int16 little-endian, no scaling; the app consumes the raw value directly as the battery level (0-100 % by usage — no explicit range check in code). The app's characteristic registry declares read+notify and subscribes to it (the earlier read-only listing was wrong). Evidence: app v5.3.0 Hermes bundle decompile (research/chef-iq-sense/app/).\n",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "9c6ff052-0420-41c1-bd98-7a015c45dc5a"
         },
@@ -433,6 +459,14 @@
           "uuid": "9c6ff054-0420-41c1-bd98-7a015c45dc5a"
         },
         {
+          "format": [
+            {
+              "length": 2,
+              "name": "volume",
+              "offset": 0,
+              "type": "int16"
+            }
+          ],
           "name": "Volume",
           "properties": [
             "read",

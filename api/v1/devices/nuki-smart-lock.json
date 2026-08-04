@@ -79,7 +79,7 @@
   },
   "ble": {
     "connection": {
-      "bonding_required": true,
+      "bonding_required": false,
       "mtu_negotiation": true,
       "phy_preference": "le_1m",
       "preferred_mtu": 185,
@@ -95,10 +95,14 @@
       "Smart Lock 2.0",
       "Smart Lock 3.0",
       "Smart Lock 4.0",
-      "Smart Lock Pro"
+      "Smart Lock Pro",
+      "Smart Lock Ultra",
+      "Smart Lock (5th gen)",
+      "Smart Lock Pro (5th gen)",
+      "Smart Lock Go"
     ],
     "name": "Nuki Smart Lock",
-    "notes": "The Nuki Smart Lock is a retrofit electronic door lock that mounts over an existing Euro-profile cylinder. It communicates primarily via BLE with an optional WiFi bridge for remote access.\nProtocol: encrypted BLE GATT with challenge-response authentication (public key exchange, nonce, authorization IDs). Lock actions are CRC-16 authenticated. All multi-byte values are little-endian.\nThe app supports multiple Nuki device types (Smart Lock, Opener, Door Sensor, Keypad, Fob, Box, Bridge) each with their own BLE service UUIDs but sharing the same command/response protocol over a GATT data characteristic.\nResearch status: APK decompiled, full UUID map and command IDs recovered. Message frame format confirmed via BleResponse.java disassembly. Lock state enum and error codes fully enumerated. Pairing/auth flow understood at protocol level from public docs. CRC-16 implementation confirmed (XModem/CCITT, poly 0x1021, reflected).\n",
+    "notes": "The Nuki Smart Lock is a retrofit electronic door lock that mounts over an existing Euro-profile cylinder. It communicates primarily via BLE with an optional WiFi bridge for remote access.\nProtocol: encrypted BLE GATT with challenge-response authentication (public key exchange, nonce, authorization IDs). Lock actions are CRC-16 authenticated. All multi-byte values are little-endian.\nThe app supports multiple Nuki device types (Smart Lock, Opener, Door Sensor, Keypad, Fob, Box, Bridge) each with their own BLE service UUIDs but sharing the same command/response protocol over a GATT data characteristic.\nResearch status: APK decompiled, full UUID map and command IDs recovered. Message frame format confirmed via BleResponse.java disassembly. Lock state enum and error codes fully enumerated. Pairing/auth flow understood at protocol level from public docs. CRC-16 implementation confirmed (CRC-16/CCITT-FALSE, poly 0x1021, init 0xFFFF, MSB-first, non-reflected — NOT XModem).\nSecurity: NCC Group's July 2022 advisory disclosed 11 CVEs in Nuki products, including CVE-2022-32507 (broken access controls in the BLE protocol) and CVE-2022-32505 (DoS via unauthenticated BLE packets), fixed in Smart Lock 3.0 FW >=3.3.5 and 2.0 FW >=2.12.4. Official MQTT and Matter-over-Thread APIs are now documented alongside BLE/Web (4th-gen Pro/Ultra/5th-gen support Matter; Ultra/Pro have built-in WiFi, no bridge needed).\n",
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -110,7 +114,7 @@
         "notes": "No WiFi passphrase crosses this link — the lock itself is BLE-only, and the separate WiFi bridge handles network credentials on its own. The security PIN is user-chosen and verified over the encrypted channel established by the key exchange.\n",
         "stored_on_device": [
           "Client public keys and their authorization IDs",
-          "6-digit security PIN"
+          "Security PIN (4-digit on SL 1.0-4.0; 6-digit on Ultra/5th-gen/Go/Pro)"
         ],
         "wifi_passphrase_protection": "not_applicable"
       },
@@ -143,7 +147,7 @@
               "actor": "client"
             },
             {
-              "action": "Enter the 6-digit security PIN when the client asks for it.",
+              "action": "Enter the security PIN (4-digit on SL 1.0-4.0, 6-digit on Ultra/5th-gen/Go/Pro) when the client asks for it.",
               "actor": "user"
             },
             {
@@ -156,7 +160,7 @@
           "verified": false
         }
       ],
-      "notes": "Unlike most devices in this repo, the Nuki lock genuinely must be provisioned before it will do anything: every command after pairing carries an authorization ID that only the pairing exchange can issue. Pairing is public-key based (CMD 3 PublicKeyRequest, CMD 4/5 challenge-response) and gated by a 6-digit security PIN the owner sets on first setup.\nThe lock is put into pairing mode physically, by holding its button. That is deliberate: it means possession of the door, not proximity to it, is what authorises a new client.\nConfidence is medium — the flow is understood from the decompiled app and Nuki's public BLE API documentation, but has not been run against a lock here. Treat the step ordering as documented rather than observed.\n",
+      "notes": "Unlike most devices in this repo, the Nuki lock genuinely must be provisioned before it will do anything: every command after pairing carries an authorization ID that only the pairing exchange can issue. Pairing is public-key based (CMD 3 PublicKeyRequest, CMD 4/5 challenge-response) and gated by a security PIN the owner sets on first setup — 4 digits on Smart Lock 1.0-4.0, widened to 6 digits with Smart Lock Ultra (6-digit on Ultra/5th-gen/Go/Pro).\nThe lock is put into pairing mode physically, by holding its button. That is deliberate: it means possession of the door, not proximity to it, is what authorises a new client.\nConfidence is medium — the flow is understood from the decompiled app and Nuki's public BLE API documentation, but has not been run against a lock here. Treat the step ordering as documented rather than observed.\n",
       "rejoin": {
         "in_place_supported": true,
         "notes": "A previously paired client rejoins with its stored keypair and authorization ID; no reset is needed. A reset is only required to revoke an authorization that can no longer be removed through the app — for example after losing the phone that held it. The optional WiFi bridge is provisioned separately and is not part of this flow.\n",
@@ -218,9 +222,9 @@
         "name": "DeviceTypeResponse"
       },
       "error_report": {
-        "description": "Error response with code and optional message",
+        "description": "Error response with code and optional message (0x0012 per official BLE API V2.3.0 — 0x0007 is Authorization-ID, not Error Report)",
         "direction": "device_to_client",
-        "id": 7,
+        "id": 18,
         "name": "ErrorReportResponse / KeyturnerErrorReportResponse"
       },
       "keypad_code_count": {
@@ -245,12 +249,12 @@
             "type": "uint8"
           },
           {
-            "description": "LockState enum value (0=uncalibrated, 1=locked, 3=unlocked, etc.)",
+            "description": "LockState enum value (0=uncalibrated, 1=locked, 3=unlocked, etc.) — single byte per official BLE API V2.3.0",
             "name": "lockState",
-            "type": "uint16"
+            "type": "uint8"
           },
           {
-            "description": "Source of the last state change (app=0, manual=1, button=2, auto=3, etc.)",
+            "description": "Source of the last state change (0=system, 1=manual, 2=button, 3=automatic, 6=auto lock)",
             "name": "trigger",
             "type": "uint8"
           },
@@ -260,22 +264,12 @@
             "type": "datetime"
           },
           {
-            "description": "Battery critically low",
-            "name": "criticalBattery",
-            "type": "bool"
+            "description": "Battery flags byte: bit0 = critical, bit1 = charging, bits 2-7 = charge level in steps of 2%",
+            "name": "battery",
+            "type": "uint8"
           },
           {
-            "description": "Battery charge percentage (0-100)",
-            "name": "batteryPercent",
-            "type": "uint16"
-          },
-          {
-            "description": "Battery is currently charging",
-            "name": "batteryCharging",
-            "type": "bool"
-          },
-          {
-            "description": "Door state (0/1=deactivated, 2=closed, 3=opened, 4=unknown, 5=calibrating)",
+            "description": "Door state (0=unavailable, 1=deactivated, 2=closed, 3=opened, 4=unknown, 5=calibrating, 0x10=uncalibrated, 0xF0=tampered)",
             "name": "doorSensorState",
             "type": "uint8"
           },
@@ -289,43 +283,43 @@
         "name": "KeyturnerStatesResponse"
       },
       "lock_action": {
-        "description": "Perform a lock/unlock/unlatch/lock-n-go action",
+        "description": "Perform a lock/unlock/unlatch/lock-n-go action. Wire format: lockAction u8 + authId u32 + flags u8 + optional 20-byte name suffix + 32-byte nonce (no trigger field — trigger only appears in Keyturner States).",
         "direction": "client_to_device",
         "fields": [
           {
             "name": "lockAction",
             "type": "uint8",
             "values": {
-              "0": "UNLOCK",
-              "1": "LOCK",
-              "2": "UNLATCH",
-              "3": "LOCK_N_GO",
-              "4": "LOCK_N_GO_WITH_UNLATCH"
+              "1": "UNLOCK",
+              "129": "FOB_ACTION_1 (0x81)",
+              "130": "FOB_ACTION_2 (0x82)",
+              "131": "FOB_ACTION_3 (0x83)",
+              "2": "LOCK",
+              "3": "UNLATCH",
+              "4": "LOCK_N_GO",
+              "5": "LOCK_N_GO_WITH_UNLATCH",
+              "6": "FULL_LOCK"
             }
-          },
-          {
-            "name": "trigger",
-            "type": "uint8",
-            "values": {
-              "0": "APP",
-              "1": "MANUAL",
-              "2": "BUTTON",
-              "3": "AUTO",
-              "4": "KEYPAD",
-              "5": "TIME_CONTROL",
-              "6": "WEARABLE",
-              "7": "FOB"
-            }
-          },
-          {
-            "description": "Option flags (bitfield)",
-            "name": "flags",
-            "type": "uint8"
           },
           {
             "description": "Authorization ID (assigned during pairing)",
             "name": "authId",
             "type": "uint32"
+          },
+          {
+            "description": "Option flags (bit0 = auto-unlock, bit1 = force)",
+            "name": "flags",
+            "type": "uint8"
+          },
+          {
+            "description": "Optional 20-byte name suffix",
+            "name": "name_suffix",
+            "type": "bytes"
+          },
+          {
+            "description": "32-byte nonce",
+            "name": "nonce",
+            "type": "bytes"
           }
         ],
         "id": 13,
@@ -374,7 +368,7 @@
         "name": "SetConfigRequest"
       },
       "set_security_pin": {
-        "description": "Set or change the security PIN (6 digits)",
+        "description": "Set or change the security PIN (4 digits on SL 1.0-4.0, 6 digits on Ultra/5th-gen/Go/Pro)",
         "direction": "client_to_device",
         "id": 25,
         "name": "SetSecurityPinRequest"
@@ -399,9 +393,11 @@
       }
     },
     "door_sensor_states": {
-      "0": "DEACTIVATED",
-      "1": "DEACTIVATED (alt)",
+      "0": "UNAVAILABLE",
+      "1": "DEACTIVATED",
+      "16": "UNCALIBRATED (0x10, SL 3.0 and later)",
       "2": "DOOR_CLOSED",
+      "240": "TAMPERED (0xF0, SL 3.0 and later)",
       "3": "DOOR_OPENED",
       "4": "DOOR_UNKNOWN",
       "5": "CALIBRATING"
@@ -457,20 +453,24 @@
     "framing": {
       "byte_order": "little_endian",
       "crc": {
-        "algorithm": "CRC-16-CCITT",
+        "algorithm": "CRC-16/CCITT-FALSE",
         "initial": "0xFFFF",
-        "notes": "XModem variant. Used on scan response data and message authentication.",
+        "notes": "MSB-first, non-reflected (NOT the XModem variant — XModem would also imply init 0x0000). Matches the official doc's 'CRC-CCITT, normal (0x1021), initial remainder 0xFFFF' and pyNukiBT's Crc(width=16, poly=0x1021, initvalue=0xffff, reflect_input=False, reflect_output=False). Used on scan response data and message authentication.",
         "polynomial": "0x1021",
-        "reflected": true,
+        "reflected": false,
         "xor_out": "0x0000"
       }
     },
     "lock_actions": {
-      "0": "UNLOCK — Unlock the door",
-      "1": "LOCK — Lock the door",
-      "2": "UNLATCH — Unlatch (pull back the latch)",
-      "3": "LOCK_N_GO — Lock and unlatch (single cycle)",
-      "4": "LOCK_N_GO_WITH_UNLATCH — Lock-n-Go with unlatch at end"
+      "1": "UNLOCK — Unlock the door",
+      "129": "FOB_ACTION_1 (0x81) — Fob action 1",
+      "130": "FOB_ACTION_2 (0x82) — Fob action 2",
+      "131": "FOB_ACTION_3 (0x83) — Fob action 3",
+      "2": "LOCK — Lock the door",
+      "3": "UNLATCH — Unlatch (pull back the latch)",
+      "4": "LOCK_N_GO — Lock and unlatch (single cycle)",
+      "5": "LOCK_N_GO_WITH_UNLATCH — Lock-n-Go with unlatch at end",
+      "6": "FULL_LOCK — Full lock"
     },
     "lock_states": {
       "0": "UNCALIBRATED — Lock not yet calibrated, cannot operate",
@@ -493,7 +493,7 @@
       "description": "Nuki uses public-key based pairing with challenge-response authentication: 1. BLE connection and service discovery 2. Public key exchange (CMD 3: PublicKeyRequest / PublicKeyResponse) 3. Challenge-response authentication (CMD 4: ChallengeResponse, CMD 5: AuthorizationAuthenticatorRequest) 4. Security PIN verification (CMD 32: VerifySecurityPinRequest) 5. On success, the device returns an authorization ID used for subsequent commands\n",
       "nuki_specific": {
         "authorization_id": "Integer ID assigned after successful pairing, used to authenticate all commands",
-        "security_pin": "6-digit numeric PIN set during initial setup"
+        "security_pin": "Numeric PIN set during initial setup: 4 digits (uint16) on Smart Lock 1.0-4.0, 6 digits (uint32) on Ultra/5th-gen/Go/Pro"
       }
     }
   },
@@ -513,7 +513,7 @@
           "uuid": "A92EE101-5501-11E4-916C-0800200C9A66"
         },
         {
-          "description": "Pairing/security service for initial device bonding",
+          "description": "Pairing service for initial authorization (SL 1-4; Smart Lock Ultra uses A92EE300 instead)",
           "name": "Keyturner Pairing Service",
           "properties": [
             "write",
@@ -524,7 +524,7 @@
           "uuid": "A92EE100-5501-11E4-916C-0800200C9A66"
         },
         {
-          "description": "Pairing data characteristic",
+          "description": "Pairing data characteristic (present in the app's BleConstants; not listed in the official BLE API V2.3.0)",
           "name": "Keyturner Pairing Data",
           "properties": [
             "write",
@@ -535,37 +535,37 @@
           "uuid": "A92EEF00-5501-11E4-916C-0800200C9A66"
         },
         {
-          "description": "Firmware update service",
-          "name": "Keyturner Firmware Service",
+          "description": "Keyturner command service per official BLE API V2.3.0 (NOT a firmware service); carries the data IO characteristics below",
+          "name": "Keyturner Service (command service)",
           "properties": [
             "write",
             "notify"
           ],
-          "type": "firmware",
+          "type": "data",
           "uuid": "A92EE200-5501-11E4-916C-0800200C9A66"
         },
         {
-          "description": "Firmware transfer data",
-          "name": "Keyturner Firmware Data",
+          "description": "General Data IO characteristic — unencrypted command channel (official BLE API V2.3.0)",
+          "name": "Keyturner General Data IO",
           "properties": [
             "write",
             "notify"
           ],
-          "type": "firmware_data",
+          "type": "data",
           "uuid": "A92EE201-5501-11E4-916C-0800200C9A66"
         },
         {
-          "description": "Firmware transfer status",
-          "name": "Keyturner Firmware Status",
+          "description": "User-Specific Data IO characteristic — encrypted command channel (official BLE API V2.3.0); used by pyNukiBT/NukiBleEsp32",
+          "name": "Keyturner User-Specific Data IO",
           "properties": [
-            "notify",
-            "read"
+            "write",
+            "notify"
           ],
-          "type": "firmware_status",
+          "type": "data",
           "uuid": "A92EE202-5501-11E4-916C-0800200C9A66"
         },
         {
-          "description": "Firmware verification",
+          "description": "Present in the app's BleConstants; not listed in the official BLE API V2.3.0 — role unverified",
           "name": "Keyturner Firmware Verify",
           "properties": [
             "write",
@@ -575,9 +575,9 @@
           "uuid": "A92EE203-5501-11E4-916C-0800200C9A66"
         }
       ],
-      "description": "Primary GATT service for Nuki Smart Lock (Keyturner)",
+      "description": "Advertises the uninitialized state; has no characteristics of its own (official BLE API V2.3.0). The entries below are the separate keyturner services/characteristics, kept here for reference.",
       "device": "smart_lock",
-      "name": "Keyturner Service",
+      "name": "Keyturner Initialization Service",
       "uuid": "A92EE000-5501-11E4-916C-0800200C9A66"
     },
     {
