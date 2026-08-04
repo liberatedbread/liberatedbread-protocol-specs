@@ -171,10 +171,30 @@ services:
           Confidence HIGH. Evidence: com/pax/peace/encryption/b.java:58 (AES/OFB128),
           b.java:60 (16-byte ECB key-derivation key), g/p/f.java:33 (this char UUID).
         format:
+          # Layout of the DECRYPTED read packet: byte 0 is the attribute
+          # (message type) ID, the attribute payload follows at byte 1
+          # (tristanseifert PaxMessage.swift). Which payload field is valid
+          # depends on byte 0 — the device stages one attribute per
+          # request_status_update bitmask bit.
           - offset: 0
             length: 1
             name: "message_type"
             type: "uint8"
+            description: "Attribute ID: 0x01 = ACTUAL_TEMP, 0x02 = HEATER_SET_POINT, 0x03 = BATTERY, 0x18 = SUPPORTED_ATTRIBUTES (PaxMessageType enum)"
+          - offset: 1
+            length: 2
+            name: "temperature"
+            type: "uint16"
+            endianness: "little"
+            scale: 0.1
+            unit: "C"
+            description: "Valid when message_type == 0x01 (ACTUAL_TEMP): uint16 LE, value / 10 = degrees C (GenericTemperatureMessage, tristanseifert PaxMessage.swift)"
+          - offset: 1
+            length: 1
+            name: "battery"
+            type: "uint8"
+            unit: "%"
+            description: "Valid when message_type == 0x03 (BATTERY): state of charge 0-100 in one byte (BatteryMessage, tristanseifert PaxMessage.swift)"
 
       - uuid: "8e320202-64d2-11e6-bdf4-0800200c9a66"
         name: "Write Command"
@@ -277,7 +297,10 @@ entities:
     unit: "C"
     state_characteristic: "8e320201-64d2-11e6-bdf4-0800200c9a66"
     state_mapping:
-      value: "message_type"
+      value: "temperature"
+    notes: >
+      Decrypted read packet with message_type 0x01 (ACTUAL_TEMP); stage it
+      via request_status_update with bit (1 << 1) set, then read.
 
   - platform: "sensor"
     name: "Battery"
@@ -285,4 +308,7 @@ entities:
     unit: "%"
     state_characteristic: "8e320201-64d2-11e6-bdf4-0800200c9a66"
     state_mapping:
-      value: "message_type"
+      value: "battery"
+    notes: >
+      Decrypted read packet with message_type 0x03 (BATTERY); stage it via
+      request_status_update with bit (1 << 3) set, then read.
