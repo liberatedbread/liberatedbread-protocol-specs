@@ -312,3 +312,44 @@ def test_empty_local_name_prefix_is_never_used(specs):
         assert identification.get("local_name_prefix", "x") != "", (
             f"{device_id}: local_name_prefix is empty — omit the key instead"
         )
+
+
+def test_mac_prefixes_are_usable_ouis(specs):
+    """A prefix shorter than three octets ranks a sixteenth of all hardware.
+
+    Consumers reject these anyway, so a spec carrying one is silently doing
+    nothing rather than doing what its author intended.
+    """
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification", {})
+        for entry in identification.get("mac_prefixes", []):
+            prefix = entry if isinstance(entry, str) else entry["prefix"]
+            octets = prefix.replace("-", ":").split(":")
+            assert 3 <= len(octets) <= 5, (
+                f"{device_id}: mac_prefix {prefix!r} is {len(octets)} octets; "
+                "an OUI is 3 (MA-L) to 5 (MA-S)"
+            )
+            assert all(len(o) == 2 and _is_hex(o) for o in octets), (
+                f"{device_id}: mac_prefix {prefix!r} is not colon-separated hex octets"
+            )
+
+
+def test_high_confidence_mac_prefixes_show_their_working(specs):
+    """`high` says a block is this device family's and effectively nothing
+    else's. That is a claim about the world, not a default, so it has to name
+    the evidence — otherwise the strongest rating is also the cheapest to
+    write, which is exactly backwards.
+    """
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification", {})
+        for entry in identification.get("mac_prefixes", []):
+            if isinstance(entry, str) or entry.get("confidence") != "high":
+                continue
+            assert entry.get("notes", "").strip(), (
+                f"{device_id}: mac_prefix {entry['prefix']!r} is rated high "
+                "confidence with no notes — say how you established that"
+            )
+
+
+def _is_hex(octet: str) -> bool:
+    return all(c in "0123456789abcdefABCDEF" for c in octet)
