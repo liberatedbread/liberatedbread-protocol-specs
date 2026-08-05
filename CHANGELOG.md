@@ -55,6 +55,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Two `identification` keys that no consumer has ever read. Roku declared
+  `ssdp_search_target` and WLED `mdns_service_types`; neither is a schema key,
+  and `identification` sweeps unrecognised keys into extensions rather than
+  rejecting them, so a singular/plural slip is not an error — it is a silent
+  no-op. Roku's `roku:ecp` is an exact, unambiguous SSDP target and it reached
+  nothing. WLED's plural only added `_http._tcp`, which every web-serving device
+  answers, so that one is dropped rather than migrated, with a note saying why.
+  A new conventions test fails on the whole class. `inkbird-bbq-thermometer`'s
+  `local_name_prefixes` is the same slip but cannot be renamed — the family
+  ships under eight names and the schema key holds one — so it is written up as
+  P11 in `docs/contributing/spec-evolution.md` instead of quietly losing seven
 - The Lutron Caséta bridge carries no `mac_prefixes` after all. Its captured
   address `b8:94:d9:…` sits in a Texas Instruments block — it identifies the
   radio module inside the bridge, not Lutron, and listing it would have flagged
