@@ -353,3 +353,35 @@ def test_high_confidence_mac_prefixes_show_their_working(specs):
 
 def _is_hex(octet: str) -> bool:
     return all(c in "0123456789abcdefABCDEF" for c in octet)
+
+
+# `identification` sweeps unrecognised keys into an extensions map rather than
+# rejecting them, which is what lets vendor-specific discovery hints live there.
+# The cost is that a near-miss on a schema key is not an error, it is a silent
+# no-op: consumers read the name they know and never see the value. Roku carried
+# `ssdp_search_target` for exactly this reason, and its one unambiguous SSDP
+# target -- `roku:ecp` -- reached no consumer at all.
+#
+# Only keys whose correct form can express the same thing are listed. Not
+# listed, deliberately: `local_name_prefixes`, which inkbird-bbq-thermometer
+# carries because that family ships under eight rebadged names and
+# `local_name_prefix` holds one. Renaming it there would silently drop seven
+# names, so that one needs a schema change, not a rename. See
+# docs/contributing/spec-evolution.md.
+IDENTIFICATION_NEAR_MISSES = {
+    "ssdp_search_target": "ssdp_search_targets",
+    "service_uuid": "service_uuids",
+    "mac_prefix": "mac_prefixes",
+    "mdns_service_types": "mdns_service_type",
+}
+
+
+def test_identification_keys_are_not_near_misses(specs):
+    """A singular/plural slip on an identification key is silently ignored."""
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification", {})
+        for wrong, right in IDENTIFICATION_NEAR_MISSES.items():
+            assert wrong not in identification, (
+                f"{device_id}: identification.{wrong} is not a schema key and is "
+                f"silently ignored by consumers — use {right}"
+            )
