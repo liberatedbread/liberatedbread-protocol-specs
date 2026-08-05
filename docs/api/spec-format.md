@@ -100,7 +100,11 @@ device:
       company_id: 961                   # decimal, AD type 0xFF header
       company_id_hex: "0x03C1"          # same value, for readers
       additional_company_ids: [89, 741] # older firmware, rebadged models
-    mac_prefixes: ["C4:7C:8D"]          # IEEE OUI, most-significant octet first
+    mac_prefixes:                       # IEEE OUI, most-significant octet first
+      - prefix: "00:17:88"
+        confidence: "medium"            # low (default) | medium | high
+        notes: "Philips Lighting's own block, but it covers their whole catalogue."
+      - "C4:7C:8D"                      # bare string == confidence: low
     mdns_service_type: "_hue._tcp.local."   # WiFi
     ssid_prefix: "..."                      # WiFi, AP mode
     default_port: 80                        # WiFi
@@ -134,6 +138,39 @@ Record prefixes and company IDs that a source actually documents or that we
 actually observed. Do not fill `mac_prefixes` in by looking the vendor's name
 up in the IEEE registry: the registry says which OUIs a company holds, not
 which one this product shipped with.
+
+#### `mac_prefixes` entries carry their own confidence
+
+Not every OUI is weak in the same way, and a spec that says so lets a consumer
+rank them apart instead of flattening the lot. An entry is either a bare string
+or a map:
+
+```yaml
+mac_prefixes:
+  - "C4:7C:8D"                      # bare string, treated as confidence: low
+  - prefix: "00:17:88"
+    confidence: "medium"
+    notes: >
+      Free text. Say how you established this, so the next person can disagree
+      with you on the evidence rather than on the verdict.
+```
+
+| `confidence` | Means | A consumer should |
+|---|---|---|
+| `low` (default) | The block is shared: subdivided into MA-M/MA-S slices held by unrelated companies, or belonging to a radio module vendor rather than the product's maker | Rank on it, never promote on it |
+| `medium` | The block really is this manufacturer's, but covers their whole catalogue — "something this vendor made", not "this device" | Rank on it, and let it corroborate another signal |
+| `high` | The block is this device family's and effectively nothing else's | Treat as evidence in its own right |
+
+The default is `low` because that is what an unchecked block is worth, and
+omitting the field is not a claim about it. Reach for `high` only with evidence
+in `notes`; it is rare, and getting it wrong turns a hint into a confident lie.
+
+`C4:7C:8D` (Mi Flora) is the worked example of `low`: IEEE subdivided it into
+fifteen 28-bit assignments held by unrelated companies, and the one Mi Flora
+comes from is `C4:7C:8D:6x`. A whole-octet prefix cannot express that, so it
+also matches the other fourteen vendors. `00:17:88` (Hue) is the worked example
+of `medium` — genuinely Philips Lighting's, and on their lamps and switches
+too, not just bridges.
 
 ### `openness` — did we have to recover this?
 
