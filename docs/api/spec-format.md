@@ -85,6 +85,56 @@ A BLE device with an encrypted command channel has an `initialization` block
 and a `setup` block saying `required: false`. Those are not in tension: there
 is nothing to provision, but every connection still needs a handshake.
 
+### `identification` — what a scanner sees before connecting
+
+`device.discovery` says how to go looking. `device.identification` is the
+narrower question a scanner asks of every advertisement it receives, thousands
+of times a minute, before it has connected to anything: *is this one of ours?*
+
+```yaml
+device:
+  identification:
+    local_name_prefix: "Ember"          # BLE advertised name
+    service_uuids: [...]                # advertised GATT service UUIDs
+    manufacturer_data:
+      company_id: 961                   # decimal, AD type 0xFF header
+      company_id_hex: "0x03C1"          # same value, for readers
+      additional_company_ids: [89, 741] # older firmware, rebadged models
+    mac_prefixes: ["C4:7C:8D"]          # IEEE OUI, most-significant octet first
+    mdns_service_type: "_hue._tcp.local."   # WiFi
+    ssid_prefix: "..."                      # WiFi, AP mode
+    default_port: 80                        # WiFi
+```
+
+Everything here should also be derivable from `discovery`, which carries the
+evidence and the payload-level matching rules. The duplication is deliberate:
+`identification` is the part a consumer can act on cheaply, and it is what the
+mobile app's spec matcher reads.
+
+**The four BLE signals are not equally strong, and a consumer should not treat
+them as if they were:**
+
+| Signal | Strength | Why |
+|---|---|---|
+| `service_uuids` | Strongest | A vendor-allocated 128-bit UUID in an advertisement is close to proof |
+| `local_name_prefix` | Strong | Distinctive prefixes rarely collide, but users rename devices and some vendors ship a generic default |
+| `manufacturer_data.company_id` | Medium | Identifies an advertisement shape, not a vendor — squatting is rampant (see `shining-glasses`, whose 21076 is just "TR" in little-endian) |
+| `mac_prefixes` | Weakest | An OUI belongs to a vendor, not a product |
+
+`mac_prefixes` earns its place by ranking rather than by deciding. An OUI never
+justifies claiming a device is supported — `C4:7C:8D` matches every Xiaomi
+radio ever built, not just the plant monitor — but an otherwise-anonymous
+device carrying a known vendor's OUI is worth putting above one carrying an
+unknown OUI in a list a human has to read. Two further limits are worth knowing
+before relying on it: Apple platforms never expose it at all (CoreBluetooth
+hands out a per-host UUID in place of the hardware address), and any device
+using BLE privacy mode advertises a rotating random address with no OUI in it.
+
+Record prefixes and company IDs that a source actually documents or that we
+actually observed. Do not fill `mac_prefixes` in by looking the vendor's name
+up in the IEEE registry: the registry says which OUIs a company holds, not
+which one this product shipped with.
+
 ### `openness` — did we have to recover this?
 
 `manufacturer_status` says what the vendor is doing. `openness` says something

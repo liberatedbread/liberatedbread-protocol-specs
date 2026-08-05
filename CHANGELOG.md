@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `device.identification.mac_prefixes` and `device.identification.manufacturer_data`
+  in `schema.json`, so a scanner can rank an advertisement as *likely one of ours*
+  before connecting — and `docs/api/spec-format.md` now explains why the four BLE
+  identification signals are not equally strong, with `mac_prefixes` documented as
+  a ranking hint that must never on its own claim a device is supported
+- Identification data backfilled from what the specs already documented in prose or
+  under `discovery`: manufacturer-data company IDs for Govee H5075, SwitchBot,
+  Shining Glasses and the Oral-B iO (which had no `identification` block at all and
+  advertises no service UUID, so the company ID is its only pre-connect signal), and
+  MAC OUIs for Mi Flora, the Hue bridge and the Lutron Caséta bridge
 - `docs/protocols/standards-and-references.md` — the published standards this
   registry does or should cite instead of re-deriving them: Bluetooth SIG
   Assigned Numbers, the GATT Specification Supplement, the Base-UUID shorthand
