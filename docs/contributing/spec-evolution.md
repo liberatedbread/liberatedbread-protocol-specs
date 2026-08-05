@@ -372,6 +372,41 @@ wrong-temperature bugs into a spec error.
 bounded: assemble on encode, and the existing `format` block already handles
 the decode direction. Backfilling `ember-mug`, `ibbq-meat-thermo` and
 `idotmatrix` would move three known devices from prose to reproducible.
+### P11 — Plural `local_name_prefix` { #p11 }
+
+**Problem.** `device.identification.local_name_prefix` holds exactly one string,
+but a device family that ships under several rebadged names has several. There is
+nowhere to put the rest, so the ones that do not fit are unmatched at scan time —
+the cheapest, earliest identification signal, missing for exactly the families
+most likely to be mislabelled.
+
+**Evidence.** `inkbird-bbq-thermometer` advertises under eight names (`BG-BT1X`,
+`IBBQ-4BW`, `BBQ-4BW`, `IBT-4XS`, `IBT-2X`, `IBT-24S`, `IBT-26S`, `Inkbird@`) with
+no shared prefix. Its spec carries `local_name_prefixes:` — plural, and not a
+schema key, so `identification` sweeps it into extensions and no consumer reads
+it. All eight names are in the `discovery` block, which consumers do not execute,
+so today the family has no working name signal at all. `admore` hits the same
+wall from the other side, declaring `local_name_dfu` and `local_name_armband*`
+as separate extension keys.
+
+**Proposal.** Accept either form on the same key, the way `mac_prefixes` accepts
+either a bare string or a map:
+
+```yaml
+identification:
+  local_name_prefix: "Ember"              # unchanged, still valid
+  # or
+  local_name_prefixes: ["IBT-", "IBBQ-", "BG-BT1X", "Inkbird@"]
+```
+
+A match on any one of them means what a match on the single prefix means today,
+so the confidence rules do not change.
+
+**Compatibility.** Additive. Consumers reading only `local_name_prefix` keep
+working; specs using the plural form gain matching they do not have now.
+
+**Effort.** Small schema, small consumer work — the matcher already loops over
+`service_uuids` and `mac_prefixes` the same way.
 
 ## Strategic / optional
 
@@ -473,6 +508,7 @@ this page classifiable.
 | [P5](#p5) | Symmetric BLE command responses | High | Low | With consumer |
 | [P6](#p6) | First-class advertisement payloads | High | Medium | With consumer |
 | [P10](#p10) | Multi-byte command parameters | High | Low | With consumer — one is blocked today |
+| [P10](#p10) | Plural `local_name_prefix` | Medium | Very low | With consumer |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |
