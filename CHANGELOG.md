@@ -21,6 +21,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   before connecting — and `docs/api/spec-format.md` now explains why the four BLE
   identification signals are not equally strong, with `mac_prefixes` documented as
   a ranking hint that must never on its own claim a device is supported
+- A per-entry `confidence` on `mac_prefixes` (`low` — the default — `medium`,
+  `high`), because "weakest signal" was hiding a spread that matters: `C4:7C:8D`
+  is an IEEE Registration Authority block that fifteen unrelated companies hold
+  28-bit slices of, while `00:17:88` really is Philips Lighting's. An entry may
+  now be a bare string (still `low`) or a `{prefix, confidence, notes}` map, so
+  the finding that produced the verdict travels with it. Consumers can rank the
+  two apart instead of flattening every OUI to the same hint — and a shared
+  block can no longer act as half of a "two signals agree" promotion
 - Identification data backfilled from what the specs already documented in prose or
   under `discovery`: manufacturer-data company IDs for Govee H5075, SwitchBot,
   Shining Glasses and the Oral-B iO (which had no `identification` block at all and

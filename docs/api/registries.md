@@ -63,6 +63,15 @@ So:
   these tables. The registry says which blocks a company holds, not which one
   this product shipped with. Record what you observed.
 
+These tables are also how you settle a prefix's
+[`confidence`](spec-format.md#mac_prefixes-entries-carry-their-own-confidence).
+A block that appears in `ieee-oui28.tsv` or `ieee-oui36.tsv` has been subdivided
+among unrelated companies, which is `low` on its face: a whole-octet prefix
+matches every slice, not just the one the product came from. A block that
+appears only in `ieee-oui.tsv`, under the product's actual manufacturer, is
+`medium`. `high` needs more than these tables can tell you — the registry has
+nothing to say about which of a company's products use which block.
+
 The same caution applies to Bluetooth company IDs, for a different reason:
 vendors squat on identifiers they were never assigned. This repo's
 [`shining-glasses`](../devices/shining-glasses.md) spec advertises 21076 purely
