@@ -282,6 +282,11 @@ the registry.
 
 ### P10 — Plural `local_name_prefix` { #p10 }
 
+**Status: landed.** `local_name_prefixes` is in `schema.json`, and the mobile
+matcher reads the singular and plural keys together, so a match on any one of
+them carries the weight a `local_name_prefix` match always did. Kept here as the
+worked reasoning; the rest of this section is written as it was proposed.
+
 **Problem.** `device.identification.local_name_prefix` holds exactly one string,
 but a device family that ships under several rebadged names has several. There is
 nowhere to put the rest, so the ones that do not fit are unmatched at scan time —
@@ -404,7 +409,7 @@ this page classifiable.
 | [P4](#p4) | Bit-field decoding | Medium | Low | With consumer |
 | [P5](#p5) | Symmetric BLE command responses | High | Low | With consumer |
 | [P6](#p6) | First-class advertisement payloads | High | Medium | With consumer |
-| [P10](#p10) | Plural `local_name_prefix` | Medium | Very low | With consumer |
+| [P10](#p10) | Plural `local_name_prefix` | Medium | Very low | **Landed** |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |
