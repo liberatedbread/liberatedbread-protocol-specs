@@ -312,6 +312,11 @@ def test_empty_local_name_prefix_is_never_used(specs):
         assert identification.get("local_name_prefix", "x") != "", (
             f"{device_id}: local_name_prefix is empty — omit the key instead"
         )
+        for prefix in identification.get("local_name_prefixes", []):
+            assert prefix != "", (
+                f"{device_id}: local_name_prefixes contains an empty string — "
+                "drop the entry instead"
+            )
 
 
 def test_mac_prefixes_are_usable_ouis(specs):
@@ -362,12 +367,9 @@ def _is_hex(octet: str) -> bool:
 # `ssdp_search_target` for exactly this reason, and its one unambiguous SSDP
 # target -- `roku:ecp` -- reached no consumer at all.
 #
-# Only keys whose correct form can express the same thing are listed. Not
-# listed, deliberately: `local_name_prefixes`, which inkbird-bbq-thermometer
-# carries because that family ships under eight rebadged names and
-# `local_name_prefix` holds one. Renaming it there would silently drop seven
-# names, so that one needs a schema change, not a rename. See
-# docs/contributing/spec-evolution.md.
+# `local_name_prefixes` used to be on this list and is not any more: it is a
+# schema key now, because inkbird-bbq-thermometer ships under eight rebadged
+# names and renaming it to the singular would have dropped seven of them.
 IDENTIFICATION_NEAR_MISSES = {
     "ssdp_search_target": "ssdp_search_targets",
     "service_uuid": "service_uuids",
