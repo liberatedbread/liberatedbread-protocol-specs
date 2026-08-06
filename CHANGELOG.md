@@ -47,6 +47,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the finding that produced the verdict travels with it. Consumers can rank the
   two apart instead of flattening every OUI to the same hint — and a shared
   block can no longer act as half of a "two signals agree" promotion
+- `device.identification.local_name_prefixes`, for a family sold as several
+  rebadged models. `local_name_prefix` holds one string, so
+  `inkbird-bbq-thermometer` — eight names, no shared prefix — had been carrying
+  a `local_name_prefixes` key that was not in the schema and that no consumer
+  read, leaving that family with no working name signal at all. The entries are
+  alternatives, not a conjunction: matching any one means what matching the
+  singular key means. Written up beforehand as P11 in
+  `docs/contributing/spec-evolution.md`, now marked landed
 - Identification data backfilled from what the specs already documented in prose or
   under `discovery`: manufacturer-data company IDs for Govee H5075, SwitchBot,
   Shining Glasses and the Oral-B iO (which had no `identification` block at all and
@@ -63,9 +71,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   nothing. WLED's plural only added `_http._tcp`, which every web-serving device
   answers, so that one is dropped rather than migrated, with a note saying why.
   A new conventions test fails on the whole class. `inkbird-bbq-thermometer`'s
-  `local_name_prefixes` is the same slip but cannot be renamed — the family
-  ships under eight names and the schema key holds one — so it is written up as
-  P11 in `docs/contributing/spec-evolution.md` instead of quietly losing seven
+  `local_name_prefixes` was the same slip but could not be renamed — the family
+  ships under eight names and the singular key holds one — so the schema grew
+  the plural key instead (see Added), and the spec now reads as written
 - The Lutron Caséta bridge carries no `mac_prefixes` after all. Its captured
   address `b8:94:d9:…` sits in a Texas Instruments block — it identifies the
   radio module inside the bridge, not Lutron, and listing it would have flagged
