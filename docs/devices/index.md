@@ -44,6 +44,7 @@ spec's `device.setup` block; the patterns are explained in
 | [ProGlow Motorcycle LED](proglow-motorcycle-led.md) | BLE | Spec Available | None needed | ProGlow |
 | [SeeBlue Motorcycle LED](seeblue-motorcycle-led.md) | BLE | Spec Available | None needed | SeeBlue |
 | [SmartDawn Smart Lights](smartdawn-smart-lights.md) | BLE (Wi-Fi variants) | In Progress | None needed | Hangzhou Daniao / SmartDawn |
+| [KingSmith WalkingPad](kingsmith-walkingpad.md) | BLE | Complete | None needed | KingSmith Fitness (Xiaomi ecosystem) |
 | [Kwikset Kevo](kwikset-kevo.md) | BLE (lock is central) | In Progress | BLE tap-to-enroll (medium) | Kwikset / ASSA ABLOY (UniKey) |
 | [Schlage Smart Locks](schlage-smart-locks.md) | BLE (uWeave; WiFi is cloud-relay only) | Complete | BLE SPAKE2 pairing, printed programming code (medium) | Schlage / Allegion |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
