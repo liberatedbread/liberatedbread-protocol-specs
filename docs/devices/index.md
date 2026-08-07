@@ -68,6 +68,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Bosch Performance Line CX Gen4](bosch-ebike-cx-gen4.md) | CAN | Research | None needed | Bosch eBike Systems |
 | [NIU Electric Scooter](niu-escooter.md) | Cloud HTTP + BLE | Research | Cloud account only (low) | Niu Technologies |
 | [WLED Addressable LED Controller](wled-controller.md) | WiFi | Complete | SoftAP portal (medium) | WLED project (open firmware) |
+| [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
 
 ## Not everything here was liberated
 
