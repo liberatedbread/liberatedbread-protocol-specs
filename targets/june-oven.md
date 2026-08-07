@@ -6,8 +6,10 @@ Execution plan: `../JUNE_OVEN_PLAN.md`. This file is the evidence brief.
 - target_id: `june-oven`
 - app package_id(s): `com.junelife.companion` (Android, final 1.24.1.11,
   versionCode 1240111); `com.junelife.ios.companion` (iOS, final 1.24.2,
-  2022-11-02). Weber's current grill app `com.weber.connect` is built on the
-  same codebase — its manifest activities sit under `com.junelife.companion.app.*`.
+  2022-11-02). Weber's current grill app `com.weber.connect` shows manifest
+  activities under `com.junelife.companion.app.*`, so the *phone app* appears to
+  share June's Android lineage. Do not extend that to the oven — see §"Oven
+  firmware is bespoke" below.
 - device class: countertop convection oven, 5" touchscreen, interior camera
 - transport(s): **Wi-Fi → vendor cloud only.** No LAN API, no BLE control path,
   no AP-mode provisioning. Gen 1 and Gen 3 carry BLE hardware; no BLE service is
@@ -57,10 +59,85 @@ APK identity for reproducibility (**do not commit the binary** — see
 - signer SHA1 `A7:12:63:B9:E5:76:BC:D5:95:0C:B5:79:8D:87:8B:BF:92:8E:C5:53`,
   DN `CN=June, OU=June, O=June, L=San Francisco`
 
+## Bluetooth: intended, never shipped
+
+Owners remember "talk of adding BLE support". That talk is real and it traces to
+exactly one source. A subreddit sweep — 100 posts and 250 comments across
+2025-01 → 2026-08, searched for `bluetooth|ble|local control|lan` — returns a
+single substantive claim, from a self-identified former June/Weber oven software
+engineer (u/empiricalis), 2026-07-26:
+
+> "At one point I had done some R&D work on unifying the oven and grill
+> software, which *could* have allowed for local control via Bluetooth. That
+> was, obviously, deprioritized when the oven was discontinued."
+
+Read that precisely, because the loose version of it will waste someone's month:
+
+- It describes **R&D toward putting the oven on Weber's grill software stack**
+  (which is BLE-based — see the iGrill note at the end of this file). Local BLE
+  control would have been a *consequence* of that unification, not the project.
+- "*could* have allowed" is conditional. This is not "we built it and never
+  shipped the client." There is no claim that BLE control firmware was ever
+  written, let alone flashed to a retail oven.
+- It was deprioritized when the oven was discontinued (2023). The unification
+  never happened — which is itself evidence the two stacks stayed separate.
+
+**Conclusion: assume no BLE control surface exists in any shipped oven
+firmware.** The hardware is there (Gen 1: BT classic + BLE per FCC; Gen 2:
+Wi-Fi grants only; Gen 3: BT classic + BLE re-added, "a new chip set… to improve
+connectivity"). The intent was there. The firmware, on all available evidence,
+is not. Weber's own FAQ says "Bluetooth is not supported at this time."
+
+This is worth one cheap experiment and no more: **stand a powered oven next to a
+BLE scanner and see whether it advertises anything at all.** Liberated Bread
+already does exactly this. Nobody has published the result for any generation.
+A negative closes the question permanently; a positive is a genuine discovery.
+Do not budget beyond that scan.
+
+Everything else in the community discussion is **LAN** advocacy, not BLE — the
+petition, the "release a final firmware with local network access" asks, the
+Bose SoundTouch precedent. Those are requests to Weber, not evidence of a
+capability.
+
+## Oven firmware is bespoke
+
+The same engineer, 2026-07-24, on whether Weber's other connected products share
+code with the oven:
+
+> "essentially none of the code of the June Oven is shared with Weber's other
+> connected products. Lessons, concepts, terminology? Sure. The actual oven code
+> is bespoke, and again, the institutional knowledge is essentially gone."
+
+This **conflicts with** the community belief (u/stryfedonkey, 2026-08-05) that
+"WeberOS was apparently built on or was integrated into JuneOS", and it qualifies
+the APK-lineage evidence in the metadata above. The reconciliation that fits all
+the evidence: the *phone apps* share a codebase; the *oven firmware* does not.
+
+Consequence for anyone planning work: **watching Weber's grill line is not an
+early-warning feed for June oven firmware or protocol.** It may still be one for
+the companion app lineage. Do not size a workstream on the stronger claim.
+
+## Other facts from the same source
+
+Same engineer, same threads — all first-hand, none independently verified:
+
+- **"The oven ships in a locked-down 'user' mode with ADB and terminal access
+  removed."** This closes the cheapest firmware-access path before anyone
+  spends a week on it.
+- He has **preserved the final firmware, 1.24.1.34**, and as of 2026-07-27 was
+  attempting to **flash it to an oven with no internet connection** — which is
+  precisely the fix for the brick-risk population. Unpublished; outcome unknown.
+  Worth following.
+- He has publicly offered to help more actively **if Weber releases him from his
+  NDA**. That, not a reverse-engineering breakthrough, is the highest-leverage
+  thing the petition could actually win.
+- On the Homebridge plugin: "This plugin is still toast … when the server is
+  shut down." Confirms it is a cloud client, not a local one.
+
 ## Device discovery signals
-- BLE: none documented. Gen 1 (BT classic + BLE) and Gen 3 (BT re-added) have
-  the radios; Gen 2's FCC filing shows Wi-Fi grants only. No advertised name
-  pattern, no service UUID, no pairing flow is known. Unexplored.
+- BLE: no service or advertisement documented for any generation, and per the
+  section above, probably none exists. Radios present on Gen 1 and Gen 3.
+  Unexplored — the scan above is the open experiment.
 - Wi-Fi:
   - SSID patterns: none — there is no AP-mode provisioning. Wi-Fi credentials
     are typed on the oven's own touchscreen.
@@ -90,7 +167,7 @@ APK identity for reproducibility (**do not commit the binary** — see
 
 ## First experiments (do these first)
 
-Only the first needs no hardware.
+Only the first needs no hardware. Experiment 4 is new and cheap.
 
 1) **Conformance first, hardware never.** Implement the 72-byte signature, the
    canonical envelope, SRP-6a and Damm against `vectors.json`. Byte-exact
@@ -102,9 +179,13 @@ Only the first needs no hardware.
 3) Capture one full control loop: `status` → `11002` preheat → `10020` ack →
    `10018 active` → `10013` telemetry → `10011` camera frame → `11004` cancel →
    `10017` → `10018 idle`.
-4) `nmap -sV` the oven on the LAN, resolving the port-8156 question one way or
-   the other. Cheap, and it is the only local-path lead that exists.
-5) Only if someone has a spare oven and a bench: DNS-repoint
+4) **BLE-scan a powered oven** (Gen 1 and Gen 3 especially) and record whether it
+   advertises anything at all. Unpublished for every generation, five minutes of
+   work with the app we already ship, and it settles the Bluetooth question
+   above in whichever direction it falls.
+5) `nmap -sV` the oven on the LAN, resolving the port-8156 question one way or
+   the other. Cheap, and it is the only Wi-Fi-side local-path lead that exists.
+6) Only if someone has a spare oven and a bench: DNS-repoint
    `messaging.junelife.com` and observe whether the oven completes TLS against a
    private-CA chain. This decides whether any replacement cloud can ever work,
    and it can only be measured while June's cloud is alive. **Out of scope for
@@ -118,8 +199,11 @@ format is in `../JUNE_OVEN_PLAN.md` §3. Genuinely open:
 
 - Does the **oven** pin TLS? (The *app* provably does — three hardcoded SPKI
   pins. The oven is unmeasured.) Decides whether any replacement cloud is
-  reachable. Experiment 5.
-- What is TCP 8156? Experiment 4.
+  reachable. Experiment 6.
+- What is TCP 8156? Experiment 5.
+- Does a powered oven advertise over BLE at all? Expected answer: no. Settled by
+  experiment 4; see "Bluetooth: intended, never shipped" above before spending
+  any time here.
 - Full `primitive_type` vocabulary. Only `bake` and `roast` are confirmed
   on-oven; the app has broil, air-fry, toast, dehydrate, pizza.
   `/2/devices/{id}/features` was never captured.

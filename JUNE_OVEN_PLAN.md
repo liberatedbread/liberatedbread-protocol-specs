@@ -118,6 +118,17 @@ is a thermometer like the four already in the registry (`ibbq`, `inkbird`,
 existing spec-driven architecture with **zero new transport work**. Recommend
 filing it as its own target. Do not let it into the June scope.
 
+There is one real link, and it is the origin of the "June was going to get
+Bluetooth" story: a former June/Weber oven engineer says he did R&D on unifying
+the oven and grill software, which *could* have brought local BLE control. It was
+deprioritized when the oven was discontinued and there is no evidence it ever
+reached firmware. `targets/june-oven.md` § "Bluetooth: intended, never shipped"
+has the sourcing and the one cheap experiment that would settle it. The same
+engineer says the oven's code is otherwise **bespoke** and shares essentially
+nothing with Weber's other connected products — so the report's suggestion that
+Weber's grill line is a standing early-warning feed for June protocol evolution
+does not hold for oven firmware. Do not staff a workstream on it.
+
 ---
 
 ## 3. Protocol facts (for the spec author)
