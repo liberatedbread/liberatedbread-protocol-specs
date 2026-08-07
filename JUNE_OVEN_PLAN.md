@@ -335,10 +335,49 @@ Dates assume a start of 2026-08-08.
 | 3 | Pairing + export flow (§4.3) | 2 | **2026-09-22** — pairing dies with the cloud |
 | 4 | Control + telemetry + camera | 2, 3 | 2026-09-22 for live validation against a real oven |
 | 5 | Upstream PR: unpin `CAMERA_HOSTS` in homebridge-june-oven (§2.1) | nothing | none |
+| 6 | LAN/IP recon, if anyone has an oven (§5.1) | nothing | **passive capture only** |
 
-Only steps 3 and 4 have a real deadline, and only because that is when validation
-against a live system becomes impossible. Steps 1, 2 and 5 are indifferent to the
-shutdown — which is a reason to start them now, not a reason to rush them.
+Only steps 3, 4 and the passive half of 6 have a real deadline, and only because
+that is when observing a live system becomes impossible. Steps 1, 2 and 5 are
+indifferent to the shutdown — which is a reason to start them now, not a reason
+to rush them.
+
+### 5.1 The IP-level work, and a correction to its urgency
+
+`docs/devices/june-oven-lan-recon.md` is the playbook: bench rig, a tiered
+experiment ladder, and `scripts/june_discover.py` for the active scan. Two things
+from it belong in the schedule here.
+
+**Passive capture is the perishable half, and it is not the one the research
+report prioritises.** That report puts the certificate-pinning experiment first
+with a Day-7 deadline. On inspection that is backwards. In a DNS-redirect bench
+you answer the oven's DNS query yourself and present your own endpoint — Weber is
+not in the path at all, so the experiment needs only the oven to keep dialling,
+which a cloud-orphaned appliance does indefinitely. It will run just as well in
+December. What genuinely dies on 2026-09-22 is everything that needs a June
+server to *respond*: the OTA manifest, the provisioning flow, the recipe catalog,
+and a recording of one legitimate session.
+
+So if anyone on this project has a physical oven, the next 46 days should go to
+`tcpdump`, not to certificate ladders. The single highest-value artifact is the
+oven's own **DNS query log**, because it names the update host — which the
+companion APK cannot, since firmware delivery is oven-side and static analysis
+found no OTA strings in the app at all. Nobody has published it for any
+generation.
+
+One caveat to verify rather than assume: confirm after the shutdown that the oven
+still dials. Lengthening retry backoff is fine; firmware that gives up
+permanently would close the window after all, and passive capture is what tells
+you.
+
+**A clock problem may gate the whole replacement-cloud idea, independently of
+pinning.** Weber's FAQ says the oven's clock is cloud-dependent. TLS validation
+needs a roughly correct clock. If the oven takes time from June's cloud rather
+than public NTP, then after the shutdown it may fail TLS against *any* server —
+including a replacement — with `certificate_expired`, for reasons unrelated to
+trust. That would mean a replacement cloud has to answer NTP too. It is settled
+by one grep over a passive capture, so it costs nothing to find out, and it is
+worth knowing before anyone budgets a server build.
 
 ## 6. Guardrails
 

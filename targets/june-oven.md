@@ -183,14 +183,21 @@ Only the first needs no hardware. Experiment 4 is new and cheap.
    advertises anything at all. Unpublished for every generation, five minutes of
    work with the app we already ship, and it settles the Bluetooth question
    above in whichever direction it falls.
-5) `nmap -sV` the oven on the LAN, resolving the port-8156 question one way or
-   the other. Cheap, and it is the only Wi-Fi-side local-path lead that exists.
-6) Only if someone has a spare oven and a bench: DNS-repoint
-   `messaging.junelife.com` and observe whether the oven completes TLS against a
-   private-CA chain. This decides whether any replacement cloud can ever work,
-   and it can only be measured while June's cloud is alive. **Out of scope for
-   Liberated Bread**, but if anyone in the community is positioned to run it,
-   this is the single highest-value measurement remaining.
+5) **Passive-capture 24 hours of the oven's traffic** behind a gateway you
+   control, across an overnight update window, a cook and a reboot. This
+   outranks everything below it: the DNS query log names the update host, which
+   no amount of APK analysis can reach, and it is the one item here that becomes
+   impossible on 2026-09-22. `docs/devices/june-oven-lan-recon.md` Tier 0.
+6) `python scripts/june_discover.py --address <ip>` — settles the port-8156
+   question and checks whether ADB-over-TCP really is absent. Expected to find
+   nothing; publish the nothing.
+7) Only with a spare oven and a bench: DNS-repoint `messaging.junelife.com` and
+   walk the certificate ladder in `docs/devices/june-oven-lan-recon.md` Tier 2.
+   This decides whether any replacement cloud can ever work. **Out of scope for
+   Liberated Bread**, and — contrary to the research report — it is *not* racing
+   the shutdown: you answer the DNS query yourself, so Weber is never in the
+   path and the oven only has to keep dialling. Do experiment 5 first; this one
+   keeps.
 
 ## Protocol hypotheses (to validate)
 
@@ -199,8 +206,11 @@ format is in `../JUNE_OVEN_PLAN.md` §3. Genuinely open:
 
 - Does the **oven** pin TLS? (The *app* provably does — three hardcoded SPKI
   pins. The oven is unmeasured.) Decides whether any replacement cloud is
-  reachable. Experiment 6.
-- What is TCP 8156? Experiment 5.
+  reachable. Experiment 7.
+- What is TCP 8156? Experiment 6.
+- Where does the oven get the time, and what happens to TLS when its clock is
+  wrong after the cloud dies? May gate a replacement cloud independently of
+  pinning. Experiment 5 answers it for free.
 - Does a powered oven advertise over BLE at all? Expected answer: no. Settled by
   experiment 4; see "Bluetooth: intended, never shipped" above before spending
   any time here.
@@ -238,9 +248,13 @@ format is in `../JUNE_OVEN_PLAN.md` §3. Genuinely open:
 - [x] Conformance vectors identified (`vectors.json`)
 - [ ] HCI snoop log — n/a, no BLE path known
 - [ ] PCAP of oven↔cloud traffic — **none has ever been published**, and after
-      2026-09-22 none can be. This is the permanent gap.
-- [ ] Port 8156 identification
-- [ ] Oven-side TLS trust behaviour
+      2026-09-22 none can be. This is the permanent gap, and the only item on
+      this list with a hard expiry. Playbook: `docs/devices/june-oven-lan-recon.md`
+- [ ] Oven's DNS query log → the OTA host, unreachable by APK analysis
+- [ ] NTP behaviour and clock source
+- [ ] DHCP hostname / option-55 fingerprint / MAC OUI per generation
+- [ ] Port 8156 identification (`scripts/june_discover.py`)
+- [ ] Oven-side TLS trust behaviour (not deadline-bound — see experiment 7)
 
 ## Spec output (clean-room)
 - `device-specs/devices/june-oven.yaml`
