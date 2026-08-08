@@ -73,6 +73,14 @@ Time (s), distance (10 m units) and step counters are 3-byte big-endian
 integers. Speed unit is 0.1 km/h. The stock app polls status every ~750 ms;
 space commands ≥ ~700 ms apart.
 
+Static evidence in `com.walkingpad.app` v2.5.5 (2026-08-08): `0xFE00/FE01/
+FE02` UUID strings plus dedicated builder methods `_setSpeed`, `_setSpeedR1`
+(an R1-specific variant) and a `_checkSum` helper are present in `libapp.so`;
+frames are built in code, so the checksum algorithm itself is not embedded as
+data — it rests on the two independent hardware-confirmed implementations
+(ph4-walkingpad, QWalkingPad). The `_setSpeedR1` split hints R1 pads may
+deviate from A1 frame details; worth one snoop on R1 hardware.
+
 ### Commands (write to `0xFE02`)
 
 | Command | Bytes (checksum shown resolved) | Verification |
@@ -126,15 +134,35 @@ Standard Fitness Machine Service with KingSmith extensions:
   rejected by the firmware; the official app ignores the rejection and
   proceeds — do the same.
 - **ODM pre-amble**: devices exposing vendor characteristic
-  `d18d2c10-c44c-11e8-a355-529269fb1459` (parent service UUID not captured)
-  require the fixed 8-byte frame `01 00 0d 00 06 0b 0f 0d` written before
-  *each* Control Point command, or the pad answers `CONTROL_NOT_PERMITTED`.
-  The response carries a device property table.
+  `d18d2c10-c44c-11e8-a355-529269fb1459` require the fixed 8-byte frame
+  `01 00 0d 00 06 0b 0f 0d` written before *each* Control Point command, or
+  the pad answers `CONTROL_NOT_PERMITTED`. The response carries a device
+  property table. The parent service UUID is **verified absent from both app
+  binaries** (2026-08-08 string-table enumeration: `d18d2c10` is the only
+  `*-c44c-11e8-*` UUID in either app) — the app binds it by GATT enumeration;
+  capture the parent service UUID from hardware.
+- **Speed opcode discrepancy (resolved)**: the `0x03` set-speed claim comes
+  from Ivan Morgillo's **Mobvoi** Home Walking Pad writeup — a different
+  vendor, not KingSmith. In FTMS 1.0, `0x02` = Set Target Speed and `0x03` =
+  Set Target Inclination. KS Fit v6.5.6 has separate `setSpeed`/
+  `setInclination` paths (string table), so on incline models (X21) it emits
+  `0x03` for *inclination* only. WalkingPad app v2.5.5 has no FTMS strings at
+  all (WiLink-only). KingSmith speed opcode is `0x02`, HCI-snoop-confirmed
+  on MC-21.
 - **Treadmill Data `0x2ACD`**: standard flags-gated fields; KingSmith adds a
   step counter as flag bit 13.
+- **Status `0x2ADA`**: KS Fit decodes a "safe_off list" from 0x2ADA events
+  (log strings `2ADA safe_off list = ` / `2ada: device status change: `) —
+  hypothesis: the subset of FTMS status opcodes meaning "belt safely stopped"
+  (0x03 stopped/paused by user, 0x04 stopped by safety key, vs 0x02
+  started/resumed). Exact opcode set needs a snoop.
 - **Supplement service** `24e2521c-…` on KS-HD-* models: property list, user
   profile, units, offline records, presets and OTA; frames use body +
-  1-byte additive checksum. Per-characteristic roles unmapped (needs snoop).
+  1-byte additive checksum. Four characteristics exist in the v6.5.6 binary
+  (`…0b/0d/0e/0f00fdf7`); `0b` and `0d` are referenced by active code
+  (byte-reversed comparison constants `f7fd000b-…`/`f7fd000d-…`), `0e`/`0f`
+  are table-only entries. Per-characteristic roles still unmapped (needs
+  snoop).
 
 ## Safety
 
@@ -159,13 +187,17 @@ everything in this spec keeps working.
 
 Both are Flutter apps (Dart AOT `libapp.so`); string analysis of the binaries
 confirms every UUID above and the model name prefixes. Deeper Dart-level RE
-of KS Fit was published by mcdax (blutter) — see references.
+of KS Fit was published by mcdax (blutter) — see references. SHA-256 of both
+local APK copies re-verified against this table 2026-08-08 (exact match).
+Note: KS Fit 6.5.6 ships native code in a `config.armeabi_v7a` split only
+(32-bit `libapp.so`); the WalkingPad app ships arm64-v8a. The WalkingPad app
+is WiLink-generation only — no FTMS UUIDs in its string table.
 
 ## Tools Used
 
-- [x] APK fetch (apkeep / APKPure) and string analysis of `libapp.so`
+- [x] APK fetch (apkeep / APKPure) and string analysis of `libapp.so` (both apps, 2026-08-08 pass: full UUID enumeration, supplement-channel active-path evidence, opcode-discrepancy resolution)
 - [x] Prior-art protocol implementations (ph4-walkingpad, QWalkingPad, walkingpad-controller) cross-checked against app binaries
-- [ ] HCI snoop (needed only for supplement-service roles and `0x2ADA` "safe_off" semantics)
+- [ ] HCI snoop (needed for: supplement-service per-char roles/properties, `0x2ADA` "safe_off" opcode set, ODM parent service UUID, R1 `_setSpeedR1` frame variant — see `research-notes/kingsmith-walkingpad-capture-plan.md`)
 
 ## References
 

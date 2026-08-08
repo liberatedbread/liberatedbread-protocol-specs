@@ -60,6 +60,7 @@ spec's `device.setup` block; the patterns are explained in
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
 | [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Pairing (medium) | Generic / ScanTool / Vgate |
+| [OBDLink MX+](obdlink-mx-plus.md) | BLE + Bluetooth Classic | In Progress | Button pairing (medium) | OBD Solutions / ScanTool |
 | [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | None needed | Triumph Motorcycles |
 | [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | None needed | BMW Motorrad |
 | [Fardriver ND-series Motor Controller](fardriver-controller.md) | BLE | Research | None needed | Nanjing Fardriver |
