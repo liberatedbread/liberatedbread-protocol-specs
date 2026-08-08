@@ -63,6 +63,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Two identification signals that named the wrong device, and one that named
+  none.** The Hue bridge declared `upnp:rootdevice` and
+  `urn:schemas-upnp-org:device:Basic:1`; Roku declared `_airplay._tcp`; lifx-z
+  and rachio-controller declared `_hap._tcp`. Those are the generic UPnP,
+  AirPlay and HomeKit announcements — every router, printer, NAS, Apple TV and
+  HomeKit accessory on the link answers one of them, and a consumer treating a
+  matched service type as identification badged all of them with those product
+  names. Removed from `identification` (the `discovery` blocks still document
+  them, because they *are* how you find these devices — they just cannot say
+  that what you found is one). The Oral-B's `company_id` was the wire bytes
+  read big-endian, `0xDC00` = 56320, which is unassigned; BLE carries the ID
+  little-endian so the real value is 220 (Procter & Gamble, as the file's own
+  byte map said) — and since that spec declares no local name and no service
+  UUID, the brush could not be matched at all
+- **SwitchBot no longer claims every Nordic and ESP32 device.**
+  `additional_company_ids: [89, 741]` listed Nordic Semiconductor and Espressif
+  — the SoC vendors' own assignments, carried by default by an enormous
+  population of unrelated products — while the schema defines entries there as
+  equivalent to `company_id`. Moved to prose, matching how
+  `govee-h5075-thermo` already reasons about Nokia's widely-squatted 0x0001
+- **Wemo's SSDP targets reach a consumer.** They lived only in the nested
+  `identification.ssdp.search_targets` block, which sweeps into extensions, so
+  the family the SSDP transport exists for ranked on its port alone. Added the
+  flat `ssdp_search_targets` the matcher reads, alongside the nested M-SEARCH
+  recipe
+- **`ssdp_search_targets` and `manufacturer_data.description` are now declared
+  in the schema.** Both were in use and read by consumers but undeclared, so
+  they validated only because `identification` has no `additionalProperties`,
+  and the next typo in either would have been another silent no-op. The
+  near-miss test now also asserts that every key it *recommends* is one the
+  schema declares — it had been pointing authors at `ssdp_search_targets` while
+  that key was itself undeclared
+- **`fetch_registries.py` cannot silently destroy the vendored registries.**
+  The builders key off literal upstream column headers, so a renamed column (or
+  an error page served with a 200) made every row fail its width check,
+  `_render([])` returned `""`, and the script overwrote a good file with an
+  empty one and exited 0 — while `--check` in that state printed "run
+  fetch_registries.py to refresh", i.e. the command that does the damage. Now
+  each builder has a minimum-row floor and refuses to write below it. Reads and
+  writes also pin `newline`, so regenerating on Windows cannot put CRLF into
+  files whose contract is byte-offset binary search (and `--check` can no longer
+  translate it back and report OK). A tautological test that recomputed its own
+  constant is replaced by ones that check the floors cover every builder, that
+  the committed data clears them, and that no registry contains a CR byte
+
 - Two `identification` keys that no consumer has ever read. Roku declared
   `ssdp_search_target` and WLED `mdns_service_types`; neither is a schema key,
   and `identification` sweeps unrecognised keys into extensions rather than

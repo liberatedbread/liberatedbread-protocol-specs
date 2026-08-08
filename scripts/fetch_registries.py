@@ -169,6 +169,19 @@ BUILDERS = {
 }
 
 
+# Sanity floors for the row counts above: far enough below today's real counts
+# (39k / 6.4k / 7k / 4k / 75) that legitimate upstream churn never trips them,
+# and far enough above zero to catch a format change that silently yields
+# nothing. Only the magnitude matters.
+MIN_ENTRIES = {
+    "ieee-oui.tsv": 20000,
+    "ieee-oui28.tsv": 3000,
+    "ieee-oui36.tsv": 3000,
+    "bluetooth-company-ids.tsv": 2000,
+    "bluetooth-service-uuids.tsv": 40,
+}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -184,15 +197,34 @@ def main() -> int:
         path = REGISTRY_DIR / filename
         content = build()
         entries = content.count("\n")
+        # A parse that produced nothing is the dangerous case, not the loud one:
+        # the builders key off literal upstream column headers, so a renamed
+        # column (or an HTML maintenance page served with a 200) makes every row
+        # fail its width check, _render returns "", and this would cheerfully
+        # overwrite a good registry with an empty file and exit 0. --check would
+        # then report STALE and tell the operator to run exactly this command.
+        if entries < MIN_ENTRIES[filename]:
+            raise SystemExit(
+                f"{filename}: upstream produced {entries} usable rows, expected "
+                f"at least {MIN_ENTRIES[filename]}. Refusing to overwrite the "
+                "vendored copy — the source format has probably changed."
+            )
         if args.check:
-            existing = path.read_text(encoding="utf-8") if path.exists() else None
+            # newline="" so a CRLF file compares as the CRLF it is; universal
+            # newlines would translate it back to LF and report OK.
+            existing = (
+                path.read_text(encoding="utf-8", newline="") if path.exists() else None
+            )
             if existing != content:
                 stale.append(filename)
                 print(f"STALE {filename} ({entries} entries upstream)")
             else:
                 print(f"OK    {filename} ({entries} entries)")
             continue
-        path.write_text(content, encoding="utf-8")
+        # newline="\n" explicitly: these files are binary-searched by byte
+        # offset, and Python's default translation would write CRLF on Windows,
+        # putting a stray \r on the end of every value.
+        path.write_text(content, encoding="utf-8", newline="\n")
         print(f"wrote {filename} ({entries} entries, {len(content.encode())} bytes)")
 
     if stale:
