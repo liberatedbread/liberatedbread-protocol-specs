@@ -17,7 +17,10 @@
 #     ODM char d18d2c10-…, supplement service 24e2521c-… and model name prefixes.
 #   - WalkingPad app com.walkingpad.app v2.5.5 (APKPure, APK SHA-256
 #     cf3309e38a8c9a432f04dcf259c21c21c2d6178dec1057f952a18659d3a3053a):
-#     libapp.so strings independently confirm 0xFE00/FE01/FE02.
+#     libapp.so strings independently confirm 0xFE00/FE01/FE02. This app has NO
+#     FTMS strings at all (no 0x1826/0x2ADx) — it is WiLink-generation only.
+#   Hashes re-verified against the local APK copies 2026-08-08 (sha256sum,
+#     exact match for both).
 
 device:
   name: "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)"
@@ -156,6 +159,15 @@ services:
       3-byte big-endian integers for time (s), distance (10 m units) and
       steps. The app polls status roughly every 750 ms; commands should be
       spaced >= ~700 ms apart (ph4-walkingpad enforces a 0.69 s minimum).
+      Static evidence in com.walkingpad.app v2.5.5 (2026-08-08): the 0xFE00/
+      FE01/FE02 UUID strings plus dedicated WiLink builder methods (_setSpeed,
+      _setSpeedR1 — an R1-specific speed-command variant — and a _checkSum
+      helper) are present in libapp.so; frames are constructed in code so no
+      constant frames are embedded in the binary. The checksum ALGORITHM is
+      therefore not visible at string level — it rests on the two independent
+      hardware-confirmed implementations (ph4-walkingpad, QWalkingPad), and
+      the R1-specific builder suggests R1 pads may deviate from the A1 frame
+      details (worth one snoop on R1 hardware).
     characteristics:
       - uuid: "0000fe01-0000-1000-8000-00805f9b34fb"
         name: "Status / record notifications"
@@ -343,8 +355,13 @@ services:
         write: [0x01, 0x00, 0x0D, 0x00, 0x06, 0x0B, 0x0F, 0x0D]
         notes: >
           ODM property-list pre-amble. Applies only when the device exposes
-          the vendor characteristic d18d2c10-… (MC-21 class; its parent
-          service UUID is not captured — discover by enumeration). KS Fit
+          the vendor characteristic d18d2c10-… (MC-21 class). The parent
+          service UUID is verified ABSENT from both app binaries (full
+          128-bit-UUID string-table enumeration of KS Fit v6.5.6 and
+          WalkingPad v2.5.5, 2026-08-08: d18d2c10-c44c-11e8-a355-529269fb1459
+          is the only *-c44c-11e8-* UUID in either app) — the official app
+          binds it purely by GATT enumeration; the parent service UUID must
+          be captured from hardware (see capture plan). KS Fit
           sends this fixed 8-byte frame before EACH Control Point command,
           not just once per connection; without it the device returns
           CONTROL_NOT_PERMITTED to FTMS writes. The response carries the
@@ -364,7 +381,8 @@ services:
             verification: "reported"
             value: [0x01]
           set_target_speed:
-            description: "Standard FTMS Set Target Speed: opcode 0x02 + uint16-LE speed in 0.01 km/h. Example: 02 90 01 = 4.0 km/h (HCI-snoop-confirmed on MC-21)."
+            description: >
+              Standard FTMS Set Target Speed: opcode 0x02 + uint16-LE speed in 0.01 km/h. Example: 02 90 01 = 4.0 km/h (HCI-snoop-confirmed on MC-21). Opcode-discrepancy note (resolved 2026-08-08): the "0x03 for speed" claim circulating in walking-pad writeups traces to Ivan Morgillo's Mobvoi Home Walking Pad article — a different vendor/device (TicSports app), not KingSmith. In FTMS 1.0, 0x02 = Set Target Speed and 0x03 = Set Target Inclination; KS Fit v6.5.6 has separate setSpeed and setInclination code paths (string table: WilinkDeviceActionExt|setSpeed / |setInclination, supportInclination), so on incline models (X21) it emits 0x03 for INCLINATION, never for speed. The WalkingPad app v2.5.5 emits no FTMS opcodes at all (WiLink-only binary). KingSmith speed opcode is 0x02 under all known model/firmware conditions.
             verification: "confirmed"
             template: [0x02, "{speed_ckmh_lo}", "{speed_ckmh_hi}"]
             parameters:
@@ -407,7 +425,19 @@ services:
       - uuid: "00002ada-0000-1000-8000-00805f9b34fb"
         name: "Fitness Machine Status"
         properties: ["notify"]
-        notes: "Standard FTMS status events; KS Fit log strings show a KingSmith-specific 'safe_off list' decoded from 0x2ADA data (semantics not yet mapped)."
+        notes: >
+          Standard FTMS status events. KS Fit v6.5.6 log strings show a
+          KingSmith-specific 'safe_off' decode of 0x2ADA data
+          ("--> t2ADA: status ", "Received t2ADA data: ",
+          "2ada: device status change: ", "2ADA safe_off list = ",
+          "2ADA safe_off list return"). Interpretation (string-level
+          hypothesis, needs HCI snoop): the app collects the 0x2ADA status
+          events that mean "belt is safely stopped" — per FTMS 1.0 those are
+          opcode 0x03 (Stopped or Paused by the User, param 0x01/0x02) and
+          0x04 (Stopped by Safety Key), vs 0x02 (Started or Resumed by the
+          User) which clears the state. Exact opcode set and any
+          KingSmith-specific opcodes are not recoverable from the binary's
+          string table — capture on hardware (see capture plan).
 
   # ------------------------------------------------- KingSmith extensions
   - uuid: "24e2521c-f63b-48ed-85be-c5330b00fdf7"
@@ -417,14 +447,39 @@ services:
       MC-21). KS Fit's FTMSSupplement layer exposes property list, user
       profile, unit setting, offline workout records, presets/courses and OTA
       through it; frames use the same body + 1-byte additive checksum wrapping
-      as the ODM channel. Characteristic UUIDs share the
-      24e2521c-f63b-48ed-85be-c5330XX0fdf7 base (0b/0d/0e/0f seen in app
-      strings); exact per-characteristic roles are not yet mapped.
+      as the ODM channel. Exactly four characteristics exist in the v6.5.6
+      string table, sharing the 24e2521c-f63b-48ed-85be-c5330XX0fdf7 base:
+      0b, 0d, 0e, 0f. Static evidence of use (2026-08-08): 0b and 0d also
+      appear in byte-reversed form (f7fd000b-… / f7fd000d-… constants used
+      for UUID comparison in active code paths), while 0e and 0f appear only
+      in the canonical UUID table — so 0b/0d are the live command channels
+      and 0e/0f are discovered table entries (roles TBD). Functional surface
+      from WilinkDeviceSupplementExt symbols in libapp.so:
+      readPropertyList/_parseProperties, _writeSupplementCmd/wrapSupplementCmd
+      (command writes), callBackPropertyStatus/_parseEvent/_parseSupplementCmd
+      (async events + command responses), _parseSystemInfo ("supplement
+      system info: protocolVersion = "), runIdDiffers (offline-record
+      matching) and a full OTA path (startOta/_parseOTA/startModuleOta/
+      startMcuOta/startMotorOta/installOtaFile/otaSuccess). Exact
+      per-characteristic roles and properties still need an HCI snoop on a
+      KS-HD-* device.
     characteristics:
+      - uuid: "24e2521c-f63b-48ed-85be-c5330b00fdf7"
+        name: "Supplement channel 0b"
+        properties: ["write", "notify"]
+        notes: "Static-APK-confirmed present and referenced by active code (byte-reversed comparison constant in v6.5.6). Role hypothesis: command/response channel paired with 0d. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
       - uuid: "24e2521c-f63b-48ed-85be-c5330d00fdf7"
         name: "Supplement channel 0d"
         properties: ["write", "notify"]
-        notes: "Role hypothesis: command/response channel. Needs HCI snoop on a KS-HD-* device."
+        notes: "Static-APK-confirmed present and referenced by active code (byte-reversed comparison constant in v6.5.6). Role hypothesis: command/response channel paired with 0b. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
+      - uuid: "24e2521c-f63b-48ed-85be-c5330e00fdf7"
+        name: "Supplement channel 0e"
+        properties: []
+        notes: "Present in the v6.5.6 UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
+      - uuid: "24e2521c-f63b-48ed-85be-c5330f00fdf7"
+        name: "Supplement channel 0f"
+        properties: []
+        notes: "Present in the v6.5.6 UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
 
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information Service"
