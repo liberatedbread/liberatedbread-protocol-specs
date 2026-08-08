@@ -13,8 +13,6 @@ Freshness against upstream is a separate, network-bound concern:
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from fetch_registries import BUILDERS, MIN_ENTRIES, REGISTRY_DIR, _clean, _render
