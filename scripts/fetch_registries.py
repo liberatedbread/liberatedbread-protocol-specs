@@ -211,10 +211,14 @@ def main() -> int:
             )
         if args.check:
             # newline="" so a CRLF file compares as the CRLF it is; universal
-            # newlines would translate it back to LF and report OK.
-            existing = (
-                path.read_text(encoding="utf-8", newline="") if path.exists() else None
-            )
+            # newlines would translate it back to LF and report OK. Spelled as
+            # open().read() rather than Path.read_text(newline=...) because that
+            # keyword only exists on 3.13+, and this project targets 3.12 — the
+            # short spelling made --check die with a TypeError on every run.
+            existing = None
+            if path.exists():
+                with open(path, encoding="utf-8", newline="") as handle:
+                    existing = handle.read()
             if existing != content:
                 stale.append(filename)
                 print(f"STALE {filename} ({entries} entries upstream)")

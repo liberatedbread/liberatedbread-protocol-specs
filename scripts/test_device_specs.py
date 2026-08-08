@@ -324,18 +324,29 @@ def test_mac_prefixes_are_usable_ouis(specs):
 
     Consumers reject these anyway, so a spec carrying one is silently doing
     nothing rather than doing what its author intended.
+
+    Counted in hex digits rather than octets, because IEEE's MA-M and MA-S
+    blocks are 28 and 36 bits — `C4:7C:8D:6` is a legitimate prefix whose last
+    group is a single nibble, and the consumer's own rule is 6..=10 digits.
     """
     for device_id, spec in specs.items():
         identification = spec["device"].get("identification", {})
         for entry in identification.get("mac_prefixes", []):
             prefix = entry if isinstance(entry, str) else entry["prefix"]
-            octets = prefix.replace("-", ":").split(":")
-            assert 3 <= len(octets) <= 5, (
-                f"{device_id}: mac_prefix {prefix!r} is {len(octets)} octets; "
-                "an OUI is 3 (MA-L) to 5 (MA-S)"
+            groups = prefix.replace("-", ":").split(":")
+            assert all(1 <= len(g) <= 2 and _is_hex(g) for g in groups), (
+                f"{device_id}: mac_prefix {prefix!r} is not colon-separated hex"
             )
-            assert all(len(o) == 2 and _is_hex(o) for o in octets), (
-                f"{device_id}: mac_prefix {prefix!r} is not colon-separated hex octets"
+            # Only the final group may be a nibble; a short group in the middle
+            # is a typo that would silently shift every digit after it.
+            assert all(len(g) == 2 for g in groups[:-1]), (
+                f"{device_id}: mac_prefix {prefix!r} has a half-octet before "
+                "the end — only the last group may be a single hex digit"
+            )
+            digits = len(prefix.replace("-", "").replace(":", ""))
+            assert 6 <= digits <= 10, (
+                f"{device_id}: mac_prefix {prefix!r} is {digits} hex digits; "
+                "an OUI is 24 (MA-L) to 36 (MA-S) bits, i.e. 6 to 10 digits"
             )
 
 

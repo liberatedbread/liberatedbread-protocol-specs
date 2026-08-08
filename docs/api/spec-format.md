@@ -99,7 +99,11 @@ device:
     manufacturer_data:
       company_id: 961                   # decimal, AD type 0xFF header
       company_id_hex: "0x03C1"          # same value, for readers
-      additional_company_ids: [89, 741] # older firmware, rebadged models
+      # Only the same vendor's other allocations — 224 "Google" and 398
+      # "Google LLC" are the shape this key is for. Never an SoC vendor's ID
+      # (89 Nordic, 741 Espressif): thousands of unrelated products ship those
+      # in their advertisement, and listing one claims every last one of them.
+      additional_company_ids: [398]     # older firmware, rebadged models
     mac_prefixes:                       # IEEE OUI, most-significant octet first
       - prefix: "00:17:88"
         confidence: "medium"            # low (default) | medium | high
