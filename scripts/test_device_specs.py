@@ -387,3 +387,26 @@ def test_identification_keys_are_not_near_misses(specs):
                 f"{device_id}: identification.{wrong} is not a schema key and is "
                 f"silently ignored by consumers — use {right}"
             )
+
+
+def test_near_miss_targets_are_real_schema_keys() -> None:
+    """The table must point at keys the schema declares.
+
+    Otherwise it does the opposite of its job: an author trips the assertion,
+    renames their key as instructed, and lands on another key no consumer
+    reads — which is exactly how `ssdp_search_target` became
+    `ssdp_search_targets` while still reaching nothing.
+    """
+    import json
+
+    schema = json.loads((REPO_ROOT / "device-specs" / "schema.json").read_text())
+    declared = set(
+        schema["properties"]["device"]["properties"]["identification"][
+            "properties"
+        ]
+    )
+    for wrong, right in IDENTIFICATION_NEAR_MISSES.items():
+        assert right in declared, (
+            f"near-miss table sends {wrong!r} to {right!r}, which schema.json "
+            "does not declare under device.identification"
+        )
