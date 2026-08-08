@@ -76,7 +76,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   read big-endian, `0xDC00` = 56320, which is unassigned; BLE carries the ID
   little-endian so the real value is 220 (Procter & Gamble, as the file's own
   byte map said) — and since that spec declares no local name and no service
-  UUID, the brush could not be matched at all
+  UUID, the brush could not be matched at all. The free-form
+  `device.manufacturer_id` and three lines of prose still quoted `0xDC00`
+  alongside the corrected value, telling a human reader the unassigned number;
+  they now read `0x00DC` and say which end of the wire that is
 - **SwitchBot no longer claims every Nordic and ESP32 device.**
   `additional_company_ids: [89, 741]` listed Nordic Semiconductor and Espressif
   — the SoC vendors' own assignments, carried by default by an enormous
@@ -87,7 +90,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `identification.ssdp.search_targets` block, which sweeps into extensions, so
   the family the SSDP transport exists for ranked on its port alone. Added the
   flat `ssdp_search_targets` the matcher reads, alongside the nested M-SEARCH
-  recipe
+  recipe — all seventeen vendor-specific targets, including the `motion`,
+  `sensor` and `outdoor` types and the six Holmes/Mr. Coffee ones, which nine
+  models in the file's own `variants` block answer on and nothing else does
 - **`ssdp_search_targets` and `manufacturer_data.description` are now declared
   in the schema.** Both were in use and read by consumers but undeclared, so
   they validated only because `identification` has no `additionalProperties`,
@@ -107,6 +112,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   translate it back and report OK). A tautological test that recomputed its own
   constant is replaced by ones that check the floors cover every builder, that
   the committed data clears them, and that no registry contains a CR byte
+- **`mac_prefixes` can express a 28- or 36-bit block.** The schema pattern —
+  and the conventions test beside it — required whole colon-separated octets,
+  so the only prefixes an author could write were the 24-bit MA-L ones. That is
+  the width the confidence flag exists to warn about: `C4:7C:8D` is fifteen
+  unrelated companies. Both now accept a trailing half-octet, matching the
+  6-to-10-hex-digit rule the consumer already applied and the MA-M/MA-S tables
+  vendored in `registries/`. Mi Flora, whose note had said in so many words that
+  it could not express what it knew, now carries `C4:7C:8D:6` at `high` — sole
+  assignment to HHCC Plant Technology, the OEM in its own model number — with
+  the enclosing 24-bit block kept at `low` for octet-only consumers
+- **The documented `additional_company_ids` example was the anti-pattern.**
+  `docs/api/spec-format.md` showed `[89, 741]` — Nordic and Espressif, the two
+  SoC-vendor IDs stripped from `switchbot-ble` two entries above — so an author
+  copying the canonical example reintroduced the bug. Now shows a vendor's own
+  second allocation (Google's 224 and 398), with the SoC case called out as the
+  thing never to put there
+- **`fetch_registries.py --check` ran at all.** The freshness comparison read
+  its file with `Path.read_text(encoding=..., newline="")`, and `read_text` only
+  grew a `newline` parameter in Python 3.13 — this project targets 3.12, so the
+  check downloaded all five registries and then died on a `TypeError` before
+  comparing one of them. Spelled as `open(...).read()`, which has taken
+  `newline` since forever
 
 - Two `identification` keys that no consumer has ever read. Roku declared
   `ssdp_search_target` and WLED `mdns_service_types`; neither is a schema key,
