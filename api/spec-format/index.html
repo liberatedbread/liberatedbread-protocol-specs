@@ -2255,6 +2255,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#numbers-units-scaling-and-c-vs-f" class="md-nav__link">
+    <span class="md-ellipsis">
+      Numbers: units, scaling and C-vs-F
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#validating-a-spec" class="md-nav__link">
     <span class="md-ellipsis">
       Validating a spec
@@ -2530,6 +2539,15 @@
   <a href="#a-worked-example" class="md-nav__link">
     <span class="md-ellipsis">
       A worked example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#numbers-units-scaling-and-c-vs-f" class="md-nav__link">
+    <span class="md-ellipsis">
+      Numbers: units, scaling and C-vs-F
     </span>
   </a>
   
@@ -3027,9 +3045,62 @@ step by step with test vectors, status codes, timing, and troubleshooting.</p>
 </table>
 <p>If you find yourself needing a source outside that file to finish an
 implementation, that is a bug worth filing.</p>
+<h2 id="numbers-units-scaling-and-c-vs-f">Numbers: units, scaling and C-vs-F<a class="headerlink" href="#numbers-units-scaling-and-c-vs-f" title="Permanent link">&para;</a></h2>
+<p>A numeric wire value carries more than a width. Command <code>parameters</code>,
+characteristic <code>format</code> fields, <code>bus</code> message fields and <code>payload_formats</code>
+fields share one vocabulary (<code>$defs/number_semantics</code> in <code>schema.json</code>) for
+saying what the number <em>means</em>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">offset</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">length</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;target_temp_raw&quot;</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;uint16&quot;</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span><span class="w">        </span><span class="c1"># value = raw × scale + value_offset</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;C&quot;</span><span class="w">          </span><span class="c1"># unit of the DECODED value — what is on the wire</span>
+</code></pre></div>
+<p>The transform is linear on purpose: it runs backwards, so the same declaration
+that decodes a reading also encodes a command parameter
+(<code>raw = round((value − value_offset) / scale)</code>). Enumerated numbers carry a
+<code>values</code> code table instead (<code>{0: "low", 1: "medium", 2: "high"}</code>). Raw
+<code>min</code>/<code>max</code> on a parameter bound the bytes; <code>min</code>/<code>max</code>/<code>step</code> on a <code>number</code>
+entity describe the decoded control.</p>
+<p><strong><code>unit</code> answers C-vs-F — but read <code>unit_source</code> before trusting it</strong>,
+because temperature devices come in two shapes that look alike and decode
+differently:</p>
+<table>
+<thead>
+<tr>
+<th>Shape</th>
+<th><code>unit_source</code></th>
+<th>Example</th>
+<th>What a client does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Wire unit is a protocol constant; any C/F toggle is display-only</td>
+<td><code>fixed</code> (default)</td>
+<td>Ember Mug: always centi-°C on the wire; <code>fc540004</code> changes the mug's screen, nothing else</td>
+<td>Decode with <code>scale</code>/<code>unit</code> and never look back</td>
+</tr>
+<tr>
+<td>Wire unit follows a device setting</td>
+<td><code>device_setting</code></td>
+<td>Inkbird iBBQ: the same raw 165 is 165 °C or 165 °F depending on state</td>
+<td>Read the setting named in <code>unit_reference</code>, map it through <code>unit_values</code>, only then decode</td>
+</tr>
+</tbody>
+</table>
+<p>Getting the second case wrong is not an error you notice: every reading stays
+plausible and is simply in the wrong unit. That is why <code>unit_source:
+device_setting</code> requires a <code>unit_reference</code> — "it depends" without "on what"
+would document the trap without the exit.</p>
+<p>Worked examples: <code>ember-mug.yaml</code> (fixed wire unit, display-unit select,
+<code>values</code> tables), <code>inkbird-bbq-thermometer.yaml</code> (device-setting units),
+<code>gerbing-thermogauge.yaml</code> (<code>value = raw × 0.5 + 85</code> — the <code>value_offset</code>
+case), <code>wemo-devices.yaml</code> (mW / mW·min <code>payload_formats</code> columns).</p>
 <h2 id="validating-a-spec">Validating a spec<a class="headerlink" href="#validating-a-spec" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>python<span class="w"> </span>scripts/validate_specs.py<span class="w">     </span><span class="c1"># PASS/FAIL per file, with the failing JSON path</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>python<span class="w"> </span>scripts/validate_specs.py<span class="w">     </span><span class="c1"># PASS/FAIL per file, with the failing JSON path</span>
 </code></pre></div>
 <p>CI runs this on every push, regenerates <code>device-specs/index.json</code> and fails if
 it is stale, and re-validates every published spec before building the docs.</p>

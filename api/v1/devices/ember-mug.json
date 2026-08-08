@@ -51,7 +51,7 @@
     "manufacturer": "Ember Technologies",
     "manufacturer_status": "active",
     "name": "Ember Mug",
-    "notes": "Covers Ember Mug 2 (10/14 oz), Travel Mug 2/2+, Cup (6 oz), Tumbler (16 oz). Official Android app package is `com.embertech`; APKPure XAPK inspected: Ember app 4.5.9 / versionCode 220. The decompiled Android manifest confirms BLE permissions, package `com.embertech`, and Nordic DFU services; Flutter AOT strings expose the Ember Bluetooth model names and characteristic helper names such as `characteristicForTargetTemperature`, `characteristicForLED`, `characteristicForPushEvent`, `characteristicForDSK`, and `ManufacturerDataX|get#emberAdvertisementInfoOrNull`.\nAll protocol UUIDs use template fc54XXXX-236c-4c94-8fa9-944a3e5353fa. Standard Mug/Cup/Tumbler service is fc543622. Travel Mug libraries also use fc543621 and fc5421a1 as service UUIDs. BLE SIG company ID is 0x03C1 (961). Home Assistant discovery matches local names `Ember C*` and `Ember T*` with manufacturer_id 961, plus the known service UUIDs.\nPairing/auth: public libraries can connect locally with BLE pairing, but writes may fail until the product has first been set up in the official app. python-ember-mug models DSK (read) and UDSK (read/write, base64-encoded string); its `make_writable()` helper attempts to write a random UDSK if the mug is not writable. Treat UDSK/DSK details as partially understood.\nTemperature values are little-endian uint16 centi-degrees C. Target 0x0000 disables temperature control. python-ember-mug enforces setpoint bounds of 49-63 C or 120-145 F. Liquid level is a raw 0-30-ish value; orlopau notes it may only update on charger and only 0/30 are app-significant. Push event notifications are one-byte event IDs and should prompt clients to re-read the affected characteristic.\nDevice coverage is wider than the original orlopau Ember Mug 2 docs: sopelj/python-ember-mug reports tested Mug, Mug 2, Cup, Tumbler, Travel Mug, and Travel Mug 2 support. No dedicated ESPHome Ember component was found; the Home Assistant integration works through BLE adapters or active ESPHome Bluetooth proxies.\nSchema gaps (device-specs/schema.json intentionally not modified): there is no dedicated field for BLE manufacturer-data format, characteristic endianness, enum/value maps, write authentication/pairing caveats, multiple equivalent service UUIDs sharing one characteristic table, or per-field evidence links. These are documented in notes and references.\n",
+    "notes": "Covers Ember Mug 2 (10/14 oz), Travel Mug 2/2+, Cup (6 oz), Tumbler (16 oz). Official Android app package is `com.embertech`; APKPure XAPK inspected: Ember app 4.5.9 / versionCode 220. The decompiled Android manifest confirms BLE permissions, package `com.embertech`, and Nordic DFU services; Flutter AOT strings expose the Ember Bluetooth model names and characteristic helper names such as `characteristicForTargetTemperature`, `characteristicForLED`, `characteristicForPushEvent`, `characteristicForDSK`, and `ManufacturerDataX|get#emberAdvertisementInfoOrNull`.\nAll protocol UUIDs use template fc54XXXX-236c-4c94-8fa9-944a3e5353fa. Standard Mug/Cup/Tumbler service is fc543622. Travel Mug libraries also use fc543621 and fc5421a1 as service UUIDs. BLE SIG company ID is 0x03C1 (961). Home Assistant discovery matches local names `Ember C*` and `Ember T*` with manufacturer_id 961, plus the known service UUIDs.\nPairing/auth: public libraries can connect locally with BLE pairing, but writes may fail until the product has first been set up in the official app. python-ember-mug models DSK (read) and UDSK (read/write, base64-encoded string); its `make_writable()` helper attempts to write a random UDSK if the mug is not writable. Treat UDSK/DSK details as partially understood.\nTemperature values are little-endian uint16 centi-degrees C. Target 0x0000 disables temperature control. python-ember-mug enforces setpoint bounds of 49-63 C or 120-145 F. Liquid level is a raw 0-30-ish value; orlopau notes it may only update on charger and only 0/30 are app-significant. Push event notifications are one-byte event IDs and should prompt clients to re-read the affected characteristic.\nDevice coverage is wider than the original orlopau Ember Mug 2 docs: sopelj/python-ember-mug reports tested Mug, Mug 2, Cup, Tumbler, Travel Mug, and Travel Mug 2 support. No dedicated ESPHome Ember component was found; the Home Assistant integration works through BLE adapters or active ESPHome Bluetooth proxies.\nSchema gaps (device-specs/schema.json intentionally not modified): there is no dedicated field for BLE manufacturer-data format, characteristic endianness, write authentication/pairing caveats, multiple equivalent service UUIDs sharing one characteristic table, or per-field evidence links. These are documented in notes and references. (Enum/value maps and unit/scale, formerly on this list, are now first-class: format fields carry `values`, `unit` and `scale` — see $defs/number_semantics in the schema.)\n",
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -143,6 +143,8 @@
         "set_value": "set_target_temp"
       },
       "device_class": "temperature",
+      "max": 63,
+      "min": 49,
       "name": "Target Temperature",
       "platform": "number",
       "state_characteristic": "fc540003-236c-4c94-8fa9-944a3e5353fa",
@@ -317,8 +319,11 @@
             {
               "length": 2,
               "name": "current_temp_raw",
+              "notes": "Wire unit is always centi-°C regardless of the display unit selected via fc540004 — that characteristic changes what the mug and app show, not what is encoded here.\n",
               "offset": 0,
-              "type": "uint16"
+              "scale": 0.01,
+              "type": "uint16",
+              "unit": "C"
             }
           ],
           "name": "Current Temperature",
@@ -334,11 +339,13 @@
               "description": "Set target temperature (value * 0.01 = degrees C; 0x0000 disables heater)",
               "parameters": {
                 "temp_high": {
+                  "description": "High byte of the same little-endian centi-°C value; 0x0000 across both bytes disables temperature control.\n",
                   "max": 255,
                   "min": 0,
                   "type": "uint8"
                 },
                 "temp_low": {
+                  "description": "Low byte of the little-endian uint16 target in centi-°C. The pair encodes round(target_c * 100): 56.5 C -> 5650 -> temp_low 0x12, temp_high 0x16. Wire unit is °C even when the display unit (fc540004) is Fahrenheit.\n",
                   "max": 255,
                   "min": 0,
                   "type": "uint8"
@@ -354,8 +361,11 @@
             {
               "length": 2,
               "name": "target_temp_raw",
+              "notes": "0x0000 means temperature control disabled, not 0 °C. Nonzero setpoints are accepted in 49-63 °C (120-145 °F converted to centi-°C before writing).\n",
               "offset": 0,
-              "type": "uint16"
+              "scale": 0.01,
+              "type": "uint16",
+              "unit": "C"
             }
           ],
           "name": "Target Temperature",
@@ -385,8 +395,13 @@
             {
               "length": 1,
               "name": "temp_unit",
+              "notes": "Display preference only — every temperature characteristic stays centi-°C on the wire whatever this byte says.\n",
               "offset": 0,
-              "type": "uint8"
+              "type": "uint8",
+              "values": {
+                "0": "Celsius",
+                "1": "Fahrenheit"
+              }
             }
           ],
           "name": "Temperature Unit",
@@ -503,7 +518,17 @@
               "length": 1,
               "name": "liquid_state",
               "offset": 0,
-              "type": "uint8"
+              "type": "uint8",
+              "values": {
+                "0": "standby",
+                "1": "empty",
+                "2": "filling",
+                "3": "cold_no_temp_control",
+                "4": "cooling",
+                "5": "heating",
+                "6": "target_temperature",
+                "7": "warm_no_temp_control"
+              }
             }
           ],
           "name": "Liquid State",
@@ -539,7 +564,12 @@
               "length": 1,
               "name": "volume_level",
               "offset": 0,
-              "type": "uint8"
+              "type": "uint8",
+              "values": {
+                "0": "low",
+                "1": "medium",
+                "2": "high"
+              }
             }
           ],
           "name": "Volume",
@@ -702,7 +732,18 @@
               "length": 1,
               "name": "event_id",
               "offset": 0,
-              "type": "uint8"
+              "type": "uint8",
+              "values": {
+                "1": "battery_changed",
+                "2": "charger_connected",
+                "3": "charger_disconnected",
+                "4": "target_temp_changed",
+                "5": "drink_temp_changed",
+                "6": "auth_info_not_found",
+                "7": "liquid_level_changed",
+                "8": "liquid_state_changed",
+                "9": "battery_voltage_state_changed"
+              }
             }
           ],
           "name": "Push Event",
