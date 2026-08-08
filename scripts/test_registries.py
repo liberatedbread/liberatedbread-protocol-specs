@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from fetch_registries import REGISTRY_DIR, _clean, _render
+from fetch_registries import BUILDERS, MIN_ENTRIES, REGISTRY_DIR, _clean, _render
 
 KEY_WIDTHS = {
     "ieee-oui.tsv": 6,
@@ -158,5 +158,33 @@ def test_clean_flattens_upstream_whitespace() -> None:
     assert _clean("  Acme\tCorp\n Ltd  ") == "Acme Corp Ltd"
 
 
-def test_repo_registry_dir_is_the_committed_one() -> None:
-    assert REGISTRY_DIR == Path(__file__).resolve().parent.parent / "registries"
+def test_every_builder_has_a_sanity_floor() -> None:
+    # The floors are what stop a silent upstream format change from overwriting
+    # a good registry with an empty file. A builder added without one would be
+    # unguarded, and the failure mode is invisible: the fetch prints "0 entries"
+    # and exits 0.
+    assert set(MIN_ENTRIES) == set(BUILDERS)
+    for name, floor in MIN_ENTRIES.items():
+        assert floor > 0, f"{name}: a floor of 0 guards nothing"
+
+
+@pytest.mark.parametrize("filename", sorted(BUILDERS))
+def test_committed_registry_clears_its_floor(filename: str) -> None:
+    # The committed data must itself satisfy the floor the fetch enforces —
+    # otherwise the guard is calibrated against nothing and the next refresh
+    # either always fails or never fires.
+    rows = len(_lines(REGISTRY_DIR / filename))
+    assert rows >= MIN_ENTRIES[filename], (
+        f"{filename}: {rows} committed rows is below the {MIN_ENTRIES[filename]} "
+        "floor fetch_registries.py enforces"
+    )
+
+
+def test_committed_registries_use_lf_endings() -> None:
+    # These files are binary-searched by byte offset; a CR before each newline
+    # shifts every offset and puts a stray \r on the end of every value. The
+    # fetch writes with newline="\n" for this reason, and splitlines() in the
+    # helpers above would hide a regression.
+    for filename in BUILDERS:
+        raw = (REGISTRY_DIR / filename).read_bytes()
+        assert b"\r" not in raw, f"{filename} contains CR bytes"
