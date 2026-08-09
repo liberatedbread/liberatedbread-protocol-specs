@@ -352,7 +352,7 @@
     },
     "framing": {
       "type": "object",
-      "description": "Structured packet framing applied on top of raw BLE writes for this characteristic.",
+      "description": "Structured packet framing applied on top of raw BLE writes for this characteristic. When `scheme` is set, every logical packet (including the byte sequences produced by this characteristic's `commands`) MUST be wrapped in the named fragment framing before it is written — the packet templates deliberately do NOT include the framing bytes.",
       "properties": {
         "length_prefix": {
           "type": "boolean",
@@ -367,6 +367,17 @@
           "type": "integer",
           "minimum": 1,
           "description": "Maximum payload bytes per frame (e.g. for chunked image uploads)."
+        },
+        "scheme": {
+          "type": "string",
+          "enum": ["daniao_fragment"],
+          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
+        },
+        "channel_tag": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Value of the scheme's channel-tag byte for writes to this characteristic (daniao_fragment byte 3): 0 on the command channel; on bulk channels it identifies the buffer type and is chosen per transfer, so a fixed value here only covers the common case."
         }
       }
     }
@@ -1348,8 +1359,8 @@
                           "properties": {
                             "type": {
                               "type": "string",
-                              "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
-                              "description": "Parameter value type. NOTE: int32/uint32 are accepted for devices such as the AdMore Light Bar (protobuf setvalue fields) but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
+                              "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "varint", "bytes", "string"],
+                              "description": "Parameter value type. `varint` is a protobuf base-128 varint (LEB128, unsigned): variable width, used for protobuf command fields whose value can exceed 127 (e.g. SmartDawn brightness 0-255). int32/uint32/varint are all consumed by the mobile Rust encoder."
                             },
                             "description": {
                               "type": "string",
