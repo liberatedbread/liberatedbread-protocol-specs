@@ -1,0 +1,347 @@
+{
+  "cloud": {
+    "auth": {
+      "notes": "mydevolo account login; the account backend issues the credentials the gateway's local API (mprm REST/WebSocket on the LAN) requires. Shape only — no real tokens recorded. The local API itself is documented by the devolo_home_control_api Python library that powers the Home Assistant integration.\n",
+      "type": "session_cookie",
+      "verification": "reported"
+    },
+    "failure_mode": "Shutdown executed 2025-12-31. The app and web portal are gone; no reconfiguration, remote access, voice control, or firmware updates. Stored schedules and if/then rules continue to execute locally on the MT2600 gateway (\"autopilot\") — that is the entire surviving feature set on a stock installation.\n",
+    "hosts": [
+      "https://homecontrol.mydevolo.com",
+      "dcloud / hc / mprm hosts under devolo.net (hardcoded in the Android app, e.g. dcloud-dev.devolo.net/v1/)"
+    ],
+    "notes": "Timeline: press release 2025-08-21, servers off 2025-12-31, app delisted from the app stores around the shutdown. The mydevolo account backend is still running (no announced shutdown date, \"no guarantee\" per Home Assistant) and is the sole thing keeping the HA devolo_home_control integration alive — local API on the gateway, cloud-issued credentials. Official successor: ROCKETHOME migrates the hub into its own subscription cloud, 99 EUR/year plus ~30 EUR one-time activation; rules and scenes are not migrated and the supported-device whitelist has gaps. Home Assistant instead recommends manual migration to Z-Wave JS.\n",
+    "required": true,
+    "vendor_service": "devolo Home Control cloud (mydevolo)"
+  },
+  "device": {
+    "identification": {
+      "zwave_manufacturer_id": "0x0175"
+    },
+    "manufacturer": "devolo AG",
+    "manufacturer_status": "shutdown",
+    "name": "devolo Home Control",
+    "notes": "German-market Z-Wave smart-home system (launched 2015, sold across DE/AT/CH/Benelux/UK). devolo announced on 2025-08-21 that the Home Control servers would shut down on 2025-12-31, and they did. What survives on the stock installation is local autopilot only: schedules and if/then rules already programmed into the MT2600 gateway keep executing, but there is no reconfiguration, no remote access, no app and no web portal — even local control always routed through the cloud. Every device in the estate is a standard Z-Wave Plus (EU, 868.4 MHz) slave under manufacturer ID 0x0175, rebadged from Danfoss / Philio / Z-Wave.me-POPP / Qubino OEM hardware, so the entire estate except the hub can be migrated to any third-party Z-Wave controller by exclude-then-re-include. No firmware work is needed or possible on the devices.\n",
+    "protocol": "zwave",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [
+          "Node ID, assigned on successful inclusion"
+        ],
+        "notes": "No WiFi passphrase crosses any link this spec documents: the devices are Z-Wave and are onboarded by controller inclusion (`hub_pairing`), not by handing network credentials to the device. Whatever WiFi the Home Control Central Unit itself uses is the hub's own provisioning and is out of scope here.\n",
+        "stored_on_device": [
+          "Z-Wave home ID and node ID, assigned by the controller at inclusion",
+          "S0/S2 network key material, on variants that include securely"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "confidence": "medium",
+        "effect": "Per-device: clears the Z-Wave network membership (home ID / node ID) and restores configuration defaults. There is no estate-wide reset; each device is reset individually. See the variant table for per-model procedures.",
+        "procedures": [
+          {
+            "name": "Generic Z-Wave exclusion (preferred)",
+            "steps": [
+              {
+                "action": "Put any controller in exclusion mode and run the device-side exclusion procedure from the variant table.",
+                "actor": "user",
+                "notes": "Exclusion already resets network membership on every variant; a factory reset is only needed when exclusion fails."
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "description": "Original flow: vendor app wizard includes the device into the MT2600 gateway's network. Defunct with the cloud shutdown — documented for completeness only.",
+          "steps": [
+            {
+              "action": "In the vendor app, start the add-device wizard for the device type and follow the per-device button procedure.",
+              "actor": "user",
+              "expect": "Device appears in the app."
+            }
+          ],
+          "type": "hub_pairing",
+          "verified": false
+        },
+        {
+          "description": "Migration flow: exclude from the devolo network, then include on the new Z-Wave controller. Exclusion does not need the old controller or the cloud — put the NEW controller in exclusion mode and perform the device-side exclusion procedure from the variant table.",
+          "steps": [
+            {
+              "action": "Put the new controller into exclusion mode and trigger the device-side exclusion procedure (see variants; e.g. tamper key 3x within 1.5 s on Philio-based sensors).",
+              "actor": "user",
+              "expect": "Controller confirms a node was removed; on some devices an LED pattern confirms."
+            },
+            {
+              "action": "Put the new controller into inclusion mode and trigger the device-side inclusion procedure.",
+              "actor": "user",
+              "expect": "Device interviews and appears with its channels/entities."
+            },
+            {
+              "action": "For battery devices, keep the device awake during the interview (button presses / tamper key) — they sleep within seconds and the interview otherwise stalls.",
+              "actor": "user"
+            }
+          ],
+          "troubleshooting": [
+            {
+              "causes": [
+                "Still included in the old network — run exclusion first; any controller's exclusion mode clears it.",
+                "Smoke detector 09813: do the battery out-and-back-in cycle and seat it in its mount before pressing the program button; watch for yellow LED + beep.",
+                "Thermostat MT02650: pull both batteries and reinsert while holding the middle button, then retry (reported LC-13 family recovery)."
+              ],
+              "symptom": "Device does nothing on include."
+            },
+            {
+              "causes": [
+                "Battery device went back to sleep — wake it manually and let the interview finish.",
+                "Homey: devolo manufacturer ID 0x0175 is unmatched by Philio drivers — pairs as unknown device; use generic Z-Wave or wait for driver support."
+              ],
+              "symptom": "Interview times out or device shows as unknown."
+            }
+          ],
+          "type": "hub_pairing",
+          "verified": false
+        }
+      ],
+      "notes": "Two distinct stories. Original onboarding: devices paired to the MT2600 via the app/portal wizards (hub_pairing) — dead with the cloud. Rescue onboarding: exclude each device (works without the old controller — exclusion is initiated on the device and any controller's exclusion mode accepts it), then include it on the new controller. All per-device procedures are transcribed from the device manuals archived in the openHAB/OpenSmartHouse Z-Wave database — confidence medium, nothing here was replayed against hardware.\n",
+      "rejoin": {
+        "in_place_supported": false,
+        "notes": "Moving between Z-Wave networks is exclude-then-include; no cloud account or vendor backend is involved on the new network.",
+        "requires_factory_reset": false
+      },
+      "required": true
+    },
+    "variants": [
+      {
+        "model": "MT02600",
+        "name": "Home Control Zentrale (gateway)",
+        "notes": "The only e-waste item in the estate. Closed gateway; after the cloud shutdown it executes stored schedules/rules locally but cannot be reconfigured. Reusable only via the ROCKETHOME subscription migration or the mydevolo-dependent Home Assistant stopgap. Not a Z-Wave slave, so it does not appear in the openHAB device database.\n",
+        "oem": "devolo own design (Z-Wave to IP gateway with integrated powerline adapter)",
+        "role": "hub",
+        "verification": "reported"
+      },
+      {
+        "exclude": "Press the front button 3x rapidly within 2 seconds.",
+        "include": "Press the front button 3x rapidly within 2 seconds.",
+        "model": "MT02646",
+        "name": "Home Control Smart Metering Plug (1st gen)",
+        "oem": "Philio PAN11",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt02646_0_0 (also filed as devolo_pan11_00_000)"
+      },
+      {
+        "exclude": "Press the ON/OFF button 3x within 1.2 s (white LED blinks 0.5 s on/off; device re-enters auto-inclusion afterwards).",
+        "factory_reset": "Hold the ON/OFF button for at least 10 s.",
+        "include": "Auto-inclusion for ~2 min after power-up, or press the ON/OFF button 3x within 1.2 s.",
+        "model": "MT02792",
+        "name": "Home Control Smart Metering Plug (2nd gen)",
+        "oem": "Philio (PAN11 family)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt2792_0_0"
+      },
+      {
+        "exclude": "Press the tamper key 3x within 1.5 s.",
+        "factory_reset": "Press the tamper key 4x within 1.5 s and keep it held on the 4th press; the LED lights, turns off after ~3 s; release within 2 s. LED on for 1 s = success, one flash = failure. Excludes and restores factory defaults; use only when the old controller is gone.",
+        "include": "Press the tamper key 3x within 1.5 s.",
+        "model": "MT02647",
+        "name": "Home Control Motion Sensor",
+        "notes": "Parameter 7 bit 4 (value 20) switches open/close reporting to Sensor Binary Report — needed by some third-party controllers.",
+        "oem": "Philio PST02-1B (PST02 multi-sensor family; motion + temperature + illumination)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt02647_0_0 (also filed as devolo_pst021b_00_000)"
+      },
+      {
+        "exclude": "Press the tamper key 3x within 1.5 s.",
+        "factory_reset": "Same 4-press tamper-key hold procedure as MT02647.",
+        "include": "Press the tamper key 3x within 1.5 s.",
+        "model": "MT02648",
+        "name": "Home Control Door/Window Contact",
+        "oem": "Philio PST02 family (contact variant; temperature + illumination built in)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt02648_0_0"
+      },
+      {
+        "exclude": "Press the program switch for at least 1 s.",
+        "include": "Press the program switch for at least 1 s.",
+        "model": "09813",
+        "name": "Home Control Smoke Detector",
+        "notes": "The documented fiddly one. Community reports: exclusion often needs the battery out-and-back-in dance — remove the device in the old system, pull the battery, reinsert, seat the detector in its mount, then press the (transparent) program button; success is a yellow LED plus a beep a few seconds later. Expect retries; inclusion windows are short because the device sleeps.\n",
+        "oem": "unverified — Philio-style command classes, but no OEM match established in the database",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/09813_0_0"
+      },
+      {
+        "exclude": "Tamper key, same pattern as the PST02 family (3x within 1.5 s).",
+        "include": "Tamper key on the back; first power-on (insulation strip) starts Network Wide Inclusion automatically.",
+        "model": "MT02755",
+        "name": "Home Control Humidity Sensor (temperature + humidity)",
+        "oem": "unverified — tamper-key/NWI procedure is Philio-style, no OEM match established",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt2755_0_0"
+      },
+      {
+        "exclude": "Press the tamper key 3x within 1.5 s.",
+        "include": "Press the tamper key 3x within 1.5 s.",
+        "model": "MT02756",
+        "name": "Home Control Water/Flood Sensor",
+        "notes": "Homey users have been asking for a driver; on Z-Wave JS it pairs generically as a water alarm sensor.",
+        "oem": "unverified — Philio-style tamper-key procedure, no OEM match established",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt2756_0_0"
+      },
+      {
+        "exclude": "Press any one of the four buttons for 1 s.",
+        "include": "Press any one of the four buttons for 1 s.",
+        "model": "MT02652",
+        "name": "Home Control Wall Switch (2 rockers / 4 buttons, battery scene controller)",
+        "oem": "Z-Wave.me wall-controller family (also sold by POPP)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt2652_0_0"
+      },
+      {
+        "exclude": "Management mode: button 3, then short press of button 3. Exclusion returns the fob to factory default.",
+        "factory_reset": "Management mode: button 3, then hold button 4 for ~5 s.",
+        "include": "Factory-fresh: hold button 1 for 1 s to include as (secure) secondary controller. Once managed: enter management mode, button 3 then button 1 (secure) or button 2 (unsecure).",
+        "model": "MT02653",
+        "name": "Home Control Key Fob (4 buttons)",
+        "notes": "A secondary controller, not an actuator — it controls other Z-Wave devices via associations. Migrating it means re-doing its associations on the new network.",
+        "oem": "Z-Wave.me KFOB (the database manual text is the KFOB's, verbatim)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt2653_0_0"
+      },
+      {
+        "exclude": "Toggle I1 3x within 5 s (parameters kept), or hold S 2–6 s (24 V SELV only).",
+        "factory_reset": "Toggle I1 5x within 5 s in the first 60 s after power-up, or hold S > 6 s (24 V SELV only). Deletes node ID and restores defaults.",
+        "include": "Auto-inclusion for ~2 min after power-up, or toggle switch on I1 3x within 5 s, or hold service button S > 2 s (24 V SELV supply only).",
+        "model": "MT02759",
+        "name": "Home Control Flush-Mount Switch (in-wall relay with metering)",
+        "notes": "Mains wiring — exclusion/reset happens at the switch input, no need to open the box if the wall switch stays wired.",
+        "oem": "Qubino-derived (manual text, I1/S-button procedure and 24 V SELV wording match Qubino flush modules; POPP also sold these rebadged)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt2759_0_0"
+      },
+      {
+        "exclude": "Same procedure in exclusion mode.",
+        "include": "Toggle switch on I1 3x within 3 s, or hold S for 2–6 s (24 V SELV only).",
+        "model": "MT02761",
+        "name": "Home Control Shutter Control (in-wall roller-shutter module)",
+        "notes": "Shutter position calibration must be re-run on the new controller.",
+        "oem": "Qubino-derived (Flush Shutter family)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/mt2761_0_0"
+      },
+      {
+        "exclude": "Same pattern as the flush switch.",
+        "include": "Auto-inclusion ~2 min after power-up, or press I1 3x within 3 s; hold S > 2 s only on 24 V SELV.",
+        "model": "Flush Dimmer",
+        "name": "Home Control Flush-Mount Dimmer",
+        "notes": "WARNING from the manual: the service button S must NOT be used while the module is on 110–230 V mains.",
+        "oem": "Qubino-derived (Flush Dimmer family)",
+        "verification": "reported",
+        "zwave_db": "doc/devolo/flushdimmer_0_0"
+      },
+      {
+        "exclude": "Short press of the middle button while the controller is in exclusion mode.",
+        "factory_reset": "Reported procedure (Danfoss LC-13 family): remove both batteries, press and hold the middle button while reinserting them, keep held until the display confirms. The battery pull is the reliable way to wake a unit that ignores exclusion because it still believes the dead devolo network is its home.\n",
+        "include": "Short press of the middle button.",
+        "model": "MT02650",
+        "name": "Home Control Radiator Thermostat (devolo art. 09356)",
+        "notes": "Sleeps hard: after issuing include/exclude, keep the device awake with button presses or the controller interview times out. Temperature offset is set via the Climate Control Schedule command class — some controllers do not expose it (open HA community issue), so verify your target controller can set the offset before migrating a room that needs it.\n",
+        "oem": "Danfoss — the database files it under manufacturer Danfoss; LC-13 family (sold by devolo and POPP as OEM variants)",
+        "verification": "reported",
+        "zwave_db": "doc/danfoss/mt02650_0_0 (thing type danfoss_mt02650_00_000)"
+      }
+    ]
+  },
+  "helpful_urls": [
+    {
+      "title": "devolo press release: Abschaltung der Home Control-Server (2025-08-21)",
+      "url": "https://www.devolo.de/de/ueber-devolo/presse/2025/abschaltung-der-home-control-server"
+    },
+    {
+      "title": "Home Assistant alert: devolo Home Control server shutdown",
+      "url": "https://alerts.home-assistant.io/alerts/devolo_home_control/"
+    },
+    {
+      "title": "Home Assistant devolo Home Control integration (local API, mydevolo credentials)",
+      "url": "https://www.home-assistant.io/integrations/devolo_home_control/"
+    },
+    {
+      "title": "devolo_home_control_api — Python library documenting the gateway local API (mprm REST/WebSocket)",
+      "url": "https://github.com/2Fake/devolo_home_control_api"
+    },
+    {
+      "title": "openHAB Z-Wave device database — devolo device set (inclusion/exclusion/reset procedures)",
+      "url": "https://github.com/openhab/org.openhab.binding.zwave/tree/main/doc/devolo"
+    },
+    {
+      "title": "OpenZWave manufacturer_specific.xml — manufacturer ID 0x0175 = devolo Home Control",
+      "url": "https://github.com/OpenZWave/open-zwave/blob/master/config/manufacturer_specific.xml"
+    },
+    {
+      "title": "ROCKETHOME devolo migration landing page (99 EUR/yr + 30 EUR activation)",
+      "url": "https://rockethome.de/devolo-landingpage"
+    },
+    {
+      "title": "Homey community: devolo-badged Philio devices pair as Unknown Z-Wave Device (manufacturer ID 373)",
+      "url": "https://community.homey.app/t/philio-app-devolo-badged-philio-devices-pair-as-unknown-z-wave-device/148412"
+    },
+    {
+      "title": "HA community: including devolo smoke detectors (the exclusion dance)",
+      "url": "https://community.home-assistant.io/t/how-to-include-devolo-smoke-detectors/668418"
+    },
+    {
+      "title": "HA community: Danfoss LC13 (aka POPP/devolo) temperature offset",
+      "url": "https://community.home-assistant.io/t/danfoss-lc13-aka-popp-devolo-temperature-calibration-set-permanent-offset/971303"
+    }
+  ],
+  "local_access": {
+    "covers": [
+      "All ~14 slave devices: full control, configuration parameters, associations and automations on the new controller",
+      "Local, cloud-free operation via Z-Wave JS / openHAB / homee / Hubitat / Homey"
+    ],
+    "hardware": [
+      {
+        "name": "Home Assistant Green + Z-Wave USB stick (e.g. Home Assistant Connect ZWA-2)",
+        "notes": "The migration target Home Assistant itself recommends. Reported total cost ~120-180 EUR.",
+        "role": "bridge",
+        "url": "https://www.home-assistant.io/integrations/zwave_js/",
+        "vendor": "Home Assistant / Nabu Casa",
+        "verification": "reported"
+      },
+      {
+        "name": "Homey Pro",
+        "notes": "~399 EUR. Caveat: devolo-badged Philio devices report manufacturer ID 0x0175, which current Philio Homey drivers do not match — they pair as 'Unknown Z-Wave Device' (community report, 2026-01). Siren and flood sensor drivers are open community requests. Generic Z-Wave inclusion still works for basic function.",
+        "role": "bridge",
+        "vendor": "Athom",
+        "verification": "reported"
+      },
+      {
+        "name": "Any other Z-Wave Plus EU controller (openHAB, homee, Hubitat, Z-Wave.me)",
+        "notes": "The devices carry no devolo-specific firmware behaviour; any EU-frequency controller can include them.",
+        "role": "bridge",
+        "verification": "reported"
+      }
+    ],
+    "not_covered": [
+      "MT2600 gateway: closed hardware, no local configuration path — reusable only via ROCKETHOME (subscription) or the dying mydevolo stopgap; otherwise e-waste",
+      "Existing rules/scenes on the gateway: not migratable anywhere except (partially) ROCKETHOME; automations are rebuilt from scratch"
+    ],
+    "notes": "Hardware entries are documentation of what exists, not endorsements; prices are 2025/2026 community-reported figures and drift.\n",
+    "status": "bridge_hardware",
+    "summary": "Every slave device is standard Z-Wave Plus EU; replacing the MT2600 hub with any third-party Z-Wave controller restores full local control. Exclude each device from the dead network (works without the old controller — exclusion is controller-agnostic), then include on the new one. The hub itself has no local rescue path.\n"
+  },
+  "zwave": {
+    "certification": "Z-Wave Plus",
+    "manufacturer_id": "0x0175",
+    "manufacturer_id_decimal": 373,
+    "manufacturer_name": "devolo Home Control",
+    "references": [
+      "OpenZWave manufacturer_specific.xml: id=\"0175\" name=\"devolo Home Control\"",
+      "openHAB Z-Wave device database (opensmarthouse.org), doc/devolo/ device set",
+      "Homey community: devolo-badged Philio devices report manufacturer ID 373 (0x0175)"
+    ],
+    "region": "EU (868.4 MHz)"
+  }
+}
