@@ -370,8 +370,8 @@
         },
         "scheme": {
           "type": "string",
-          "enum": ["daniao_fragment"],
-          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
+          "enum": ["daniao_fragment", "seeblue_envelope"],
+          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `seeblue_envelope` (LEDGlow/SEEBlue motorcycle lighting): each write is [0x95][message_length u8][message_index u8][protocol_id u8][packet bytes][checksum u8], where message_length counts message_index through the last packet byte, message_index is a per-connection sequence number the client owns, protocol_id comes from the command's `protocol_id`, and the checksum is the 8-bit two's complement of message_length through the last packet byte. Protocol ids: 0x00 INTERNAL (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the device answers on this one), 0x03 BOOTLOADER (latent OTA: flashes an Intel HEX over BLE; no firmware HEX is public), 0x04 GENERIC, 0x10 LEDGlow snapshot and the v2 UI-change commands. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
         },
         "channel_tag": {
           "type": "integer",
@@ -1316,6 +1316,56 @@
                         "$ref": "#/$defs/verification",
                         "description": "How much weight this command's byte sequence carries. Same vocabulary the OBD blocks use, so confidence is machine-readable rather than buried in prose. Orthogonal to `advanced`: this says how sure we are the command works, `advanced` says what happens when it does."
                       },
+                      "protocol_id": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "Which of the framing scheme's protocols this command's packet is sent under, when the characteristic declares a `framing.scheme` that carries one (seeblue_envelope byte 3). Part of the envelope, not of the packet: it is why the command's `template` does not contain it."
+                      },
+                      "command_id": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "The command's opcode within its `protocol_id`, where the scheme numbers them. Documentation of the packet's first byte, which the `template` still emits -- stating it separately is what lets a reader match this command against the vendor's own numbering."
+                      },
+                      "ui_id": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "For a UI-change command, the vendor's control identifier the packet addresses."
+                      },
+                      "ui_id_range": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Inclusive [first, last] `ui_id` bounds for a command that stands for a whole band of controls rather than one, so the id travels as a parameter."
+                      },
+                      "ui_id_min": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "Lower bound of an open-ended `ui_id` band, where the upper end is not known."
+                      },
+                      "setting_id": {
+                        "type": "string",
+                        "description": "Symbolic setting/enum identifier for a protobuf-style command that names what it sets rather than emitting raw bytes (AdMore's light bar). NOTE: declarative -- a consumer needs a protobuf handler for the device to send one, and the mobile encoder reports such a command as unencodable rather than guessing at bytes."
+                      },
+                      "fixed_length": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Total bytes on the wire for a command whose frame is a fixed width regardless of payload, so the encoder pads to it. ProGlow's colour packets are always 20 bytes with the unused RGB triples zero-filled."
+                      },
+                      "packet_layout": {
+                        "type": "object",
+                        "description": "Byte-by-byte description of the frame, keyed by offset. Documentation for a reader checking a capture against the spec, not an encoding instruction -- `template` is what a client executes, and the two must agree.",
+                        "additionalProperties": { "type": "string" },
+                        "propertyNames": { "pattern": "^[0-9]+$" }
+                      },
+                      "observed": {
+                        "type": "boolean",
+                        "description": "True when this command was seen on the wire during capture, as opposed to being read out of a decompiled app. Narrower than `verification`, which rates the whole byte sequence."
+                      },
                       "locate": {
                         "type": "string",
                         "enum": ["sound", "flash", "both"],
@@ -1363,8 +1413,66 @@
                         "additionalProperties": {
                           "type": "object",
                           "required": ["type"],
-                          "allOf": [{ "$ref": "#/$defs/number_semantics" }],
+                          "allOf": [
+                            { "$ref": "#/$defs/number_semantics" },
+                            {
+                              "$comment": "`min`/`max` bound a NUMBER. A `bytes` parameter is a run of octets with no numeric range, so a bound on one can only have meant its length -- which is what `min_length`/`max_length` say. Fardriver wrote `data: {type: bytes, min: 1, max: 26}` meaning 1-26 bytes; a consumer reading it as a value range rejected the parameter and lost the whole spec with it. Left legal, the two readings are indistinguishable and each is plausible.",
+                              "if": {
+                                "properties": { "type": { "const": "bytes" } },
+                                "required": ["type"]
+                              },
+                              "then": {
+                                "not": {
+                                  "anyOf": [
+                                    { "required": ["min"] },
+                                    { "required": ["max"] }
+                                  ]
+                                }
+                              }
+                            }
+                          ],
                           "properties": {
+                            "default": {
+                              "type": "number",
+                              "description": "Value a client sends when it supplies none itself, in RAW wire terms. This is what lets a high-level control send only the parameter it owns -- a brightness slider fills `{brightness}` and the protocol filler around it (`seq`, `flag`, a mode byte the command implies) comes from here. A parameter with no default and no caller value has nothing to encode, so the write fails rather than guessing."
+                            },
+                            "allowed": {
+                              "type": "array",
+                              "items": { "type": "integer" },
+                              "minItems": 1,
+                              "description": "The complete set of RAW values the device accepts, when it is a set rather than a range. A consumer offers a choice among these instead of a min..max control -- the difference between picking 'Channel 2' and hunting for 0x02 on a 0-255 slider. Use `min`/`max` when every value in between is meaningful."
+                            },
+                            "labels": {
+                              "type": "array",
+                              "items": { "type": "string" },
+                              "minItems": 1,
+                              "description": "Human-readable names for `allowed`, paired by index. Only meaningful alongside `allowed`, and the two lengths must match exactly: a consumer that finds them mismatched should keep the values and drop the labels rather than pair them off by position and mislabel a control."
+                            },
+                            "notes": {
+                              "type": "string",
+                              "description": "Per-parameter caveats the structured fields cannot carry."
+                            },
+                            "endianness": {
+                              "type": "string",
+                              "enum": ["little", "big"],
+                              "default": "little",
+                              "description": "Byte order this parameter's value is emitted in. Same key, enum and default as a `format` field's and a bus field's -- encode and decode ask one question and must not answer it two ways. Little is the default because it is what BLE overwhelmingly uses; a `big` parameter must say so, because a byte-swapped write is silently plausible rather than visibly broken."
+                            },
+                            "auto": {
+                              "type": "string",
+                              "enum": ["sequence", "packet_length", "checksum"],
+                              "description": "Marks a parameter the CLIENT derives rather than the user supplying: `sequence` is a per-connection message counter, `packet_length` the finished packet's own length, `checksum` a value computed over the rest. Declared as a parameter anyway so the template can name it and a serializer knows its width and byte order. A consumer must never present one as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects."
+                            },
+                            "min_length": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "Fewest octets this `bytes` parameter may carry. The length vocabulary for `bytes`, where `min`/`max` are the value vocabulary for numbers -- state a fixed width as equal `min_length`/`max_length` (a two-byte CRC is 2 and 2)."
+                            },
+                            "max_length": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "description": "Most octets this `bytes` parameter may carry, in the same terms as `min_length`."
+                            },
                             "type": {
                               "type": "string",
                               "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "varint", "bytes", "string"],
