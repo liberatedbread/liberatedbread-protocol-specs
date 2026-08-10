@@ -98,6 +98,54 @@ so resolve it from the `serviceList` in `setup.xml` rather than hardcoding it.
 That service is only exposed while the device is in setup mode — see
 [Wemo Setup](wemo-setup.md).
 
+## Controlling a plug, and controlling the Crock-Pot
+
+The spec carries a machine-readable control surface for the two device
+families we have hardware for. `entities` says which controls to draw and
+where each reads its state, `commands` says what to send for each control's
+roles with the arguments already chosen, and `http_endpoints` documents the
+actions both of those name. A client substitutes a command's parameters into
+its arguments and renders the result through `soap_common.request_format` —
+there is no Wemo-specific code in that sentence, which is the point.
+
+A plug is the easy half:
+
+| | |
+|---|---|
+| State | `basicevent#GetBinaryState` → `BinaryState` |
+| On / off | `basicevent#SetBinaryState` with `BinaryState` 1 or 0 |
+| The catch | `8` means on with the load idling. Treat non-zero as on, and split the value on `\|` first — some firmware answers with a long pipe-delimited form whose first field is the state |
+
+The Crock-Pot looks like a plug and is not one:
+
+| | |
+|---|---|
+| State | `basicevent#GetCrockpotState` → `mode`, `time`, `cookedTime` |
+| Modes | `0` off, `50` warm, `51` low, `52` high |
+| Setting anything | `basicevent#SetCrockpotState` with **both** `mode` and `time` |
+| The catch | `GetBinaryState` answers `0` whatever the cooker is doing |
+
+Two things about that table are worth saying out loud, because both are
+invisible until a user complains:
+
+- **`BinaryState` is not the Crock-Pot's state.** The universal switch surface
+  is present, answers, and lies — bind to it and you ship a cooker that reads
+  as permanently off with a toggle that springs back. pywemo overrides its own
+  base implementation here for exactly this reason. On/off is `mode != 0`.
+- **There is no set-the-mode-alone action.** `SetCrockpotState` carries mode
+  and cook time together, so switching to Warm without sending the current
+  `time` back also clears the timer. Read `GetCrockpotState` immediately
+  before the write and hand back what you did not mean to change; the spec's
+  commands say which value that is in each case, as
+  `source: state:GetCrockpotState.time`.
+
+Both devices also push changes over UPnP eventing rather than making you poll
+— `SUBSCRIBE` to the `eventSubURL` in `setup.xml`, renew on the `TIMEOUT` the
+device grants rather than the one you asked for, and read `BinaryState`, or
+`mode`/`time`/`cookedTime`, out of the `NOTIFY` property set. That is the
+difference between a control that notices somebody pressing the button on the
+device and one that only knows what it last wrote. See `soap_common.eventing`.
+
 ## References
 
 - [pywemo](https://github.com/pywemo/pywemo)
