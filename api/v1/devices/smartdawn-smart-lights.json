@@ -135,10 +135,15 @@
   "features": [
     {
       "animation": true,
+      "channel_tag": 4,
       "format": "rgb888",
       "max_height": 255,
       "max_width": 255,
       "resolution_source": "device_reported",
+      "session_open": [
+        "ui_end_sync",
+        "doodle_start"
+      ],
       "type": "image_upload"
     }
   ],
@@ -1268,10 +1273,11 @@
         },
         {
           "framing": {
+            "max_chunk_size": 200,
             "scheme": "daniao_fragment"
           },
           "name": "BIN Write",
-          "notes": "Bulk-data channel (same fragment framing, with a nonzero buffer tag in fragment-header byte 3). Two confirmed uses in v1.2.4: (1) file installs — effects, animations, layouts and other file payloads, M_START_INSTALL_* (mt 2901/2906/2915/2918/2921), *_PACKET, M_END_INSTALL_* flows; (2) live pixel push for the draw / photo-to-light modes, VERIFIED LIVE on JY25CUT curtain hardware 2026-08-08 (see the image_upload feature for the session sequence): after M_DEV_START + M_DOODLE_START, each full-canvas redraw is one or more TUTU_RESTORE (tag 4) buffer arrays with this exact layout (from the H5 bundle's TuTu.sendRecoveData, ported and exercised against hardware):\nCHUNK = [start_x u8][start_y u8][palette_count u8 <= 16] + palette_count RGB triplets (the first <=16 distinct colors of the canvas in row-major scan order) + RLE pixel data. Pixels are traversed COLUMN-MAJOR (x outer, y inner); each run of identical palette indices encodes as one byte (index << 4) | run_length when run_length < 16, else (index << 4) followed by count bytes — 0xFF for each full 127, then the remainder byte. A chunk is flushed when header + pixel bytes reach 200; the next chunk's [start_x][start_y] is the coordinate where its first run began, and runs do NOT span a chunk boundary. Canvases with more than 16 distinct colors cannot be expressed — quantize first.\nCRITICAL (verified live 2026-08-08): the device does NOT reassemble BLE fragments on this channel — it honors ONLY the first write of a TUTU transfer. So each CHUNK must be sent as a SINGLE BLE write; a chunk split across the 4-byte fragment framing renders only its first fragment (e.g. one strand of the image, rest blank). This is why the ~200-byte chunk cap and the large negotiated ATT MTU (app requests 527, device grants 512) matter: with MTU 512 every chunk fits one write. A full canvas may still be MANY chunks, each its own single-write transfer placed by its [start_x][start_y]; the device composites them. Sequential images and ~5fps animation work by re-sending chunks this way (M_DOODLE_START need not be resent per frame). Send M_UI_END_SYNC + M_DOODLE_START first, NOT M_DEV_START.\nThe live doodle path (finger drawing) instead sends TUTU_DOODLE (tag 1) deltas: [1][r][g][b] + a bit-run-length encoding of WHICH led indices changed to that one color (runs of skip/set with 7-bit counts, high bit = set). TUTU_ERASE=2 clears. Tag 16 (MUSIC_BIN) is defined in the H5 bundle alongside these but no call site was found.\n",
+          "notes": "Bulk-data channel (same fragment framing, with a nonzero buffer tag in fragment-header byte 3). Two confirmed uses in v1.2.4: (1) file installs — effects, animations, layouts and other file payloads, M_START_INSTALL_* (mt 2901/2906/2915/2918/2921), *_PACKET, M_END_INSTALL_* flows; (2) live pixel push for the draw / photo-to-light modes, VERIFIED LIVE on JY25CUT curtain hardware 2026-08-08 (see the image_upload feature for the session sequence, which is M_UI_END_SYNC then M_DOODLE_START — NOT M_DEV_START, which blanks the canvas): after it, each full-canvas redraw is one or more TUTU_RESTORE (tag 4) buffer arrays with this exact layout (from the H5 bundle's TuTu.sendRecoveData, ported and exercised against hardware):\nCHUNK = [start_x u8][start_y u8][palette_count u8 <= 16] + palette_count RGB triplets (the first <=16 distinct colors of the canvas in row-major scan order) + RLE pixel data. Pixels are traversed COLUMN-MAJOR (x outer, y inner); each run of identical palette indices encodes as one byte (index << 4) | run_length when run_length < 16, else (index << 4) followed by count bytes — 0xFF for each full 127, then the remainder byte. A chunk is flushed when header + pixel bytes reach 200; the next chunk's [start_x][start_y] is the coordinate where its first run began, and runs do NOT span a chunk boundary. Canvases with more than 16 distinct colors cannot be expressed — quantize first.\nCRITICAL (verified live 2026-08-08): the device does NOT reassemble BLE fragments on this channel — it honors ONLY the first write of a TUTU transfer. So each CHUNK must be sent as a SINGLE BLE write; a chunk split across the 4-byte fragment framing renders only its first fragment (e.g. one strand of the image, rest blank). This is why the ~200-byte chunk cap and the large negotiated ATT MTU (app requests 527, device grants 512) matter: with MTU 512 every chunk fits one write. A full canvas may still be MANY chunks, each its own single-write transfer placed by its [start_x][start_y]; the device composites them. Sequential images and ~5fps animation work by re-sending chunks this way (M_DOODLE_START need not be resent per frame). Send M_UI_END_SYNC + M_DOODLE_START first, NOT M_DEV_START.\nThe live doodle path (finger drawing) instead sends TUTU_DOODLE (tag 1) deltas: [1][r][g][b] + a bit-run-length encoding of WHICH led indices changed to that one color (runs of skip/set with 7-bit counts, high bit = set). TUTU_ERASE=2 clears. Tag 16 (MUSIC_BIN) is defined in the H5 bundle alongside these but no call site was found.\n",
           "properties": [
             "write",
             "write_without_response"
