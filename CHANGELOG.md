@@ -85,9 +85,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `scripts/test_device_specs.py`, which reads the vocabulary out of
   `schema.json` rather than restating it; documented in
   `device-specs/README.md` and `docs/api/spec-format.md`
+- A control surface for the two Wemo devices we have hardware for — the smart
+  plugs (`F7C063` Mini, `WSP080`, and the Outdoor and Insight plugs that share
+  the surface) and the Crock-Pot Smart Slow Cooker. `wemo-devices.yaml` could
+  already be *found* and *provisioned* from the file alone; controlling one
+  still meant reading prose and knowing UPnP. It now carries `entities` (which
+  controls to draw and where each reads its state) bound to a new top-level
+  `commands` block (what to send, with the arguments already chosen), both
+  naming actions documented in `http_endpoints`. A consumer that already
+  renders a BLE spec's entities needs one new transport, not one new device:
+  five entities land through the mobile app's own parser today, roles and
+  variant scoping intact, with only the SOAP execution missing
+- Top-level `commands` in `schema.json` — named invocations for devices with
+  no GATT characteristic to hang a command on, keyed by name so an entity's
+  role map (`turn_on: plug_turn_on`) resolves the same way whatever the
+  transport underneath it is. Two keys carry the weight. `source`
+  (`state:GetCrockpotState.time`) says where a client reads a value it is
+  *not* the one setting: `SetCrockpotState` carries mode and cook time
+  together, so switching a slow cooker to Warm without sending the current
+  time back also clears the timer, and a spec that leaves that implicit
+  produces exactly that client. `default` is what makes a command sendable at
+  all — a control can only send a command whose every blank it can fill.
+  `airthings-wave-family` has kept a top-level command catalogue since before
+  anything declared one, so the block is deliberately not
+  `additionalProperties: false`
+- `example` on an `http_endpoints` request and response body, and `example_body`
+  on a command — the literal bytes, for the same reason crypto blocks carry
+  test vectors: they turn "the device rejects this and I cannot tell which
+  half is wrong" into a diff. `scripts/test_wemo_spec.py` renders the plug and
+  Crock-Pot commands from the published `arguments`/`parameters` and diffs
+  them against those bodies, then drives all four Crock-Pot entities out of
+  the published `GetCrockpotState` response and the plug's out of a
+  `GetBinaryState` long form — stdlib only, importing none of our code
+- `soap_common.eventing` — the UPnP `SUBSCRIBE`/`NOTIFY` flow Wemo devices push
+  state on, with the callback header shape (the angle brackets are part of the
+  value), renewal on the `TIMEOUT` the device grants rather than the one you
+  asked for, and the property names each device sends (`BinaryState`;
+  `mode`/`time`/`cookedTime` on the Crock-Pot; `InsightParams`). Polling
+  `GetBinaryState` cannot see somebody pressing the button on the device
+- `payload_formats.CrockpotMode` — `0` off, `50` warm, `51` low, `52` high, with
+  the two things the bare table does not say: the numbers are not an ordering,
+  and an unrecognised value must not be folded into `off`, which would tell a
+  user their cooker is off while it is heating
 
 ### Fixed
 
+- The Crock-Pot variant no longer reads as though `GetBinaryState` were a state
+  reading on it. It listed the action under `basicevent` beside the two
+  Crock-Pot ones and said nothing further, so the obvious implementation — the
+  one every other Wemo switch uses — ships a cooker that reads as permanently
+  off with a toggle that springs back, and nothing in the response says why.
+  The device answers `0` there whatever it is doing; on/off is `mode != 0`
+  from `GetCrockpotState`. Said in the variant, at the `GetBinaryState`
+  endpoint, on the entity that had to avoid it, and pinned by a test. Also
+  spelled out that the appliance actions live on `basicevent` rather than the
+  `crockpotevent` service catalogued next to them, which is marked
+  `hypothesis` — it came from the Jarden family's shape, not from a
+  Crock-Pot's own `setup.xml`, and nothing drives it
 - `hotwired-heated-gear`'s climate entity can be driven at all. Its write
   characteristic carries an 8-byte `AA <status> <level> 00 00 00 00 55` frame,
   so there is no bare value for the direct-write path to write, and the command
