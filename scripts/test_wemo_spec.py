@@ -691,3 +691,301 @@ def test_control_actions_are_documented_with_their_service(spec):
     set_state = endpoints["SetBinaryState"]
     fields = {f["name"] for f in set_state["request_body"]["fields"]}
     assert "BinaryState" in fields
+
+
+# ── The control surface, transcribed from `commands` and `entities` ──────────
+#
+# The claim these hold to account: the two devices we have hardware for — the
+# smart plugs and the Crock-Pot — can be *driven* from this file, not merely
+# found and provisioned. A consumer reads `entities` for what to draw and
+# where each control reads its state, `commands` for what to send, and
+# `http_endpoints` for the actions both of those name. Nothing below imports
+# our own code, and nothing consults pywemo: if a binding here resolves to
+# nothing, the spec has published a control that reaches nothing.
+
+
+@pytest.fixture(scope="module")
+def commands(spec) -> dict:
+    return spec["commands"]
+
+
+@pytest.fixture(scope="module")
+def entities(spec) -> list:
+    return spec["entities"]
+
+
+@pytest.fixture(scope="module")
+def endpoints(spec) -> dict:
+    return {endpoint["name"]: endpoint for endpoint in spec["http_endpoints"]}
+
+
+PLACEHOLDER = re.compile(r"^\{(.+)\}$")
+
+
+def render_command(spec: dict, command: dict, values: dict | None = None) -> str:
+    """Per the `commands` block, rendered through soap_common.request_format.
+
+    The whole client-side procedure the block documents: default what the
+    caller did not supply, substitute `{name}` arguments from `parameters`,
+    and hand the result to the shared SOAP template.
+    """
+    supplied = dict(values or {})
+    for name, parameter in (command.get("parameters") or {}).items():
+        if name not in supplied and "default" in parameter:
+            supplied[name] = parameter["default"]
+
+    arguments = {}
+    for name, template in command["arguments"].items():
+        match = PLACEHOLDER.match(str(template))
+        arguments[name] = str(supplied[match.group(1)]) if match else str(template)
+    return build_soap_body(spec, command["service"], command["action"], arguments)
+
+
+def user_parameters(command: dict) -> list[str]:
+    """Parameters the caller must supply: those the spec does not default."""
+    return [
+        name
+        for name, parameter in (command.get("parameters") or {}).items()
+        if "default" not in parameter
+    ]
+
+
+def entity_state(returned: dict, entity: dict, payload_formats: dict) -> object:
+    """Read one entity's state out of what its state command returned.
+
+    Transcribes the rule the `entities` block states: `state_mapping.value`
+    names a value the call RETURNS, `payload_formats` says how to parse that
+    value when it is not a bare number, and `on_when: nonzero` is what decides
+    on/off.
+    """
+    mapping = entity["state_mapping"]
+    raw = returned[mapping["value"]]
+
+    # payload_formats.BinaryState: split on '|' and take field 0.
+    if mapping["value"] == "BinaryState":
+        assert any(
+            "field 0" in rule for rule in payload_formats["BinaryState"]["parse_rules"]
+        ), "the split rule this transcription follows is not published"
+        raw = raw.split("|")[0]
+
+    if mapping.get("on_when") == "nonzero":
+        return int(raw) != 0
+    if "options" in mapping:
+        return mapping["options"].get(int(raw), "unknown")
+    return int(raw)
+
+
+def test_every_entity_binding_resolves(spec, entities, commands, endpoints):
+    """A name that resolves to nothing is a control the user cannot use.
+
+    Each entity names an action to read its state and, per role, a command to
+    send. Both namespaces are in this file; neither is searched by luck.
+    """
+    variant_names = {variant["name"] for variant in spec["device"]["variants"]}
+    for entity in entities:
+        label = entity["name"]
+
+        assert entity["state_command"] in endpoints, (
+            f"{label}: state_command {entity['state_command']!r} names no "
+            "http_endpoints entry"
+        )
+        assert entity["state_endpoint"] == endpoints[entity["state_command"]]["path"], (
+            f"{label}: state_endpoint disagrees with the endpoint it names"
+        )
+
+        for role, command_name in (entity.get("commands") or {}).items():
+            assert command_name in commands, (
+                f"{label}: role {role!r} binds {command_name!r}, which the "
+                "`commands` block does not declare"
+            )
+
+        for variant in entity.get("variants") or []:
+            assert variant in variant_names, (
+                f"{label}: scoped to variant {variant!r}, which "
+                "device.variants does not list"
+            )
+
+
+def test_every_command_names_a_documented_action(spec, commands, endpoints):
+    """`commands` invokes; `http_endpoints` documents. They must agree."""
+    for name, command in commands.items():
+        assert command["transport"] == "soap"
+        action = command["action"]
+        assert action in endpoints, f"{name}: action {action!r} is not documented"
+        assert command["service"] in endpoints[action]["description"], (
+            f"{name}: the endpoint for {action} does not name the service "
+            "this command sends it to"
+        )
+        assert command.get("verification"), f"{name}: does not say how well it is known"
+
+
+def test_command_arguments_only_reference_declared_parameters(commands):
+    """A `{placeholder}` with no parameter behind it cannot be substituted."""
+    for name, command in commands.items():
+        declared = set(command.get("parameters") or {})
+        referenced = {
+            match.group(1)
+            for value in command["arguments"].values()
+            for match in [PLACEHOLDER.match(str(value))]
+            if match
+        }
+        assert not referenced - declared, (
+            f"{name}: references {sorted(referenced - declared)} with no such "
+            "parameter declared"
+        )
+        assert not declared - referenced, (
+            f"{name}: declares {sorted(declared - referenced)}, which no "
+            "argument uses — a parameter nothing substitutes reaches nothing"
+        )
+
+
+def test_role_commands_are_sendable(entities, commands):
+    """A control can only send a command whose every blank it can fill.
+
+    The rule a consumer applies before drawing anything: each parameter is
+    either the value this control owns or one the spec defaults. Two blanks
+    and one value means the control cannot send it — which is why the
+    Crock-Pot's writes carry a `source` and a default for the setting they are
+    not changing.
+    """
+    fixed_roles = {"turn_on", "turn_off", "press"}
+    for entity in entities:
+        for role, command_name in (entity.get("commands") or {}).items():
+            command = commands[command_name]
+            blanks = user_parameters(command)
+            if role in fixed_roles:
+                assert not blanks, (
+                    f"{entity['name']}: {role} binds {command_name}, which "
+                    f"still needs {blanks} — a toggle has nothing to fill them "
+                    "with"
+                )
+            else:
+                assert len(blanks) == 1, (
+                    f"{entity['name']}: {role} binds {command_name}, which "
+                    f"needs {blanks}; a single control supplies one value"
+                )
+
+            # Every parameter the control does not supply must say where its
+            # value comes from, or the write silently clears a setting.
+            for name, parameter in (command.get("parameters") or {}).items():
+                if name in blanks:
+                    continue
+                assert parameter.get("source"), (
+                    f"{command_name}: parameter {name!r} is defaulted but "
+                    "does not say where a client should read the real value"
+                )
+
+
+def test_commands_render_the_published_example_bodies(spec, commands):
+    """The load-bearing control test: data in, the documented bytes out."""
+    assert render_command(spec, commands["plug_turn_on"]).strip() == (
+        commands["plug_turn_on"]["example_body"].strip()
+    )
+
+    # Low for four hours: the mode the control chose, the cook time it read
+    # back from the device and is handing straight to the write.
+    built = render_command(spec, commands["set_cook_mode"], {"mode": 51, "time": 240})
+    assert built.strip() == commands["set_cook_mode"]["example_body"].strip()
+    assert "<mode>51</mode>" in built and "<time>240</time>" in built
+    ET.fromstring(built)
+
+    # Off is the one Crock-Pot write with nothing to read back first.
+    off = render_command(spec, commands["crockpot_turn_off"])
+    assert "<mode>0</mode>" in off and "<time>0</time>" in off
+
+
+def test_defaulted_crockpot_parameters_point_at_the_read_back(commands):
+    """The trap the `source` key exists for.
+
+    SetCrockpotState carries mode and time together, so a client changing one
+    must send the other back unchanged. A spec that left that implicit would
+    produce a client that clears the timer every time somebody switches to
+    Warm.
+    """
+    for name in ("set_cook_mode", "set_cook_time", "crockpot_turn_on"):
+        sources = {
+            parameter.get("source")
+            for parameter in commands[name]["parameters"].values()
+            if "default" in parameter
+        }
+        assert sources == {"state:GetCrockpotState." + ("time" if name != "set_cook_time" else "mode")}, (
+            f"{name}: the value it must read back is not named"
+        )
+
+
+def test_documented_crockpot_response_drives_every_crockpot_entity(
+    spec, entities, endpoints
+):
+    """One published response must yield every control's state.
+
+    This is the whole claim in one assertion: a consumer holding this file and
+    a device answers "what do I show?" without reading anything else.
+    """
+    returned = parse_soap_response(endpoints["GetCrockpotState"]["response_body"]["example"])
+    assert set(returned) == {"mode", "time", "cookedTime"}
+
+    documented = {
+        field["name"] for field in endpoints["GetCrockpotState"]["response_body"]["fields"]
+    }
+    assert set(returned) == documented, "the example and the field list disagree"
+
+    states = {
+        entity["name"]: entity_state(returned, entity, spec["payload_formats"])
+        for entity in entities
+        if entity["state_command"] == "GetCrockpotState"
+    }
+    assert states == {
+        "Slow Cooker": True,  # mode 51 is not off
+        "Cook Mode": "low",
+        "Cook Time": 240,
+        "Cooked Time": 15,
+    }
+
+
+def test_documented_binary_state_response_reads_as_on(spec, entities, endpoints):
+    """The plug's own example, through the documented split rule.
+
+    The published response is the long pipe-delimited form with a leading 8,
+    which is the case that goes wrong quietly: parsed whole it is not a
+    number, and read as a plain state 8 is not 1.
+    """
+    returned = parse_soap_response(endpoints["GetBinaryState"]["response_body"]["example"])
+    plug = next(entity for entity in entities if entity["name"] == "Plug")
+    assert entity_state(returned, plug, spec["payload_formats"]) is True
+
+    # And the spec must say what 8 means, since that is why it is True.
+    assert "8" in spec["payload_formats"]["BinaryState"]["values"]
+
+
+def test_select_options_agree_with_the_payload_format(spec, entities):
+    """The mode table is stated twice on purpose; it must not drift.
+
+    `payload_formats.CrockpotMode` is where a parser reads it, the select's
+    `options` is where a consumer that reads entities alone finds its labels.
+    Two spellings of one fact are fine only while something checks them.
+    """
+    select = next(entity for entity in entities if entity["platform"] == "select")
+    published = spec["payload_formats"]["CrockpotMode"]["values"]
+    assert {str(code): label for code, label in select["state_mapping"]["options"].items()} == (
+        published
+    )
+
+
+def test_the_crockpot_switch_does_not_read_binary_state(spec, entities):
+    """The documented trap, held to.
+
+    Every other Wemo switch reads BinaryState. The Crock-Pot answers 0 there
+    whatever it is doing, so binding the obvious thing gives a cooker that
+    always reads off — and nothing about the response says so.
+    """
+    cooker = next(entity for entity in entities if entity["name"] == "Slow Cooker")
+    assert cooker["state_command"] == "GetCrockpotState"
+    assert cooker["state_mapping"]["value"] == "mode"
+
+    variant = next(
+        v for v in spec["device"]["variants"] if v["model"].startswith("SCCPWM600")
+    )
+    warning = " ".join(variant["characteristics"]).lower()
+    assert "binarystate is not this device's state" in warning, (
+        "the variant must warn about the surface that lies, not just avoid it"
+    )
