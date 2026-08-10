@@ -13,6 +13,14 @@
 # status codes, timing constants and a troubleshooting table. If you find
 # yourself needing to look something up elsewhere to finish an implementation,
 # that is a bug in this file.
+#
+# The same is now true of CONTROL for the two devices we have hardware for —
+# the smart plugs and the Crock-Pot Smart Slow Cooker. `entities` says which
+# controls to draw and where each reads its state; `commands` says what to
+# send for each control's roles, as arguments rather than prose; and
+# `http_endpoints` catalogues the actions both of those name. A consumer that
+# already renders a BLE spec's entities needs one new transport, not one new
+# device. The other families in `variants` are discovery and setup only.
 
 device:
   name: "Belkin Wemo Smart Devices"
@@ -824,6 +832,18 @@ device:
       characteristics:
         - "Basic on/off smart plug."
         - "Some firmware and APK mocks identify the Mini as socket:1."
+        - >
+          On/off is basicevent GetBinaryState/SetBinaryState; the control
+          surface is declared in the top-level `commands` and `entities`
+          blocks.
+        - >
+          This is the model whose HTTP port moves after a power cycle. The
+          port is not identity — rediscover by SSDP or probe
+          identification.port_probe_list before deciding the plug is gone.
+        - >
+          basicevent#ChangeFriendlyName on this model is CVE-2023-27217, an
+          unauthenticated stack overflow Belkin declined to patch as EOL. A
+          client has no reason to send it and every reason not to expose it.
       services:
         basicevent:
           control_url: "/upnp/control/basicevent1"
@@ -846,6 +866,14 @@ device:
         apk_widgets: ["wemo_smart_plug", "wemo_socket"]
       characteristics:
         - "Basic on/off smart plug."
+        - >
+          Same on/off surface as the Mini: basicevent
+          GetBinaryState/SetBinaryState, declared in the top-level `commands`
+          and `entities` blocks.
+        - >
+          GetSignalStrength is listed below because the device answers it, but
+          the return value's units and range are not documented here, so no
+          sensor entity is declared for it.
       services:
         basicevent:
           control_url: "/upnp/control/basicevent1"
@@ -1014,22 +1042,60 @@ device:
 
     - model: "SCCPWM600-V1"
       name: "Crock-Pot Smart Slow Cooker"
+      alternate_models: ["SCCPWM600-V2", "F7C045"]
+      alternate_models_notes: >
+        F7C045 is Belkin's part number for the same appliance ("Crock-Pot
+        Smart Slow Cooker with Wemo"); SCCPWM600 is Jarden's. A user reading a
+        support article and a user reading the base of their cooker are
+        holding the same device.
       identification:
         device_type: "urn:Belkin:device:crockpot:1"
         udn_prefixes: ["uuid:Crockpot"]
+        udn_prefix_notes: >
+          Spelled exactly as the device sends it: capital C, lowercase p.
+          pywemo dispatches on `udn.startswith("uuid:Crockpot")`, which is
+          case-SENSITIVE, and our own notes have carried a lowercase
+          "uuid:crockpot-1_0-..." guess elsewhere. Match case-insensitively
+          and you cannot be wrong either way.
         friendly_name_pattern: "Crock"
         apk_widgets: ["wemo_crockpot"]
       characteristics:
-        - "Cooking modes are off=0, warm=50, low=51, high=52."
+        - "Cooking modes are off=0, warm=50, low=51, high=52 (payload_formats.CrockpotMode)."
+        - >
+          BinaryState IS NOT THIS DEVICE'S STATE. basicevent#GetBinaryState
+          answers 0 whatever the cooker is doing, so on/off comes from
+          `mode != 0` in GetCrockpotState. This is the one Wemo where the
+          universal switch surface is present and lies.
+        - >
+          Mode and cook time are set together by one action; there is no
+          set-the-mode-alone call. See commands.set_cook_mode.
+        - >
+          SetCrockpotState is acknowledged, not confirmed. pywemo re-reads
+          the state after every write because the cooker does not always take
+          the setting.
+        - "Control surface is declared in the top-level `commands` and `entities` blocks."
       services:
         basicevent:
           control_url: "/upnp/control/basicevent1"
           event_sub_url: "/upnp/event/basicevent1"
           actions: ["GetCrockpotState", "SetCrockpotState", "GetBinaryState"]
+          notes: >
+            The appliance actions live HERE, on basicevent — that is where
+            pywemo calls them and the only placement with a working
+            implementation behind it. The SOAPACTION header is therefore
+            "urn:Belkin:service:basicevent:1#SetCrockpotState", not a
+            crockpotevent one.
+          event_properties: ["BinaryState", "mode", "time", "cookedTime"]
         crockpotevent:
           control_url: "/upnp/control/crockpotevent1"
           event_sub_url: "/upnp/event/crockpotevent1"
           actions: ["GetCrockpotState", "SetCrockpotState", "GetJardenStatus", "SetJardenStatus"]
+          verification: "hypothesis"
+          notes: >
+            Catalogued from the Jarden appliance family's shape, not from a
+            Crock-Pot's own setup.xml, and no implementation drives it. Take
+            the service list from the device rather than from this entry, and
+            send the two state actions to basicevent above.
 
     - model: "Holmes-Air-Purifier"
       name: "Holmes Smart Air Purifier"
@@ -1280,6 +1346,98 @@ soap_common:
         plug and humidifier. Its action surface is not yet mapped; it is
         suspected to be the newer-generation provisioning surface. Resolve the
         controlURL from setup.xml like any other service.
+  eventing:
+    description: >
+      Wemo devices push state changes over standard UPnP eventing, to the
+      eventSubURL each service publishes in setup.xml. This is the difference
+      between a control that reacts when somebody presses the button on the
+      device and one that only knows what it last wrote: a client that polls
+      GetBinaryState every few seconds still misses the Crock-Pot finishing.
+      Every field below is what pywemo's subscription registry sends and
+      parses; none of it has been replayed against hardware here.
+    subscribable_services: ["basicevent", "insight", "bridge"]
+    subscribable_services_notes: >
+      Subscribe to the services a device actually publishes — take the
+      eventSubURL from its own serviceList and skip the rest. On the plug and
+      the Crock-Pot that is basicevent alone.
+    subscribe:
+      method: "SUBSCRIBE"
+      url: "http://<ip>:<port><eventSubURL from setup.xml>"
+      headers:
+        CALLBACK: "<http://<client-ip>:<client-port>/<unique-path>>"
+        NT: "upnp:event"
+        TIMEOUT: "Second-300"
+      header_notes: >
+        The angle brackets around CALLBACK's URL are part of the value, not
+        notation. The client must already be listening on that address: the
+        device connects back to it, so a client behind NAT or on a different
+        subnet gets a subscription that never delivers. Pick the callback host
+        by which local interface routes to the device rather than by whatever
+        the OS calls primary.
+      response_headers:
+        SID: "Subscription identifier, needed to renew or cancel."
+        TIMEOUT: "Second-<n>, the lifetime the device actually granted."
+      timeout_seconds: 300
+      timeout_notes: >
+        TIMEOUT is a request, not a promise — renew on the value the device
+        returns in its own TIMEOUT header, not on the one you asked for.
+    renew:
+      method: "SUBSCRIBE"
+      headers:
+        SID: "<the SID from the original subscribe>"
+        TIMEOUT: "Second-300"
+      notes: >
+        A renewal carries SID and no CALLBACK/NT. A device that has forgotten
+        the subscription answers with an error; the recovery is to UNSUBSCRIBE
+        for safety and then subscribe afresh, which is also what a port change
+        after a power cycle looks like from here.
+    unsubscribe:
+      method: "UNSUBSCRIBE"
+      headers:
+        SID: "<the SID from the original subscribe>"
+    notify:
+      method: "NOTIFY"
+      description: >
+        The device POSTs an XML property set to the callback URL whenever a
+        subscribed value changes. Each <e:property> holds exactly one child
+        whose tag names the property and whose text is the new value — the
+        same values the matching Get* action returns, in the same encoding, so
+        one parser serves both paths.
+      namespace: "urn:schemas-upnp-org:event-1-0"
+      parse_rule: "propertyset -> each property -> first child -> {child.tag: child.text}"
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <e:propertyset xmlns:e="urn:schemas-upnp-org:event-1-0">
+        <e:property>
+        <BinaryState>1</BinaryState>
+        </e:property>
+        </e:propertyset>
+      properties:
+        BinaryState:
+          service: "basicevent"
+          format: "payload_formats.BinaryState"
+          notes: >
+            Sent by every switch-like device. Carries the pipe-delimited long
+            form on some firmware, so split on '|' and take field 0 here too.
+        mode:
+          service: "basicevent"
+          format: "payload_formats.CrockpotMode"
+          notes: "Crock-Pot only. The device's own state, whether it changed by SOAP or by the front-panel button."
+        time:
+          service: "basicevent"
+          unit: "minutes"
+          notes: "Crock-Pot only. Cook time remaining."
+        cookedTime:
+          service: "basicevent"
+          unit: "minutes"
+          notes: "Crock-Pot only. Minutes cooked so far in this run."
+        InsightParams:
+          service: "insight"
+          format: "payload_formats.InsightParams"
+          notes: >
+            Insight only. An Insight stops sending these when it is switched
+            off, so a gap in the stream is not a lost subscription.
+      verification: "reported"
 
 payload_formats:
   BinaryState:
@@ -1297,7 +1455,38 @@ payload_formats:
         Some firmware returns extra pipe-delimited values after the state
         (for example on dimmers). Split on '|' and take field 0 rather than
         parsing the whole string as an integer.
+      - >
+        The trailing fields of the long form are NOT InsightParams and must
+        not be read with that layout: the two differ in length and nothing
+        published says the columns line up. Field 0 is the documented part.
+        Reach for insight#GetInsightParams when you want the energy figures.
     example: "1"
+  CrockpotMode:
+    description: >
+      Cooking mode of the Crock-Pot Smart Slow Cooker: returned as the `mode`
+      value of basicevent#GetCrockpotState, sent as the `mode` argument of
+      basicevent#SetCrockpotState, and pushed as the `mode` event property.
+      This is the Crock-Pot's state — BinaryState is not (see
+      device.variants SCCPWM600-V1).
+    values:
+      "0": "off"
+      "50": "warm"
+      "51": "low"
+      "52": "high"
+    parse_rules:
+      - >
+        The numbers are the device's own and are not an ordering: there is no
+        mode between 0 and 50, and 51 is not "one more heat than" 50. Map
+        through this table rather than treating the value as a level.
+      - >
+        Any other value is a mode this table does not know. Keep the raw
+        number and render it as unknown; mapping an unrecognised value to
+        `off` would tell a user their cooker is off while it is heating.
+        pywemo returns a distinct unknown (-1) for exactly this reason.
+      - >
+        Off is a real mode, not the absence of one. A client deriving on/off
+        from this field asks `mode != 0`, which is what pywemo does.
+    example: "51"
   InsightParams:
     description: >
       Energy and timing counters from insight#GetInsightParams, as a single
@@ -1375,6 +1564,185 @@ payload_formats:
         name: "model_name"
     example: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
 
+# Writes a client sends, as data rather than prose, so a consumer that can
+# already drive an entity's `turn_on` role over BLE can drive one over SOAP by
+# learning one new transport rather than one new device.
+#
+# The split with `http_endpoints` is deliberate and is the whole reason two
+# blocks exist: http_endpoints catalogues the ACTIONS (what exists, what it
+# takes, what it returns) and an entity's `state_command` names one of them,
+# while a command here is one INVOCATION of an action with its arguments
+# already chosen — `plug_turn_on` is SetBinaryState with BinaryState=1, and
+# that "1" is the part an entity's `commands:` map cannot carry itself. Every
+# name an entity binds resolves in exactly one of the two blocks.
+#
+# To send one: resolve the controlURL for `service` from the device's own
+# serviceList (NEVER hardcode it — see soap_common), substitute any
+# `parameters` into `arguments`, and render through
+# soap_common.request_format.template. Nothing else is needed; the example
+# bodies below are what that produces.
+commands:
+  plug_turn_on:
+    description: "Close the relay on a Wemo plug, switch or outdoor plug."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetBinaryState"
+    arguments:
+      BinaryState: "1"
+    returns:
+      - name: "BinaryState"
+        description: >
+          Echoes the new state, or the string 'Error' when the device was
+          already in it. 'Error' here is not a failure worth surfacing —
+          pywemo ignores it — but it does mean the reply cannot be used as a
+          state reading.
+    verification: "reported"
+    example_body: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:SetBinaryState xmlns:u="urn:Belkin:service:basicevent:1">
+      <BinaryState>1</BinaryState>
+      </u:SetBinaryState>
+      </s:Body>
+      </s:Envelope>
+
+  plug_turn_off:
+    description: "Open the relay on a Wemo plug, switch or outdoor plug."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetBinaryState"
+    arguments:
+      BinaryState: "0"
+    returns:
+      - name: "BinaryState"
+        description: "As plug_turn_on."
+    verification: "reported"
+
+  set_cook_mode:
+    description: >
+      Set the Crock-Pot's cooking mode, carrying the cook time along
+      unchanged.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "{mode}"
+      time: "{time}"
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        values:
+          "0": "off"
+          "50": "warm"
+          "51": "low"
+          "52": "high"
+        description: "Target mode; see payload_formats.CrockpotMode."
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        required: true
+        source: "state:GetCrockpotState.time"
+        default: 0
+        description: >
+          SetCrockpotState carries BOTH values on every call, so changing the
+          mode alone still means sending the cook time back with it — omit it
+          and you have also cleared the timer. Read `time` from
+          GetCrockpotState immediately before the write and send what it
+          returned, which is what pywemo does.
+        notes: >
+          The default exists because pywemo has one: it falls back to 0 when
+          it has never read a time from the device. What the appliance does
+          with a 0 cook time in a heating mode is NOT verified here, so a
+          client that cannot do the read-back first should ask the user for a
+          time rather than quietly sending 0 to a slow cooker.
+    verification: "reported"
+    example_body: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:SetCrockpotState xmlns:u="urn:Belkin:service:basicevent:1">
+      <mode>51</mode>
+      <time>240</time>
+      </u:SetCrockpotState>
+      </s:Body>
+      </s:Envelope>
+    example_notes: >
+      Low for four hours, built from mode=51 and time=240. Note the argument
+      names are lowercase where BinaryState is not; they are spelled here
+      exactly as they go on the wire.
+
+  set_cook_time:
+    description: >
+      Set the Crock-Pot's cook time in minutes, leaving the mode as it is.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "{mode}"
+      time: "{time}"
+    parameters:
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        required: true
+        description: "New cook time in minutes."
+      mode:
+        type: "integer"
+        required: true
+        source: "state:GetCrockpotState.mode"
+        default: 0
+        description: >
+          The mirror of the same trap: the action carries both values, so
+          setting a time means sending the current mode back with it. Read it
+          from GetCrockpotState first.
+        notes: >
+          The default is `off`, deliberately. A client that cannot read the
+          mode back must not guess a heating one — sending 0 stops the
+          cooker, which is the failure that does no harm.
+    verification: "reported"
+
+  crockpot_turn_on:
+    description: >
+      Start the Crock-Pot on HIGH, keeping whatever cook time it already
+      holds. This is what a bare 'on' means for a device with no single on
+      state; the Cook Mode select is the control that reaches Warm and Low.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "52"
+      time: "{time}"
+    parameters:
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        required: true
+        source: "state:GetCrockpotState.time"
+        default: 0
+        description: "As set_cook_mode.time — read it back and send it along."
+    verification: "reported"
+    notes: >
+      HIGH rather than LOW because that is the mapping pywemo's on() uses; it
+      is a convention, not something the device states.
+
+  crockpot_turn_off:
+    description: "Stop the Crock-Pot and clear its timer."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "0"
+      time: "0"
+    verification: "reported"
+    notes: >
+      The one Crock-Pot write with no read-back: off takes no cook time with
+      it, so this is sendable from a cold start.
+
 http_endpoints:
   - method: "GET"
     path: "/setup.xml"
@@ -1438,7 +1806,84 @@ http_endpoints:
           type: "integer"
           description: >
             Current state. Values and the pipe-delimited-extras caveat are in
-            the top-level payload_formats.BinaryState.
+            the top-level payload_formats.BinaryState. NOT a state reading on
+            the Crock-Pot, which answers 0 here whatever it is doing — use
+            GetCrockpotState there.
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+        <s:Body>
+        <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+        <BinaryState>8|1492338954|0|922|14195|1209600|0|940670|15213709|227088884</BinaryState>
+        </u:GetBinaryStateResponse>
+        </s:Body>
+        </s:Envelope>
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "GetCrockpotState"
+    description: >
+      Crock-Pot only. The device's whole state in one call. Required
+      SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#GetCrockpotState". Takes no arguments.
+      Note the service: these two actions live on basicevent, not on the
+      crockpotevent service that also appears in the Crock-Pot's serviceList.
+      That is where pywemo drives them, and it is the only placement with a
+      working implementation behind it.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "mode"
+          type: "integer"
+          description: "Cooking mode; see payload_formats.CrockpotMode. The device's on/off state lives here."
+        - name: "time"
+          type: "integer"
+          unit: "minutes"
+          description: >
+            Cook time remaining, in minutes. Also the value SetCrockpotState
+            wants handed back to it on any write that is not turning the
+            cooker off.
+        - name: "cookedTime"
+          type: "integer"
+          unit: "minutes"
+          description: "Minutes cooked so far in the current run."
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+        <s:Body>
+        <u:GetCrockpotStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+        <mode>51</mode>
+        <time>240</time>
+        <cookedTime>15</cookedTime>
+        </u:GetCrockpotStateResponse>
+        </s:Body>
+        </s:Envelope>
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "SetCrockpotState"
+    description: >
+      Crock-Pot only. Sets mode and cook time together — there is no action
+      that sets one of them. Required SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#SetCrockpotState". The reply
+      acknowledges the request rather than reporting the resulting state, so
+      read GetCrockpotState back afterwards; the cooker does not always take
+      the setting.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "mode"
+          type: "integer"
+          required: true
+          description: "Target mode; see payload_formats.CrockpotMode."
+          enum: [0, 50, 51, 52]
+        - name: "time"
+          type: "integer"
+          required: true
+          unit: "minutes"
+          description: >
+            Cook time in minutes. Sent on every call, including calls that
+            only mean to change the mode.
 
   - method: "POST"
     path: "/upnp/control/metainfo1"
@@ -1505,3 +1950,126 @@ http_endpoints:
     description: >
       Wemo Link bridge actions for paired bulbs and groups, including
       GetEndDevicesWithStatus, GetDeviceStatus, and SetDeviceStatus.
+
+# The controls and readings a client draws, in the vocabulary a consumer
+# already speaks for BLE devices: a platform, a place to read state from, and
+# role -> command bindings. Only the bindings are transport-specific — a
+# `state_characteristic` becomes a `state_endpoint` plus a `state_command`,
+# and `state_mapping.value` names a value the state call RETURNS instead of a
+# field of a decoded characteristic. Everything above that line (which control
+# to draw, what its unit is, which raw value counts as on) is unchanged, which
+# is the point: a consumer gains Wemo by learning SOAP, not by learning Wemo.
+#
+# `state_endpoint` carries the conventional control URL so a reader has
+# something concrete, but it is the FALLBACK. Resolve the real one from the
+# serviceList in the device's own setup.xml, keyed by the service type the
+# named command declares.
+#
+# Scoped with `variants` to the two device families whose control surface is
+# fully mapped here. The rest of `device.variants` is discovery and setup
+# only, deliberately: a declared entity is a promise that the control works,
+# and the appliance classes still have unmapped attribute payloads.
+entities:
+  - platform: "switch"
+    name: "Plug"
+    device_class: "outlet"
+    variants:
+      - "Wemo Mini Smart Plug"
+      - "Wemo WiFi Smart Plug"
+      - "Wemo Insight Smart Plug"
+      - "Wemo Outdoor Plug"
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetBinaryState"
+    state_mapping:
+      value: "BinaryState"
+      on_when: "nonzero"
+    commands:
+      turn_on: "plug_turn_on"
+      turn_off: "plug_turn_off"
+    notes: >
+      `on_when: nonzero` rather than a comparison against 1, because an
+      Insight reports 8 for "on, and the attached load is idling". Treating 8
+      as anything but on gives a plug that reads as off while it is powering
+      something. The reading needs the split rule in
+      payload_formats.BinaryState: some firmware answers with the long
+      pipe-delimited form and only field 0 is the state.
+
+  - platform: "switch"
+    name: "Slow Cooker"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "mode"
+      on_when: "nonzero"
+    commands:
+      turn_on: "crockpot_turn_on"
+      turn_off: "crockpot_turn_off"
+    notes: >
+      Reads `mode`, NOT BinaryState. basicevent#GetBinaryState answers 0 on
+      this device whatever it is doing — pywemo overrides its own base
+      implementation for exactly that reason — so the obvious binding, the one
+      every other Wemo switch uses, yields a Crock-Pot that is permanently
+      off and a toggle that springs back. `turn_on` selects HIGH and keeps the
+      cook time; Warm and Low are reachable through the Cook Mode select.
+
+  - platform: "select"
+    name: "Cook Mode"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "mode"
+      options:
+        0: "off"
+        50: "warm"
+        51: "low"
+        52: "high"
+    commands:
+      select_option: "set_cook_mode"
+    notes: >
+      The mode codes are also in payload_formats.CrockpotMode, which is where
+      a parser should read them; the table is repeated here in the shape the
+      entity layer already uses for a select (ember-mug spells its
+      temperature unit the same way) because a consumer that reads entities
+      and nothing else still has to render a label rather than the number 51.
+      A value outside the table is a mode we do not know: show it as unknown
+      rather than folding it into `off`. `select_option` is the one role name
+      in this file that no consumer resolves yet — it is the parameterised
+      form the action actually has, where the catalogue's other selects
+      declare one command per option.
+
+  - platform: "number"
+    name: "Cook Time"
+    device_class: "duration"
+    unit: "min"
+    min: 0
+    step: 1
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "time"
+    commands:
+      set_value: "set_cook_time"
+    notes: >
+      No `max`: the longest cook time the appliance accepts is not something
+      we have established, and inventing a bound would either forbid a setting
+      the device allows or promise one it rejects. A consumer needing a slider
+      range should pick its own and say it is its own. Writing this sends the
+      current mode back alongside the new time — see commands.set_cook_time.
+
+  - platform: "sensor"
+    name: "Cooked Time"
+    device_class: "duration"
+    unit: "min"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "cookedTime"
+    notes: >
+      Minutes elapsed in the current run, counting up, where Cook Time counts
+      down. One GetCrockpotState call serves this, Cook Mode, Cook Time and
+      the switch — poll once and fan the three values out rather than calling
+      per entity.

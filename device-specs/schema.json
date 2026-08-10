@@ -1603,6 +1603,10 @@
                     "max": { "type": "number" }
                   }
                 }
+              },
+              "example": {
+                "type": "string",
+                "description": "A literal request body, as bytes go out. Worth its space wherever the envelope is not obvious from the field list — a SOAP action, a form encoding, anything where the field names alone do not say where they sit in the document. It is what an implementer diffs against when the device rejects a request that looks right."
               }
             }
           },
@@ -1625,6 +1629,10 @@
                     "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
                   }
                 }
+              },
+              "example": {
+                "type": "string",
+                "description": "A literal response body. The one an implementer parses first, so it must be real enough to test against: an entity bound to this endpoint should be derivable from it and nothing else. Same role as `payload_formats.<name>.example`, one level up — that one is a value, this is the document carrying it."
               }
             }
           }
@@ -2260,6 +2268,84 @@
           }
         },
         "notes": { "type": "string" }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "description": "Named invocations a client can send, for devices whose control surface is not a GATT characteristic. Keyed by command name; an entity's `commands:` role map (`turn_on: plug_turn_on`) names an entry here, exactly as it names a characteristic's command on a BLE device.\n\nThe distinction from `http_endpoints`/`mqtt_topics` is what makes both blocks necessary: those catalogue the ACTIONS a device offers -- what exists, what it takes, what it returns -- while a command here is one INVOCATION of an action with its arguments already chosen. 'Turn the plug on' is SetBinaryState with BinaryState=1, and that '1' has nowhere else to live: an entity's role map carries a name, not a payload. A consumer sends one by substituting `parameters` into `arguments` and rendering through whatever request template the spec's transport block publishes.\n\nDeliberately not `additionalProperties: false`. BLE specs (airthings-wave-family) already keep a top-level command catalogue keyed by `characteristic`/`template`/`value`, and the point of one block is that a role map resolves the same way whatever the transport underneath it is.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string" },
+          "transport": {
+            "type": "string",
+            "enum": ["soap", "http", "mqtt", "ble", "udp", "coap"],
+            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport."
+          },
+          "service": {
+            "type": "string",
+            "description": "Service the action belongs to, as the device names it -- a SOAP/UPnP serviceType URN such as 'urn:Belkin:service:basicevent:1'. It is also the key a client resolves the control URL by, which is why a command states the service rather than a path: published paths vary across firmware generations and the device's own service list is authoritative."
+          },
+          "action": {
+            "type": "string",
+            "description": "Name of the action invoked, spelled as it goes on the wire ('SetBinaryState'). Pairs with `service` to form a SOAPACTION header, and should match the `name` of the `http_endpoints` entry that documents the action's arguments and returns."
+          },
+          "path": {
+            "type": "string",
+            "description": "Request path, for transports that address by path rather than by service. Prefer resolving it from the device where the protocol offers a way to; state it here when the path is fixed."
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Argument name -> value, as the wire spells both. A value of '{name}' is substituted from the like-named entry in `parameters`; anything else is a literal this command has already decided (BinaryState '1' for an on command). Argument names are the device's, not ours: Wemo spells one BinaryState and the next one mode.",
+            "additionalProperties": { "type": ["string", "number", "boolean"] }
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Values the caller supplies, keyed by the placeholder name used in `arguments`. Same role as a BLE command's `parameters`, and the same rule applies: a command is only sendable when every parameter is either owned by the control invoking it or defaulted here.",
+            "additionalProperties": {
+              "type": "object",
+              "allOf": [{ "$ref": "#/$defs/number_semantics" }],
+              "properties": {
+                "type": { "type": "string" },
+                "required": { "type": "boolean" },
+                "description": { "type": "string" },
+                "notes": { "type": "string" },
+                "min": { "type": "number" },
+                "max": { "type": "number" },
+                "enum": { "type": "array", "items": {} },
+                "default": {
+                  "description": "Value used when the caller supplies none. Present so a control that owns only one of an action's arguments can still send it."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Where a client obtains this value when it is not the one the user is setting, as 'state:<command>.<field>' -- e.g. 'state:GetCrockpotState.time'. The case this exists for is an action that carries several settings at once: changing one means reading the others back and sending them along, and a spec that leaves that implicit produces a client which silently clears the settings it did not mean to touch."
+                }
+              }
+            }
+          },
+          "returns": {
+            "type": "array",
+            "description": "What the call answers with, when that is worth stating -- typically because the reply acknowledges the request rather than reporting the resulting state, which decides whether a client can use it as a reading.",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "properties": {
+                "name": { "type": "string" },
+                "type": { "type": "string" },
+                "unit": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          },
+          "example_body": {
+            "type": "string",
+            "description": "The exact request this command produces, as bytes go out. The highest-value field here for the same reason test vectors are for crypto: it turns 'my request is rejected and I cannot tell which half is wrong' into a diff."
+          },
+          "example_notes": { "type": "string" },
+          "notes": { "type": "string" },
+          "verification": { "$ref": "#/$defs/verification" }
+        }
       }
     },
     "entities": {
