@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -621,6 +622,111 @@ def test_format_field_keys_are_declared_in_the_schema(specs):
                     f"{undeclared}, which schema.json does not declare. "
                     f"Declared: {sorted(declared)}"
                 )
+
+
+def _command_schema_keys() -> set[str]:
+    schema = _schema()
+    return set(
+        schema["properties"]["services"]["items"]["properties"]["characteristics"][
+            "items"
+        ]["properties"]["commands"]["additionalProperties"]["properties"]
+    )
+
+
+def test_command_keys_are_declared_in_the_schema(specs):
+    """A command is the most executed block there is — it becomes bytes.
+
+    `seeblue-motorcycle-led` carried its whole envelope design in undeclared
+    keys, and paid for it: nine of its commands spelled the framed byte
+    sequence into `template` with `{message_length}`/`{message_index}`/
+    `{checksum}` placeholders no command declared and no client could fill,
+    while the packet a client could actually send sat in `payload_template`,
+    which nothing reads. The spec failed to parse outright — 36 documented
+    commands reaching nobody.
+    """
+    declared = _command_schema_keys()
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                undeclared = sorted(set(command) - declared)
+                assert not undeclared, (
+                    f"{device_id}: command {name!r} uses {undeclared}, which "
+                    "schema.json does not declare. Consumers drop unknown "
+                    "keys silently, so anything load-bearing there reaches "
+                    f"nothing. Declared: {sorted(declared)}"
+                )
+
+
+def test_templates_only_reference_declared_parameters(specs):
+    """Every `{placeholder}` must name a parameter of its own command.
+
+    A template is an encoding instruction, not prose: a consumer walks it and
+    substitutes. A placeholder nothing declares has no value to substitute and
+    no width to reserve, so the write is either wrong or impossible — and the
+    mobile parser rejects the whole spec over it rather than send bad bytes.
+
+    Bytes that belong to a framing layer are not the command's to name: the
+    characteristic's `framing.scheme` owns them and the template is the packet
+    alone, which is exactly what seeblue got wrong.
+    """
+    placeholder = re.compile(r"^\{(.+)\}$")
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                template = command.get("template")
+                if not isinstance(template, list):
+                    continue
+                declared = set(command.get("parameters") or {})
+                referenced = {
+                    match.group(1)
+                    for element in template
+                    if isinstance(element, str)
+                    for match in [placeholder.match(element)]
+                    if match
+                }
+                undeclared = sorted(referenced - declared)
+                assert not undeclared, (
+                    f"{device_id}: command {name!r} references {undeclared} in "
+                    "its template but declares no such parameter. Either "
+                    "declare it, or -- if those bytes are envelope/framing "
+                    "bytes -- drop them from the template and let the "
+                    "characteristic's `framing.scheme` carry them."
+                )
+
+
+def test_byte_parameters_state_lengths_not_value_ranges(specs):
+    """`min`/`max` bound a number; a `bytes` parameter has no number.
+
+    `fardriver-controller` wrote `data: {type: bytes, min: 1, max: 26}`
+    meaning "1 to 26 bytes". Read as a value range — which is what `min`/`max`
+    mean everywhere else — it is nonsense, and the consumer that said so
+    rejected the parameter and lost the whole spec with it. The length
+    vocabulary is `min_length`/`max_length`.
+
+    schema.json enforces this; the test is for the failure message, which
+    names the replacement.
+    """
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                for param, definition in (command.get("parameters") or {}).items():
+                    if not isinstance(definition, dict):
+                        continue
+                    if definition.get("type") != "bytes":
+                        continue
+                    numeric = sorted({"min", "max"} & set(definition))
+                    assert not numeric, (
+                        f"{device_id}: command {name!r} parameter {param!r} is "
+                        f"`bytes` and states {numeric}. A run of octets has no "
+                        "numeric range — if that was a length, say "
+                        "`min_length`/`max_length`."
+                    )
 
 
 def test_command_parameters_are_all_parameters(specs):
