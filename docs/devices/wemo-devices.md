@@ -146,6 +146,44 @@ device grants rather than the one you asked for, and read `BinaryState`, or
 difference between a control that notices somebody pressing the button on the
 device and one that only knows what it last wrote. See `soap_common.eventing`.
 
+## Scheduling: can it turn itself on later?
+
+Yes, and the mechanism is stranger than the rest of the protocol. Schedules
+live **on the device**, in a SQLite database it hands out and takes back over
+SOAP: `rules#FetchRules` answers with a version and a URL, you `GET` the URL
+for a ZIP containing the database, edit rows, zip it, base64 it, and post it
+back with `rules#StoreRules`. The device then runs the schedule off its own
+clock with nothing else on the network — which is the property worth having,
+because a phone app that schedules a future action has to still be running
+when the time comes, and on iOS it will not be.
+
+Full detail, table by table, is in the spec's `scheduling` block. The four
+things worth knowing before you start:
+
+- **Fetch, modify, store.** `StoreRules` replaces the whole database. A client
+  that builds a fresh one deletes every rule the user made in the Wemo app —
+  and that app is gone, so they cannot make them again.
+- **The `ruleDbBody` escaping is not a typo.** The argument's literal text
+  begins `&lt;![CDATA[` and ends `]]&gt;` — an XML-escaped CDATA wrapper
+  around the base64. Sending a real CDATA section is the obvious correction
+  that does not work.
+- **A rule's action is a number**: `1.0` on, `0.0` off, `2.0` toggle. Nothing
+  in the table carries a cooking mode, so *"start the Crock-Pot on Low at
+  five"* does not appear to be expressible — and on the Crock-Pot the binary
+  state a rule would set is the surface that reads `0` whatever the device is
+  doing. Treat a scheduled cooker as unproven until somebody tries it.
+- **The Crock-Pot's cook time is a different thing.** `SetCrockpotState`'s
+  `time` is a countdown the appliance runs itself, in minutes, starting when
+  you send it. That is a duration, not a start time — but it is the timer that
+  certainly works today.
+
+What is *not* established: the `DayID` encoding (one captured schedule uses
+`1`, pywemo's long-press rule uses `-1`), the full `RULES.Type` vocabulary
+beyond `Time Interval` and `Long Press`, and whether the appliance classes
+honour rules at all. The spec lists these as open questions rather than
+guessing, because a schedule written from a guessed column fires on the wrong
+day.
+
 ## References
 
 - [pywemo](https://github.com/pywemo/pywemo)
