@@ -59,5 +59,16 @@ channels, then inputs. That is every key the official Roku app's remote
 sends over ECP; `scripts/test_roku_spec.py` renders each button from the
 YAML alone and diffs the result against the documented key vocabulary.
 
+## Channel launcher
+
+The `Channel` select entity joins three endpoints into a picker: options
+come from `/query/apps` (one `<app>` element per installed channel, the
+`id` attribute is the launchable value, the text is the name), the current
+channel from `/query/active-app` (same shape; **no `id` on the home
+screen**, which reads as nothing selected), and choosing an option sends
+`POST /launch/{app_id}`. Both queries stay readable when "Control by
+mobile apps" is disabled, so the list loads even on a TV that answers 403
+to every keypress.
+
 Machine-readable spec: `device-specs/devices/roku-ecp.yaml`
 

@@ -92,14 +92,18 @@ def endpoints(spec) -> dict:
 # ── Reference implementation, transcribed from the spec ──────────────────────
 
 
-def render_request(command: dict) -> tuple[str, str]:
+def render_request(command: dict, values: dict | None = None) -> tuple[str, str]:
     """(method, path) for a command, per ecp_common.request_format.
 
     The transcription is nearly nothing, which is the point the spec makes:
-    the whole request is the method and the path, with an empty body.
+    the whole request is the method and the path (placeholders substituted
+    from the caller's values), with an empty body.
     """
     assert command.get("transport") == "http"
-    return command["method"], command["path"]
+    path = command["path"]
+    for name, value in (values or {}).items():
+        path = path.replace("{" + name + "}", str(value))
+    return command["method"], path
 
 
 def user_parameters(command: dict) -> list[str]:
@@ -109,6 +113,26 @@ def user_parameters(command: dict) -> list[str]:
         for name, parameter in (command.get("parameters") or {}).items()
         if "default" not in parameter and "source" not in parameter
     ]
+
+
+def read_source(document: str, source: dict) -> list[tuple[str | None, str]]:
+    """(value, label) pairs per the options_source/state_source contract.
+
+    Transcribed from the schema's own words: every element whose local name
+    equals `item`, anywhere in the document; the attribute named by `value`
+    is the raw value; the element's trimmed text is the label. The value is
+    None when the attribute is absent — the home-screen case a state reader
+    must treat as "no option is current".
+    """
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(document)
+    out = []
+    for element in root.iter():
+        if element.tag.rpartition("}")[2] != source["item"]:
+            continue
+        out.append((element.get(source["value"]), (element.text or "").strip()))
+    return out
 
 
 # ── Control: entities resolve, commands render ───────────────────────────────
@@ -158,8 +182,11 @@ def test_press_commands_are_sendable_from_nothing(entities, commands):
 
 def test_commands_render_the_documented_requests(commands):
     """Every press command renders to POST /keypress/<key> with a key the
-    official vocabulary spells exactly that way."""
+    official vocabulary spells exactly that way; the one non-keypress
+    command is the launcher, checked by its own test."""
     for name, command in commands.items():
+        if user_parameters(command):
+            continue
         method, path = render_request(command)
         assert method == "POST", f"{name}: keypresses are POSTs"
         prefix, _, key = path.rpartition("/")
@@ -209,3 +236,66 @@ def test_sunset_endpoints_stay_out_of_the_vocabulary(spec):
         if endpoint.get("status") == "sunset"
     ]
     assert "Search Browse" in sunset
+
+
+# ── The channel launcher ─────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def channel(entities) -> dict:
+    picks = [e for e in entities if e["name"] == "Channel"]
+    assert picks, "the spec declares the Channel select"
+    return picks[0]
+
+
+def test_the_launcher_select_is_whole(channel, commands, endpoints):
+    """Dynamic options, a state source, and a launch command that takes
+    exactly the one value an option carries."""
+    command = commands[channel["commands"]["select_option"]]
+    blanks = user_parameters(command)
+    assert blanks == ["app_id"], "a single control supplies one value"
+    method, path = render_request(command, {"app_id": "12"})
+    assert (method, path) == ("POST", "/launch/12")
+
+    # Both sources name real, living GET endpoints — a source pointing at a
+    # sunset or write endpoint would be a list that can never load.
+    for key in ("options_source", "state_source"):
+        source = channel[key]
+        endpoint = endpoints[source["command"]]
+        assert endpoint["method"] == "GET", f"{key}: options are read, not sent"
+        assert endpoint.get("status") != "sunset", f"{key}: names a dead endpoint"
+
+
+def test_the_sources_read_the_published_examples(channel, endpoints):
+    """The contract, run against the spec's own example documents: the
+    Installed Apps example yields launchable options, the Active App example
+    yields a current value that matches one of them."""
+    options = read_source(
+        endpoints["Installed Apps"]["response_body"]["example"],
+        channel["options_source"],
+    )
+    assert ("12", "Netflix") in options
+    assert all(value is not None for value, _ in options), (
+        "every documented app carries a launchable id"
+    )
+
+    current = read_source(
+        endpoints["Active App"]["response_body"]["example"],
+        channel["state_source"],
+    )
+    assert current, "the example names a foreground app"
+    assert current[0][0] in {value for value, _ in options}, (
+        "the current channel is one of the installed ones"
+    )
+
+
+def test_the_home_screen_reads_as_no_current_channel(channel):
+    """The documented edge: on the home screen the app element has no id.
+
+    The schema says a missing value attribute is 'no option is current';
+    this holds the transcription to it, because the tempting bug is to
+    treat the attribute as required and throw on the one screen every Roku
+    spends most of its life on."""
+    home = "<active-app><app>Roku</app></active-app>"
+    current = read_source(home, channel["state_source"])
+    assert current == [(None, "Roku")]
