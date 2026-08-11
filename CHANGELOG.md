@@ -139,6 +139,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   appliance runs rather than a start time. `open_questions` names what is
   inference rather than evidence, `DayID`'s encoding first: a schedule written
   from a guessed column fires on the wrong day
+- `http_endpoints[].service` — the service an action belongs to, as data. The
+  Wemo endpoint descriptions all quoted the SOAPACTION URN in prose, and the
+  repo's own tests even asserted the quoting — but a client that must build
+  the header for a state read (`GetCrockpotState` is invoked by nothing in
+  `commands`; it is only read from) had nowhere to get the URN except parsing
+  a sentence. Declared on all ten SOAP endpoints;
+  `scripts/test_wemo_spec.py` pins that every endpoint an entity reads state
+  from declares it, and that it agrees with the URN the description still
+  quotes — two spellings of one fact are only safe while something checks them
 - `payload_formats.delimiter` — the separator for a payload that packs several
   fields into one string, so `fields[].index` becomes executable. "Split on
   `|` and take field 0" had been the documented rule for Wemo's `BinaryState`
