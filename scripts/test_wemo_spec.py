@@ -817,11 +817,32 @@ def test_every_command_names_a_documented_action(spec, commands, endpoints):
         assert command["transport"] == "soap"
         action = command["action"]
         assert action in endpoints, f"{name}: action {action!r} is not documented"
-        assert command["service"] in endpoints[action]["description"], (
-            f"{name}: the endpoint for {action} does not name the service "
-            "this command sends it to"
+        assert endpoints[action].get("service") == command["service"], (
+            f"{name}: the endpoint for {action} does not declare the service "
+            "this command sends it to (or declares a different one)"
         )
         assert command.get("verification"), f"{name}: does not say how well it is known"
+
+
+def test_state_commands_have_a_machine_readable_service(spec, entities, endpoints):
+    """A state read needs a SOAPACTION header, and prose cannot supply one.
+
+    Every endpoint an entity reads its state from must declare `service` as
+    data — and it must agree with the URN the description states, because two
+    spellings of one fact are only safe while something checks them.
+    """
+    for entity in entities:
+        endpoint = endpoints[entity["state_command"]]
+        service = endpoint.get("service")
+        assert service, (
+            f"{entity['name']}: state endpoint {entity['state_command']} "
+            "declares no service, so a client cannot build the SOAPACTION "
+            "header for the state read"
+        )
+        assert service in endpoint["description"], (
+            f"{entity['name']}: the declared service and the description "
+            "disagree about which service this action belongs to"
+        )
 
 
 def test_command_arguments_only_reference_declared_parameters(commands):
