@@ -30,6 +30,7 @@ METHOD_TYPES = {
     "none",
     "softap_http",
     "softap_soap",
+    "softap_udp",
     "ble_provisioning",
     "ble_direct",
     "wps",
