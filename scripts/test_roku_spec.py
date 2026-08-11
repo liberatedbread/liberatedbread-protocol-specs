@@ -289,6 +289,38 @@ def test_the_sources_read_the_published_examples(channel, endpoints):
     )
 
 
+def test_the_gate_lists_name_real_endpoints_and_do_not_overlap(spec, endpoints):
+    """The "Control by mobile apps" gate, as data a consumer can filter on.
+
+    It does not split along command/query lines — keypresses and three
+    queries are gated while launching and the app queries stay open — so a
+    client that treats "command" as a proxy for "gated" both suppresses a
+    working launcher and mishandles a 403 from a query. These lists are the
+    machine-readable form of that, and this holds them to naming real,
+    non-overlapping endpoints.
+    """
+    gating = spec["ecp_common"]["response_format"]["gating"]
+    gated, open_ = set(gating["gated"]), set(gating["open"])
+
+    assert gated <= set(endpoints), f"gated names no such endpoint: {gated - set(endpoints)}"
+    assert open_ <= set(endpoints), f"open names no such endpoint: {open_ - set(endpoints)}"
+    assert not gated & open_, "an endpoint cannot be both gated and open"
+
+    # The claim the launcher depends on, stated once and asserted here: the
+    # endpoints it uses are all on the open side.
+    for name in ("Installed Apps", "Active App", "Launch App"):
+        assert name in open_, f"the channel launcher needs {name} to be open"
+
+    # Every live endpoint is classified. A new one landing unclassified is
+    # exactly how this block would rot back into prose.
+    live = {
+        endpoint["name"]
+        for endpoint in spec["http_endpoints"]
+        if endpoint.get("status") != "sunset"
+    }
+    assert live == gated | open_, f"unclassified endpoints: {live - (gated | open_)}"
+
+
 def test_the_home_screen_reads_as_no_current_channel(channel):
     """The documented edge: on the home screen the app element has no id.
 
