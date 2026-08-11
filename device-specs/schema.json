@@ -2294,6 +2294,13 @@
           "type": "boolean",
           "description": "Whether the action still happens with nothing else on the network. The single most useful fact in this block."
         },
+        "applies_to": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Which of `device.variants` (by name) the `supported` claim is evidenced for, on a spec covering a family. Omit only when the claim genuinely holds family-wide. A consumer branching on `supported` must intersect with this list: outside it the honest answer is UNKNOWN, not yes — Wemo's rules service is proven on the switch family and an open question on the appliance classes, and an unscoped true would advertise scheduling for a slow cooker nobody has scheduled."
+        },
+        "applies_to_notes": { "type": "string" },
         "device_clock_dependency": {
           "type": "string",
           "description": "How the device knows what time it is, and what happens when it does not. A stored schedule is only as right as the clock under it, and these devices lost their time source when the vendor cloud went away."
@@ -2359,21 +2366,27 @@
             "description": "Values the caller supplies, keyed by the placeholder name used in `arguments`. Same role as a BLE command's `parameters`, and the same rule applies: a command is only sendable when every parameter is either owned by the control invoking it or defaulted here.",
             "additionalProperties": {
               "type": "object",
-              "allOf": [{ "$ref": "#/$defs/number_semantics" }],
+              "allOf": [
+                { "$ref": "#/$defs/number_semantics" },
+                {
+                  "$comment": "`default` and `source` are mutually exclusive because they answer the same question -- what happens when the caller supplies nothing -- with opposite instructions. `default` says substitute this constant; `source` says the real value lives on the device and a send without it must FAIL. A parameter carrying both would let a renderer quietly substitute the constant whenever the read-back fails, which on the Crock-Pot is a cleared timer (or a cooker stopped mid-run) with nothing on screen saying so. The first published version of the Wemo spec made exactly this mistake.",
+                  "not": { "required": ["default", "source"] }
+                }
+              ],
               "properties": {
                 "type": { "type": "string" },
-                "required": { "type": "boolean" },
+                "required": { "type": "boolean", "description": "True for a value the CALLER supplies -- the option picked, the number chosen. Do not combine with `default` (a defaulted parameter is by definition omittable) or `source` (a read-back parameter is the client's job, not the caller's)." },
                 "description": { "type": "string" },
                 "notes": { "type": "string" },
                 "min": { "type": "number" },
                 "max": { "type": "number" },
                 "enum": { "type": "array", "items": {} },
                 "default": {
-                  "description": "Value used when the caller supplies none. Present so a control that owns only one of an action's arguments can still send it."
+                  "description": "Constant used when the caller supplies nothing -- for protocol filler whose value genuinely is a constant. Present so a control that owns only one of an action's arguments can still send it. NOT for a value whose truth lives on the device: that is `source`, and the two are mutually exclusive -- see the sibling $comment."
                 },
                 "source": {
                   "type": "string",
-                  "description": "Where a client obtains this value when it is not the one the user is setting, as 'state:<command>.<field>' -- e.g. 'state:GetCrockpotState.time'. The case this exists for is an action that carries several settings at once: changing one means reading the others back and sending them along, and a spec that leaves that implicit produces a client which silently clears the settings it did not mean to touch."
+                  "description": "Where a client obtains this value when it is not the one the user is setting, as 'state:<command>.<field>' -- e.g. 'state:GetCrockpotState.time'. The case this exists for is an action that carries several settings at once: changing one means reading the others back and sending them along, and a spec that leaves that implicit produces a client which silently clears the settings it did not mean to touch. A `source` parameter deliberately has no `default`: the read-back is PART OF THE SEND, and a renderer reaching it with no value must fail the write visibly rather than substitute anything. Consumers therefore treat `source` -- like `default` -- as satisfying the 'every blank fillable' rule when deciding whether a control is offered at all, and enforce the value's presence at send time instead."
                 }
               }
             }

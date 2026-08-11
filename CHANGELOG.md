@@ -164,6 +164,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A `source` parameter no longer carries a `default`, and the schema now
+  forbids the pair outright. Review (PR #16) caught what the first published
+  version got wrong: `default: 0` sitting beside every Crock-Pot read-back as
+  a "fallback" is a renderer papering over a failed read with a constant —
+  a cleared timer when changing the mode, or `mode: 0` stopping a RUNNING
+  cooker when the user only adjusted the time, with nothing on screen saying
+  so. The two keys answer "the caller supplied nothing" with opposite
+  instructions (substitute the constant vs. fail the write visibly), so a
+  parameter now carries exactly one; the stray `required: true` on read-backs
+  is gone too, since `required` means the caller supplies it and a read-back
+  is the client's job. `scripts/test_wemo_spec.py` renders the failure paths:
+  a mode change without the read-back value raises, and only `turn_off` — the
+  one write with nothing to read first — renders from a cold start
+- `scheduling.supported` is scoped. It said `true` for the whole family while
+  `open_questions` admitted nobody knows whether the appliance classes honour
+  rules at all — so a consumer branching on the field would advertise
+  on-device scheduling for a slow cooker nobody has scheduled. `applies_to`
+  (new schema key) names the eight switch-family variants the evidence
+  covers; outside the list the honest reading is UNKNOWN, not yes
+- The empty-rules-database recovery path is now implementable: the seven
+  tables beyond RULES/RULEDEVICES were named but not described, so a client
+  whose device 404s the database download (never held a rule) could not
+  build the empty one the spec tells it to create. All nine tables' columns
+  are now transcribed from pywemo's ORM — the same code that both reads real
+  devices' databases and creates the empty one — including the two standing
+  oddities (RULES.Sync, INTEGER holding 'NOSYNC'; BLOCKEDRULES.ruleId, a
+  string where every other rule id is an integer)
 - The Crock-Pot variant no longer reads as though `GetBinaryState` were a state
   reading on it. It listed the action under `basicevent` beside the two
   Crock-Pot ones and said nothing further, so the obvious implementation — the

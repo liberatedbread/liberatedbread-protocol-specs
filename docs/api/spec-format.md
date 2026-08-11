@@ -594,10 +594,19 @@ Two keys there earn their place:
   alone means reading the time back and sending it along. Leave that implicit
   and the spec produces a client that clears the timer every time somebody
   switches to Warm.
-- **`default`** — what makes a command *sendable*. The rule a consumer applies
-  before drawing a control is that every parameter must be either the value
-  this control owns or one the spec defaults; two blanks and one value means
-  the control cannot send it at all.
+- **`default`** — a genuine constant, for protocol filler. The rule a consumer
+  applies before drawing a control is that every parameter must be the value
+  the control owns, a spec constant (`default`), or a declared read-back
+  (`source`); a parameter that is none of the three means the control cannot
+  send the command at all.
+
+The two keys are **mutually exclusive**, and the schema enforces it, because
+they answer "the caller supplied nothing" with opposite instructions: `default`
+says substitute the constant, `source` says the truth lives on the device and a
+send without it must *fail visibly*. A parameter carrying both lets a renderer
+paper over a failed read-back with the constant — on the Crock-Pot, a cleared
+timer or a cooker stopped mid-run, with nothing on screen saying so. The first
+published Wemo spec made exactly this mistake and review caught it.
 
 `example_body`, and the `example` on an `http_endpoints` request or response,
 do for control what test vectors do for crypto: they turn "the device rejects
