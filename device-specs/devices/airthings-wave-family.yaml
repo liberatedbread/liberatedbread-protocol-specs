@@ -637,6 +637,73 @@ services:
           characteristic (see b42e4dcc) — the app parses both with the
           same CurrentValuesParser, with pressure/CO₂/VOC populated here.
           APK-derived; the capture only exercised the Wave 2 instance.
+          The format block below restates that shared layout so the fields
+          are machine-readable on this characteristic too — consumers
+          resolve a characteristic's byte layout by UUID, and a
+          prose-only cross-reference left every Wave Plus reading
+          undecodable. Field-level confidence matches the source: layout
+          HIGH from the shared parser, Wave Plus values themselves not
+          exercised in capture. 0xFF (uint8) or 0xFFFF (uint16) marks an
+          absent sensor value.
+        format:
+          - offset: 0
+            length: 1
+            name: "reserved"
+            type: "uint8"
+            notes: "Not parsed by the app."
+          - offset: 1
+            length: 1
+            name: "humidity"
+            type: "uint8"
+            scale: 0.5
+            unit: "%RH"
+          - offset: 2
+            length: 1
+            name: "ambient_light"
+            type: "uint8"
+            notes: "Raw ambient light level (0-255)."
+          - offset: 3
+            length: 1
+            name: "orientation_wavecount"
+            type: "uint8"
+            notes: "Upper nibble = orientation, lower nibble = wave (gesture) count."
+          - offset: 4
+            length: 2
+            name: "radon_24h_avg"
+            type: "uint16"
+            unit: "Bq/m³"
+          - offset: 6
+            length: 2
+            name: "radon_longterm_avg"
+            type: "uint16"
+            unit: "Bq/m³"
+          - offset: 8
+            length: 2
+            name: "temperature"
+            type: "uint16"
+            scale: 0.01
+            unit: "°C"
+          - offset: 10
+            length: 2
+            name: "pressure"
+            type: "uint16"
+            scale: 2
+            unit: "Pa"
+          - offset: 12
+            length: 2
+            name: "co2"
+            type: "uint16"
+            unit: "ppm"
+          - offset: 14
+            length: 2
+            name: "voc"
+            type: "uint16"
+            unit: "ppb"
+          - offset: 16
+            length: 4
+            name: "reserved2"
+            type: "bytes"
+            notes: "Not parsed by the app."
 
   # === Wave Mini Air Sensor Service ===
   - uuid: "b42e3882-ade7-11e4-89d3-123b93f75cba"
@@ -651,7 +718,59 @@ services:
           temperature, pressure, humidity, VOC, unused x3 — the packet carries
           pressure and VOC in addition to temperature/humidity. Confirmed by
           Airthings/wavemini-reader (CURR_VAL_UUID) and Airthings/airthings-ble
-          (CHAR_UUID_WAVEMINI_DATA).
+          (CHAR_UUID_WAVEMINI_DATA). Field offsets and transforms below are
+          taken from those two readers' decode functions
+          (wavemini-reader CurrentValues.from_bytes: temperature =
+          u16@2/100 - 273.15, humidity = u16@6/100, voc = u16@8;
+          airthings-ble _decode_wave_mini adds pressure = u16@4/50 and
+          ambient light from byte 0). MEDIUM confidence: vendor-published
+          source code, not verified against live traffic here. NOTE the
+          temperature is centikelvin — unlike every other model in this
+          family, which reports centidegrees Celsius.
+        format:
+          - offset: 0
+            length: 1
+            name: "ambient_light"
+            type: "uint8"
+            notes: >
+              Raw ambient light level; airthings-ble runs it through its
+              illuminance converter. Offset 0 is deliberate: of the two
+              leading uint8s in "<2B5HLL", _decode_wave_mini reads val[0]
+              (the FIRST byte) as illuminance; byte 1 (the second uint8) is
+              read by neither vendor decoder. Note this differs from the
+              Wave/Wave Plus combined packet, where byte 0 is reserved and
+              ambient light sits at byte 2.
+          - offset: 2
+            length: 2
+            name: "temperature"
+            type: "uint16"
+            scale: 0.01
+            value_offset: -273.15
+            unit: "°C"
+            notes: "Centikelvin on the wire: °C = raw/100 - 273.15 (wavemini-reader)."
+          - offset: 4
+            length: 2
+            name: "pressure"
+            type: "uint16"
+            scale: 0.02
+            unit: "hPa"
+            notes: "raw/50 hPa per airthings-ble; wavemini-reader ignores this field."
+          - offset: 6
+            length: 2
+            name: "humidity"
+            type: "uint16"
+            scale: 0.01
+            unit: "%RH"
+          - offset: 8
+            length: 2
+            name: "voc"
+            type: "uint16"
+            unit: "ppb"
+            notes: >
+              wavemini-reader's docstring says ppm, but the Airthings app,
+              airthings-ble/Home Assistant, and this family's own UI
+              thresholds (griffin_ui_settings: VOC yellow/red 250/2000)
+              all treat the raw count as ppb.
 
       - uuid: "b42e3ef4-ade7-11e4-89d3-123b93f75cba"
         name: "ASRACP (Air Sensor Read Access Control Point)"
@@ -1057,20 +1176,101 @@ timing:
     exposed as 24 h / long-term averages and updates on the hourly tick.
     Sensor read via BLE is real-time upon connection + notification enable.
 
+# Radon entities carry no device_class. Home Assistant has no radon class,
+# and the previous claim of `volatile_organic_compounds_parts` was actively
+# wrong: radon in Bq/m³ is a radioactivity concentration, not a chemical
+# concentration, and a class-driven consumer would band, convert or chart it
+# as VOC ppb. The unit plus `mdi:radioactive` say what it is.
+#
+# One logical reading appears once per variant-specific binding (same display
+# name, different `state_characteristic`, disjoint `variants`): the dedicated
+# radon characteristics live on the Gen 1 service only, while Wave Gen 2 and
+# Wave Plus report radon inside their model-specific combined packet. A
+# consumer keyed on discovered characteristics naturally picks the one binding
+# the connected unit actually has.
 entities:
   - platform: "sensor"
     name: "Radon 24h Average"
-    device_class: "volatile_organic_compounds_parts"
+    icon: "mdi:radioactive"
     unit: "Bq/m³"
     state_characteristic: "b42e01aa-ade7-11e4-89d3-123b93f75cba"
-    variants: ["Wave (Gen 1)", "Wave Plus"]
+    variants: ["Wave (Gen 1)"]
+    notes: >
+      Previously also claimed for Wave Plus, but this characteristic lives on
+      the Gen 1 air sensor service (b42e1f6e) and was never confirmed on Plus
+      hardware — the vendor app reads Plus radon from the combined packet,
+      which the Wave Plus entity below now binds.
 
   - platform: "sensor"
     name: "Radon Long-Term Average"
-    device_class: "volatile_organic_compounds_parts"
+    icon: "mdi:radioactive"
     unit: "Bq/m³"
     state_characteristic: "b42e0a4c-ade7-11e4-89d3-123b93f75cba"
-    variants: ["Wave (Gen 1)", "Wave Plus"]
+    variants: ["Wave (Gen 1)"]
+
+  - platform: "sensor"
+    name: "Radon 24h Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_24h_avg"
+    variants: ["Wave (Gen 2)"]
+    notes: "Capture-verified field of the Wave Gen 2 combined packet."
+
+  - platform: "sensor"
+    name: "Radon Long-Term Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_longterm_avg"
+    variants: ["Wave (Gen 2)"]
+
+  - platform: "sensor"
+    name: "Radon 24h Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_24h_avg"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "Radon Long-Term Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_longterm_avg"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "CO₂"
+    device_class: "carbon_dioxide"
+    unit: "ppm"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "co2"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "VOC"
+    device_class: "volatile_organic_compounds_parts"
+    unit: "ppb"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "voc"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "VOC"
+    device_class: "volatile_organic_compounds_parts"
+    unit: "ppb"
+    state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "voc"
+    variants: ["Wave Mini"]
 
   - platform: "sensor"
     name: "Temperature"
@@ -1089,6 +1289,26 @@ entities:
     device_class: "atmospheric_pressure"
     unit: "hPa"
     state_characteristic: "00002a6d-0000-1000-8000-00805f9b34fb"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "Pressure"
+    device_class: "atmospheric_pressure"
+    unit: "hPa"
+    state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "pressure"
+    variants: ["Wave Mini"]
+    notes: >
+      The Mini is not documented to expose the standard pressure
+      characteristic (2A6D); its combined packet is the only known source.
+
+  - platform: "sensor"
+    name: "Dew Point"
+    device_class: "temperature"
+    icon: "mdi:water-thermometer"
+    unit: "°C"
+    state_characteristic: "00002a7b-0000-1000-8000-00805f9b34fb"
     variants: ["Wave Plus"]
 
   - platform: "sensor"
