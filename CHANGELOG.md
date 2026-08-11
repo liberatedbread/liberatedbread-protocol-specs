@@ -43,6 +43,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   previously matched no radon binding at all. One logical reading appears
   once per variant-specific binding (same name, disjoint `variants`),
   which a characteristic-keyed consumer resolves to exactly one per unit
+- Roku ECP: a channel launcher. The `Channel` select's options are whatever
+  the device says it has installed — `options_source` fetches
+  `/query/apps`, `state_source` reads the current channel from
+  `/query/active-app` (which carries no id on the home screen: that reads
+  as nothing selected, not an error), and selecting an option launches it
+  via `POST /launch/{app_id}`. Both queries stay open when "Control by
+  mobile apps" is disabled, so the list loads even on a TV refusing every
+  keypress. The two endpoint entries gain worked response examples, and
+  `test_roku_spec.py` runs the source contract against them
+- `options_source` / `state_source` on `select` entities — where a select
+  gets options the spec cannot enumerate because they live on the device,
+  and which of them is current. A deliberately tiny XML contract: the named
+  `http_endpoints` entry is the request; every element with the item's
+  local name is one entry; the named attribute is the raw value; the
+  element text is the label. A select carrying `options_source` needs no
+  static options table and no state binding to be offered — the options are
+  its surface
 - Roku ECP: the remote as a control surface. A `commands` block names one
   `transport: http` invocation per remote key — power, D-pad and navigation,
   playback transport, volume, live-TV channels, and TV input switching — and
