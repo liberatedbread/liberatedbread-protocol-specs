@@ -123,6 +123,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   asked for, and the property names each device sends (`BinaryState`;
   `mode`/`time`/`cookedTime` on the Crock-Pot; `InsightParams`). Polling
   `GetBinaryState` cannot see somebody pressing the button on the device
+- `scheduling` — how a device performs an action at a future time BY ITSELF,
+  with nothing else on the network. Worth a block of its own because the
+  difference is invisible from the control surface and decides what an
+  integration can promise: a client can always send an on command at 17:00 if
+  it happens to be running, and on a sleeping phone it will not be. Wemo keeps
+  a SQLite database of rules that it hands out and takes back over SOAP
+  (`rules#FetchRules` → version + URL, `GET` the ZIP, edit, `rules#StoreRules`
+  with the base64 wrapped in an XML-escaped CDATA marker that looks like a
+  typo and is not), and runs the schedule off its own clock. Documented with
+  both tables, two worked rows — one written by pywemo, one captured from a
+  device the Wemo app configured — and, as prominently, the limits: a rule's
+  action is `1.0` on / `0.0` off / `2.0` toggle, so a scheduled Crock-Pot
+  *mode* is not expressible, and the Crock-Pot's own `time` is a countdown the
+  appliance runs rather than a start time. `open_questions` names what is
+  inference rather than evidence, `DayID`'s encoding first: a schedule written
+  from a guessed column fires on the wrong day
+- `payload_formats.delimiter` — the separator for a payload that packs several
+  fields into one string, so `fields[].index` becomes executable. "Split on
+  `|` and take field 0" had been the documented rule for Wemo's `BinaryState`
+  for as long as the format has been written down, and prose is not something
+  a decoder can follow: every consumer either hardcoded it per device or got a
+  plausible wrong answer, since `8|1492338954|…` read whole is not a number
+  and a client that gives up there shows a live plug as off. Declared on
+  `BinaryState` and `InsightParams`; `scripts/test_wemo_spec.py` now splits on
+  the declared value rather than a hardcoded pipe
 - `payload_formats.CrockpotMode` — `0` off, `50` warm, `51` low, `52` high, with
   the two things the bare table does not say: the numbers are not an ordering,
   and an unrecognised value must not be folded into `off`, which would tell a
