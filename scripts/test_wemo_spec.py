@@ -746,11 +746,16 @@ def render_command(spec: dict, command: dict, values: dict | None = None) -> str
 
 
 def user_parameters(command: dict) -> list[str]:
-    """Parameters the caller must supply: those the spec does not default."""
+    """Parameters the caller supplies: neither defaulted nor read back.
+
+    A `source` parameter is not the caller's — the client fetches it from the
+    device as part of the send — but it is also not a blank that disqualifies
+    the command, which is why it is excluded here rather than counted.
+    """
     return [
         name
         for name, parameter in (command.get("parameters") or {}).items()
-        if "default" not in parameter
+        if "default" not in parameter and "source" not in parameter
     ]
 
 
@@ -891,14 +896,18 @@ def test_role_commands_are_sendable(entities, commands):
                     f"needs {blanks}; a single control supplies one value"
                 )
 
-            # Every parameter the control does not supply must say where its
-            # value comes from, or the write silently clears a setting.
+            # Every parameter the control does not supply is either protocol
+            # filler (default) or a read-back (source) — and never both. A
+            # parameter carrying both would let a renderer substitute the
+            # constant when the read-back fails, which on this device is a
+            # cleared timer with nothing on screen saying so.
             for name, parameter in (command.get("parameters") or {}).items():
                 if name in blanks:
                     continue
-                assert parameter.get("source"), (
-                    f"{command_name}: parameter {name!r} is defaulted but "
-                    "does not say where a client should read the real value"
+                assert ("default" in parameter) != ("source" in parameter), (
+                    f"{command_name}: parameter {name!r} must carry exactly "
+                    "one of `default` (a genuine constant) or `source` (a "
+                    "mandatory read-back)"
                 )
 
 
@@ -920,23 +929,48 @@ def test_commands_render_the_published_example_bodies(spec, commands):
     assert "<mode>0</mode>" in off and "<time>0</time>" in off
 
 
-def test_defaulted_crockpot_parameters_point_at_the_read_back(commands):
-    """The trap the `source` key exists for.
+def test_crockpot_read_backs_are_mandatory_not_defaulted(commands):
+    """The trap the `source` key exists for, and the fix review forced.
 
     SetCrockpotState carries mode and time together, so a client changing one
-    must send the other back unchanged. A spec that left that implicit would
-    produce a client that clears the timer every time somebody switches to
-    Warm.
+    must send the other back unchanged. The first published version paired
+    each `source` with `default: 0` as a fallback — which is a renderer
+    quietly clearing the timer (or stopping a running cooker) whenever the
+    read-back fails. A `source` parameter now carries NO default: rendering
+    without the value must fail, visibly.
     """
     for name in ("set_cook_mode", "set_cook_time", "crockpot_turn_on"):
-        sources = {
-            parameter.get("source")
+        read_backs = {
+            parameter["source"]
             for parameter in commands[name]["parameters"].values()
-            if "default" in parameter
+            if "source" in parameter
         }
-        assert sources == {"state:GetCrockpotState." + ("time" if name != "set_cook_time" else "mode")}, (
-            f"{name}: the value it must read back is not named"
-        )
+        expected = "state:GetCrockpotState." + ("time" if name != "set_cook_time" else "mode")
+        assert read_backs == {expected}, f"{name}: the value it must read back is not named"
+        for parameter in commands[name]["parameters"].values():
+            if "source" in parameter:
+                assert "default" not in parameter, (
+                    f"{name}: a read-back parameter with a default is a "
+                    "silent wrong write waiting for a failed read"
+                )
+                assert parameter.get("required") is not True, (
+                    f"{name}: `required` means the CALLER supplies it; a "
+                    "read-back is the client's job"
+                )
+
+
+def test_rendering_without_a_read_back_value_fails(spec, commands):
+    """The rule the missing defaults create, exercised.
+
+    A picker that could not fetch the cook time must get an error, not a
+    request with an invented timer in it.
+    """
+    with pytest.raises(KeyError):
+        render_command(spec, commands["set_cook_mode"], {"mode": 51})
+    with pytest.raises(KeyError):
+        render_command(spec, commands["crockpot_turn_on"])
+    # Off has no read-back, so it renders from nothing at all.
+    render_command(spec, commands["crockpot_turn_off"])
 
 
 def test_documented_crockpot_response_drives_every_crockpot_entity(
