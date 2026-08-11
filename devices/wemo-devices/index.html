@@ -1376,6 +1376,24 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#controlling-a-plug-and-controlling-the-crock-pot" class="md-nav__link">
+    <span class="md-ellipsis">
+      Controlling a plug, and controlling the Crock-Pot
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scheduling-can-it-turn-itself-on-later" class="md-nav__link">
+    <span class="md-ellipsis">
+      Scheduling: can it turn itself on later?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#references" class="md-nav__link">
     <span class="md-ellipsis">
       References
@@ -2571,6 +2589,24 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#controlling-a-plug-and-controlling-the-crock-pot" class="md-nav__link">
+    <span class="md-ellipsis">
+      Controlling a plug, and controlling the Crock-Pot
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scheduling-can-it-turn-itself-on-later" class="md-nav__link">
+    <span class="md-ellipsis">
+      Scheduling: can it turn itself on later?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#references" class="md-nav__link">
     <span class="md-ellipsis">
       References
@@ -2831,6 +2867,119 @@ rather than a spec.</p>
 so resolve it from the <code>serviceList</code> in <code>setup.xml</code> rather than hardcoding it.
 That service is only exposed while the device is in setup mode — see
 <a href="../wemo-setup/">Wemo Setup</a>.</p>
+<h2 id="controlling-a-plug-and-controlling-the-crock-pot">Controlling a plug, and controlling the Crock-Pot<a class="headerlink" href="#controlling-a-plug-and-controlling-the-crock-pot" title="Permanent link">&para;</a></h2>
+<p>The spec carries a machine-readable control surface for the two device
+families we have hardware for. <code>entities</code> says which controls to draw and
+where each reads its state, <code>commands</code> says what to send for each control's
+roles with the arguments already chosen, and <code>http_endpoints</code> documents the
+actions both of those name. A client substitutes a command's parameters into
+its arguments and renders the result through <code>soap_common.request_format</code> —
+there is no Wemo-specific code in that sentence, which is the point.</p>
+<p>A plug is the easy half:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>State</td>
+<td><code>basicevent#GetBinaryState</code> → <code>BinaryState</code></td>
+</tr>
+<tr>
+<td>On / off</td>
+<td><code>basicevent#SetBinaryState</code> with <code>BinaryState</code> 1 or 0</td>
+</tr>
+<tr>
+<td>The catch</td>
+<td><code>8</code> means on with the load idling. Treat non-zero as on, and split the value on <code>\|</code> first — some firmware answers with a long pipe-delimited form whose first field is the state</td>
+</tr>
+</tbody>
+</table>
+<p>The Crock-Pot looks like a plug and is not one:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>State</td>
+<td><code>basicevent#GetCrockpotState</code> → <code>mode</code>, <code>time</code>, <code>cookedTime</code></td>
+</tr>
+<tr>
+<td>Modes</td>
+<td><code>0</code> off, <code>50</code> warm, <code>51</code> low, <code>52</code> high</td>
+</tr>
+<tr>
+<td>Setting anything</td>
+<td><code>basicevent#SetCrockpotState</code> with <strong>both</strong> <code>mode</code> and <code>time</code></td>
+</tr>
+<tr>
+<td>The catch</td>
+<td><code>GetBinaryState</code> answers <code>0</code> whatever the cooker is doing</td>
+</tr>
+</tbody>
+</table>
+<p>Two things about that table are worth saying out loud, because both are
+invisible until a user complains:</p>
+<ul>
+<li><strong><code>BinaryState</code> is not the Crock-Pot's state.</strong> The universal switch surface
+  is present, answers, and lies — bind to it and you ship a cooker that reads
+  as permanently off with a toggle that springs back. pywemo overrides its own
+  base implementation here for exactly this reason. On/off is <code>mode != 0</code>.</li>
+<li><strong>There is no set-the-mode-alone action.</strong> <code>SetCrockpotState</code> carries mode
+  and cook time together, so switching to Warm without sending the current
+  <code>time</code> back also clears the timer. Read <code>GetCrockpotState</code> immediately
+  before the write and hand back what you did not mean to change; the spec's
+  commands say which value that is in each case, as
+  <code>source: state:GetCrockpotState.time</code>.</li>
+</ul>
+<p>Both devices also push changes over UPnP eventing rather than making you poll
+— <code>SUBSCRIBE</code> to the <code>eventSubURL</code> in <code>setup.xml</code>, renew on the <code>TIMEOUT</code> the
+device grants rather than the one you asked for, and read <code>BinaryState</code>, or
+<code>mode</code>/<code>time</code>/<code>cookedTime</code>, out of the <code>NOTIFY</code> property set. That is the
+difference between a control that notices somebody pressing the button on the
+device and one that only knows what it last wrote. See <code>soap_common.eventing</code>.</p>
+<h2 id="scheduling-can-it-turn-itself-on-later">Scheduling: can it turn itself on later?<a class="headerlink" href="#scheduling-can-it-turn-itself-on-later" title="Permanent link">&para;</a></h2>
+<p>Yes, and the mechanism is stranger than the rest of the protocol. Schedules
+live <strong>on the device</strong>, in a SQLite database it hands out and takes back over
+SOAP: <code>rules#FetchRules</code> answers with a version and a URL, you <code>GET</code> the URL
+for a ZIP containing the database, edit rows, zip it, base64 it, and post it
+back with <code>rules#StoreRules</code>. The device then runs the schedule off its own
+clock with nothing else on the network — which is the property worth having,
+because a phone app that schedules a future action has to still be running
+when the time comes, and on iOS it will not be.</p>
+<p>Full detail, table by table, is in the spec's <code>scheduling</code> block. The four
+things worth knowing before you start:</p>
+<ul>
+<li><strong>Fetch, modify, store.</strong> <code>StoreRules</code> replaces the whole database. A client
+  that builds a fresh one deletes every rule the user made in the Wemo app —
+  and that app is gone, so they cannot make them again.</li>
+<li><strong>The <code>ruleDbBody</code> escaping is not a typo.</strong> The argument's literal text
+  begins <code>&amp;lt;![CDATA[</code> and ends <code>]]&amp;gt;</code> — an XML-escaped CDATA wrapper
+  around the base64. Sending a real CDATA section is the obvious correction
+  that does not work.</li>
+<li><strong>A rule's action is a number</strong>: <code>1.0</code> on, <code>0.0</code> off, <code>2.0</code> toggle. Nothing
+  in the table carries a cooking mode, so <em>"start the Crock-Pot on Low at
+  five"</em> does not appear to be expressible — and on the Crock-Pot the binary
+  state a rule would set is the surface that reads <code>0</code> whatever the device is
+  doing. Treat a scheduled cooker as unproven until somebody tries it.</li>
+<li><strong>The Crock-Pot's cook time is a different thing.</strong> <code>SetCrockpotState</code>'s
+  <code>time</code> is a countdown the appliance runs itself, in minutes, starting when
+  you send it. That is a duration, not a start time — but it is the timer that
+  certainly works today.</li>
+</ul>
+<p>What is <em>not</em> established: the <code>DayID</code> encoding (one captured schedule uses
+<code>1</code>, pywemo's long-press rule uses <code>-1</code>), the full <code>RULES.Type</code> vocabulary
+beyond <code>Time Interval</code> and <code>Long Press</code>, and whether the appliance classes
+honour rules at all. The spec lists these as open questions rather than
+guessing, because a schedule written from a guessed column fires on the wrong
+day.</p>
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="https://github.com/pywemo/pywemo">pywemo</a></li>
