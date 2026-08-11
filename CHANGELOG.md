@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `airthings-wave-family` surfaces every sensor each model actually has, not
+  just the six readings the entity list happened to name. The Wave Plus
+  combined characteristic (`b42e2a68`) now carries the shared 20-byte layout
+  as a machine-readable `format:` block — the layout was already documented,
+  but only as prose pointing at the Wave Gen 2 declaration, and consumers
+  resolve byte layouts by characteristic UUID, so every Wave Plus combined
+  reading was undecodable. The Wave Mini combined characteristic
+  (`b42e3b98`) gains its format too, taken from the decode functions of the
+  two vendor-published readers the spec already cited for its UUID
+  (wavemini-reader, airthings-ble; MEDIUM confidence, note the centikelvin
+  temperature). On top of those: CO₂, VOC and Dew Point entities for Wave
+  Plus, VOC and Pressure entities for Wave Mini, and radon entities for Wave
+  Gen 2 and Wave Plus bound to their combined packets — the dedicated radon
+  characteristics live on the Gen 1 service only, so a Gen 2 or Plus unit
+  previously matched no radon binding at all. One logical reading appears
+  once per variant-specific binding (same name, disjoint `variants`),
+  which a characteristic-keyed consumer resolves to exactly one per unit
 - `endianness` on BLE characteristic `format` fields — same key, same
   `little`/`big` enum and same `little` default as a bus message field, which
   is where it was already declared. Six BLE fields across `xiaomi-miflora` and
@@ -164,6 +181,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `airthings-wave-family`'s radon entities no longer claim
+  `device_class: volatile_organic_compounds_parts`. Radon in Bq/m³ is a
+  radioactivity concentration, not a chemical one, and the class was not
+  cosmetic: a class-driven consumer would band, convert or chart the reading
+  against VOC ppb semantics — Home Assistant validates the class/unit pair
+  and Airthings' own VOC thresholds (250/2000 ppb) are nothing like its radon
+  ones (100/150 Bq/m³). There is no radon device class to claim, so the
+  entities carry `icon: mdi:radioactive` and the unit says the rest
+- `airthings-wave-family`'s radon entities also dropped the "Wave Plus"
+  variant claim from the Gen-1-service bindings (`b42e01aa`/`b42e0a4c`):
+  those characteristics live on the Gen 1 air sensor service and were never
+  confirmed on Plus hardware, whose radon the vendor app reads from the
+  combined packet (now bound by dedicated Wave Plus entities)
 - A `source` parameter no longer carries a `default`, and the schema now
   forbids the pair outright. Review (PR #16) caught what the first published
   version got wrong: `default: 0` sitting beside every Crock-Pot read-back as
