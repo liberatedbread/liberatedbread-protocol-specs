@@ -600,8 +600,8 @@ def parse_soap_response(xml_text: str) -> dict[str, str]:
 
 
 def parse_delimited(value: str, payload_format: dict) -> dict[str, str]:
-    """Per payload_formats.<name>.fields, for pipe-delimited payloads."""
-    parts = value.split("|")
+    """Per payload_formats.<name>.delimiter and .fields."""
+    parts = value.split(payload_format["delimiter"])
     parsed = {
         field["name"]: parts[field["index"]]
         for field in payload_format["fields"]
@@ -650,6 +650,10 @@ def test_control_payload_formats_are_published(spec):
 
     binary_state = formats["BinaryState"]
     assert binary_state["values"], "on/off values not enumerated"
+    # The split rule has to be executable, not merely stated: a consumer that
+    # cannot find the state in the long form reports a live plug as off.
+    assert binary_state.get("delimiter"), "the long form's separator is not declared"
+    assert binary_state.get("fields"), "no field says where the state sits"
     # The one that surprises people: 8 means on-but-standby, not a third state.
     assert "8" in binary_state["values"]
     assert binary_state.get("parse_rules"), "pipe-delimited extras not warned about"
@@ -761,12 +765,13 @@ def entity_state(returned: dict, entity: dict, payload_formats: dict) -> object:
     mapping = entity["state_mapping"]
     raw = returned[mapping["value"]]
 
-    # payload_formats.BinaryState: split on '|' and take field 0.
-    if mapping["value"] == "BinaryState":
-        assert any(
-            "field 0" in rule for rule in payload_formats["BinaryState"]["parse_rules"]
-        ), "the split rule this transcription follows is not published"
-        raw = raw.split("|")[0]
+    # A returned value may pack several fields into one string, and only the
+    # spec knows: the delimiter and the field index are declared, so this
+    # follows data rather than reading the prose rule beside them.
+    payload_format = payload_formats.get(mapping["value"])
+    if payload_format and payload_format.get("delimiter"):
+        index = min(field["index"] for field in payload_format["fields"])
+        raw = raw.split(payload_format["delimiter"])[index]
 
     if mapping.get("on_when") == "nonzero":
         return int(raw) != 0
@@ -989,3 +994,80 @@ def test_the_crockpot_switch_does_not_read_binary_state(spec, entities):
     assert "binarystate is not this device's state" in warning, (
         "the variant must warn about the surface that lies, not just avoid it"
     )
+
+
+# ── Scheduling, transcribed from the `scheduling` block ──────────────────────
+
+
+@pytest.fixture(scope="module")
+def scheduling(spec) -> dict:
+    return spec["scheduling"]
+
+
+def test_scheduling_says_whether_it_survives_the_client_going_away(scheduling):
+    """The one fact a feature gets designed around.
+
+    "Turn it on at five" means two different things depending on this field: a
+    schedule the device keeps, or a timer that dies when the phone sleeps. A
+    block that documents a mechanism without answering it has documented the
+    less useful half.
+    """
+    assert scheduling["supported"] is True
+    assert scheduling["mechanism"] == "on_device_rules"
+    assert scheduling["runs_without_a_client"] is True
+    # A stored schedule is only as right as the clock under it, and these
+    # devices lost their time source when the cloud went away.
+    assert "timesync" in scheduling["device_clock_dependency"].lower()
+
+
+def test_scheduling_publishes_the_whole_round_trip(scheduling):
+    """Fetch, edit, store — and the store call's three arguments.
+
+    The database moves whole in both directions, so a client that knows only
+    how to fetch has no way to write and a client that knows only how to store
+    deletes everything.
+    """
+    actions = [
+        step["request"]["action"]
+        for step in scheduling["transfer"]["steps"]
+        if "request" in step
+    ]
+    assert actions[0] == "FetchRules"
+    assert actions[-1] == "StoreRules"
+
+    store = scheduling["transfer"]["steps"][-1]["request"]
+    argument_names = {a["name"] for a in store["arguments"]}
+    assert argument_names == {"ruleDbVersion", "processDb", "ruleDbBody"}
+
+    # The escaping that looks like a bug and is not: the argument's text
+    # literally contains an escaped CDATA wrapper.
+    body = next(a for a in store["arguments"] if a["name"] == "ruleDbBody")
+    assert "&lt;![CDATA[" in body["description"]
+
+    # And the rule that keeps a client from wiping rules made in an app the
+    # user can no longer reinstall.
+    edit = next(step for step in scheduling["transfer"]["steps"] if "request" not in step)
+    assert "FETCH, MODIFY, STORE" in edit["expect"]
+
+
+def test_scheduling_states_what_it_cannot_do(scheduling):
+    """The limits, and the unknowns, in the spec rather than in a bug report.
+
+    A rule's action is a number meaning on, off or toggle. Nothing in the
+    table carries a cooking mode — so "start it on Low at five" is not
+    expressible, however much a column list suggests otherwise. Anyone
+    designing that feature should learn it here.
+    """
+    limits = " ".join(scheduling["limitations"]).lower()
+    assert "toggle" in limits, "the action vocabulary is not stated"
+    assert "not part of this" in limits, "the cook timer is not distinguished from a schedule"
+
+    assert scheduling["open_questions"], "no unknowns listed, which is never true"
+    unknowns = " ".join(scheduling["open_questions"]).lower()
+    assert "dayid" in unknowns, "the column a wrong guess fires on the wrong day is not flagged"
+
+    # Every worked row must say where it came from, since the two sources are
+    # a maintained implementation and a nine-year-old capture.
+    for example in scheduling["storage"]["examples"]:
+        assert example["source"]
+        assert example["verification"] == "reported"
