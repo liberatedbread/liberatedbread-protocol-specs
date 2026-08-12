@@ -1,0 +1,1466 @@
+{
+  "bravia_common": {
+    "authentication": {
+      "description": "One of two credentials rides on EVERY request to /sony/*, once IP control is enabled on the TV. Which one is a per-client choice made at setup time (device.setup). A request with neither, on a TV with authentication enabled, answers 401 or 403.\n",
+      "pin_registration": {
+        "cookie_notes": "The TV's Set-Cookie spelling is not RFC-compliant (pybravia had to add a normalizer, its issue #1) — a strict cookie jar silently drops the credential and every later request fails auth. Parse the auth value out of the header string if your stack is strict.\n",
+        "description": "The no-shared-secret flow. Step 1: POST actRegister with HTTP Basic auth (username \"\", password \"0000\") — the TV answers 401/403 and displays a PIN on screen. Step 2: repeat the identical call with the displayed PIN as the Basic-auth password (username still \"\"). On success the TV answers 200 with Set-Cookie: auth=<token>; the client sends that cookie on every later request. The pybravia request body: {\"method\": \"actRegister\", \"params\": [{\"clientid\": <client-chosen stable id, conventionally \"<name>:<uuid>\", \"nickname\": <display name>, \"level\": \"private\"}, [{\"value\": \"yes\", \"function\": \"WOL\"}]], \"id\": 1, \"version\": \"1.0\"} — the WOL entry asks the TV to accept wake-on-LAN from this client. A clientid already registered makes the TV refuse to show a new PIN; deregister on the TV first (device.setup.credentials).\n",
+        "endpoint": "POST /sony/accessControl"
+      },
+      "psk": {
+        "description": "The string the user typed into the TV's IP control settings, sent as a plain header on every request — SOAP and REST alike. No handshake, no expiry.\n",
+        "header": "X-Auth-PSK: <pre-shared key>"
+      }
+    },
+    "base_url": "http://<ip>/sony/<service>",
+    "base_url_notes": "Port 80 on every documented model, but resolve per-service base URLs from dd.xml's X_ScalarWebAPI_ServiceList when available — the descriptor exists precisely because services may move ports. <ip> comes from SSDP.\n",
+    "dial": {
+      "description": "DIAL (Discovery and Launch) is the second-screen surface YouTube and Netflix use to pair a phone with the TV. Discovery is SSDP ST urn:dial-multiscreen-org:service:dial:1; the response's Application-URL header is the DIAL REST base, against which app launch/status requests are made per the DIAL 2.2.1 specification. On Bravia the same /DIAL tree hosts app icons (the official getApplicationList example returns http://<ip>/DIAL/icon/<uri>.png URLs). DIAL needs no PSK or cookie; it also exposes no power, key or volume control — it is a discovery plus app-launch channel, and this spec binds nothing to it.\n"
+    },
+    "ircc": {
+      "description": "The remote-control surface: one SOAP call per key press. POST http://<ip>/sony/IRCC with the headers below and an envelope whose only variable is the base64 IRCCCode. Success is a bare 200 with an empty (or empty-envelope) body; the TV gives no per-key feedback.\n",
+      "http": {
+        "headers": {
+          "Content-Type": "text/xml; charset=UTF-8",
+          "SOAPACTION": "\"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC\"  (literal double quotes, as Wemo)",
+          "X-Auth-PSK": "<pre-shared key, or omit when using the auth cookie>"
+        },
+        "method": "POST",
+        "url": "http://<ip>/sony/IRCC"
+      },
+      "quirks": {
+        "code_authority": "Codes are model-specific in detail. The TV's own getRemoteControllerInfo REST call returns its exact name->code list and is authoritative; Sony's published table (the one in `commands`) is the professional-display set, and community tables disagree with it on some keys (Left/Right and Prev are spelled differently in the widely-copied community list). A client that can query the TV should prefer the TV's list and treat `commands` as the fallback.\n",
+        "endpoint_case": "The path's case differs across models: /sony/IRCC on most, /sony/ircc on some — the wrong case answers 404. pybravia detects this by probing with an empty IRCCCode and swapping case on BraviaNotFound; copy that rather than shipping two configs.\n",
+        "idle_drop": "After roughly 13 minutes of inactivity some TVs silently ignore the first IRCC command — no error, just nothing happens. pybravia works around it by sending an empty-code request as a wake-up whenever the last IRCC call is more than 10 minutes old.\n"
+      },
+      "template": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\n<s:Body>\n<u:X_SendIRCC xmlns:u=\"urn:schemas-sony-com:service:IRCC:1\">\n<IRCCCode>{ircc_code}</IRCCCode>\n</u:X_SendIRCC>\n</s:Body>\n</s:Envelope>\n"
+    },
+    "power_on": {
+      "description": "Three documented ways to wake a Bravia, in the order pybravia tries them: a Wake-on-LAN magic packet (broadcast UDP port 9; requires the TV's Remote Start / WoL setting and the MAC from getSystemInformation), the REST call setPowerStatus {\"status\": true}, and the IRCC PowerOn code (AAAAAQAAAAEAAAAuAw==). All three presuppose network standby — a TV in deep standby or cut at the wall is beyond any network command, same caveat as every TV in this registry.\n"
+    },
+    "rest": {
+      "description": "Every REST service is one POST path carrying a JSON-RPC-flavoured document: {\"method\": \"<name>\", \"params\": [...], \"id\": <n>, \"version\": \"1.x\"}. params is ALWAYS an array — an empty array when the method takes nothing. A successful reply is {\"result\": [...], \"id\": <n>}; a failure is {\"error\": [<code>, \"<message>\"], \"id\": <n>} — and a TV in standby answers control calls with the error string \"not power-on\", which a client should read as \"off\", not \"broken\". Method versions and auth levels (none / generic / private) are per-method in Sony's reference; query a specific TV's actual surface with getSupportedApiInfo on /sony/guide, which is itself authLevel none.\n",
+      "example_request": {
+        "body": "POST /sony/system HTTP/1.1\nContent-Type: application/json\nX-Auth-PSK: <pre-shared key>\n\n{\"method\": \"getSystemInformation\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n",
+        "description": "getSystemInformation, as it goes on the wire."
+      },
+      "example_response": "{\"result\": [{\"product\": \"TV\", \"region\": \"XEU\", \"language\": \"eng\",\n\"model\": \"KD-55X8000G\", \"serial\": \"1234567\", \"macAddr\": \"aa:bb:cc:dd:ee:ff\",\n\"name\": \"Living Room\", \"generation\": \"5.2.0\", \"area\": \"ESP\",\n\"cid\": \"AA00...\"}], \"id\": 1}\n",
+      "services": {
+        "accessControl": "actRegister — PIN pairing; see authentication.pin_registration.",
+        "appControl": "getApplicationList, setActiveApp, terminateApps, getTextForm/setTextForm (on-screen keyboard).",
+        "audio": "getVolumeInformation, setAudioVolume (absolute 'N' or relative '+N'/'-N'), setAudioMute, sound settings.",
+        "avContent": "What is playing (getPlayingContentInfo), input inventory (getCurrentExternalInputsStatus), content/channel listing (getSchemeList/getSourceList/getContentCount/getContentList), input and channel switching (setPlayContent).",
+        "guide": "getSupportedApiInfo — the per-device API inventory; call it first.",
+        "system": "Identity (getSystemInformation), power (getPowerStatus/setPowerStatus), getRemoteControllerInfo, getWolMode/setWolMode, requestReboot, LED indicator.",
+        "video/videoScreen/cec/encryption/notification/recording/browser": "Present on various models; catalogued in Sony's reference. Out of scope for the controls this spec binds.\n"
+      }
+    },
+    "transport": "HTTP POST"
+  },
+  "commands": {
+    "press_audio": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAXAw=="
+      },
+      "description": "Audio track/language selection — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_back": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAjAw=="
+      },
+      "description": "Back/return one screen ('Back' on Sony's table; community tables spell it 'Return').",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_blue": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAkAw=="
+      },
+      "description": "Blue colour key — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_cc": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAoAw=="
+      },
+      "description": "Closed captions/subtitles — 'CC' on Sony's table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_channel_down": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAARAw=="
+      },
+      "description": "Previous tuner channel — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_channel_up": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAQAw=="
+      },
+      "description": "Next tuner channel — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_confirm": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAABlAw=="
+      },
+      "description": "OK/enter — 'Confirm' on Sony's table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_display": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAA6Aw=="
+      },
+      "description": "Display the info overlay — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_dot": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAdAw=="
+      },
+      "description": "The '.', separator for digital sub-channels — 'Dot(.)' on Sony's table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_down": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAB1Aw=="
+      },
+      "description": "D-pad down — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_epg": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAKQAAABbAw=="
+      },
+      "description": "Electronic programme guide — community table ('EPG'); not in the pro table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_exit": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAABjAw=="
+      },
+      "description": "Exit — community table; not in the pro table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_flash_minus": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAB5Aw=="
+      },
+      "description": "Flash- (step back during pause) — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_flash_plus": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAB4Aw=="
+      },
+      "description": "Flash+ (step forward during pause) — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_forward": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAcAw=="
+      },
+      "description": "Fast-forward — community table; not in the pro table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_green": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAmAw=="
+      },
+      "description": "Green colour key — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_hdmi1": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAABoAAABaAw=="
+      },
+      "description": "Switch to HDMI 1 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_hdmi2": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAABoAAABbAw=="
+      },
+      "description": "Switch to HDMI 2 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_hdmi3": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAABoAAABcAw=="
+      },
+      "description": "Switch to HDMI 3 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_hdmi4": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAABoAAABdAw=="
+      },
+      "description": "Switch to HDMI 4 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_help": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAMQAAABNAw=="
+      },
+      "description": "Help screen — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_home": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAABgAw=="
+      },
+      "description": "Home screen — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_input": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAlAw=="
+      },
+      "description": "Cycle through inputs — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_left": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAA0Aw=="
+      },
+      "description": "D-pad left — Sony's published table. The widely-copied community table spells Left differently (AAAAAQAAAAEAAAB2Aw==); trust getRemoteControllerInfo where they disagree.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_mute": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAUAw=="
+      },
+      "description": "Mute toggle — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_next": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAA9Aw=="
+      },
+      "description": "Next track/chapter — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num0": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAJAw=="
+      },
+      "description": "Digit 0 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num1": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAAAw=="
+      },
+      "description": "Digit 1 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num2": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAABAw=="
+      },
+      "description": "Digit 2 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num3": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAACAw=="
+      },
+      "description": "Digit 3 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num4": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAADAw=="
+      },
+      "description": "Digit 4 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num5": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAFAw=="
+      },
+      "description": "Digit 5 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num6": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAFAw=="
+      },
+      "description": "Digit 6 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num7": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAGAw=="
+      },
+      "description": "Digit 7 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num8": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAHAw=="
+      },
+      "description": "Digit 8 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_num9": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAIAw=="
+      },
+      "description": "Digit 9 — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_options": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAA2Aw=="
+      },
+      "description": "Options/context menu for the focused item — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_pause": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAZAw=="
+      },
+      "description": "Pause — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_play": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAaAw=="
+      },
+      "description": "Play — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_power": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAVAw=="
+      },
+      "description": "Power toggle (standby/wake) — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_power_off": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAvAw=="
+      },
+      "description": "Discrete power-off/standby — community table; not in the pro table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_power_on": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAuAw=="
+      },
+      "description": "Discrete power-on — pybravia's CODE_POWER_ON; on Sony's consumer key lists, not in the pro table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_prev": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAA8Aw=="
+      },
+      "description": "Previous track/chapter — Sony's published table (community tables spell Prev differently; same caveat as Left).",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_red": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAlAw=="
+      },
+      "description": "Red colour key — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_rewind": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAbAw=="
+      },
+      "description": "Rewind — community table ('Forward'/'Rewind' pair); not in the pro table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_right": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAAzAw=="
+      },
+      "description": "D-pad right — Sony's published table. Community tables spell it AAAAAQAAAAEAAAB3Aw==; same caveat as Left.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_stop": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAYAw=="
+      },
+      "description": "Stop — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_sync_menu": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAABoAAABYAw=="
+      },
+      "description": "Sync Menu (BRAVIA Sync device menu) — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_up": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAB0Aw=="
+      },
+      "description": "D-pad up — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_volume_down": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAATAw=="
+      },
+      "description": "Volume down one step — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_volume_up": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAQAAAAEAAAASAw=="
+      },
+      "description": "Volume up one step — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    },
+    "press_yellow": {
+      "action": "X_SendIRCC",
+      "arguments": {
+        "IRCCCode": "AAAAAgAAAJcAAAAnAw=="
+      },
+      "description": "Yellow colour key — Sony's published table.",
+      "service": "urn:schemas-sony-com:service:IRCC:1",
+      "transport": "soap",
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "tv",
+    "discovery": {
+      "identity": {
+        "display": "name",
+        "stable_keys": [
+          "serial",
+          "mac_addr"
+        ]
+      },
+      "methods": [
+        {
+          "ssdp": {
+            "query_path": "/sony/webapi/ssdp/dd.xml",
+            "response_mapping": {
+              "location": {
+                "action": "fetch_xml",
+                "parse": {
+                  "description": "dd.xml is the Scalar Web API device descriptor: its X_ScalarWebAPI_ServiceList lists each REST service by name (system, avContent, appControl, audio, guide, ...) with an X_ScalarWebAPI_BaseURL per service. Resolve service base URLs from here rather than assuming port 80 — a service MAY live on another port. Identity fields (serial, macAddr, model, name) are NOT in dd.xml; they come from the REST call getSystemInformation on /sony/system once the client holds credentials (or immediately, on the models that answer it unauthenticated).\n",
+                  "device_identity": {
+                    "display": {
+                      "source": "jsonrpc://system/getSystemInformation/name"
+                    },
+                    "stable_keys": [
+                      {
+                        "key": "serial",
+                        "source": "jsonrpc://system/getSystemInformation/serial"
+                      },
+                      {
+                        "key": "mac_addr",
+                        "source": "jsonrpc://system/getSystemInformation/macAddr"
+                      }
+                    ],
+                    "variant": {
+                      "source": "jsonrpc://system/getSystemInformation/model"
+                    }
+                  }
+                },
+                "url": "LOCATION"
+              }
+            },
+            "search_targets": [
+              "urn:schemas-sony-com:service:ScalarWebAPI:1"
+            ]
+          },
+          "type": "ssdp"
+        },
+        {
+          "ssdp": {
+            "response_mapping": {
+              "location": {
+                "action": "fetch_xml",
+                "parse": {
+                  "description": "DIAL's SSDP response is a normal UPnP advertisement plus one extra header: LOCATION points at a UPnP device description (parsed below), and the Application-URL header carries the DIAL REST service base — on Bravia the same /DIAL tree hosts app icons, per the official getApplicationList example's http://<ip>/DIAL/icon/ URLs. The DIAL surface itself is second-screen app launching (YouTube/Netflix pairing), unauthenticated, with no power, key or volume control; it says \"a DIAL-speaking Sony TV is here\" but its descriptor carries no serial — REST identity (getSystemInformation) remains authoritative.\n",
+                  "device_identity": {
+                    "display": {
+                      "source": "xml://device/friendlyName"
+                    },
+                    "stable_keys": [
+                      {
+                        "key": "udn",
+                        "source": "xml://device/UDN"
+                      }
+                    ],
+                    "variant": {
+                      "source": "xml://device/modelName"
+                    }
+                  }
+                },
+                "url": "LOCATION"
+              }
+            },
+            "search_targets": [
+              "urn:dial-multiscreen-org:service:dial:1"
+            ]
+          },
+          "type": "ssdp"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 80,
+      "identity_keys": {
+        "display": "name",
+        "primary": "serial",
+        "secondary": "mac_addr"
+      },
+      "ssdp_search_targets": [
+        "urn:schemas-sony-com:service:ScalarWebAPI:1",
+        "urn:dial-multiscreen-org:service:dial:1"
+      ]
+    },
+    "manufacturer": "Sony",
+    "manufacturer_status": "active",
+    "name": "Sony Bravia IRCC-IP / REST API",
+    "notes": "Bravia TVs (2013 and newer, including the FW-BZ professional displays) expose both surfaces on port 80: IRCC-IP at POST /sony/IRCC (SOAP action X_SendIRCC, one base64 key code per call) and the REST API as JSON-RPC-style POSTs to /sony/<service> with bodies of the form {\"method\": ..., \"params\": [...], \"id\": N, \"version\": \"1.x\"}. Discovery is SSDP: urn:schemas-sony-com:service:ScalarWebAPI:1 (LOCATION points at /sony/webapi/ssdp/dd.xml, which lists every REST service and its base URL) and urn:dial-multiscreen-org:service:dial:1 for DIAL second-screen discovery. Authentication is mandatory once enabled on the TV: either a pre-shared key sent as the X-Auth-PSK header, or a PIN-pairing flow (actRegister on /sony/accessControl) that ends in an auth cookie. The TV's own getRemoteControllerInfo REST call returns the model's exact IRCC key set — the static table in `commands` is Sony's published professional-display table plus widely-used community codes, and the device wins where they disagree.\n",
+    "openness": {
+      "notes": "Sony documents both surfaces for its professional displays, hence documented_api. reverse_engineered stays true because the consumer-TV behaviour this spec also covers is community-established: the PIN registration flow (actRegister, the auth cookie, its non-RFC-compliant Set-Cookie spelling), the IRCC endpoint case quirk and idle-drop quirk, and the extra consumer key codes (PowerOn, PowerOff, Exit, Rewind, Forward) come from pybravia/Home Assistant and community captures, not from Sony's pages.\n",
+      "reverse_engineered": true,
+      "status": "documented_api",
+      "upstream_docs": [
+        {
+          "covers": "The IRCC-IP wire format officially: POST /sony/IRCC with the SOAP envelope, the SOAPACTION and X-Auth-PSK headers, and a worked request example.\n",
+          "title": "Sony — BRAVIA Professional Displays Knowledge Center: IRCC-IP overview",
+          "url": "https://pro-bravia.sony.net/develop/integrate/ircc-ip/overview/index.html"
+        },
+        {
+          "covers": "Sony's published key-name to base64-code table for professional displays, and the note that the same list is available on-device via getRemoteControllerInfo.\n",
+          "title": "Sony — IRCC Codes",
+          "url": "https://pro-bravia.sony.net/develop/integrate/ircc-ip/ircc-codes/"
+        },
+        {
+          "covers": "Per-service, per-method request/response schemas with authentication levels (none/generic/private) and versions — getSupportedApiInfo, getApplicationList, setActiveApp, getPlayingContentInfo, getCurrentExternalInputsStatus, setPlayContent, setAudioVolume, setAudioMute, getVolumeInformation and more.\n",
+          "title": "Sony — BRAVIA REST API reference",
+          "url": "https://pro-bravia.sony.net/remote-display-control/rest-api/reference/"
+        }
+      ]
+    },
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [
+          "auth cookie (PIN pairing only; sent as a Cookie header on every later request)"
+        ],
+        "notes": "No WiFi passphrase crosses any link this spec documents — it is typed into the TV. The shared secret that matters is the PSK (or the issued cookie): anything holding it has full control, so the LAN is the trust boundary. A TV that will no longer show a PIN has the client still registered — remove it via Settings > Network > Remote device settings > Deregister remote device (per the Home Assistant integration docs), then pair again.\n",
+        "stored_on_device": [
+          "WiFi credentials",
+          "IP control pre-shared key",
+          "Registered remote devices (clientid/nickname list from PIN pairing)"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "confidence": "medium",
+        "effect": "Clears network credentials, Google account, installed apps, the pre-shared key and every registered remote device; the TV returns to first-run setup. After a reset, IP control is off again and all pairing must be redone.\n",
+        "procedures": [
+          {
+            "name": "Menu factory reset",
+            "steps": [
+              {
+                "action": "Settings > System > About > Reset > Factory data reset (Android TV); Google TV models put Reset under Settings > System > About, older pre-Android models under Settings > Storage & reset or Customer Support. Menu spelling varies by generation — the constant is that it lives under About/System, not under Network.\n",
+                "actor": "user"
+              }
+            ]
+          },
+          {
+            "name": "Forced hardware reset (buttons)",
+            "steps": [
+              {
+                "action": "For Android/Google TV models whose on-screen menu is unreachable: unplug the TV, press and hold the Power and Volume Down buttons on the TV body (not the remote), plug the TV back in while holding, and release when the reset screen or LED indication appears. Button count and exact combination vary by model — Sony's support pages distinguish one-button and three-button chassis; treat this spelling as the three-button one.\n",
+                "actor": "user",
+                "notes": "Reported from Sony support documentation; not exercised here."
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "description": "First-run network onboarding on the TV itself: language, Google account (skippable), WiFi selection and passphrase on the on-screen keyboard. No app-driven provisioning protocol exists to reimplement.\n",
+          "steps": [
+            {
+              "action": "Power on the TV and follow the on-screen setup with the remote.",
+              "actor": "user"
+            },
+            {
+              "action": "Select the WiFi network and enter the passphrase on the TV itself.",
+              "actor": "user",
+              "expect": "TV reports a successful connection."
+            }
+          ],
+          "type": "device_ui",
+          "verified": false
+        },
+        {
+          "description": "Enable IP control and choose authentication. The client cannot do any of this remotely — that is the point of the setting.\n",
+          "steps": [
+            {
+              "action": "On the TV: Settings > Network & Internet > Remote device settings > Control remotely = On. (Older models: Settings > Network > Home Network Setup > IP Control.)\n",
+              "actor": "user"
+            },
+            {
+              "action": "EITHER set a pre-shared key: Remote device settings > IP control > Pre-Shared Key, and hand the same string to the client, which sends it as the X-Auth-PSK header on every request. This is the flow Home Assistant recommends as the more reliable one.\n",
+              "actor": "user"
+            },
+            {
+              "action": "OR use PIN pairing: the client POSTs actRegister to /sony/accessControl with HTTP Basic auth (empty username, password \"0000\") to make the TV display a PIN, then repeats the call with the shown PIN as the Basic-auth password; the TV answers 200 with an auth cookie the client sends on every later request. See bravia_common.authentication.\n",
+              "actor": "client",
+              "expect": "actRegister returns 200 and a Set-Cookie: auth=... header."
+            },
+            {
+              "action": "Confirm the REST API is reachable and authenticated.",
+              "actor": "client",
+              "expect": "JSON result with product, model, serial, macAddr, name.",
+              "request": {
+                "action": "POST /sony/system with getSystemInformation",
+                "protocol": "http"
+              }
+            }
+          ],
+          "type": "device_ui",
+          "verified": false
+        }
+      ],
+      "notes": "Two separate jobs: getting the TV on the network (done on the TV's own UI, nothing to reimplement) and enabling IP control, which is the part every client depends on and the part that is OFF until the user turns it on. \"medium\" rather than \"high\": the flow is documented by Sony and exercised daily by pybravia/Home Assistant, but this project has not run it against its own hardware. Menu spellings below are the Android TV / Google TV ones; pre-Android Bravias put the same items under Settings > Network > Home Network Setup > IP Control.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Re-running the network setup from the TV's settings joins a new router without touching anything else; the pre-shared key and registered-client list survive. A client holding an auth cookie keeps working across a network change as long as the TV's registration list is intact.\n",
+        "requires_factory_reset": false
+      },
+      "required": true
+    },
+    "transport": "http",
+    "variants": [
+      {
+        "characteristics": [
+          "Both IRCC-IP and the REST API on port 80; Home Assistant states support for nearly all 2013+ models.",
+          "REST service list varies by model and firmware; discover it per-device via getSupportedApiInfo on /sony/guide.",
+          "The REST surface is served by the WebApiCore system app, which community reports describe as unstable on long uptimes — a frozen API recovers with a full TV reboot or by clearing WebApiCore's data under Settings > Apps."
+        ],
+        "identification": {
+          "model_pattern": "KD-*, KDL-*, XBR-*, XR-*"
+        },
+        "model": "Bravia 2013+ (consumer)",
+        "name": "Sony Bravia consumer TVs, 2013 and newer (Linux, Android TV, Google TV generations)"
+      },
+      {
+        "characteristics": [
+          "The surfaces Sony itself documents: same IRCC-IP and REST API, plus 'Simple IP Control' (a fixed-format TCP byte-stream control channel) and RS-232C, per Sony's Knowledge Center. Simple IP Control is named here for completeness only; its frame format is in Sony's docs, not in this spec.",
+          "Sony's published IRCC code table (used by `commands` below) is written for this family."
+        ],
+        "identification": {
+          "model_pattern": "FW-*BZ*"
+        },
+        "model": "FW-BZ series (professional)",
+        "name": "Sony Bravia Professional Displays"
+      },
+      {
+        "characteristics": [
+          "IRCC-IP only: no Scalar Web API, no REST services, no getRemoteControllerInfo — key codes must come from a static table. Out of this spec's tested scope; the Home Assistant docs steer pre-2013 sets to HDMI-CEC or Broadlink instead."
+        ],
+        "model": "Bravia pre-2013",
+        "name": "Sony Bravia TVs before 2013"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "commands": {
+        "press": "press_power"
+      },
+      "icon": "mdi:power",
+      "name": "Power",
+      "notes": "Toggle. Discrete on/off exist as press_power_on/press_power_off for consumers that ask the TV for its key list first.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_home"
+      },
+      "icon": "mdi:home",
+      "name": "Home",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_back"
+      },
+      "icon": "mdi:arrow-u-left-top",
+      "name": "Back",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_exit"
+      },
+      "icon": "mdi:exit-to-app",
+      "name": "Exit",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_up"
+      },
+      "icon": "mdi:chevron-up",
+      "name": "Up",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_left"
+      },
+      "icon": "mdi:chevron-left",
+      "name": "Left",
+      "notes": "Code disputed between Sony's pro table and community tables — see commands.press_left.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_confirm"
+      },
+      "name": "OK",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_right"
+      },
+      "icon": "mdi:chevron-right",
+      "name": "Right",
+      "notes": "Same code caveat as Left.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_down"
+      },
+      "icon": "mdi:chevron-down",
+      "name": "Down",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_options"
+      },
+      "icon": "mdi:dots-horizontal",
+      "name": "Options",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_display"
+      },
+      "icon": "mdi:information-outline",
+      "name": "Display",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_help"
+      },
+      "icon": "mdi:help-circle-outline",
+      "name": "Help",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_sync_menu"
+      },
+      "icon": "mdi:link-variant",
+      "name": "Sync Menu",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num1"
+      },
+      "name": "1",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num2"
+      },
+      "name": "2",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num3"
+      },
+      "name": "3",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num4"
+      },
+      "name": "4",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num5"
+      },
+      "name": "5",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num6"
+      },
+      "name": "6",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num7"
+      },
+      "name": "7",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num8"
+      },
+      "name": "8",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num9"
+      },
+      "name": "9",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_num0"
+      },
+      "name": "0",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_dot"
+      },
+      "name": "Dot",
+      "notes": "Sub-channel separator on digital tuners.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_rewind"
+      },
+      "icon": "mdi:rewind",
+      "name": "Rewind",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_play"
+      },
+      "icon": "mdi:play",
+      "name": "Play",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_pause"
+      },
+      "icon": "mdi:pause",
+      "name": "Pause",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_stop"
+      },
+      "icon": "mdi:stop",
+      "name": "Stop",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_forward"
+      },
+      "icon": "mdi:fast-forward",
+      "name": "Fast Forward",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_prev"
+      },
+      "icon": "mdi:skip-previous",
+      "name": "Previous",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_next"
+      },
+      "icon": "mdi:skip-next",
+      "name": "Next",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_volume_down"
+      },
+      "icon": "mdi:volume-minus",
+      "name": "Volume Down",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_mute"
+      },
+      "icon": "mdi:volume-mute",
+      "name": "Mute",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_volume_up"
+      },
+      "icon": "mdi:volume-plus",
+      "name": "Volume Up",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_audio"
+      },
+      "icon": "mdi:waveform",
+      "name": "Audio",
+      "notes": "Audio track/language, not a volume control.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_channel_up"
+      },
+      "icon": "mdi:chevron-double-up",
+      "name": "Channel Up",
+      "notes": "Meaningful on the tuner input.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_channel_down"
+      },
+      "icon": "mdi:chevron-double-down",
+      "name": "Channel Down",
+      "notes": "Meaningful on the tuner input.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_epg"
+      },
+      "icon": "mdi:television-guide",
+      "name": "Guide",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_cc"
+      },
+      "icon": "mdi:closed-caption",
+      "name": "Subtitles",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_red"
+      },
+      "name": "Red",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_green"
+      },
+      "name": "Green",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_yellow"
+      },
+      "name": "Yellow",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_blue"
+      },
+      "name": "Blue",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_input"
+      },
+      "icon": "mdi:video-input-hdmi",
+      "name": "Input",
+      "notes": "Cycles inputs; the HDMI buttons below jump.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_hdmi1"
+      },
+      "icon": "mdi:hdmi-port",
+      "name": "HDMI 1",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_hdmi2"
+      },
+      "icon": "mdi:hdmi-port",
+      "name": "HDMI 2",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_hdmi3"
+      },
+      "icon": "mdi:hdmi-port",
+      "name": "HDMI 3",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "press_hdmi4"
+      },
+      "icon": "mdi:hdmi-port",
+      "name": "HDMI 4",
+      "platform": "button"
+    },
+    {
+      "name": "Power Status",
+      "notes": "Result path: result[0].status — 'active', 'standby', ... A 'not power-on' error on other calls is this reading saying standby.",
+      "platform": "sensor",
+      "state_command": "getPowerStatus",
+      "state_endpoint": "/sony/system"
+    },
+    {
+      "icon": "mdi:television-play",
+      "name": "Now Playing",
+      "notes": "Result path: result[0].title (with .uri/.source for detail). Blind to content inside Android apps — documented limitation, not a parsing bug.",
+      "platform": "sensor",
+      "state_command": "getPlayingContentInfo",
+      "state_endpoint": "/sony/avContent"
+    },
+    {
+      "icon": "mdi:volume-high",
+      "name": "Volume",
+      "notes": "Result path: result[0][target 'speaker'].volume, 0-100 per maxVolume. authLevel none on Sony's pro reference, so this one may read even before pairing on some models.",
+      "platform": "sensor",
+      "state_command": "getVolumeInformation",
+      "state_endpoint": "/sony/audio"
+    },
+    {
+      "icon": "mdi:apps",
+      "name": "Application",
+      "notes": "No state_source: Bravia has no current-app query — Playing Content Info reports content, and inside an Android app it reports nothing. Selecting an option means POST /sony/appControl setActiveApp with {\"uri\": <option value>}; see the Set Active App endpoint.\n",
+      "options_source": {
+        "command": "Application List",
+        "item": "title",
+        "value": "uri"
+      },
+      "platform": "select"
+    }
+  ],
+  "evidence": {
+    "documentation_review": {
+      "date": "2026-08-11",
+      "notes": "No live Bravia was probed for this spec; every command is verification \"reported\" — published by Sony or exercised by pybravia/Home Assistant — and nothing here carries \"confirmed\".\n",
+      "sources": [
+        "Sony BRAVIA Professional Displays Knowledge Center: IRCC-IP overview and IRCC code table (pro-bravia.sony.net).",
+        "Sony BRAVIA REST API reference (pro-bravia.sony.net): method-level schemas and auth levels for guide/appControl/audio/avContent.",
+        "pybravia client source (client.py, const.py): PIN/PSK auth, actRegister parameters, IRCC quirks, error handling, service inventory.",
+        "Home Assistant braviatv integration docs and manifest (SSDP matcher: manufacturer 'Sony Corporation', ST urn:schemas-sony-com:service:ScalarWebAPI:1)."
+      ]
+    }
+  },
+  "helpful_urls": [
+    {
+      "title": "pybravia — the async Python client behind Home Assistant's Sony Bravia TV integration",
+      "url": "https://github.com/Drafteed/pybravia"
+    },
+    {
+      "title": "Home Assistant Sony Bravia TV integration (auth flows, settings paths, WebApiCore caveats)",
+      "url": "https://www.home-assistant.io/integrations/braviatv/"
+    },
+    {
+      "title": "kalleth's Sony Bravia HTTP API notes (service list, JSON-RPC shapes, IRCC envelope)",
+      "url": "https://gist.github.com/kalleth/e10e8f3b8b7cb1bac21463b0073a65fb"
+    },
+    {
+      "title": "DIAL 2nd Screen protocol specification (dial-multiscreen.org)",
+      "url": "https://www.dial-multiscreen.org/dial/protocol-specification"
+    },
+    {
+      "title": "Community IRCC code table incl. consumer-only keys (PowerOff, Exit, Rewind, Forward)",
+      "url": "https://github.com/cmos486/Bravia-REST-API/blob/main/COMMANDS.md"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "Send one remote-key code. Case-sensitive on some models (/sony/ircc); see bravia_common.ircc.quirks. The full request template and headers are in bravia_common.ircc. The codes are in `commands` and, per model, from the Remote Controller Info call below.\n",
+      "method": "POST",
+      "name": "Send IRCC",
+      "path": "/sony/IRCC",
+      "request_body": {
+        "content_type": "text/xml; charset=UTF-8"
+      },
+      "service": "urn:schemas-sony-com:service:IRCC:1"
+    },
+    {
+      "description": "getSupportedApiInfo (v1.0, authLevel none): the device's own inventory of services, methods, versions and per-method auth levels. Call first; it is the difference between probing and knowing.\n",
+      "method": "POST",
+      "name": "Supported API Info",
+      "path": "/sony/guide",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getSupportedApiInfo\", \"params\": [{\"services\": [\"system\", \"avContent\", \"appControl\", \"audio\"]}], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "getSystemInformation (v1.0): identity — product, model, serial, macAddr, name, generation, cid. This spec's identification source.\n",
+      "method": "POST",
+      "name": "System Information",
+      "path": "/sony/system",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getSystemInformation\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      },
+      "response_body": {
+        "content_type": "application/json",
+        "example": "{\"result\": [{\"product\": \"TV\", \"region\": \"XEU\", \"language\": \"eng\", \"model\": \"KD-55X8000G\", \"serial\": \"1234567\", \"macAddr\": \"aa:bb:cc:dd:ee:ff\", \"name\": \"Living Room\", \"generation\": \"5.2.0\", \"area\": \"ESP\", \"cid\": \"AA00...\"}], \"id\": 1}\n"
+      }
+    },
+    {
+      "description": "getPowerStatus (v1.0): {\"result\": [{\"status\": \"active\"|\"standby\"|...}]}. pybravia polls this on a short timeout as the TV's on/off reading.\n",
+      "method": "POST",
+      "name": "Power Status",
+      "path": "/sony/system",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getPowerStatus\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "setPowerStatus (v1.0): {\"status\": true|false} — wake to active or drop to standby. One of the three power-on paths (bravia_common.power_on); waking only works from network standby.\n",
+      "method": "POST",
+      "name": "Set Power Status",
+      "path": "/sony/system",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"setPowerStatus\", \"params\": [{\"status\": false}], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "getRemoteControllerInfo (v1.0): this model's own IRCC key table — {\"result\": [<bundled-remote info>, [{\"name\": \"Power\", \"value\": \"AAAA...\"}, ...]]}. Authoritative over any static table (bravia_common.ircc.quirks.code_authority). Absent on pre-2013 sets.\n",
+      "method": "POST",
+      "name": "Remote Controller Info",
+      "path": "/sony/system",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getRemoteControllerInfo\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "requestReboot (v1.0): reboots the TV — the supported recovery when the WebApiCore REST service freezes (device.variants).\n",
+      "method": "POST",
+      "name": "Request Reboot",
+      "path": "/sony/system",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"requestReboot\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "getVolumeInformation (v1.0, authLevel none per Sony's reference): per-target volume/mute — {\"result\": [[{\"target\": \"speaker\", \"volume\": 25, \"mute\": false, \"minVolume\": 0, \"maxVolume\": 100}, ...]]}.\n",
+      "method": "POST",
+      "name": "Volume Information",
+      "path": "/sony/audio",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getVolumeInformation\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "setAudioVolume (v1.0+, authLevel generic): volume as a STRING — \"25\" absolute, \"+1\"/\"-1\" relative; target \"speaker\"|\"headphone\"|\"\". Error 40801 means out of range.\n",
+      "method": "POST",
+      "name": "Set Audio Volume",
+      "path": "/sony/audio",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"setAudioVolume\", \"params\": [{\"volume\": \"+1\", \"target\": \"speaker\"}], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "setAudioMute (v1.0, authLevel generic): {\"status\": true|false}. There is no toggle — read Volume Information first and send the inverse, which is what pybravia's volume_mute does.\n",
+      "method": "POST",
+      "name": "Set Audio Mute",
+      "path": "/sony/audio",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"setAudioMute\", \"params\": [{\"status\": true}], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "getPlayingContentInfo (v1.0, authLevel private): what is on — {\"result\": [{\"uri\": \"extInput:hdmi?port=2\", \"source\": \"extInput:hdmi\", \"title\": \"HDMI 2\", ...}]}, or tuner programme details when the TV is the source. Knows nothing about content playing INSIDE Android apps (a documented limitation; the Home Assistant docs pair the integration with Google Cast for that).\n",
+      "method": "POST",
+      "name": "Playing Content Info",
+      "path": "/sony/avContent",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getPlayingContentInfo\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "getCurrentExternalInputsStatus (v1.0/v1.1, authLevel none): every input with its uri (\"extInput:hdmi?port=1\"), title, user label, connection and signal status. The uri is what Play Content takes — this is the input-picker's option list.\n",
+      "method": "POST",
+      "name": "External Inputs Status",
+      "path": "/sony/avContent",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getCurrentExternalInputsStatus\", \"params\": [], \"id\": 1, \"version\": \"1.1\"}\n"
+      }
+    },
+    {
+      "description": "setPlayContent (v1.0, authLevel generic): switch to a content uri — an input (\"extInput:hdmi?port=2\") or a channel entry from getContentList. This is Bravia's input switching; the IRCC Hdmi1-4 keys are the key-based alternative.\n",
+      "method": "POST",
+      "name": "Play Content",
+      "path": "/sony/avContent",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"setPlayContent\", \"params\": [{\"uri\": \"extInput:hdmi?port=2\"}], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "getApplicationList (v1.0, authLevel private): installed launchable apps — {\"result\": [[{\"title\": \"YouTube\", \"uri\": \"com.sony.dtv.com.google...\", \"icon\": \"http://<ip>/DIAL/icon/...\"}, ...]]}. The uri is what Set Active App takes.\n",
+      "method": "POST",
+      "name": "Application List",
+      "path": "/sony/appControl",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"getApplicationList\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      },
+      "response_body": {
+        "content_type": "application/json",
+        "example": "{\"result\": [[{\"title\": \"YouTube\", \"uri\": \"com.sony.dtv.com.google.android.youtube.tv.com.google.android.apps.youtube.tv.activity.ShellActivity\", \"icon\": \"http://192.168.1.4/DIAL/icon/com.sony.dtv.com.google.android.youtube.tv.com.google.android.apps.youtube.tv.activity.ShellActivity.png\"}, {\"title\": \"Screen mirroring\", \"uri\": \"com.sony.dtv.screnmirroring.com.screnmirroring.com.StartScreenMirroringHomeActivity\", \"icon\": \"http://192.168.1.4/DIAL/icon/com.sony.dtv.screnmirroring.com.screnmirroring.com.StartScreenMirroringHomeActivity.png\"}]], \"id\": 1}\n"
+      }
+    },
+    {
+      "description": "setActiveApp (v1.0, authLevel generic): launch an app by its uri from Application List. Errors 41400/41401 mean the TV was busy — retry, don't fail the user.\n",
+      "method": "POST",
+      "name": "Set Active App",
+      "path": "/sony/appControl",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"setActiveApp\", \"params\": [{\"uri\": \"com.sony.dtv.com.google.android.youtube.tv.com.google.android.apps.youtube.tv.activity.ShellActivity\"}], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "terminateApps (v1.0, authLevel generic): kill all running applications.",
+      "method": "POST",
+      "name": "Terminate Apps",
+      "path": "/sony/appControl",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"terminateApps\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "setTextForm (v1.0): type a string into the TV's on-screen keyboard — Bravia's text entry; there is no Lit_-style per-character IRCC key. Error code 7 means no keyboard is on screen.\n",
+      "method": "POST",
+      "name": "Set Text Form",
+      "path": "/sony/appControl",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"setTextForm\", \"params\": [\"hello world\"], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    },
+    {
+      "description": "actRegister (v1.0): PIN pairing. Full flow, including the Basic-auth password trick and the cookie, in bravia_common.authentication.\n",
+      "method": "POST",
+      "name": "Register Client",
+      "path": "/sony/accessControl",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"method\": \"actRegister\", \"params\": [{\"clientid\": \"OpenGreenIoT:8f4a2c10-0000-4000-8000-000000000000\", \"nickname\": \"OpenGreenIoT Remote\", \"level\": \"private\"}, [{\"value\": \"yes\", \"function\": \"WOL\"}]], \"id\": 1, \"version\": \"1.0\"}\n"
+      }
+    }
+  ]
+}
