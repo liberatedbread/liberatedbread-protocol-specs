@@ -7,13 +7,19 @@ Humans: start with [README.md](README.md).
 
 The clean-room **knowledge base** of reverse-engineered protocols for
 locally-controllable IoT devices — so abandoned hardware keeps working without
-the vendor cloud. It covers both transports:
+the vendor cloud. The two most common transports, and the ones the mobile app
+speaks, are:
 
 - **BLE** (`protocol: ble` / `ble_gatt`) — GATT services, characteristics,
   message formats.
 - **Wi-Fi/LAN** (`protocol: wifi`, with `http` / `soap` / `ssdp` / `udp`
   transport blocks) — discovery via mDNS/DNS-SD and SSDP/UPnP, control over HTTP
   and SOAP, and device provisioning.
+
+Specs are not limited to those two. The authoritative `device.protocol` enum in
+`device-specs/schema.json` also covers `zigbee`, `zwave`, `obd2`, `uart`, and
+`can` (e-bikes, OBD-II dongles, and other wired/radio buses) — treat that enum
+as the source of truth for what a spec may declare.
 
 **The specs are the product.** `device-specs/devices/*.yaml` is written to be
 implementable on its own, validated against `device-specs/schema.json`. We do
