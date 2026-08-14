@@ -493,6 +493,110 @@ devices will want `Authorization:`; that is the next piece of this vocabulary
 when a spec needs v2, and it should follow the `arguments` substitution model
 rather than invent its own.
 
+### P13 — Power as a stateful control, and the toggle problem { #p13 }
+
+**Problem.** A consumer cannot turn a TV off from these specs without guessing.
+All nine `category: tv` specs express power as a stateless `button`, and the
+schema *enforces* that shape: the button contract in
+`entities.items.allOf[0]` requires exactly the `press` role and forbids every
+state binding. That is right for a remote key — a keypress is honestly
+stateless — but it leaves no role meaning "make this device off", so a
+consumer wanting one has to match on command names.
+
+Command names will not carry that weight. The same idea is spelled
+`press_power_off` (Roku, Sony, Vizio, Philips), `power_off` (LG),
+`press_power` (Samsung, Panasonic, Hisense, Android TV), `press_standby`
+(Philips) and `press_power_toggle` (Vizio) — and the last three are
+**toggles**, so a consumer that globs `*power*` will turn a sleeping TV on.
+Worse, the toggle/discrete distinction exists today only in prose:
+`panasonic-viera.yaml` marks it in a YAML comment
+(`# -- Power. NRC_POWER is a TOGGLE, not discrete on/off.`) and
+`vizio-smartcast.yaml` in an entity `notes:` string. Neither is machine-readable,
+so nothing in the file distinguishes the two operations.
+
+**Evidence.** `lg-webos.yaml` already proves the fix is expressible today: its
+Mute control is a `switch` entity binding `turn_on`/`turn_off` with a
+`state_topic`, on a Wi-Fi device, with no schema change. Power is the same
+shape and simply was never written that way. Meanwhile the mobile consumer's
+bulk operations resolve strictly by entity action role — deliberately, so that
+destructive verbs are unreachable from a fan-out by construction rather than by
+blacklist — which means TVs are currently excluded from bulk control entirely,
+not by policy but for want of a role to bind.
+
+**Proposal.** Give each TV spec a `platform: "switch"`, `name: "Power"` entity
+**alongside** its existing remote buttons. The buttons stay: a remote's power
+key is still a keypress, and removing it would break every remote UI.
+
+```yaml
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      turn_on: "press_power_on"      # only where network power-on really works
+      turn_off: "press_power_off"    # only where a discrete off exists
+      toggle: "press_power"          # new role, for the toggle-only sets
+    state_endpoint: "/sony/system"   # where the device reports power at all
+    state_command: "getPowerStatus"
+```
+
+`toggle` is the one new role, and it is what makes the distinction
+machine-readable: a command bound to `toggle` is declared to flip state, so a
+consumer knows it must establish the current state before sending. Each spec
+binds only the roles its hardware honestly supports:
+
+| Spec | `turn_off` | `turn_on` | `toggle` | Power state readable |
+|---|---|---|---|---|
+| `roku-ecp` | `press_power_off` | `press_power_on` (warm standby only) | — | no |
+| `sony-bravia` | `press_power_off` | `press_power_on` | `press_power` | yes — `Power Status` |
+| `vizio-smartcast` | `press_power_off` | `press_power_on` | `press_power_toggle` | yes — `Power Mode` |
+| `philips-jointspace` | `press_power_off` | `press_power_on` | `press_standby` | yes — `Power State`, v6 only |
+| `lg-webos` | `power_off` | — | — | no |
+| `samsung-tizen-tv` | — | — | `press_power` | no |
+| `panasonic-viera` | — | — | `press_power` | no |
+| `hisense-vidaa` | — | — | `press_power` | yes — `TV State` |
+| `android-tv-remote` | — | — | `press_power` | yes — `Power State` |
+
+`turn_on` is deliberately unbound for LG, Samsung, Hisense and Panasonic. Those
+specs already state that no network command can wake a standby set because the
+network stack is down; binding one would be a lie the file currently avoids
+telling. Wake-on-LAN is the documented route for those sets and has no
+declarative representation in the schema — **out of scope here**, and worth its
+own proposal rather than a field smuggled in beside `commands`.
+
+**Bind two discrete offs that are documented but unreachable.** Both are
+catalogued under `http_endpoints` and never exposed as `commands`, so no
+consumer can invoke either:
+
+- `sony-bravia.yaml` "Set Power Status" — `POST /sony/system`
+  `{"method": "setPowerStatus", "params": [{"status": false}]}`
+- `philips-jointspace.yaml` "Set Power State" — `POST /{api_version}/powerstate`
+  `{"powerstate": "Standby"}`
+
+Cheap to add, and they give Sony and Philips an off that does not depend on an
+IRCC key code being accepted.
+
+**A note the consumer contract needs.** On a toggle-only set the Power switch
+resolves *only* `toggle`, so a consumer predating the role sees a switch with no
+resolvable actions. `docs/api/spec-format.md` should state that a control which
+resolves no roles must be hidden, not rendered dead — otherwise this proposal
+ships a non-functional toggle to older clients. Related, and worth writing down
+because three specs volunteer it: on Vizio, Philips and Hisense the state
+endpoint becomes *unreachable* rather than wrong when the set is asleep, so a
+failed state read is evidence of "off", and a consumer should treat it as "not
+confirmed on" rather than as an error to retry.
+
+**Compatibility.** Additive. The button contract is untouched, every existing
+`button` entity keeps working, and a consumer that does not know `toggle`
+degrades to "this TV offers no bulk power control" — which is exactly today's
+behaviour, so nothing regresses. The switch is also shaped to map cleanly onto a
+Home Assistant `media_player`/`switch` with `assumed_state: true` where no state
+is readable, keeping that consumer's route open.
+
+**Effort.** Small per spec — one entity each, plus two new commands for Sony and
+Philips. The real half is consumer work: a `toggle` role in the mobile app's
+network role table, and the read-state-then-toggle rule that makes it safe. As
+with P12, the schema change is not the interesting part.
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -595,6 +699,7 @@ this page classifiable.
 | [P10](#p10) | Multi-byte command parameters | High | Low | With consumer — one is blocked today |
 | [P11](#p11) | Plural `local_name_prefix` | Medium | Very low | **Landed** |
 | [P12](#p12) | Executable HTTP commands + hub children | High | Low | **Landed** |
+| [P13](#p13) | Power as a stateful control + `toggle` role | High | Low | With consumer |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |
