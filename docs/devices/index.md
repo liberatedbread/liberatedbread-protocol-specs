@@ -70,6 +70,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
+| [iRobot Roomba (Wi-Fi models)](irobot-roomba.md) | WiFi (MQTT over TLS 8883) | Complete | Button-press or account credential extraction (medium) | iRobot / Picea Robotics |
 | [LIFX Z](lifx-z.md) | WiFi | Complete | SoftAP, uncaptured (low) | LIFX |
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
 | [TP-Link Kasa Smart Plug](tplink-kasa.md) | WiFi (JSON over TCP 9999) | Complete | SoftAP, uncaptured (low) | TP-Link |
