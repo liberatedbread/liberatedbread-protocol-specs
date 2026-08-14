@@ -423,6 +423,18 @@ def test_the_dud_generation_is_declared_as_a_variant(spec):
     assert any("8883" in c for c in duds[0]["characteristics"])
 
 
+def test_the_spec_names_its_consumer_side_handler(spec):
+    """The session is code, not YAML, so the spec has to say whose code.
+
+    A consumer cannot render an MQTT session, a subscription and a push state
+    stream out of a document the way it renders an HTTP request. Naming a
+    handler is how the registry says "there is a code path for this" without
+    anyone hardcoding a device-to-handler map — and a rename that silently
+    unhooks the handler is exactly what this pins.
+    """
+    assert spec["protocol_handler"] == "roomba_mqtt"
+
+
 def test_dorita980_is_credited_as_the_source(spec):
     """The protocol is koalazak's work, and the spec says so in the two places
     a machine reads: the openness block and the first helpful_urls entry."""

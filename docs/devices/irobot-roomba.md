@@ -197,9 +197,10 @@ Publish to the **`cmd`** topic. The payload is a JSON envelope:
 {"command":"clean","time":1755129600,"initiator":"localApp"}
 ```
 
-`time` is Unix epoch seconds **at the moment of sending** — the robot rejects
-payloads whose clock is far off its own. `initiator` is `localApp` for a LAN
-client.
+`time` is Unix epoch seconds from **the sender's** clock at the moment of
+sending — that is how every published client fills it. What the robot does with
+the value is undocumented and untested here, so send a real timestamp rather
+than a constant. `initiator` is `localApp` for a LAN client.
 
 | `command` | Meaning |
 |---|---|
