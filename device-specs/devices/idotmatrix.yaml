@@ -6,6 +6,8 @@ device:
   name: "iDotMatrix"
   manufacturer: "iDotMatrix / Tech"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >
@@ -36,12 +38,18 @@ device:
     Display sizes (ScreenData.getLedSize, app v2.1.4): 1010=10x10, 1001=1x100,
     1116=16x11, 1318=18x13, 1619=19x16, 1920=20x19, 2020=20x20 (default),
     2010=10x20, 3010=10x30, 3820=20x38 (ScreenData.java:10/49-82). App v2.1.4
-    knows no 32x32 or 64x64 display codes — larger panels, if they exist, are
-    not represented in this app version.
-    Image pixel encoding (app-derived, not yet confirmed by live BLE capture):
-    RGB888, 3 bytes/pixel in R,G,B order, row-major w*h*3 bytes
-    (BGRUtils.bitmap2RGB:41-61, ScreenData.getdiyImageSize:84-89). Text glyph
-    width varies by device/font.
+    knows no 32x32 or 64x64 display code, but square 16x16 / 32x32 / 64x64
+    panels do exist and use this same IDM-/0x00FA protocol family
+    (derkalle4/python3-idotmatrix-library README, fbnlrz/homeyidotmatrix
+    hardware-verified on IDM-BC5C5F, tomglenn/idx-ai) — an app-vs-firmware gap,
+    not a limit of the hardware.
+    Upload format: every hardware-verified public client uploads an encoded PNG
+    (static) or GIF (animated) FILE, which the device decodes; the device crops
+    rather than resizes (Homey docs/idm.md §5). The app's BGRUtils.bitmap2RGB
+    RGB888 conversion (3 bytes/pixel R,G,B, row-major w*h*3,
+    ScreenData.getdiyImageSize:84-89) is an app-side artifact for its own DIY
+    canvas, not a raw-pixel wire format observed on any unit. Text glyph width
+    varies by device/font.
     CONFIDENCE: framing header (incl. LE length/delay fields and sub-type=0),
     CRC32, chunk sizes/pacing, command types 1=GIF/2=Image/3=Text and response
     format HIGH (hardware-verified on 0xFA02; byte-for-byte confirmed in app
@@ -154,15 +162,25 @@ device:
 # CRC32, and drives MTU-aware chunked writes. Declarative.
 protocol_handler: "idotmatrix_image"
 
-# Chunked RGB888 bitmap / GIF upload with CRC32 integrity per transfer.
-# RGB888 is app-derived (BGRUtils.bitmap2RGB:41-61, 3 bytes/pixel R,G,B), not
-# yet confirmed by live BLE capture. Panel sizes are app v2.1.4's known set
-# (ScreenData.getLedSize): max 20 wide x 100 tall.
+# Chunked PNG / GIF file upload with CRC32 integrity per transfer. Every public
+# hardware-verified client (derkalle4/python3-idotmatrix-library image.py/gif.py,
+# fbnlrz/homeyidotmatrix, 8none1) uploads an encoded PNG (static) or GIF
+# (animated) FILE — the device decodes it — never a raw pixel buffer; there is no
+# public evidence for a raw RGB565/RGB888 path. (The app's BGRUtils.bitmap2RGB
+# RGB888 conversion is an app-side artifact, not the observed wire format.)
+# Panel sizes: the community documents square 16x16 / 32x32 / 64x64 panels
+# (derkalle4 README, fbnlrz README+docs/idm.md hardware-verified on IDM-BC5C5F,
+# tomglenn/idx-ai). App v2.1.4's ScreenData size table lists only smaller/odd
+# codes (1010=10x10 .. 3820=20x38) and knows no 32x32 or 64x64 code — an
+# app-vs-firmware gap, so max here follows the real 64x64 hardware, not the app
+# table. The device crops rather than resizes, so a client should match the
+# panel's actual size (query the device / let the user choose).
 features:
   - type: "image_upload"
-    format: "rgb888"
-    max_width: 20
-    max_height: 100
+    format: "png"
+    animation: true
+    max_width: 64
+    max_height: 64
 
 services:
   # APP-PROVEN-UNUSED — third-party BLE library defaults, overridden by the app
@@ -400,10 +418,11 @@ services:
                 min: 0
                 max: 255
           locate:
-            description: "Locate device — 16-byte fixed command, ASCII 'LOCATE' (app v2.1.4 jadx: Agreement.java:11-13; app-derived, not yet hardware-verified)"
+            description: "Locate device. This is a genuinely different frame from the short commands: not [len, 0x00, cmd, ...] but a 16-byte block whose first byte is 0x06 followed by ASCII 'LOCATE' and NUL padding (Agreement.getLocationDevice, jadx v2.1.4 Agreement.java:11-13). The bytes below are the PLAINTEXT — the app does not write them directly: BleProtocol.locationDevice sends getEncryptData(getLocationDevice()), which AES-encrypts the block in place via the native libAES (csh.tiro.cc.aes.cipher, key from keyExpansionDefault) before the single BLE write, so the actual on-wire bytes are the 16-byte ciphertext, not this plaintext. App-derived only; no community/hardware source (CONFIRMATION.md, derkalle4, Homey, 8none1) documents a locate command, so treat as unconfirmed."
+            verification: "hypothesis"
             value: [0x06, 0x4C, 0x4F, 0x43, 0x41, 0x54, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
           set_mic_type:
-            description: "Set hardware microphone type (app v2.1.4 jadx: BleProtocolN.java:80-83; app-derived, not yet hardware-verified)"
+            description: "Set hardware microphone type (app v2.1.4 jadx: BleProtocolN.java:80-83; app-derived, not yet hardware-verified). Shares cmd/sub 0x0B 0x80 with mic_rhythm_command; the device dispatches on the frame's length byte (this one is length 0x05, one payload byte) rather than on cmd/sub alone."
             template: [0x05, 0x00, 0x0B, 0x80, "{mic_type}"]
             parameters:
               mic_type:
@@ -411,7 +430,7 @@ services:
                 min: 0
                 max: 255
           mic_rhythm_command:
-            description: "Microphone rhythm control; first payload byte is mode+1 per app (app v2.1.4 jadx: BleProtocolN.java:183-185; app-derived, not yet hardware-verified)"
+            description: "Microphone rhythm control; first payload byte is mode+1 per app (app v2.1.4 jadx: BleProtocolN.java:183-185; app-derived, not yet hardware-verified). Shares cmd/sub 0x0B 0x80 with set_mic_type; the device dispatches on the frame's length byte (this one is length 0x06, two payload bytes) rather than on cmd/sub alone."
             template: [0x06, 0x00, 0x0B, 0x80, "{mode_plus_1}", "{value}"]
             parameters:
               mode_plus_1:

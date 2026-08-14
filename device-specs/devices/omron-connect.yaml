@@ -6,6 +6,8 @@ device:
   name: "Omron BLE Blood Pressure Monitors (OMRON connect family)"
   manufacturer: "Omron Healthcare"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "health"
   notes: >
@@ -210,55 +212,86 @@ services:
       - uuid: "49123040-aee8-11e1-a74d-0002a5d5c51b"
         name: "device_rx_channel_0"
         properties: ["write"]
-        description: "Client->device write channel 0. Messages are split into 16-byte chunks written in order across channels 0-3."
+        notes: "Client->device write channel 0. Messages are split into 16-byte chunks written in order across channels 0-3."
       - uuid: "4d0bf320-aee8-11e1-a0d9-0002a5d5c51b"
         name: "device_rx_channel_1"
         properties: ["write"]
-        description: "Client->device write channel 1."
+        notes: "Client->device write channel 1."
       - uuid: "5128ce60-aee8-11e1-b84b-0002a5d5c51b"
         name: "device_rx_channel_2"
         properties: ["write"]
-        description: "Client->device write channel 2."
+        notes: "Client->device write channel 2."
       - uuid: "560f1420-aee8-11e1-8184-0002a5d5c51b"
         name: "device_rx_channel_3"
         properties: ["write"]
-        description: "Client->device write channel 3."
+        notes: "Client->device write channel 3."
       - uuid: "db5b55e0-aee7-11e1-965e-0002a5d5c51b"
         name: "device_tx_channel_0"
         properties: ["notify"]
-        description: "Device->client notify channel 0. Byte 0 of the first chunk is the total response length; reassemble channels 0..ceil(len/16)-1 in order."
+        notes: "Device->client notify channel 0. Byte 0 of the first chunk is the total response length; reassemble channels 0..ceil(len/16)-1 in order."
       - uuid: "e0b8a060-aee7-11e1-92f4-0002a5d5c51b"
         name: "device_tx_channel_1"
         properties: ["notify"]
-        description: "Device->client notify channel 1."
+        notes: "Device->client notify channel 1."
       - uuid: "0ae12b00-aee8-11e1-a192-0002a5d5c51b"
         name: "device_tx_channel_2"
         properties: ["notify"]
-        description: "Device->client notify channel 2."
+        notes: "Device->client notify channel 2."
       - uuid: "10e1ba60-aee8-11e1-89e5-0002a5d5c51b"
         name: "device_tx_channel_3"
         properties: ["notify"]
-        description: "Device->client notify channel 3."
+        notes: "Device->client notify channel 3."
       - uuid: "b305b680-aee7-11e1-a730-0002a5d5c51b"
         name: "unlock"
         properties: ["write", "notify"]
-        description: >
+        notes: >
           Pairing/unlock channel. Write 02 || 16x00 to enter
           key-programming mode (response 8200), 00 || <16-byte key> to
           program a new key (response 8000), 01 || <key> to unlock a
-          session (response 8100).
-        data_format:
-          type: "binary"
-          commands:
-            - name: "enter_key_programming"
-              hex_prefix: "02"
-              description: "02 followed by 16 zero bytes; only accepted while the monitor shows the blinking -P-. Response 8200."
-            - name: "program_key"
-              hex_prefix: "00"
-              description: "00 followed by the new 16-byte key. Response 8000 on success."
-            - name: "unlock_session"
-              hex_prefix: "01"
-              description: "01 followed by the stored 16-byte key. Response 8100 on success; anything else means wrong key."
+          session (response 8100). Ordering is mandatory: pairing runs
+          enter_key_programming then program_key (only while the monitor
+          shows the blinking -P-); every later session sends only
+          unlock_session, and it must succeed before the start-transmission
+          frame (0000) is written to the RX channels. Not expressed as an
+          `initialization` block because the key bytes are per-client, not
+          a fixed sequence.
+        commands:
+          enter_key_programming:
+            description: >
+              Enter key-programming mode: 02 followed by 16 zero bytes.
+              Only accepted while the monitor shows the blinking -P-
+              (pairing mode). Response starts 8200 on success. Must precede
+              program_key.
+            value: [0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          program_key:
+            description: >
+              Program a new client key: 00 followed by the new 16-byte
+              client-chosen key. Response 8000 on success. Second step of
+              pairing, after enter_key_programming; the monitor stores only
+              one key, so this evicts any previous client.
+            template: [0x00, "{key}"]
+            parameters:
+              key:
+                type: "bytes"
+                min_length: 16
+                max_length: 16
+                description: >
+                  Client-chosen 16-byte unlock key. Not a vendor secret —
+                  omblepy uses an arbitrary constant.
+          unlock_session:
+            description: >
+              Unlock a session: 01 followed by the stored 16-byte key.
+              Response 8100 on success; anything else means wrong key.
+              Required at the start of every session before start
+              transmission (0000).
+            template: [0x01, "{key}"]
+            parameters:
+              key:
+                type: "bytes"
+                min_length: 16
+                max_length: 16
+                description: "The 16-byte key previously bound via program_key."
 
 ble:
   connection_sequence:

@@ -6,6 +6,8 @@ device:
   name: "LED space Wi-Fi LED Screen (YSP-001 family)"
   manufacturer: "LOY SPACE / popled.cn"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "display"
   transport: "udp"
@@ -18,9 +20,10 @@ device:
     both (FastBLE client plus a UDP path). The LED space app itself has been
     stale since 2023-06-29, but the platform ecosystem is active (LOY SPACE app
     updated 2026-03-25, backend CDNs live).
-    Wi-Fi path: the device hosts an open-AP-style hotspot whose SSID starts
-    with "YS" (default password 12345678, per the app's own help text in 13
-    languages). The client joins it, broadcasts a TLV-serialized
+    Wi-Fi path: the device hosts a WPA/passphrase-protected AP whose SSID starts
+    with "YS", secured with a well-known default password (12345678, per the
+    app's own help text in 13 languages) that a user can change. The client
+    joins it, broadcasts a TLV-serialized
     {"cmd":{"get":"dev_info"}} probe to 255.255.255.255:UDP/9090, and learns the
     device address from the reply sender (expected to be the ESP-style AP
     gateway 192.168.4.1 — not directly captured here). Commands are JSON
@@ -174,13 +177,15 @@ device:
 protocol_handler: "popled_json"
 
 # Full-color image / animation upload. The app renders content, converts to
-# 24-bit BMP (BmpUtils), zlib-compresses it and embeds it as zip_bmp inside the
-# pkts_program JSON program structure; the TLV library serializes the whole
-# program. Default geometry 64x64; actual geometry is device-reported
+# 24-bit BMP (BmpUtils), zlib-compresses it (ZLibUtils.compress = java.util.zip
+# Deflater) and embeds it Base64-encoded as zip_bmp inside the pkts_program JSON
+# program structure; the TLV library serializes the whole program. The wire
+# payload is this zlib-compressed BMP, not a GIF (GIF frames take the parallel
+# zip_gif path). Default geometry 64x64; actual geometry is device-reported
 # (get param_dev / dev_info).
 features:
   - type: "image_upload"
-    format: "gif"
+    format: "zlib-bmp"
     max_width: 64
     max_height: 64
     resolution_source: "device_reported"
@@ -206,10 +211,20 @@ popled_wifi_protocol:
       retry: "Vendor app: up to 10 resends at 8 s intervals until an ACK-shaped reply (matching sno) arrives; error replies are {\"cmd\":\"err\"} / {\"cmd\":\"failed\"}."
       receive_buffer: 1024
   sequence:
-    sno_base: 4294901761
+    # Wire value carried in the u16-LE sno field of the first frame.
+    sno_base: 1
+    # App-level 32-bit counter seed; only its low 16 bits reach the wire.
+    app_counter_base: 4294901761
     notes: >
-      Sequence numbers start at 4294901761 (0xFFFF0001) and increment; the
-      app tracks reply sno values and accepts the next sequential one.
+      The app keeps its sequence counter as the 32-bit value 4294901761
+      (0xFFFF0001) — stored as the string "4294901761" in Constant.sno and
+      passed to the native TLV serializer as (int)4294901761L
+      (Main2Activity.parseJson). Only the low 16 bits reach the wire: the
+      frame's sno (u16-LE) is app_counter & 0xFFFF, so the first frame carries
+      sno=1 (0xFFFF0001 & 0xFFFF = 1), matching the worked discovery frame
+      above. The counter advances by one per command
+      (Constant.getSnoLength = counter + 1) and the wire sno wraps every 65536.
+      The app tracks reply sno values and accepts the next sequential one.
   response_envelope: '{"ack":{...},"sno":N}'
   commands_seen_only_in_this_app:
     set_wifi_params:
@@ -242,7 +257,11 @@ popled_wifi_protocol:
       with info_pos geometry, and list_item entries of type_item "text_pic"
       (text, color, size, font, alignment) or "graphic" (zip_bmp payload).
       App templates use id_pro 11-19; the platform supports 60 sparse
-      program slots and pgm_play takes the full ids_pro array.
+      program slots. In this app pgm_play carries the full ids_pro array
+      (whole playlist); the sibling uni-app binding
+      (autobaba-led-backpack.yaml) sends pgm_play with a single "index", and
+      hardware-verified RE shows wire program-select is a single zero-based
+      slot index — see the play_program command notes.
       zip_bmp is a zlib-compressed 24-bit BMP rendered app-side.
 
 # BLE variant of the same hardware family — identical GATT surface to the
@@ -315,7 +334,20 @@ services:
               key: "cmd.rotate"
               value_type: "int"
           play_program:
-            description: 'Play programs. JSON: {"cmd":{"pgm_play":{"model":0,"ids_pro":[1..60]}},"ids_dev":"<id_dev>","sno":N} — ids_pro is the full 60-slot program-id array; an "index" key is not corroborated.'
+            description: >
+              Play programs. This com.yj.led (LED space) binding sends the whole
+              playlist: {"cmd":{"pgm_play":{"model":0,"ids_pro":[1..60]}},
+              "ids_dev":"<id_dev>","sno":N}, where ids_pro is the full 60-slot
+              program-id array (Constant.java pgm_play template). The sibling
+              uni-app binding documented in autobaba-led-backpack.yaml instead
+              sends a single-slot form, {"cmd":{"pgm_play":{"model":0,
+              "index":N}},...}; both are real JSON shapes for the same LOY SPACE
+              pgm_play opcode across app versions. On the wire, hardware-verified
+              RE (samrodrigues/loy-space-protocol) shows program selection is a
+              single zero-based slot index, so a client that only needs to show
+              one program can use the single-slot form. To play a single stored
+              program this app also uses the dispatch command
+              (dispatch_program above), not pgm_play.
             encoding: "json"
             payload:
               key: "cmd.pgm_play.ids_pro"

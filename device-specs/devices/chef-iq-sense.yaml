@@ -6,6 +6,8 @@ device:
   name: "Chef iQ Sense"
   manufacturer: "Chefman / Chef iQ"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -501,6 +503,14 @@ services:
             length: 1
             name: "temp_unit"
             type: "uint8"
+            # Decodes the active temperature unit for the connected Probe Data
+            # (048AF000) float32 temps, which carry no unit on the wire. Raw
+            # value matches the set_fahrenheit (0) / set_celsius (1) commands
+            # above. This is the unit_reference target named by the temperature
+            # entities.
+            unit_values:
+              0: "F"
+              1: "C"
 
       - uuid: "9c6fffc1-0420-41c1-bd98-7a015c45dc5a"
         name: "Data Update Interval"
@@ -630,11 +640,16 @@ entities:
       Consumes TLV attribute 36 (InternalTemp, float32) from the Probe
       Data notify — attribute ID and type confirmed in the app v5.3.0
       decompile; see that characteristic's notes for the TLV frame layout
-      (no fixed offsets — parse the envelope). No unit is declared because
-      the wire unit is NOT determinable from the app code (no conversion
-      in the decode path); it follows the writable 9C6FFFC0 Temperature
-      Unit characteristic. The connectionless advertisement path (int16
-      LE, 0.1 °C) is the alternative and is unambiguously in °C.
+      (no fixed offsets — parse the envelope). Unit source is a device
+      setting, not fixed: the wire float32 carries no unit (the app applies
+      no conversion in the decode path), so read the active unit from the
+      9C6FFFC0 Temperature Unit characteristic's temp_unit field
+      (unit_reference 9c6fffc0-…-dc5a.temp_unit; unit_values 0 = °F, 1 = °C)
+      before rendering. No out-of-box default unit is claimed here because
+      none is evidenced — the app writes the setting from the phone locale
+      on setup. Consumers that want an unambiguous reading can instead use
+      the connectionless advertisement path (int16 LE, 0.1 °C), which is
+      always in °C.
 
   - platform: "sensor"
     name: "Ambient Temperature"
@@ -642,9 +657,12 @@ entities:
     state_characteristic: "048af000-cd06-4d57-a048-ccd5cb9f8f43"
     notes: >
       Consumes TLV attribute 37 (AmbientTemp, float32) from the Probe
-      Data notify — same decode path and caveats as Internal Temperature
-      (wire unit undetermined, governed by 9C6FFFC0); the advertisement
-      path remains the unambiguous °C alternative.
+      Data notify — same decode path and caveats as Internal Temperature.
+      Unit source is a device setting: read the active unit from the
+      9C6FFFC0 temp_unit field (unit_reference 9c6fffc0-…-dc5a.temp_unit;
+      unit_values 0 = °F, 1 = °C) before rendering; no out-of-box default
+      is claimed (none evidenced). The connectionless advertisement path
+      (int16 LE, 0.1 °C) remains the unambiguous °C alternative.
 
   - platform: "sensor"
     name: "Battery"

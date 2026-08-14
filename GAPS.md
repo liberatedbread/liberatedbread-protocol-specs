@@ -46,4 +46,4 @@ companion app `xfkj.fitpro`). `m6-fitness-band.yaml` was re-targeted accordingly
 keeps the Veryfit analysis only as a clearly-labeled mis-attribution note. See
 `research/m6-fitness-band/CONFIRMATION.md` §C.
 
-## Validation: 71/71 passing (70 device specs + 1 example)
+## Validation: 92/92 passing (91 device specs + 1 example)
