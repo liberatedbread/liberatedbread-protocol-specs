@@ -41,6 +41,8 @@
         "https://frigidaire.app.electrolux.one/",
         "wss://ws.eu.ocp-dev.electrolux.one",
         "wss://ws.eu.ocp-staging.electrolux.one",
+        "https://api.ocp.electrolux.one (production; regional bases api.us.ocp.electrolux.one for NA, api.eu.ocp.electrolux.one for EU)",
+        "wss://ws.eu.ocp.electrolux.one (production websocket host confirmed in app code; regional wss://ws.us.ocp.electrolux.one)",
         "/appliance/api/v2/appliances?includeMetadata=true",
         "/appliance/api/v2/appliances/{applianceId}/command",
         "/appliance/api/v3/appliances/info",
@@ -148,38 +150,46 @@
         "requires_factory_reset": true
       },
       "required": true
+    },
+    "testing": {
+      "status": "untested"
     }
   },
   "entities": [
     {
       "commands": {
-        "set_fan_mode": "set_fan_speed",
-        "set_hvac_mode": "set_mode",
-        "set_temperature": "set_temperature",
-        "turn_off": "set_power_off",
-        "turn_on": "set_power_on"
+        "set_fan_mode": "fanSpeedSetting",
+        "set_hvac_mode": "mode",
+        "set_temperature": "targetTemperatureC",
+        "turn_off": "executeCommand=OFF",
+        "turn_on": "executeCommand=ON"
       },
       "features": [
         "target_temperature",
         "fan_mode",
         "hvac_mode"
       ],
+      "max_temp": 30,
+      "min_temp": 16,
       "name": "Portable Air Conditioner",
+      "notes": "OCP wire names below come from the app's bundled capability profiles (ac_daiane_capabilities.json and the ac_emmanuelle_* profiles) and its attribute-name enum; medium confidence, app-derived, not verified against hardware. targetTemperatureC is readwrite, 16-30 C in steps of 1 (the app's attribute enum also maps a targetTemperatureF attribute; the bundled profiles declare only the C spelling). hvac_mode values are AUTO/COOL/FANONLY/HEAT in the daiane profile; the emmanuelle profiles add DRY, matching the Dehumidify mode of portable units. Eco is not a mode value but the separate energySavingMode attribute. fan_mode values are AUTO/HIGH/MIDDLE/LOW/TURBO (the profile's spelling is \"MIDDLE\", not Medium). Power is the write-only executeCommand attribute with values ON/OFF. Every `commands` value in this and the other entities below is an OCP attribute write sent to the \"Appliance Command\" endpoint (PUT .../appliances/{applianceId}/command); see that endpoint's description for the encoding — a bare attribute name writes the control's value to that attribute, and \"attribute=VALUE\" writes the literal VALUE.\n",
       "platform": "climate",
       "state_mapping": {
-        "current_temperature": "current_temperature",
-        "fan_mode": "fan_speed",
+        "current_temperature": "ambientTemperatureC",
+        "fan_mode": "fanSpeedSetting",
         "hvac_mode": "mode",
-        "target_temperature": "target_temperature"
+        "target_temperature": "targetTemperatureC"
       },
-      "state_topic": "appliance/{device_id}/state"
+      "state_topic": "appliance/{device_id}/state",
+      "temp_step": 1
     },
     {
       "device_class": "temperature",
       "name": "Room Temperature",
+      "notes": "ambientTemperatureC is the wire name in the app's attribute enum, but the bundled daiane profile declares no ambient-temperature attribute; low confidence until a traffic capture confirms it.",
       "platform": "sensor",
       "state_mapping": {
-        "value": "current_temperature"
+        "value": "ambientTemperatureC"
       },
       "state_topic": "appliance/{device_id}/state",
       "unit": "°F"
@@ -187,15 +197,17 @@
     {
       "device_class": "problem",
       "name": "Filter Alert",
+      "notes": "filterState is a read-only enum (GOOD/CLEAN/CHANGE/BUY); any value other than GOOD is a problem state. cleanFilterAlertReset is a write-only attribute that clears the alert.",
       "platform": "binary_sensor",
       "state_mapping": {
-        "value": "filter_alert"
+        "value": "filterState"
       },
       "state_topic": "appliance/{device_id}/state"
     },
     {
       "device_class": "problem",
       "name": "Drain Full",
+      "notes": "No corresponding attribute appears in the app's bundled AC capability profiles; the wire name is unverified.",
       "platform": "binary_sensor",
       "state_mapping": {
         "value": "drain_full"
@@ -204,32 +216,47 @@
     },
     {
       "commands": {
-        "turn_off": "set_sleep_off",
-        "turn_on": "set_sleep_on"
+        "turn_off": "sleepMode=OFF",
+        "turn_on": "sleepMode=ON"
       },
       "name": "Sleep Mode",
+      "notes": "sleepMode attribute (readwrite, OFF/ON) per the app's attribute enum and the bundled emmanuelle capability profiles. Medium confidence.",
       "platform": "switch",
       "state_mapping": {
-        "value": "sleep_mode"
+        "value": "sleepMode"
       },
       "state_topic": "appliance/{device_id}/state"
     },
     {
       "commands": {
-        "turn_off": "set_display_off",
-        "turn_on": "set_display_on"
+        "turn_off": "displayLight=DISPLAY_LIGHT_0",
+        "turn_on": "displayLight=DISPLAY_LIGHT_100"
       },
       "name": "Display",
+      "notes": "displayLight is an enum (DISPLAY_LIGHT_0/DISPLAY_LIGHT_100), not a boolean; the daiane profile declares it readwrite.",
       "platform": "switch",
       "state_mapping": {
-        "value": "display"
+        "value": "displayLight"
+      },
+      "state_topic": "appliance/{device_id}/state"
+    },
+    {
+      "commands": {
+        "turn_off": "energySavingMode=OFF",
+        "turn_on": "energySavingMode=ON"
+      },
+      "name": "Energy Saving (Eco)",
+      "notes": "energySavingMode attribute (readwrite, OFF/ON) — eco is this separate attribute, not a value of mode. Per the daiane profile's triggers, turning it ON removes TURBO from the allowed fanSpeedSetting values.",
+      "platform": "switch",
+      "state_mapping": {
+        "value": "energySavingMode"
       },
       "state_topic": "appliance/{device_id}/state"
     }
   ],
   "http_endpoints": [
     {
-      "description": "Cloud account enumeration path observed in APK strings.",
+      "description": "Cloud account enumeration path; path and GET method confirmed in the app's endpoint enum (GET_APPLIANCES_V2) against the api.ocp.electrolux.one production host.",
       "method": "GET",
       "name": "Appliance List",
       "path": "/appliance/api/v2/appliances?includeMetadata=true",
@@ -247,7 +274,7 @@
       }
     },
     {
-      "description": "Cloud command path observed in APK strings. Method is PUT (two independent RE clients and the official SDK agree); payload is a single-property JSON map, exact property set requires traffic capture.",
+      "description": "Cloud command path; path and PUT method confirmed in the app's endpoint enum (PUT_SEND_COMMAND). Payload is a single-property JSON map keyed by an OCP attribute name, e.g. {\"fanSpeedSetting\": \"LOW\"} or {\"executeCommand\": \"ON\"}, sent one property per call (medium confidence, app-derived, not hardware-verified; exact serialization requires traffic capture). This endpoint is the encoding referenced by every entity `commands` value in this spec. Those values use two forms: a bare OCP attribute name (e.g. set_temperature -> \"targetTemperatureC\") means \"PUT this attribute with the value the control supplies\", i.e. {\"<attribute>\": <control value>}; the form \"<attribute>=<VALUE>\" (e.g. turn_on -> \"executeCommand=ON\") means \"PUT this attribute with the literal VALUE\", i.e. {\"<attribute>\": \"<VALUE>\"}. There are no separately declared command blocks because OCP control is attribute writes, not named commands.\n",
       "method": "PUT",
       "name": "Appliance Command",
       "path": "/appliance/api/v2/appliances/{applianceId}/command",
@@ -256,7 +283,7 @@
       }
     },
     {
-      "description": "Cloud remote-control path observed in APK strings; exact payload requires traffic capture.",
+      "description": "String literal present only as a raw dex string in the analyzed APKs; no decompiled call site references it, so the HTTP method (POST shown is a placeholder) and payload are uncorroborated.",
       "method": "POST",
       "name": "Remote Control",
       "path": "/remote-control/api/v1/appliances/",

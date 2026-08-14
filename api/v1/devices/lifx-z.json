@@ -51,10 +51,10 @@
     "manufacturer": "LIFX",
     "manufacturer_status": "active",
     "name": "LIFX Z",
-    "notes": "LIFX Z LED strips support the LIFX binary LAN protocol over UDP port 56700 with no authentication. The observed strips advertise HomeKit HAP over mDNS with md=LIFX Z; consumers can resolve IP address from mDNS and then send a UDP GetService message to port 56700 for full LIFX metadata. LIFX Z is a multizone light strip; common units expose eight zones using HSBK color. The current schema does not have a native UDP endpoint type, so protocol details are captured in protocol_handler and lifx_lan_protocol.\nMATTER CAVEAT: LIFX's Matter firmware rollout (Sept 2025) is eligible on LCM3-edition hardware (firmware v3.x) only — the original LIFX Z (firmware v2.x) is excluded — and updating to Matter DECOMMISSIONS the HomeKit/HAP integration. Units that take the Matter update stop advertising _hap._tcp.local., which kills the mDNS discovery signal this spec relies on; discover those units by UDP broadcast GetService instead.\n",
+    "notes": "LIFX Z LED strips support the LIFX binary LAN protocol over UDP port 56700 with no authentication. The observed strips advertise HomeKit HAP over mDNS with md=LIFX Z; consumers can resolve IP address from mDNS and then send a UDP GetService message to port 56700 for full LIFX metadata. LIFX Z is a multizone light strip; common units expose eight zones using HSBK color. The current schema does not have a native UDP endpoint type, so protocol details are captured in protocol_handler and lifx_lan_protocol.\nMATTER CAVEAT: LIFX's Matter firmware rollout (Sept 2025) is eligible on LCM3-edition hardware (firmware v3.x) only — the original LIFX Z (firmware v2.x) is excluded — and updating to Matter DECOMMISSIONS the HomeKit/HAP integration. Units that take the Matter update stop advertising _hap._tcp.local., which kills the mDNS discovery signal this spec relies on; discover those units by UDP broadcast GetService instead. The current vendor app bundles a Matter commissioning stack (the com.lifx.app.features.onboarding.matter package in the decompiled APK), which is the onboarding path it offers for Matter-firmware units.\n",
     "protocol": "wifi",
     "setup": {
-      "confidence": "low",
+      "confidence": "medium",
       "credentials": {
         "issued_to_client": [],
         "notes": "The legacy SetAccessPoint message carries the passphrase in plaintext; the setup AP itself is the only transport protection, and on the strips it is open. Post-setup LAN control is unauthenticated UDP on port 56700, so no client credential is issued and anything on the LAN can drive the strip.\n",
@@ -86,10 +86,13 @@
       },
       "methods": [
         {
-          "description": "Join the device's own setup AP and drive the deprecated access-point messages over UDP 56700: confirm the device answers discovery, ask it to scan (GetAccessPoints), pick a network from the StateAccessPoint replies, and hand over credentials (SetAccessPoint with interface = STATION). The device then drops its AP and joins the home network. Send requests to the subnet broadcast address (255.255.255.255 works too) with unicast to gateway_ip as the fallback — original firmware answers discovery sent broadcast.\n",
+          "description": "Join the device's own setup AP and drive the deprecated access-point messages over UDP 56700: confirm the device answers discovery, ask it to scan (GetAccessPoints), pick a network from the StateAccessPoint replies, and hand over credentials (SetAccessPoint with interface = STATION). The device then drops its AP and joins the home network. Send requests to the subnet broadcast address (255.255.255.255 works too) with unicast to gateway_ip as the fallback — original firmware answers discovery sent broadcast. On post-original hardware the vendor app uses the TLS TCP flow in the next method instead; whether these UDP messages still answer on newer firmware is untested.\n",
           "payload_formats": {
+            "get_access_point": {
+              "description": "Type 0x133 (307). Asks the device for the AP configuration currently set on one interface. 1-byte payload: interface (same encoding as SetAccessPoint). Present in the decompiled app; not in the legacy public docs.\n"
+            },
             "get_access_points": {
-              "description": "Type 0x130 (304). No payload. The device answers with one StateAccessPoint (0x132) message per network it can see."
+              "description": "Type 0x130 (304). No payload. The device answers with one StateAccessPoint (0x132) message per network it can see. The full access-point family in the decompiled app runs 304-309; 307-309 are documented after 306 below."
             },
             "legacy_header": {
               "description": "The 36-byte header the legacy access-point messages ride in, all little-endian. It is offset-compatible with the current LAN-protocol header — size at 0, protocol at 2, message type at 32 — and the fields between differ but are safe to send as zero: the modern source/sequence slots land where the legacy format put reserved bytes, the site MAC and a timestamp, and legacy firmware does not validate them.\n",
@@ -164,7 +167,7 @@
               }
             },
             "set_access_point": {
-              "description": "Type 0x131 (305). Hands the device its home network. 98-byte payload; strings are UTF-8, null-padded to their fixed width.\n",
+              "description": "Type 0x131 (305). Hands the device its home network. 98-byte payload; strings are UTF-8, null-padded to their fixed width. Layout confirmed byte-exact against the decompiled app (interface at 0, ssid at 1, password at 33, security_protocol at 97).\n",
               "fields": [
                 {
                   "bytes": 1,
@@ -192,8 +195,11 @@
                 }
               ]
             },
+            "set_access_point_broadcast": {
+              "description": "Type 0x135 (309). SetAccessPoint plus a trailing 16-byte key, 114-byte payload: interface (1 byte at 0), ssid (32 bytes at 1), password (64 bytes at 33), security_protocol (1 byte at 97), key (16 bytes at 98). Present in the decompiled app; the key's purpose is not established.\n"
+            },
             "state_access_point": {
-              "description": "Type 0x132 (306). One scan result. 38-byte payload.\n",
+              "description": "Type 0x132 (306). One scan result. 38-byte payload. Layout confirmed byte-exact against the decompiled app.\n",
               "fields": [
                 {
                   "bytes": 1,
@@ -224,6 +230,9 @@
                   "offset": 36
                 }
               ]
+            },
+            "state_access_point_config": {
+              "description": "Type 0x134 (308). The device's currently configured AP, NOT a scan result (that is 306 above). 66-byte payload: interface (1 byte at 0), ssid (32-byte UTF-8 string at 1), passphrase (32 raw bytes at 33), security_protocol (1 byte at 65). Present in the decompiled app; not replayed against hardware.\n"
             }
           },
           "softap": {
@@ -235,7 +244,7 @@
               "LIFX Z 04A3C1",
               "LIFX Bulb"
             ],
-            "ssid_notes": "Later products (LIFX Z among them) advertise an OPEN AP named after the product and serial fragment. The original 2013 bulbs hosted a secured AP named exactly \"LIFX Bulb\" with the published passphrase \"lifx1234\" — open_network above describes the strips this spec covers, and that constant is the fallback for the one older AP name.\n",
+            "ssid_notes": "Post-original devices (LIFX Z among them) advertise an OPEN AP named after the product and a serial fragment. The decompiled app confirms it: the app supplies a passphrase only when the setup SSID is exactly \"LIFX Bulb\" — the original 2013 bulbs, whose published passphrase is \"lifx1234\" — and joins every other LIFX-prefixed setup AP with none. open_network above therefore describes the strips this spec covers, and that constant is the fallback for the one older AP name.\n",
             "ssid_prefix": "LIFX"
           },
           "steps": [
@@ -296,7 +305,7 @@
               "causes": [
                 "The client fell back to cellular or another interface. Pin traffic to the 172.16.0.0/24 interface.",
                 "Broadcast datagrams are being dropped. Retry unicast to 172.16.0.1.",
-                "LCM3/Matter-era firmware: onboarding is BLE-only and these messages no longer exist. Terminal for this method."
+                "Post-original firmware: the vendor app onboards over TLS TCP to 172.16.0.1:56700 (next method), and Matter units via its bundled Matter stack. Whether these UDP messages still answer on newer firmware is untested."
               ],
               "symptom": "Nothing answers discovery on the setup AP."
             },
@@ -317,15 +326,78 @@
           ],
           "type": "softap_udp",
           "verified": false
+        },
+        {
+          "description": "Modern flow, derived from the decompiled vendor app (app-derived, not hardware-verified — medium confidence). After joining the setup AP, the app opens a TLS-secured TCP connection to 172.16.0.1:56700 and drives the SAME LIFX binary access-point messages (304-309, layouts above) over the stream. The TLS handshake is mutual — the client presents key material bundled in the app — so a third-party client cannot complete it without that key material. Hardware hosting the original \"LIFX Bulb\" setup SSID is detected by name and gets a plaintext TCP connection to the same port instead. The schema has no softAP-binary-over-TCP method type, so this entry rides under softap_udp, but the transport here is TLS over TCP, not UDP.\n",
+          "softap": {
+            "gateway_ip": "172.16.0.1",
+            "open_network": true,
+            "port": 56700,
+            "port_notes": "TCP on this flow, unlike the legacy method: the same 56700 port number, TLS-wrapped on post-original hardware.\n",
+            "ssid_examples": [
+              "LIFX Z 04A3C1",
+              "LIFX Bulb"
+            ],
+            "ssid_prefix": "LIFX"
+          },
+          "steps": [
+            {
+              "action": "Factory reset the strip (or power a new one) and wait for its setup AP.",
+              "actor": "user",
+              "expect": "An open AP named with the LIFX prefix appears; the device sits at 172.16.0.1 on it.",
+              "timeout_seconds": 60
+            },
+            {
+              "action": "Join the setup AP from the provisioning client.",
+              "actor": "user",
+              "expect": "Client receives a 172.16.0.x address."
+            },
+            {
+              "action": "Open a TLS TCP connection to 172.16.0.1:56700 (mutual TLS; client key material is bundled in the vendor app).",
+              "actor": "client",
+              "expect": "TLS session established with the device."
+            },
+            {
+              "action": "Claim the device to the vendor cloud (only when it reports claim-over-softAP support).",
+              "actor": "client",
+              "expect": "The device acknowledges; the app repeats Wan.Set once a second (up to five sends) until acked.",
+              "request": {
+                "action": "Wan.SetHost (type 209: 32-byte broker hostname, then a 1-byte insecure-skip-verify flag), Wan.SetAuthKey (205: 32-byte account token), Wan.Set (202: enable the uplink) — all broadcast-targeted, over the TLS TCP stream"
+              }
+            },
+            {
+              "action": "Hand over the home network credentials.",
+              "actor": "client",
+              "expect": "No reply is guaranteed; the app re-sends once a second until the device drops the AP to join the home network.",
+              "request": {
+                "action": "SetAccessPoint (type 305), interface=STATION(2), ssid, password, security_protocol — the same 98-byte layout as the legacy UDP method, sent over the TLS TCP stream"
+              }
+            },
+            {
+              "action": "Rejoin the home network and rediscover the device.",
+              "actor": "user",
+              "expect": "The device answers mDNS/UDP discovery on the home LAN; see the discovery block.",
+              "timeout_seconds": 90
+            }
+          ],
+          "timing": {
+            "resend_interval_notes": "The app re-sends the SetAccessPoint request once a second until the device drops the connection (it tears its AP down to join the home network); a disconnect after at least one send is treated as success. The optional cloud-claim Wan.Set is sent up to five times at the same interval until acknowledged.\n",
+            "resend_interval_seconds": 1
+          },
+          "type": "softap_udp",
+          "verified": false
         }
       ],
-      "notes": "LIFX strips must be joined to WiFi before the LAN protocol is usable. Unprovisioned (or factory-reset) devices host a temporary AP and accept credentials over the same UDP port 56700 used for control, via the access-point message family (0x12D-0x132) that the original published LAN protocol documented and the current official protocol.yml no longer carries. The layouts below are transcribed from that legacy public reverse-engineering documentation (magicmonkey/lifxjs Protocol.md — the same class of source pywemo is for Wemo). They match original-generation firmware and are the only published credential exchange for these devices; they have NOT been replayed against hardware by this project, and LCM3/Matter-era firmware onboards over BLE through the vendor app instead, so expect newer units to ignore them. Once provisioned, control is unauthenticated UDP and needs no further setup.\n",
+      "notes": "LIFX strips must be joined to WiFi before the LAN protocol is usable. Unprovisioned (or factory-reset) devices host a temporary AP, and the decompiled vendor app (jadx; com.lifx.core.protocol.Wifi and the onboarding processor) shows TWO onboarding exchanges on it, both speaking the LIFX binary protocol to the device at 172.16.0.1 port 56700 via the access-point message family (304-309) that the original published LAN protocol documented and the current official protocol.yml no longer carries. The modern flow opens a TLS-secured TCP connection to that port; the legacy flow sends the same messages as UDP datagrams. The legacy layouts were first transcribed from the legacy public reverse-engineering documentation (magicmonkey/lifxjs Protocol.md — the same class of source pywemo is for Wemo) and are now confirmed byte-exact against the decompiled app; neither flow has been replayed against hardware by this project, hence confidence medium (app-derived, not hardware-verified). During onboarding the app also claims the device to the vendor cloud when the device reports claim-over-softAP support: Wan.SetHost (type 209) hands it the cloud broker hostname, Wan.SetAuthKey (205) a 32-byte account token, and Wan.Set (202) enables the WAN uplink. Matter-firmware units are instead commissioned through the Matter stack the app bundles (see the device notes). Once provisioned, control is unauthenticated UDP and needs no further setup.\n",
       "rejoin": {
         "in_place_supported": false,
         "notes": "No documented in-place credential update; treat a router change as a reset-and-reprovision.\n",
         "requires_factory_reset": true
       },
       "required": true
+    },
+    "testing": {
+      "status": "untested"
     },
     "transport": "udp"
   },
@@ -389,7 +461,7 @@
       "Resolve the mDNS host address.",
       "Send LIFX LAN GetService message type 2 to UDP port 56700."
     ],
-    "message_type_notes": "set_power 117 is light-level power (LightSetPower); the device-level SetPower message is 21. set_color 102 sets ALL zones at once — per-zone control needs the multizone family below. Full machine-readable message definitions (pkt_type, sizes, fields) are published officially in the LIFX/public-protocol repo (protocol.yml) — the codegen source for a lifx_lan_udp handler.\n",
+    "message_type_notes": "set_power 117 is light-level power (LightSetPower); the device-level SetPower message is 21. set_color 102 sets ALL zones at once — per-zone control needs the multizone family below. Full machine-readable message definitions (pkt_type, sizes, fields) are published officially in the LIFX/public-protocol repo (protocol.yml) — the codegen source for a lifx_lan_udp handler. Every type number here, the multizone family below, and the UDP 56700 transport are confirmed byte-exact against the decompiled vendor app (Protocol.MessageType; UdpTransport sends to port 56700).\n",
     "message_types": {
       "get": 101,
       "get_service": 2,
@@ -403,12 +475,14 @@
       "extended_set_color_zones": 510,
       "extended_state_multi_zone": 512,
       "get_color_zones": 502,
+      "get_zone_count": 504,
       "multizone_get_effect": 507,
       "multizone_set_effect": 508,
       "multizone_state_effect": 509,
       "set_color_zones": 501,
       "state_multi_zone": 506,
-      "state_zone": 503
+      "state_zone": 503,
+      "state_zone_count": 505
     },
     "port": 56700,
     "transport": "udp",

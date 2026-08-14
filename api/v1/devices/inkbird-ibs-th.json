@@ -1,0 +1,238 @@
+{
+  "advertising": {
+    "format": "ble_legacy",
+    "local_name": {
+      "match": "exact",
+      "values": [
+        "sps",
+        "tps"
+      ]
+    },
+    "service_uuids": [
+      "0000fff0-0000-1000-8000-00805f9b34fb"
+    ]
+  },
+  "ble": {
+    "connection_sequence": {
+      "description": "Passive (normal): scan -> match sps/tps + fff0 + 9-byte manufacturer data -> decode. No connection ever required. Optional poll: connect -> service fff0 -> read fff2 (temp/hum) -> disconnect. Battery comes from the advertisement byte 7 only.\n"
+    }
+  },
+  "device": {
+    "category": "sensor",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "exact",
+              "values": [
+                "sps",
+                "tps"
+              ]
+            },
+            "service_uuids": [
+              "0000fff0-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefixes": [
+        "sps",
+        "tps"
+      ],
+      "manufacturer_data": {
+        "description": "Deliberately NO company_id filter: the temperature occupies the company-ID position of the manufacturer data, so the reported id changes with every reading. Identify by local name \"sps\"/\"tps\" + fff0 service UUID + 9-byte manufacturer data.\n"
+      },
+      "service_uuids": [
+        "0000fff0-0000-1000-8000-00805f9b34fb"
+      ]
+    },
+    "manufacturer": "Inkbird",
+    "manufacturer_status": "active",
+    "name": "Inkbird IBS-TH1 / IBS-TH2 Thermometer-Hygrometer",
+    "notes": "Battery-powered BLE temperature/humidity sensors (IBS-TH1, IBS-TH2, and the IBS-P01B pool thermometer variant) that broadcast readings in BLE advertisement manufacturer data — no connection required for live values. Official app: com.inkbird.inkbirdapp (\"Inkbird\").\nSources (no APK teardown was needed or used for this spec): the Bluetooth-Devices/inkbird-ble parser library (backs the Home Assistant core inkbird integration), which is itself copied from Ernst79's bleparser (the ble_monitor custom component), plus the library's test suite which pins the byte layout against captured advertisements. Confidence: parser-library-derived, corroborated by raw advertisement captures in the test suite; not re-verified against hardware here.\nADVERTISEMENT QUIRK — there is NO company ID. The manufacturer-specific AD structure (type 0xFF) is 9 bytes and the temperature occupies the two bytes where the Bluetooth company identifier would normally sit. Stacks therefore report the temperature as the \"company id\" (e.g. a reading of 20.44 °C surfaces as manufacturer_data key 2044 = 0x07FC). Two consequences: (1) discovery must NOT key on a fixed company id — every distinct reading appears as a distinct manufacturer-data entry, and consecutive readings can show up as multiple changed entries; (2) match on local name (\"sps\" / \"tps\") plus advertised service UUID 0000fff0 plus the 9-byte total length instead.\nON-AIR MANUFACTURER DATA (9 bytes, offsets from the start of the AD structure content, i.e. including the pseudo company-ID bytes):\n  bytes 0-1: temperature, signed int16 LE, /100.0 °C\n             (proven: capture fc 07 c7 12 00 c8 3d 56 06 ->\n             0x07FC = 2044 -> 20.44 °C, inkbird-ble test_sps)\n  bytes 2-3: humidity, uint16 LE, /100.0 %  (0x12C7 = 4807 -> 48.07 %)\n  bytes 4-6: unidentified, varies between captures\n  byte 7:    battery percent 0-100  (0x56 = 86)\n  byte 8:    flags/packet variant (0x06 / 0x08 observed), unknown\nIBS-TH2/P01B (\"tps\") uses the same 9-byte layout; humidity reads 0 on units without a humidity sensor and the parser only reports it when non-zero. Readings with humidity > 100 % are corrupt packets and should be dropped whole (inkbird-ble issue #141).\nCONNECTED MODE (optional): the same reading can be polled over GATT. Service 0000fff0-0000-1000-8000-00805f9b34fb, characteristic 0000fff2-0000-1000-8000-00805f9b34fb (read): temperature int16 LE /100 at bytes 0-1, humidity uint16 LE /100 at bytes 2-3 — i.e. the advertisement layout WITHOUT the pseudo-company-id interpretation and without the battery byte (battery is advertisement-only). No pairing, bonding or authentication. The advertisement already carries every field, so polling is only useful as a freshness fallback.\nFAMILY CROSS-REFERENCE: Inkbird ships several incompatible protocols under similar names, and 0000fff0 is shared between them:\n  - This spec: IBS-TH1/TH2/P01B sensors, names \"sps\"/\"tps\", 9-byte ads.\n  - iBBQ-1/2/4/6 BBQ thermometers also advertise the fff0 service but\n    with names containing \"iBBQ\"/\"xBBQ\" and 12/14/18/22-byte\n    manufacturer data (probe temps at the tail) — see the sibling spec\n    ibbq-meat-thermo (0xfff0 binary GATT protocol, app com.inkbird.ibbtgo).\n  - IBT-2X/IBT-4XS/IBBQ-4BW use the 0000ff00 ASCII-hex command protocol\n    — see the sibling spec inkbird-bbq-thermometer.\nDiscriminate by local name + manufacturer-data length + service UUID, never by service UUID alone.\n",
+    "protocol": "ble",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "BLE advertisement broadcast, no auth. No Wi-Fi on this model family.",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": false,
+        "confidence": "medium",
+        "effect": "No factory reset exists or is needed: the device holds no credentials, bindings or client state. Removing the battery for 10+ seconds is the only reset relevant to a BLE client — the device simply resumes broadcasting.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false
+          },
+          "description": "Passive scan: match local name \"sps\"/\"tps\" and the fff0 service UUID, take the 9-byte manufacturer data, decode temperature, humidity and battery. Optionally connect and read 0000fff2 for a fresh sample.\n",
+          "steps": [
+            {
+              "action": "Insert the battery; the sensor starts advertising immediately.",
+              "actor": "user"
+            },
+            {
+              "action": "Scan for name sps/tps with service UUID 0000fff0 and a 9-byte manufacturer-data AD structure.",
+              "actor": "client"
+            },
+            {
+              "action": "Decode temperature (bytes 0-1, s16 LE, /100), humidity (bytes 2-3, u16 LE, /100), battery (byte 7).",
+              "actor": "client",
+              "expect": "Live readings with every advertisement; humidity above 100% marks a corrupt packet — drop it."
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "No provisioning, pairing, bonding or account. The device advertises as soon as a battery is fitted; readings are decoded passively. Confidence high: the decode is pinned by captured advertisements in the inkbird-ble test suite and runs in production in the Home Assistant core inkbird integration.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Broadcast-only with no bond: any number of clients can decode the advertisements, and switching controllers is just scanning from the new one.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "status": "untested"
+    },
+    "variants": [
+      {
+        "identification": {
+          "local_name_prefix": "sps"
+        },
+        "model": "IBS-TH1",
+        "notes": "Temperature + humidity + battery in the 9-byte advertisement."
+      },
+      {
+        "identification": {
+          "local_name_prefix": "tps"
+        },
+        "model": "IBS-TH2 / IBS-P01B",
+        "notes": "Same 9-byte format. Humidity field reads 0 on units without a humidity sensor (the P01B pool thermometer); report humidity only when non-zero (inkbird-ble behaviour).\n"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "device_class": "temperature",
+      "name": "Temperature",
+      "platform": "sensor",
+      "unit": "°C"
+    },
+    {
+      "device_class": "humidity",
+      "name": "Humidity",
+      "notes": "IBS-TH1 only; IBS-TH2/P01B reports 0 when no humidity sensor is fitted — suppress zero.",
+      "platform": "sensor",
+      "unit": "%"
+    },
+    {
+      "device_class": "battery",
+      "name": "Battery",
+      "notes": "Advertisement byte 7 only; not present in the GATT poll.",
+      "platform": "sensor",
+      "unit": "%"
+    }
+  ],
+  "payload_formats": {
+    "IBS_TH_Advertisement": {
+      "description": "9-byte manufacturer-specific AD structure (type 0xFF). Byte 0 is the start of the AD content — the pseudo company-ID position that actually carries the temperature.\n",
+      "example": "fc 07 c7 12 00 c8 3d 56 06",
+      "fields": [
+        {
+          "description": "Bytes 0-1, signed int16 LE, /100.0 °C. Surfaces to BLE stacks as the manufacturer-data company id.",
+          "index": 0,
+          "name": "temperature"
+        },
+        {
+          "description": "Bytes 2-3, uint16 LE, /100.0 % RH. Drop the packet if decoded humidity exceeds 100% (corrupt).",
+          "index": 2,
+          "name": "humidity"
+        },
+        {
+          "description": "Bytes 4-6, unidentified; varies between captures.",
+          "index": 4,
+          "name": "unknown"
+        },
+        {
+          "description": "Battery percent 0-100.",
+          "index": 7,
+          "name": "battery"
+        },
+        {
+          "description": "0x06 or 0x08 observed; meaning unknown.",
+          "index": 8,
+          "name": "flags"
+        }
+      ],
+      "parse_rules": [
+        "temperature = s16le(bytes 0-1) / 100.0  -> 0x07FC = 20.44 °C",
+        "humidity = u16le(bytes 2-3) / 100.0     -> 0x12C7 = 48.07 %",
+        "battery = byte 7                        -> 0x56 = 86 %",
+        "Do not match or filter on the company-ID position; it is data."
+      ]
+    }
+  },
+  "references": [
+    "https://github.com/Bluetooth-Devices/inkbird-ble",
+    "https://github.com/Bluetooth-Devices/inkbird-ble/blob/main/src/inkbird_ble/parser.py",
+    "https://github.com/Bluetooth-Devices/inkbird-ble/blob/main/tests/test_parser.py",
+    "https://github.com/Ernst79/bleparser/blob/c42ae922e1abed2720c7fac993777e1bd59c0c93/package/bleparser/inkbird.py",
+    "https://github.com/custom-components/ble_monitor",
+    "https://www.home-assistant.io/integrations/inkbird"
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "format": [
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "temperature",
+              "offset": 0,
+              "scale": 0.01,
+              "type": "int16",
+              "unit": "C"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "humidity",
+              "notes": "Reads 0 on units without a humidity sensor (IBS-TH2/P01B); report only when non-zero.\n",
+              "offset": 2,
+              "scale": 0.01,
+              "type": "uint16",
+              "unit": "%"
+            }
+          ],
+          "name": "sensor_data",
+          "notes": "Current reading, same field layout as the advertisement head: temperature int16 LE /100 °C at bytes 0-1, humidity uint16 LE /100 % at bytes 2-3. No battery byte here — battery is only in the advertisement.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "0000fff2-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Inkbird Sensor Service",
+      "notes": "Shared with the iBBQ BBQ-thermometer family — do not treat the service UUID alone as identification. Connected access is optional; the advertisement carries every field.\n",
+      "uuid": "0000fff0-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}
