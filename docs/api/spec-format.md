@@ -732,8 +732,9 @@ pip install -r requirements.txt
 python scripts/validate_specs.py     # PASS/FAIL per file, with the failing JSON path
 ```
 
-CI runs this on every push, regenerates `device-specs/index.json` and fails if
-it is stale, and re-validates every published spec before building the docs.
+CI runs this on every push and re-validates every published spec before building
+the docs. `device-specs/index.json` is rebuilt and committed by CI on main —
+never carry it in a branch.
 
 ## Writing one
 
