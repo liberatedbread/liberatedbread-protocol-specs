@@ -48,6 +48,16 @@ Everything else is optional, and the schema is deliberately
 permissive — unknown keys are allowed so device-specific detail can travel
 alongside the standard fields. Consumers parse the subset they understand.
 
+Permissiveness has two deliberate exceptions, both places where an unknown key
+is not bespoke detail but a standard field spelled wrong, and where nothing
+downstream can tell the difference:
+
+- a top-level `references:` is rejected — reference links go in `helpful_urls`
+  (see below);
+- a command's `payload:` accepts only `key` and `value_type` — a raw byte
+  sequence is `value` (fixed) or `template` (parameterized), never
+  `payload.bytes`.
+
 ### Further reading and watch links
 
 Use top-level `helpful_urls` and `helpful_videos` for human-oriented reference
@@ -73,6 +83,11 @@ link matters. URLs must be HTTP or HTTPS. Do not invent links, and verify that
 they resolve before adding them. A dead or wrong reference is worse than an
 absent one. Videos are not YouTube-only; PeerTube, Vimeo, Invidious and direct
 video files are valid when they resolve and are relevant.
+
+The field is `helpful_urls`, not `references`. A top-level `references:` is
+rejected by the schema rather than ignored: it reads like a spec field, it is
+not one, and a spec that used it kept its links in the file and out of every
+generated artifact with nothing to say so.
 
 ### Three things that sound alike
 

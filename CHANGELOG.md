@@ -465,6 +465,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   in the Allegion payload is the stable public address or a copy of the
   rotating one is called out as unresolved, for the planned HCI-snoop session.
 
+- Nineteen specs kept their reference links under a top-level `references:`
+  key that nothing reads. `helpful_urls` is the field the index generator and
+  the JSON API pick up, so 126 links — teardowns, protocol write-ups, FCC
+  filings and the working implementations the specs were derived from — sat
+  in the YAML and never reached a generated artifact. They are now
+  `helpful_urls` entries with a `title` and a `description` saying what each
+  link is good for, as the schema wants: `ble-pulse-oximeter`,
+  `bmw-motorcycle-diagnostics`, `cat-printer`, `divoom-pixoo`, `ember-mug`,
+  `etekcity-smart-scale`, `gerbing-thermogauge`, `govee-h5075-thermo`,
+  `govee-h5080-plug`, `govee-h6001-bulb`, `hotwired-heated-gear`,
+  `iledcolor-led-panel`, `inkbird-ibs-th`, `jlx-laser-distance-meter`,
+  `m6-fitness-band`, `omron-connect`, `oral-b-io-smartbrush`,
+  `thermopro-tp357` and `triumph-tiger-900`.
+
+- `govee-h5080-plug` and `govee-h6001-bulb` filed their command byte
+  sequences under `payload.bytes`, which the schema does not define. Only the
+  mobile Rust crate could still read them, and only because it carries a
+  bespoke shim for this exact misfiling; to the JSON API, the index and
+  anything else working from the schema, every command in both specs was a
+  command with no bytes. The plug's frames were already complete 20-byte
+  frames and move to `value` unchanged. The bulb's were 3-to-7-byte prefixes
+  of a 20-byte frame, so the shim emitted short writes the hardware rejects —
+  they are now written out in full: fixed frames (`power_on`, `power_off`,
+  `keep_alive`) as `value` with the byte-19 XOR computed, and the
+  parameterized ones (`set_brightness`, `set_color`, `set_color_white`) as
+  `template` plus `parameters`, which is what a brightness slider needs in
+  order to be more than one hardcoded level. Three packet descriptions
+  counted a zero byte too many and now agree with the frames beside them.
+
+- `schema.json` closes the two doors those mistakes walked through, against
+  the permissive habit of the rest of the file. A top-level `references:` is
+  now rejected outright, and a command's `payload` takes only `key` and
+  `value_type`. Both are cases where an unknown key is not bespoke metadata
+  travelling alongside the standard fields — the design the permissiveness
+  exists for — but a standard field spelled wrong, which nothing downstream
+  can distinguish from a key it was meant to ignore. A `references:` nested
+  inside a bespoke block (devolo's `zwave:`) is prose citation and stays
+  legal.
+
 - `roku-ecp` corrects the "Control by mobile apps" gating from a live
   2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position
   refuses more than the OS 14.1 notice implies — `/query/apps` answers
