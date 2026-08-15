@@ -90,11 +90,34 @@ device:
       display: "robotname"
 
   discovery:
-    # No `methods` block, deliberately.
-    #
-    # The reliable method is the UDP broadcast documented in the top-level
-    # irobot_lan_protocol block, and the schema's structured methods vocabulary
-    # has no udp_broadcast type, so it cannot be expressed here.
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 5678
+          broadcast_address: "255.255.255.255"
+          # The nine ASCII bytes "irobotmcs". Byte-for-byte detail, and the
+          # reply's full field list, are in irobot_lan_protocol below; this
+          # block is the discovery contract a scanner executes.
+          probe_hex: "69726f626f746d6373"
+          # Roombas answer the probe; they do NOT beacon on their own, so a
+          # listener that never sends anything finds nothing.
+          passive_ok: false
+          response_format: "json"
+          identity_mapping:
+            stable_keys:
+              # `Roomba-<blid>` / `iRobot-<blid>` — the BLID is the substring
+              # after the first hyphen, and is the MQTT username. `robotname`
+              # is display only: the owner can change it.
+              - source: "json:hostname"
+            display:
+              source: "json:robotname"
+    # PORT 5678 IS SHARED. MikroTik's MNDP (see mikrotik-routeros.yaml) uses the
+    # same port, so one broadcast draws replies from both, and a consumer
+    # scanning for either will see the other's datagrams. They are told apart by
+    # shape rather than by port: MNDP answers with big-endian TLV records, a
+    # Roomba with a JSON object whose hostname carries one of the two prefixes
+    # above. A parser that assumes everything on 5678 is its own protocol will
+    # mis-report the other vendor's hardware.
     #
     # mDNS is NOT listed. Robots are reported to be visible on 5353, but no
     # source this spec draws on names the service type they advertise, and an
@@ -342,9 +365,10 @@ device:
 # document, which is why everything below is still stated in full.
 protocol_handler: "roomba_mqtt"
 
-# The discovery exchange, documented here because the schema's structured
-# `discovery.methods` vocabulary has no udp_broadcast type — the same reason
-# tplink-kasa-smart-plug.yaml carries a tplink_smarthome_protocol block.
+# The wire detail behind the two exchanges. `device.discovery.methods` above
+# carries the discovery CONTRACT a scanner executes (port, probe, how identity
+# is read); this block carries the bytes, the full reply field list and the
+# password handshake, which the structured vocabulary has no place for.
 irobot_lan_protocol:
   discovery:
     transport: "udp"

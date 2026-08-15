@@ -71,7 +71,18 @@ is the MQTT username. A datagram whose hostname starts with neither prefix is
 not a robot; the probe reaches every host on the segment, so filter on it.
 
 Send the probe more than once. UDP is lossy, and a dropped datagram is a robot
-never found.
+never found. Robots answer the probe but do not beacon on their own, so a
+consumer that only listens finds nothing — the spec's discovery method records
+that as `passive_ok: false`.
+
+!!! warning "Port 5678 is shared with MikroTik MNDP"
+    MikroTik's neighbour-discovery protocol ([mikrotik-routeros](mikrotik-routeros.md))
+    uses the same UDP port, so one broadcast draws replies from both and a
+    consumer scanning for either will see the other's datagrams. They are told
+    apart by the *shape* of the reply, not by the port: MNDP answers with
+    big-endian TLV records, a Roomba with a JSON object whose `hostname` carries
+    one of the two prefixes above. A parser that assumes everything arriving on
+    5678 is its own protocol will report somebody's router as a robot.
 
 !!! note "There is no mDNS entry here on purpose"
     Robots are reported to be visible on 5353, but nothing this page draws on
