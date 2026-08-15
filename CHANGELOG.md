@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `commands:` blocks for seven specs whose entity role maps named no command
+  — `ratgdo`, `wled-controller`, `lifx-z`, `divoom-pixoo`,
+  `frigidaire-window-ac`, `frigidaire-portable-ac` and (by removal)
+  `rachio-controller`. A role map "carries a name, not a payload", as the
+  `commands` key has always said, but these carried request prose
+  (`'POST /cover/door/open'`), a protocol message type (`'SetPower'`), an
+  attribute name (`'targetTemperatureC'`) or an MQTT topic — none of which any
+  consumer can resolve, and none of which the schema rejects. 46 bindings now
+  name real commands. Two specs are deliberately left: see #41.
+
 - `auto: crc16_modbus`, for MODBUS-RTU framing (reflected polynomial 0xA001,
   init 0xFFFF, no final xor). Two bytes wide, so the parameter declares
   `type: uint16` and MODBUS's low-byte-first convention comes from this
