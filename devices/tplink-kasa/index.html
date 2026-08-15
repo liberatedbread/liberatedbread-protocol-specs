@@ -1348,6 +1348,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jlx-laser-distance-meter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Johnson JLX Laser Distance Meters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1829,6 +1850,15 @@
   <a href="#commands" class="md-nav__link">
     <span class="md-ellipsis">
       Commands
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#energy-monitoring-hs110-kp115" class="md-nav__link">
+    <span class="md-ellipsis">
+      Energy monitoring (HS110, KP115)
     </span>
   </a>
   
@@ -2910,6 +2940,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#energy-monitoring-hs110-kp115" class="md-nav__link">
+    <span class="md-ellipsis">
+      Energy monitoring (HS110, KP115)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#setup-adopting-a-reset-plug" class="md-nav__link">
     <span class="md-ellipsis">
       Setup (adopting a reset plug)
@@ -3035,8 +3074,10 @@ obfuscation, not security — there is no secret. Reproducible test vectors
 <p>Broadcast the XOR-encoded <code>{"system":{"get_sysinfo":null}}</code> to
 <code>255.255.255.255:9999</code>. Every Kasa-protocol device on the segment answers with
 a unicast datagram carrying its full <code>get_sysinfo</code> — <code>alias</code>, <code>model</code>,
-<code>deviceId</code>, <code>mac</code>, <code>rssi</code> and <code>relay_state</code>. <code>deviceId</code> is the stable identity;
-<code>alias</code> is the user-facing name.</p>
+<code>feature</code>, <code>deviceId</code>, <code>mac</code>, <code>rssi</code> and <code>relay_state</code>. <code>deviceId</code> is the
+stable identity; <code>alias</code> is the user-facing name; <code>model</code> and <code>feature</code> are
+what a client matches to decide which entities this unit actually has (see
+<a href="#energy-monitoring-hs110-kp115">Energy monitoring</a>).</p>
 <h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3060,7 +3101,7 @@ a unicast datagram carrying its full <code>get_sysinfo</code> — <code>alias</c
 </tr>
 <tr>
 <td><code>{"emeter":{"get_realtime":null}}</code></td>
-<td>HS110 only — instantaneous voltage/current/power/total. Not modelled as an entity yet.</td>
+<td>Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. The state poll for the energy sensors below.</td>
 </tr>
 <tr>
 <td><code>netif.set_stainfo</code></td>
@@ -3068,6 +3109,31 @@ a unicast datagram carrying its full <code>get_sysinfo</code> — <code>alias</c
 </tr>
 </tbody>
 </table>
+<h2 id="energy-monitoring-hs110-kp115">Energy monitoring (HS110, KP115)<a class="headerlink" href="#energy-monitoring-hs110-kp115" title="Permanent link">&para;</a></h2>
+<p>The meter is modelled as four sensor entities in the machine-readable spec —
+<strong>Voltage</strong> (V), <strong>Current</strong> (A), <strong>Power</strong> (W) and <strong>Total Consumption</strong>
+(kWh) — all polled with <code>emeter.get_realtime</code>. The reply nests under
+<code>{"emeter":{"get_realtime":{...}}}</code>.</p>
+<p><strong>Only some of the family has the hardware.</strong> The HS110 and KP115 meter; the
+HS100/HS103/HS105/KP105 do not, and answer this command with an error rather
+than a reading. The four sensors are scoped in the spec with
+<code>variants: ["HS110", "KP115"]</code>, matched against the <code>device.variants</code> table, so
+a client can drop them instead of drawing four tiles that are permanently
+unavailable. Match <code>get_sysinfo</code>'s <code>model</code> against a variant's <code>model_prefix</code>
+as a <strong>prefix</strong> — the reply is <code>"HS110(US)"</code>, region suffix and all. Better
+still, <code>get_sysinfo</code> answers a colon-separated <code>feature</code> list: <code>"ENE"</code> in it
+means <em>this unit</em> has the meter, which is the check python-kasa's <code>has_emeter</code>
+makes and the one that stays correct when a new model ships.</p>
+<p><strong>And the field names vary by hardware revision.</strong> Current firmware reports
+<code>voltage</code>/<code>current</code>/<code>power</code>/<code>total</code> as floats already in V/A/W/kWh; HS110
+hardware v1 reports <code>voltage_mv</code>/<code>current_ma</code>/<code>power_mw</code>/<code>total_wh</code> in
+milli-units instead. This is a <em>rename</em>, not just a scaling — on hw v1 the
+modern keys are absent, so a client resolving the primary path finds nothing at
+all. Each sensor therefore carries a <code>state_mapping.value_fallback</code> naming the
+legacy path and the factor (<code>0.001</code>) that brings it back to the entity's unit:
+try the primary, fall back only when that key is missing. That is what
+python-kasa's <code>EmeterStatus</code> does, and both code paths exist in the vendor app
+(see the spec's <code>evidence</code> block).</p>
 <h2 id="setup-adopting-a-reset-plug">Setup (adopting a reset plug)<a class="headerlink" href="#setup-adopting-a-reset-plug" title="Permanent link">&para;</a></h2>
 <p>A factory-fresh or reset plug hosts an <strong>open AP</strong> named <code>TP-LINK_Smart
 Plug_XXXX</code> and speaks the same port-9999 protocol on it. Joining it to the home
