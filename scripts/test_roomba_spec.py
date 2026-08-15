@@ -200,6 +200,56 @@ def test_a_non_robot_announcement_is_rejected(protocol):
         blid_from_hostname("printer-4f2a", ("Roomba-", "iRobot-"))
 
 
+def test_the_discovery_method_agrees_with_the_protocol_block(spec, protocol):
+    """The two places this exchange is written down must not drift apart.
+
+    `device.discovery.methods` is the contract a generic scanner executes
+    without reading a word of prose; `irobot_lan_protocol.discovery` is the
+    byte-level description. Same datagram, stated twice — so a scanner built
+    from the machine-readable half and a client built from the prose half have
+    to end up sending the same thing.
+    """
+    methods = spec["device"]["discovery"]["methods"]
+    udp = [m["udp_broadcast"] for m in methods if m["type"] == "udp_broadcast"]
+    assert len(udp) == 1, "exactly one UDP broadcast method is expected"
+    method = udp[0]
+
+    host, _, port = protocol["discovery"]["destination"].rpartition(":")
+    assert method["port"] == int(port)
+    assert method["broadcast_address"] == host
+    # The probe is the same nine bytes whether you read it as hex or as the
+    # ASCII string — the hex form exists so a consumer never has to guess an
+    # encoding.
+    assert bytes.fromhex(method["probe_hex"]) == protocol["discovery"]["request"][
+        "payload"
+    ].encode()
+    assert method["response_format"] == protocol["discovery"]["response"]["encoding"]
+    # Robots answer; they do not beacon. A listen-only scanner finds nothing,
+    # and saying otherwise here would tell one to skip the probe.
+    assert method["passive_ok"] is False
+
+
+def test_the_discovery_method_maps_identity_onto_real_fields(spec, protocol):
+    """Every `json:` source the method names must exist in the example reply."""
+    methods = spec["device"]["discovery"]["methods"]
+    method = next(m["udp_broadcast"] for m in methods if m["type"] == "udp_broadcast")
+    announcement = json.loads(protocol["discovery"]["response"]["example"])
+
+    mapping = method["identity_mapping"]
+    sources = [key["source"] for key in mapping["stable_keys"]]
+    sources.append(mapping["display"]["source"])
+    for source in sources:
+        kind, _, name = source.partition(":")
+        assert kind == "json", f"the reply is JSON, not {kind}: {source}"
+        assert name in announcement, f"{source} is not a field of the reply"
+
+    # The stable key is the hostname rather than `ip` or `mac`: the BLID lives
+    # in it, and the BLID is what the MQTT username and the credential store
+    # are keyed by. `robotname` is display only — the owner can rename it.
+    assert sources[:-1] == ["json:hostname"]
+    assert mapping["display"]["source"] == "json:robotname"
+
+
 # ── Password disclosure ──────────────────────────────────────────────────────
 
 
