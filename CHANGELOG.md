@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `auto: crc16_modbus`, for MODBUS-RTU framing (reflected polynomial 0xA001,
+  init 0xFFFF, no final xor). Two bytes wide, so the parameter declares
+  `type: uint16` and MODBUS's low-byte-first convention comes from this
+  schema's default `endianness` rather than from the role. `bluetti-power-
+  station` declared the CRC on all three of its commands as an ordinary
+  parameter, which asked a caller for a value it has no way to produce;
+  they now carry the role with `checksum_start: 0`, the address byte being
+  covered.
+
 - `auto: xor_checksum`, a fourth encoder-filled parameter role. `auto:
   checksum` is an additive sum8 salted by `checksum_xor`; the Govee 20-byte
   frames end in an XOR fold over bytes 0-18 instead (`checksum_start: 0`) —
