@@ -1747,6 +1747,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../devices/irobot-roomba/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    iRobot Roomba (Wi-Fi models)
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../devices/lifx-z/" class="md-nav__link">
         
   
@@ -3074,6 +3095,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#p13" class="md-nav__link">
+    <span class="md-ellipsis">
+      P13 — Power as a stateful control, and the toggle problem
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3306,6 +3336,15 @@
   <a href="#p12" class="md-nav__link">
     <span class="md-ellipsis">
       P12 — Executable HTTP commands, paired credentials, and hub children
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p13" class="md-nav__link">
+    <span class="md-ellipsis">
+      P13 — Power as a stateful control, and the toggle problem
     </span>
   </a>
   
@@ -3818,6 +3857,209 @@ credential from the path into an <code>hue-application-key</code> header, and ot
 devices will want <code>Authorization:</code>; that is the next piece of this vocabulary
 when a spec needs v2, and it should follow the <code>arguments</code> substitution model
 rather than invent its own.</p>
+<h3 id="p13">P13 — Power as a stateful control, and the toggle problem<a class="headerlink" href="#p13" title="Permanent link">&para;</a></h3>
+<p><strong>Problem.</strong> A consumer cannot turn a TV off from these specs without guessing.
+All nine <code>category: tv</code> specs express power as a stateless <code>button</code>, and the
+schema <em>enforces</em> that shape: the button contract in
+<code>entities.items.allOf[0]</code> requires exactly the <code>press</code> role and forbids every
+state binding. That is right for a remote key — a keypress is honestly
+stateless — but it leaves no role meaning "make this device off", so a
+consumer wanting one has to match on command names.</p>
+<p>Command names will not carry that weight. The same idea is spelled
+<code>press_power_off</code> (Roku, Sony, Vizio, Philips), <code>power_off</code> (LG),
+<code>press_power</code> (Samsung, Panasonic, Hisense, Android TV), <code>press_standby</code>
+(Philips) and <code>press_power_toggle</code> (Vizio) — and the last three are
+<strong>toggles</strong>, so a consumer that globs <code>*power*</code> will turn a sleeping TV on.
+Worse, the toggle/discrete distinction exists today only in prose:
+<code>panasonic-viera.yaml</code> marks it in a YAML comment
+(<code># -- Power. NRC_POWER is a TOGGLE, not discrete on/off.</code>) and
+<code>vizio-smartcast.yaml</code> in an entity <code>notes:</code> string. Neither is machine-readable,
+so nothing in the file distinguishes the two operations.</p>
+<p><strong>Evidence.</strong> <code>lg-webos.yaml</code> already proves the fix is expressible today: its
+Mute control is a <code>switch</code> entity binding <code>turn_on</code>/<code>turn_off</code> with a
+<code>state_topic</code>, on a Wi-Fi device, with no schema change. Power is the same
+shape and simply was never written that way. Meanwhile the mobile consumer's
+bulk operations resolve strictly by entity action role — deliberately, so that
+destructive verbs are unreachable from a fan-out by construction rather than by
+blacklist — which means TVs are currently excluded from bulk control entirely,
+not by policy but for want of a role to bind.</p>
+<p><strong>Proposal.</strong> Give each TV spec a <code>platform: "switch"</code>, <code>name: "Power"</code> entity
+<strong>alongside</strong> its existing remote buttons. The buttons stay: a remote's power
+key is still a keypress, and removing it would break every remote UI.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">platform</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;switch&quot;</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Power&quot;</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">icon</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mdi:power&quot;</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">commands</span><span class="p">:</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">      </span><span class="nt">turn_on</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;press_power_on&quot;</span><span class="w">      </span><span class="c1"># only where network power-on really works</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">      </span><span class="nt">turn_off</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;press_power_off&quot;</span><span class="w">    </span><span class="c1"># only where a discrete off exists</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">      </span><span class="nt">toggle</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;press_power&quot;</span><span class="w">          </span><span class="c1"># new role, for the toggle-only sets</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">    </span><span class="nt">state_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;/sony/system&quot;</span><span class="w">   </span><span class="c1"># where the device reports power at all</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">    </span><span class="nt">state_command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;getPowerStatus&quot;</span>
+</code></pre></div>
+<p><code>toggle</code> is the one new role, and it is what makes the distinction
+machine-readable: a command bound to <code>toggle</code> is declared to flip state, so a
+consumer knows it must establish the current state before sending. Each spec
+binds only the roles its hardware honestly supports:</p>
+<table>
+<thead>
+<tr>
+<th>Spec</th>
+<th><code>turn_off</code></th>
+<th><code>turn_on</code></th>
+<th><code>toggle</code></th>
+<th>Power state readable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>roku-ecp</code></td>
+<td><code>press_power_off</code></td>
+<td><code>press_power_on</code> (warm standby only)</td>
+<td>—</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>sony-bravia</code></td>
+<td><code>press_power_off</code></td>
+<td><code>press_power_on</code></td>
+<td><code>press_power</code></td>
+<td>yes — <code>Power Status</code></td>
+</tr>
+<tr>
+<td><code>vizio-smartcast</code></td>
+<td><code>press_power_off</code></td>
+<td><code>press_power_on</code></td>
+<td><code>press_power_toggle</code></td>
+<td>yes — <code>Power Mode</code></td>
+</tr>
+<tr>
+<td><code>philips-jointspace</code></td>
+<td><code>press_power_off</code></td>
+<td><code>press_power_on</code></td>
+<td><code>press_standby</code></td>
+<td>yes — <code>Power State</code>, v6 only</td>
+</tr>
+<tr>
+<td><code>lg-webos</code></td>
+<td><code>power_off</code></td>
+<td>—</td>
+<td>—</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>samsung-tizen-tv</code></td>
+<td><code>press_power</code> †</td>
+<td>—</td>
+<td>—</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>hisense-vidaa</code></td>
+<td>—</td>
+<td>—</td>
+<td><code>press_power</code></td>
+<td>yes — <code>TV State</code></td>
+</tr>
+<tr>
+<td><code>android-tv-remote</code></td>
+<td>—</td>
+<td>—</td>
+<td><code>press_power</code></td>
+<td>yes — <code>Power State</code></td>
+</tr>
+<tr>
+<td><code>panasonic-viera</code></td>
+<td><em>no switch entity — see below</em></td>
+<td></td>
+<td></td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p>† Samsung's <code>KEY_POWER</code> is nominally a toggle, but the spec records that the
+network stack is down in standby, so <strong>no network client can reach an off set</strong>.
+The toggle is therefore discrete-off in practice, and binding it as <code>turn_off</code>
+with that reasoning in <code>notes:</code> is the honest description rather than a
+convenient one. This is a <em>verified protocol signal</em>, not an assumption — which
+is exactly what separates it from Panasonic.</p>
+<p><strong>Panasonic is deliberately excluded.</strong> It is the one set that is toggle-only
+<em>and</em> reachable while off: <code>panasonic-viera.yaml</code> states that power-on over the
+network works from network standby ("Powered On By Apps" / "Networked Standby"),
+with Wake-on-LAN needed only when that is disabled or on several older plasma
+models. So a Viera in standby <strong>will</strong> receive <code>NRC_POWER-ONOFF</code> and turn on. It
+also reports no power state, so a consumer can never establish that it is safe
+to send. Giving it a Power switch would ship a control that is either inoperable
+under the rule below or actively harmful in a bulk off; it keeps its remote
+button and nothing else until it gains a readable state or a discrete off.</p>
+<p><code>turn_on</code> is deliberately unbound for LG, Samsung and Hisense: those specs state
+that no network command can wake a standby set, because the network stack is
+down. Note this is "cannot wake over the network", which is a different claim
+from Panasonic's "has no <em>discrete</em> on command" — Panasonic can wake, it just
+cannot be told which direction to go. Wake-on-LAN, the documented route for the
+first group, has no declarative representation in the schema — <strong>out of scope
+here</strong>, and worth its own proposal rather than a field smuggled in beside
+<code>commands</code>.</p>
+<p><strong>Bind Philips' discrete off, which is documented but unreachable.</strong>
+<code>philips-jointspace.yaml</code> catalogues "Set Power State" under <code>http_endpoints</code>
+and never exposes it as a <code>command</code>, so no consumer can invoke it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="w">  </span><span class="nt">set_power_standby</span><span class="p">:</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span><span class="nt">transport</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http&quot;</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;POST&quot;</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;/{api_version}/powerstate&quot;</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="nt">arguments</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> powerstate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Standby&quot;</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</code></pre></div>
+<p>Genuinely cheap — a flat scalar body, the same shape Vizio's and Philips' own
+existing HTTP commands already render through <code>arguments</code> — and it gives Philips
+an off that does not depend on a key code being accepted.</p>
+<p><strong>Sony's equivalent is <em>not</em> cheap, and this proposal should not pretend it is.</strong>
+<code>sony-bravia.yaml</code> documents <code>setPowerStatus</code>, but every Sony REST call is a
+JSON-RPC envelope — <code>{"method": …, "params": [ … ], "id": N, "version": "1.x"}</code>,
+where the spec states <code>params</code> is <strong>always</strong> an array. <code>arguments</code> cannot
+express that: the schema constrains its values to
+<code>["string", "number", "boolean"]</code>, so an array containing an object has nowhere
+to live. <code>body:</code> does not rescue it either — the schema defines <code>body</code> as the
+counterpart of <code>arguments</code> for SOAP and <code>path</code> for HTTP, i.e. <em>for a
+JSON-over-socket protocol</em> (<code>tcp-json</code>), not for HTTP.</p>
+<p>So binding Sony's REST off depends on a prior extension: literal or nested
+body values for <code>transport: http</code>. That is a vocabulary gap of its own and
+belongs in its own proposal — the same call P12 made when it deferred a
+<code>headers:</code> vocabulary rather than widening its scope. <strong>Sony loses nothing in
+the meantime</strong>: its <code>press_power_off</code> IRCC command already works over SOAP, and
+that is what the table above binds.</p>
+<p><strong>A note the consumer contract needs.</strong> On a toggle-only set the Power switch
+resolves <em>only</em> <code>toggle</code>, so a consumer predating the role sees a switch with no
+resolvable actions. <code>docs/api/spec-format.md</code> should state that a control which
+resolves no roles must be hidden, not rendered dead — otherwise this proposal
+ships a non-functional toggle to older clients.</p>
+<p><strong>A failed read is not the same as "off", and the contract must not conflate
+them.</strong> A state read can fail from packet loss, a stale address, an auth
+failure, or an endpoint that was never there — <code>philips-jointspace.yaml</code>
+explicitly documents 403/404 as <em>endpoint-not-present</em>, which says nothing about
+power at all. Two separate rules, then:</p>
+<ul>
+<li><strong>Infer standby only from a verified, protocol-specific signal.</strong> Some specs
+  supply one: a Sony in standby answers control calls with the error string
+  <code>"not power-on"</code>, which its spec says "a client should read as 'off', not
+  'broken'"; Vizio documents its state endpoint as unreachable rather than wrong
+  while the set is asleep. Where such a signal is documented, a consumer may act
+  on it.</li>
+<li><strong>Otherwise the state is <em>unknown</em>, and must be surfaced as unavailable —
+  never as off.</strong> Unknown still means "do not send the toggle", because
+  declining to act is the safe default for a bulk off. But that is a rule about
+  the <em>toggle decision only</em>: it must not suppress ordinary retries or hide a
+  recoverable network or configuration fault behind a confident-looking "off".</li>
+</ul>
+<p><strong>Compatibility.</strong> Additive. The button contract is untouched, every existing
+<code>button</code> entity keeps working, and a consumer that does not know <code>toggle</code>
+degrades to "this TV offers no bulk power control" — which is exactly today's
+behaviour, so nothing regresses. The switch is also shaped to map cleanly onto a
+Home Assistant <code>media_player</code>/<code>switch</code> with <code>assumed_state: true</code> where no state
+is readable, keeping that consumer's route open.</p>
+<p><strong>Effort.</strong> Small per spec — one entity each, plus one new command for Philips.
+Sony's REST off is explicitly <em>not</em> in scope, for want of an HTTP nested-body
+vocabulary. The real half is consumer work: a <code>toggle</code> role in the mobile app's
+role tables, and the read-state-then-toggle rule that makes it safe. As with
+P12, the schema change is not the interesting part.</p>
 <h2 id="strategic-optional">Strategic / optional<a class="headerlink" href="#strategic-optional" title="Permanent link">&para;</a></h2>
 <h3 id="p7">P7 — A normalized capability vocabulary<a class="headerlink" href="#p7" title="Permanent link">&para;</a></h3>
 <p><strong>Problem.</strong> There is no machine-readable answer to "what can this device do?" that
@@ -3827,14 +4069,14 @@ with a dimmable output" must special-case each spec.</p>
 <p><strong>Proposal (the Buttplug idea, kept as an optional layer).</strong> A small controlled
 vocabulary describing capabilities, sitting <em>on top of</em> the byte-level spec, never
 replacing it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">capabilities</span><span class="p">:</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;actuator&quot;</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;dimmer&quot;</span><span class="w">            </span><span class="c1"># dimmer | switch | color | rotate | oscillate | vibrate | position | temperature</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">resolution</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> min</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="nt"> max</span><span class="p">:</span><span class="w"> </span><span class="nv">100</span><span class="p p-Indicator">,</span><span class="nt"> steps</span><span class="p">:</span><span class="w"> </span><span class="nv">100</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># Buttplug&#39;s StepRange, as data</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="nt">maps_to</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;set_brightness&quot;</span><span class="w">                        </span><span class="c1"># the command that drives it</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;sensor&quot;</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;battery&quot;</span><span class="w">           </span><span class="c1"># battery | temperature | humidity | pressure | rssi | button | weight</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">    </span><span class="nt">maps_to</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0000181a-...-battery_percent&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">capabilities</span><span class="p">:</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;actuator&quot;</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;dimmer&quot;</span><span class="w">            </span><span class="c1"># dimmer | switch | color | rotate | oscillate | vibrate | position | temperature</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nt">resolution</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> min</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="nt"> max</span><span class="p">:</span><span class="w"> </span><span class="nv">100</span><span class="p p-Indicator">,</span><span class="nt"> steps</span><span class="p">:</span><span class="w"> </span><span class="nv">100</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># Buttplug&#39;s StepRange, as data</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">maps_to</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;set_brightness&quot;</span><span class="w">                        </span><span class="c1"># the command that drives it</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;sensor&quot;</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;battery&quot;</span><span class="w">           </span><span class="c1"># battery | temperature | humidity | pressure | rssi | button | weight</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">    </span><span class="nt">maps_to</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0000181a-...-battery_percent&quot;</span>
 </code></pre></div>
 <p>This is what would let a generic client or a cross-device search work without
 per-device code — Buttplug's central win — while keeping our byte-level ground
@@ -3958,6 +4200,13 @@ this page classifiable.</p>
 <td>High</td>
 <td>Low</td>
 <td><strong>Landed</strong></td>
+</tr>
+<tr>
+<td><a href="#p13">P13</a></td>
+<td>Power as a stateful control + <code>toggle</code> role</td>
+<td>High</td>
+<td>Low</td>
+<td>With consumer</td>
 </tr>
 <tr>
 <td><a href="#p7">P7</a></td>
