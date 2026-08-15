@@ -420,6 +420,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `tplink-kasa-smart-plug` stops offering the energy meter on plugs that do not
+  have one. The four emeter sensors were unscoped, so a consumer drew Voltage /
+  Current / Power / Total Consumption on an HS100, HS103, HS105 or KP105 —
+  models with no metering hardware, which answer `emeter.get_realtime` with an
+  error — leaving four tiles permanently unavailable. The spec now carries a
+  `device.variants` table of the six covered models, each identified by a new
+  `identification.model_prefix` (matched as a prefix against `get_sysinfo`'s
+  `model`, because the reply is `"HS110(US)"`, region suffix and all), and the
+  sensors carry `variants: ["HS110", "KP115"]`. `get_sysinfo`'s `feature` field
+  is documented alongside as the better runtime test — `"ENE"` in that
+  colon-separated list means this unit has the meter, which is what
+  python-kasa's `has_emeter` checks and what stays correct when a new model
+  ships.
+
+- `tplink-kasa-smart-plug` makes the HS110 hardware-v1 emeter reply actually
+  resolvable. Hardware v1 does not merely scale its readings, it *renames*
+  them: `voltage_mv` / `current_ma` / `power_mw` / `total_wh`, in milli-units,
+  with the modern keys absent from the reply entirely. The sensors' dotted
+  paths therefore found nothing on that hardware and prose telling a consumer
+  to divide by 1000 could not help — there was no key to divide. Each sensor
+  now declares `state_mapping.value_fallback` (`path` plus `scale: 0.001`), the
+  legacy field family is declared in `get_emeter`'s `returns` rather than
+  described only in prose, and `scripts/test_kasa_spec.py` decodes both reply
+  shapes through one reader. The fallback is deliberately not a variant split:
+  a consumer ignoring `value_fallback` keeps working on current firmware,
+  whereas two entities per reading would make a consumer ignoring `variants`
+  draw every meter tile twice.
+
+- `schlage-smart-locks` stops using the BLE address as lock identity.
+  `discovery.identity.stable_keys` was `["address"]`, contradicting the
+  2026-08-14 live-hardware finding recorded in the same file: both observed
+  lock addresses have the locally-administered bit set, so these are
+  random-static addresses the lock may rotate — a client keying on one either
+  loses a lock it already knows or enrols the same lock twice. Identity is now
+  the full `SCHLAGE<8 hex>` local name, whose suffix is serial-derived and
+  survives a rotation, with the address demoted in `identity.notes` (a new,
+  documented key) to an ephemeral connection locator to be re-resolved by
+  scanning. Discovery gains the two match rules the evidence supports —
+  Allegion manufacturer-data company ID 315, and the `SCHLAGE` name prefix —
+  ahead of the DataTransfer service UUID the one captured advertisement did not
+  carry. The sighting record's "public Bluetooth address with OUI `B7:AC:C2`"
+  is corrected: that prefix is not a vendor OUI, and whether the MAC embedded
+  in the Allegion payload is the stable public address or a copy of the
+  rotating one is called out as unresolved, for the planned HCI-snoop session.
+
 - `roku-ecp` corrects the "Control by mobile apps" gating from a live
   2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position
   refuses more than the OS 14.1 notice implies — `/query/apps` answers
