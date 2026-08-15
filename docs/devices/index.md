@@ -54,6 +54,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Omron BLE Blood Pressure Monitors](omron-connect.md) | BLE | Complete | BLE button pairing + client key (high) | Omron Healthcare |
 | [Aranet4 CO2 Sensor](aranet4.md) | BLE | Complete | None needed (broadcast); bonding for history (high) | SAF Tehnika JSC |
 | [Bluetti Power Station](bluetti-power-station.md) | BLE | Complete | None needed | Bluetti (Shenzhen Poweroak) |
+| [Johnson JLX LDM330/LDM130 Laser Distance Meters](jlx-laser-distance-meter.md) | BLE | Spec Available | None needed (medium) | Johnson Level & Tool (Winho OEM) |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
