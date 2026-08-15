@@ -1,0 +1,433 @@
+{
+  "device": {
+    "category": "energy",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "regex",
+              "value": "^(AC200M|AC300|AC500|AC60|EP500P|EP500|EP600|EB3A)[0-9]+$"
+            },
+            "service_uuids": [
+              "0000ff00-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "service_uuids": [
+        "0000ff00-0000-1000-8000-00805f9b34fb"
+      ]
+    },
+    "manufacturer": "Bluetti (Shenzhen Poweroak Newener Co., Ltd.)",
+    "manufacturer_status": "active",
+    "name": "Bluetti Power Station (EP500 / V1 MODBUS family)",
+    "notes": "Bluetti portable power stations / solar generators (EP500, EP500P, AC200M, AC300, AC500, AC60, EP600, EB3A and kin) expose full local telemetry and control over BLE with no pairing and no cloud dependency. The vendor is active; this is a cloud-independence spec: the Bluetti app funnels telemetry through Bluetti's cloud/IoT service, while every reading and control below is plain local GATT.\nThe protocol is MODBUS-RTU carried over GATT: write request frames to characteristic 0xFF02, receive responses as notifications on 0xFF01. Frame = [addr 0x01][function][payload...][crc16 lo][crc16 hi]. The CRC is CRC-16/MODBUS (poly 0x8005 reflected -> 0xA001, init 0xFFFF, no xorout) computed over every preceding byte and appended LITTLE-endian; register addresses and register values inside the payload are BIG-endian u16. Functions: 0x03 Read Holding Registers (request 01 03 <start u16 BE> <qty u16 BE> <crc>; response 01 03 <byte_count=2*qty> <qty words BE> <crc>), 0x06 Write Single Register (01 06 <addr> <value> <crc>; response echoes the request), 0x10 Write Multiple (unused for this family's controls). Error responses set bit 0x80 on the function byte, followed by a MODBUS exception code; reading an undefined register returns such an exception — handle it, do not retry.\nRESPONSE REASSEMBLY: requests fit one ATT write (8 bytes), but responses fragment across multiple FF01 notifications at the default 23-byte MTU (the largest documented poll, 61 registers, is 127 bytes). Append notifications until the buffer reaches exactly 2*qty+5 bytes (8 for a write echo), then verify the CRC. One command in flight at a time; wait for the complete response or a ~5 s timeout (bluetti_mqtt retries up to 5 times, and never retries a MODBUS exception). Single BLE central only — the vendor app and another client cannot be connected simultaneously.\nTHREE PROTOCOL GENERATIONS, discriminated at connect time: 1. Plain V1 (this spec's register map; EP500-vintage ~2021): silence on\n   FF01 after subscribing until you write.\n2. Plain V2 (AC70/AC180/EL30-class): same framing, shifted identity map —\n   device_type at register 110 as a byte-pair-swapped string, serial at\n   116, SOC at 102.\n3. Encrypted (newer firmware): immediately after subscribing to FF01 the\n   device pushes an unsolicited key-exchange message beginning with magic\n   bytes 2A 2A (\"**\"). The handshake (per the nhurman lineage): 4-byte\n   challenge -> MD5-derived interim AES key -> ECDH P-256 with\n   ECDSA-signed public keys -> AES-CBC session encrypting the same MODBUS\n   frames. Not documented further here; treat 2A 2A-on-subscribe as\n   \"encrypted unit\" and fall back to read-only vendor-app coexistence\n   until the handshake is specced.\n\nSAFETY: the writable 3000-range switches real mains/DC power. AC/DC output toggles (3007/3008) can cut power to whatever is plugged in — surface them as explicit switches, never automate blindly. Registers 3015/3016 (charge SOC window) and time-control programming change charging behavior; treat as advanced.\nCloud dependency: none for anything documented here.\n",
+    "pictogram": "power-station",
+    "protocol": "ble",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "Plain-protocol units carry no authentication of any kind: anyone in radio range can read telemetry and toggle AC/DC outputs. Relevant because those outputs power real appliances.\n",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "effect": "No BLE-relevant factory-reset procedure is documented in the public RE literature. The unit stores no client credentials and no bonds, so there is nothing to clear for local control. Not stated rather than guessed.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false
+          },
+          "description": "Connect over GATT, subscribe to 0xFF01, wait ~2 s to check for the 2A 2A encrypted-protocol push, then poll with function-0x03 reads and control with function-0x06 writes on 0xFF02.\n",
+          "steps": [
+            {
+              "action": "Scan for advertised name matching ^(AC200M|AC300|AC500|AC60|EP500P|EP500|EP600|EB3A)\\d+$ or service 0xFF00.",
+              "actor": "client"
+            },
+            {
+              "action": "Connect over GATT (no pairing) and enable notifications on 0000ff01.",
+              "actor": "client"
+            },
+            {
+              "action": "Wait ~2 s. If an unsolicited notification starting 2A 2A arrives, the unit runs the encrypted protocol — stop (not covered here).",
+              "actor": "client"
+            },
+            {
+              "action": "Write ReadHoldingRegisters(10,6) to 0000ff02; reassemble FF01 notifications to 17 bytes; CRC-check.",
+              "actor": "client",
+              "expect": "Payload decodes to the ASCII model string (e.g. \"EP500\"); registers 17-20 then yield the serial matching the advertised name."
+            }
+          ],
+          "type": "ble_direct",
+          "verified": true
+        }
+      ],
+      "notes": "No provisioning, pairing or bonding for the plain protocol: connect, subscribe to FF01, write MODBUS frames to FF02. Confidence high: exercised live here (see testing) and by three independent open implementations. Single-connection limit applies.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "No network membership. Any client may connect once the previous central disconnects (single-connection peripheral).\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "detail": "minimally-verified",
+      "notes": "Read path verified live 2026-08-14 against a real EP500 (advertised name \"EP5002142000061564\", public MAC, OUI 00:15:83) over bleak/BlueZ with no pairing, driving frames built from this document. GATT layout matched (0xFF00 service with FF01 notify / FF02 write; FF03/FF04 also present — see services). No unsolicited push arrived after subscribing to FF01, confirming the plain (unencrypted) V1 protocol. ReadHoldingRegisters(10,6) returned ASCII \"EP500\" with a valid CRC; ReadHoldingRegisters(17,4) decoded (low-word-first u64) to 2142000061564 — exactly the serial embedded in the advertised name, a strong cross-check of both the register map and the field encoding; ReadHoldingRegisters(36,14) returned live plausible telemetry (SOC 50%, ac_output_on=1 with 1049 W AC load, dc_output_on=1 at 2 W). NOT exercised: every write (AC/DC output toggles, all 3000-range controls), the pack-selector flow, the V2 register layout and the encrypted protocol — those rest on the cited implementations only.\n",
+      "status": "verified"
+    }
+  },
+  "entities": [
+    {
+      "device_class": "battery",
+      "name": "Battery",
+      "notes": "Register 43 (total_battery_percent).",
+      "platform": "sensor",
+      "unit": "%"
+    },
+    {
+      "device_class": "power",
+      "name": "AC Output Power",
+      "notes": "Register 38.",
+      "platform": "sensor",
+      "unit": "W"
+    },
+    {
+      "device_class": "power",
+      "name": "DC Output Power",
+      "notes": "Register 39.",
+      "platform": "sensor",
+      "unit": "W"
+    },
+    {
+      "device_class": "power",
+      "name": "AC Input Power",
+      "notes": "Register 37.",
+      "platform": "sensor",
+      "unit": "W"
+    },
+    {
+      "device_class": "power",
+      "name": "DC Input Power",
+      "notes": "Register 36 (solar/car charging).",
+      "platform": "sensor",
+      "unit": "W"
+    },
+    {
+      "name": "AC Output",
+      "notes": "State register 48, control register 3007. Cuts mains power to plugged-in loads — surface as an explicit switch.",
+      "platform": "switch"
+    },
+    {
+      "name": "DC Output",
+      "notes": "State register 49, control register 3008.",
+      "platform": "switch"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Primary working implementation (Python/bleak): UUIDs, MODBUS framing, CRC, complete EP500 register map, retry etiquette, discovery regex.",
+      "title": "warhammerkid/bluetti_mqtt",
+      "url": "https://github.com/warhammerkid/bluetti_mqtt"
+    },
+    {
+      "description": "Independent working library: cross-checks EP500 addresses, adds the V2 register layout and the encrypted-protocol handshake port.",
+      "title": "Patrick762/bluetti-bt-lib",
+      "url": "https://github.com/Patrick762/bluetti-bt-lib"
+    },
+    {
+      "description": "Home Assistant integration; advertisement local_name matchers (EP5* etc.).",
+      "title": "Patrick762/hassio-bluetti-bt",
+      "url": "https://github.com/Patrick762/hassio-bluetti-bt"
+    },
+    {
+      "description": "ESP32 C++ bridge; third independent confirmation of service UUID, poll ranges and write registers 3007/3008.",
+      "title": "mariolukas/Bluetti_ESP32_Bridge",
+      "url": "https://github.com/mariolukas/Bluetti_ESP32_Bridge"
+    }
+  ],
+  "payload_formats": {
+    "register_map_ep500_v1": {
+      "description": "EP500 (plain V1) holding-register map; registers are u16 big-endian on the wire. Types: uint = u16; bool = u16 (1 = true); decimal(n) = u16 / 10^n; string = ASCII, null-padded, no byte swap; u64 = four u16 words, LOW word first (sn = w0 | w1<<16 | w2<<32 | w3<<48); u32/100 = two u16 words, low first, divided by 100. Verified-live fields are marked.\n",
+      "fields": [
+        {
+          "description": "string, 6 registers (12 bytes): model, e.g. \"EP500\". VERIFIED LIVE.",
+          "index": 10,
+          "name": "device_type"
+        },
+        {
+          "description": "u64, 4 registers, low word first. Matches the digits in the advertised name. VERIFIED LIVE.",
+          "index": 17,
+          "name": "serial_number"
+        },
+        {
+          "description": "u32/100, 2 registers.",
+          "index": 23,
+          "name": "arm_version"
+        },
+        {
+          "description": "u32/100, 2 registers.",
+          "index": 25,
+          "name": "dsp_version"
+        },
+        {
+          "description": "uint, watts. VERIFIED LIVE (read in 36..49 block).",
+          "index": 36,
+          "name": "dc_input_power"
+        },
+        {
+          "description": "uint, watts.",
+          "index": 37,
+          "name": "ac_input_power"
+        },
+        {
+          "description": "uint, watts. VERIFIED LIVE (1049 W under real load).",
+          "index": 38,
+          "name": "ac_output_power"
+        },
+        {
+          "description": "uint, watts.",
+          "index": 39,
+          "name": "dc_output_power"
+        },
+        {
+          "description": "decimal(1), lifetime kWh.",
+          "index": 41,
+          "name": "power_generation"
+        },
+        {
+          "description": "uint, 0-100 SOC. VERIFIED LIVE (50%).",
+          "index": 43,
+          "name": "total_battery_percent"
+        },
+        {
+          "description": "bool (state; the writable control is register 3007). VERIFIED LIVE.",
+          "index": 48,
+          "name": "ac_output_on"
+        },
+        {
+          "description": "bool (state; the writable control is register 3008). VERIFIED LIVE.",
+          "index": 49,
+          "name": "dc_output_on"
+        },
+        {
+          "description": "enum: 0 STOP, 1 INVERTER_OUTPUT, 2 BYPASS_OUTPUT_C, 3 BYPASS_OUTPUT_D, 4 LOAD_MATCHING.",
+          "index": 70,
+          "name": "ac_output_mode"
+        },
+        {
+          "description": "decimal(1), volts. Block 70..90 also carries currents (72/75/78, decimal(1)), powers (73/76/79, uint), frequencies (74/80, decimal(2)), ac_input_voltage (77, decimal(1)), and DC/PV input voltage/power/current at 86/87/88.",
+          "index": 71,
+          "name": "internal_ac_voltage"
+        },
+        {
+          "description": "uint: number of battery packs.",
+          "index": 91,
+          "name": "pack_num_max"
+        },
+        {
+          "description": "decimal(1), volts.",
+          "index": 92,
+          "name": "total_battery_voltage"
+        },
+        {
+          "description": "uint: SOC of the pack selected via register 3006.",
+          "index": 94,
+          "name": "pack_battery_percent"
+        },
+        {
+          "description": "16 registers, each decimal(2) volts, for the selected pack.",
+          "index": 105,
+          "name": "cell_voltages"
+        },
+        {
+          "description": "enum: 1 CUSTOMIZED, 2 PV_PRIORITY, 3 STANDARD, 4 TIME_CONTROL. Start of the writable 3000-range control block (3000-3061, function 0x06).",
+          "index": 3001,
+          "name": "ups_mode"
+        },
+        {
+          "description": "write pack index here before polling registers 94/105.",
+          "index": 3006,
+          "name": "pack_num_selector"
+        },
+        {
+          "description": "write 1/0 to switch the AC inverter output (see set_ac_output).",
+          "index": 3007,
+          "name": "ac_output_on_control"
+        },
+        {
+          "description": "write 1/0 to switch the DC output (see set_dc_output).",
+          "index": 3008,
+          "name": "dc_output_on_control"
+        },
+        {
+          "description": "bool.",
+          "index": 3011,
+          "name": "grid_charge_on"
+        },
+        {
+          "description": "uint, SOC %% window low bound (with 3016 high bound). Advanced: changes charging behavior.",
+          "index": 3015,
+          "name": "battery_range_start"
+        },
+        {
+          "description": "bool, read-only mirror.",
+          "index": 3036,
+          "name": "bluetooth_connected"
+        },
+        {
+          "description": "enum: 2 THIRTY_SECONDS, 3 ONE_MINUTE, 4 FIVE_MINUTES, 5 NEVER.",
+          "index": 3061,
+          "name": "auto_sleep_mode"
+        }
+      ],
+      "parse_rules": [
+        "Poll cycle used by bluetti_mqtt: ReadHoldingRegisters(10,40), (70,21), (91,37), (3001,61).",
+        "V2-layout models (AC70/AC180/EL30 class) move identity: device_type at 110 (byte-pair-swapped string), serial at 116, SOC at 102 — same framing.",
+        "Reading an undefined register returns a MODBUS exception (function|0x80 + code); do not retry."
+      ]
+    }
+  },
+  "services": [
+    {
+      "characteristics": [
+        {
+          "name": "MODBUS response notifications",
+          "notes": "Carries function-0x03 responses (01 03 <byte_count> <words> <crc>), function-0x06 echoes, MODBUS exceptions (function|0x80), and — on encrypted-protocol units only — the unsolicited 2A 2A key-exchange push right after subscription. Responses fragment across notifications; reassemble to 2*qty+5 (or 8) bytes before CRC check.\n",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "0000ff01-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "commands": {
+            "read_registers": {
+              "description": "Read {qty} holding registers from {start} (function 0x03). Identity/status polls: (10,6) model string, (17,4) serial, (36,14) power/SOC/output block, (70,21) AC internals, (91,37) pack block, (3001,61) control block.",
+              "parameters": {
+                "crc": {
+                  "description": "CRC-16/MODBUS over bytes 0..n-3, appended low byte first.",
+                  "type": "uint16"
+                },
+                "qty": {
+                  "endianness": "big",
+                  "max": 61,
+                  "min": 1,
+                  "type": "uint16"
+                },
+                "start": {
+                  "endianness": "big",
+                  "type": "uint16"
+                }
+              },
+              "template": [
+                1,
+                3,
+                "{start}",
+                "{qty}",
+                "{crc}"
+              ],
+              "verification": "confirmed"
+            },
+            "set_ac_output": {
+              "advanced": true,
+              "advanced_reason": "Cuts or restores mains power to every AC load plugged into the unit. Recover by writing the opposite value or using the front panel.",
+              "description": "AC inverter output on/off: Write Single Register 3007 (0x0BBF) = 1 on / 0 off (function 0x06). Response is an 8-byte echo.",
+              "parameters": {
+                "crc": {
+                  "description": "CRC-16/MODBUS, appended low byte first.",
+                  "type": "uint16"
+                },
+                "on": {
+                  "max": 1,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                1,
+                6,
+                11,
+                191,
+                0,
+                "{on}",
+                "{crc}"
+              ],
+              "verification": "reported"
+            },
+            "set_dc_output": {
+              "advanced": true,
+              "advanced_reason": "Cuts or restores DC power to connected loads. Recover by writing the opposite value or using the front panel.",
+              "description": "DC output on/off: Write Single Register 3008 (0x0BC0) = 1 on / 0 off (function 0x06).",
+              "parameters": {
+                "crc": {
+                  "description": "CRC-16/MODBUS, appended low byte first.",
+                  "type": "uint16"
+                },
+                "on": {
+                  "max": 1,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                1,
+                6,
+                11,
+                192,
+                0,
+                "{on}",
+                "{crc}"
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "MODBUS request write",
+          "notes": "All commands below append CRC-16/MODBUS little-endian over the preceding bytes ({crc} in the templates). Register addresses and values are big-endian u16. One request in flight at a time.\n",
+          "properties": [
+            "write",
+            "write_without_response"
+          ],
+          "uuid": "0000ff02-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Vendor channel (role unknown)",
+          "notes": "Present on EP500 hardware (live enumeration 2026-08-14); unused by all public implementations. Do not write.",
+          "properties": [
+            "notify",
+            "write",
+            "write_without_response"
+          ],
+          "uuid": "0000ff03-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Vendor channel (role unknown)",
+          "notes": "Present on EP500 hardware (live enumeration 2026-08-14); read returns empty. Unused by all public implementations. Do not write.",
+          "properties": [
+            "read",
+            "write",
+            "write_without_response",
+            "notify"
+          ],
+          "uuid": "0000ff04-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Bluetti MODBUS-over-GATT service",
+      "notes": "Live-enumerated on EP500 hardware (2026-08-14): FF01 notify; FF02 write/write-without-response; FF03 notify+write (role unknown — not referenced by any public implementation); FF04 read/write/notify (reads empty; role unknown). All public implementations use only FF01/FF02. MODBUS frame grammar and reassembly rules are on the device notes; register semantics live in payload_formats (register_map_ep500_v1).\n",
+      "uuid": "0000ff00-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

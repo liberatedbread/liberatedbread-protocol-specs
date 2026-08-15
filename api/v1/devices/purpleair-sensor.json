@@ -1,0 +1,277 @@
+{
+  "device": {
+    "category": "sensor",
+    "discovery": {
+      "identity": {
+        "display": "Geo",
+        "stable_keys": [
+          "SensorId"
+        ]
+      },
+      "methods": [
+        {
+          "mdns": {
+            "identity_mapping": {
+              "display": {
+                "source": "http:/json#Geo"
+              },
+              "stable_keys": [
+                {
+                  "key": "SensorId",
+                  "source": "http:/json#SensorId"
+                }
+              ]
+            },
+            "port": 80,
+            "service_type": "_http._tcp.local."
+          },
+          "type": "mdns"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 80,
+      "identity_keys": {
+        "display": "Geo",
+        "primary": "SensorId"
+      }
+    },
+    "manufacturer": "PurpleAir, Inc.",
+    "manufacturer_status": "active",
+    "name": "PurpleAir Air Quality Sensor (PA-I / PA-II family)",
+    "notes": "PurpleAir outdoor/indoor particulate sensors run an ESP (Espressif) SoC that serves a small unauthenticated HTTP JSON API on port 80 — the same server that renders the device's status web page. Every measurement is available locally with no PurpleAir account, no ThingSpeak key and no internet: the device pushes to the cloud (the status_* flags below track those uploads), but the local /json read path is wholly independent of them. This makes PurpleAir one of the cleanest local-first sensors.\nENDPOINTS (all GET, port 80, no auth):\n  /json           -> 120-second average, the same data the web UI shows\n  /json?live=false -> identical to /json (explicit average)\n  /json?live=true  -> instantaneous reading (single 10-second sample)\nThe web UI (/) refreshes /json every 10 seconds; the underlying average spans 120 seconds. There is also /config (Wi-Fi settings, a WRITE page) and /register-map (cloud registration helper) — neither is needed for local reads.\nPM FIELDS — two calibration variants of each mass concentration (both ug/m3; pm1_0, pm2_5, pm10_0):\n  *_cf_1  = \"CF=1\" (standard-particle) density. The PurpleAir map shows\n            this for INDOOR-registered sensors — AND it is the input the\n            US-EPA/Barkjohn national correction is defined on:\n            corrected_pm2.5 = 0.524*pm2_5_cf_1 - 0.0862*current_humidity\n            + 5.75 (raw humidity, not corrected). Use cf_1 for a\n            corrected outdoor AQI.\n  *_atm   = \"atmospheric\" density; the map shows this for\n            OUTDOOR-registered sensors and it is what the device's own web\n            UI displays. Use for a raw outdoor number.\nThe two are IDENTICAL below ~28 ug/m3 PM2.5 and diverge above it (atm rises more slowly; ~2/3 of cf_1 above ~78 ug/m3), so at clean-air levels the choice is moot. pm2.5_aqi + p25aqic: the device computes a US-EPA PM2.5 AQI on channel A (plain EPA breakpoint interpolation of the CURRENT reading) and an rgb() color for it — it is NOT NowCast-averaged and NOT Barkjohn-corrected (those live map/cloud-side only). A consumer wanting a corrected or time-averaged AQI must recompute it from the PM fields. NOTE the literal dot in the key name \"pm2.5_aqi\".\nPARTICLE COUNTS: p_0_3_um ... p_10_0_um are cumulative particle counts per deciliter of air for each size threshold (>=0.3um ... >=10um).\nBME280 ENVIRONMENT: current_temp_f reads high because the sensor sits inside a warm enclosure next to electronics — the community standard is to SUBTRACT ~8 F (and add ~4 %RH to current_humidity) to approximate ambient; current_dewpoint_f follows the raw temp/humidity. pressure is in hPa/mbar. Adc is the board reference voltage (diagnostic).\nDUAL-LASER (PA-II) units carry a second set of fields with a _b suffix (pm2_5_atm_b, p_0_3_um_b, etc.); the A/B pair is used for a data-quality cross-check (large A-vs-B divergence flags a failing laser). A single-laser unit (like the one verified here) exposes only the A set. Read the channel count from hardwarediscovered: one \"PMSX003\" token = single laser, two (\"...PMSX003-A+PMSX003-B\") = dual.\nCloud dependency: none for local reads. The status_* flags report whether the device is currently reaching pool.ntp.org (NTP), googleapis (LOC), update.purpleair.com (UPD), purpleair.com (PAA) and ThingSpeak (TSA/TSB), but a device with all of those failing still serves /json locally.\n",
+    "pictogram": "air-quality",
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "The local JSON API is unauthenticated: anyone on the LAN can read measurements. No credential is needed or issued for local reads; the stored ThingSpeak keys matter only to the cloud-upload path.\n",
+        "stored_on_device": [
+          "Home Wi-Fi credentials",
+          "Optional ThingSpeak channel keys (for cloud upload only)"
+        ],
+        "wifi_passphrase_protection": "device_encrypted"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "effect": "Wi-Fi settings are cleared from the /config page or by the device's reset procedure (model-dependent); nothing is stored that blocks local reads once the device is on the network.\n"
+      },
+      "methods": [
+        {
+          "description": "Not applicable — this is a Wi-Fi/HTTP device. Local read is a plain GET; see steps.",
+          "steps": [
+            {
+              "action": "Find an Espressif host on the LAN; GET http://<ip>/json and check for a SensorId key.",
+              "actor": "client",
+              "expect": "A JSON object with SensorId (MAC), pm*_atm/cf_1, p_*_um and BME280 fields — unauthenticated."
+            },
+            {
+              "action": "Poll /json (120 s average) or /json?live=true (instantaneous) at the desired rate; the sensor updates every ~10 s.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_direct",
+          "verified": true
+        }
+      ],
+      "notes": "No setup is needed to READ an already-networked sensor: GET http://<ip>/json. Confidence high: verified live here, and the local JSON path is what the community Home Assistant local integrations use. Initial Wi-Fi provisioning uses the device's own SoftAP named \"PurpleAir-XXXX\" and its /config page; that is a one-time flow, not required for local reads afterward.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Re-provision via the PurpleAir-XXXX SoftAP and /config; the local /json API returns as soon as the device rejoins.",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "detail": "minimally-verified",
+      "notes": "Verified live 2026-08-14 against a real sensor (firmware 7.02, hardware 2.0, hardwarediscovered \"2.0+BME280+PMSX003-A\", SensorId/MAC 10:52:1c:4d:36:e3, Espressif SoC). The local JSON API answered on plain HTTP port 80 with NO authentication and NO cloud dependency: GET /json and GET /json?live=false returned the 120-second averaged reading (non-integer PM, e.g. pm2_5_atm 0.58, p_0_3_um 188.74), while GET /json?live=true returned the instantaneous reading (integer PM) — the documented live-vs-average distinction, observed directly. The full field set decoded as documented below (PM in ug/m3, particle-count bins per deciliter, BME280 temp/humidity/dewpoint/pressure, wifi/status health flags). This is a SINGLE-LASER unit: only channel-A fields are present (no *_b keys), the served page labels the tile \"Ch A PM2.5 AQI\", and hardwarediscovered lists one PMSX003 (\"-A\") — so dual-laser *_b fields are documented from the two-laser PA-II variant, not seen here. Not exercised: /config (Wi-Fi settings — a write surface) and setup-AP provisioning.\n",
+      "status": "verified"
+    },
+    "transport": "http"
+  },
+  "entities": [
+    {
+      "device_class": "pm25",
+      "name": "PM2.5",
+      "notes": "Atmospheric (outdoor) calibration. Use pm2_5_cf_1 for an indoor sensor.",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "pm2_5_atm"
+      },
+      "state_topic": "/json",
+      "unit": "µg/m³"
+    },
+    {
+      "device_class": "pm10",
+      "name": "PM10",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "pm10_0_atm"
+      },
+      "state_topic": "/json",
+      "unit": "µg/m³"
+    },
+    {
+      "device_class": "pm1",
+      "name": "PM1.0",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "pm1_0_atm"
+      },
+      "state_topic": "/json",
+      "unit": "µg/m³"
+    },
+    {
+      "name": "AQI (PM2.5)",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "pm2.5_aqi"
+      },
+      "state_topic": "/json"
+    },
+    {
+      "device_class": "temperature",
+      "name": "Temperature",
+      "notes": "Raw BME280; subtract ~8 °F for ambient.",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "current_temp_f"
+      },
+      "state_topic": "/json",
+      "unit": "°F"
+    },
+    {
+      "device_class": "humidity",
+      "name": "Humidity",
+      "notes": "Raw BME280; add ~4 %RH for ambient.",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "current_humidity"
+      },
+      "state_topic": "/json",
+      "unit": "%"
+    },
+    {
+      "device_class": "atmospheric_pressure",
+      "name": "Pressure",
+      "platform": "sensor",
+      "state_mapping": {
+        "value": "pressure"
+      },
+      "state_topic": "/json",
+      "unit": "hPa"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor community thread documenting the local /json fields.",
+      "title": "PurpleAir community — local JSON documentation",
+      "url": "https://community.purpleair.com/t/local-json-documentation/6917"
+    },
+    {
+      "description": "Cloud API; field names overlap the local JSON and help disambiguate cf_1 vs atm.",
+      "title": "PurpleAir API (cloud) reference",
+      "url": "https://api.purpleair.com/"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "The 120-second averaged reading, JSON. Same as /json?live=false and what the web UI shows. Unauthenticated. Live-verified.",
+      "method": "GET",
+      "name": "Sensor Reading (120s average)",
+      "path": "/json",
+      "response_body": {
+        "content_type": "application/json"
+      }
+    },
+    {
+      "description": "The instantaneous (single-sample) reading. PM values come back as integers here vs fractional in the average. Live-verified.",
+      "method": "GET",
+      "name": "Sensor Reading (instantaneous)",
+      "path": "/json?live=true",
+      "response_body": {
+        "content_type": "application/json"
+      }
+    }
+  ],
+  "payload_formats": {
+    "purpleair_json": {
+      "description": "Fields of the /json response (channel A). Dual-laser PA-II units repeat the PM and particle-count fields with a _b suffix for channel B.\n",
+      "fields": [
+        {
+          "description": "Device MAC address, e.g. 10:52:1c:4d:36:e3 — the stable identity. GOTCHA: leading zeros are dropped within each octet, so it is not byte-safe; zero-pad each hex group before comparing against ARP/OUI data.\n",
+          "name": "SensorId"
+        },
+        {
+          "description": "Device hostname / SoftAP name, PurpleAir-XXXX.",
+          "name": "Geo"
+        },
+        {
+          "description": "Sensor complement, e.g. '2.0+BME280+PMSX003-A'. Parse as a '+'-separated SET (token order varies between firmwares): two PMSX003 tokens (-A and -B) = dual laser, one = single. OPENLOG + DS3231/RV3028 tokens mark an SD-logging model; BME280 vs BME68X marks the environment sensor. This project's verified unit ('2.0+BME280+PMSX003-A', no OpenLog/RTC) is a single-laser indoor Classic (PA-I-Indoor).\"\n",
+          "name": "hardwarediscovered"
+        },
+        {
+          "description": "Firmware version string, e.g. '7.02'.",
+          "name": "version"
+        },
+        {
+          "description": "US-EPA PM2.5 AQI computed on channel A.",
+          "name": "pm2.5_aqi"
+        },
+        {
+          "description": "rgb() color string matching the PM2.5 AQI category.",
+          "name": "p25aqic"
+        },
+        {
+          "description": "PM1.0 mass concentration, atmospheric (outdoor) calibration, ug/m3. Also pm2_5_atm, pm10_0_atm.",
+          "name": "pm1_0_atm"
+        },
+        {
+          "description": "PM1.0 mass concentration, CF=1 (indoor) calibration, ug/m3. Also pm2_5_cf_1, pm10_0_cf_1.",
+          "name": "pm1_0_cf_1"
+        },
+        {
+          "description": "Cumulative particle count >=0.3um per deciliter. Series continues p_0_5_um, p_1_0_um, p_2_5_um, p_5_0_um, p_10_0_um.",
+          "name": "p_0_3_um"
+        },
+        {
+          "description": "BME280 temperature, F. Reads ~8 F high (enclosure heat) — subtract ~8 for ambient.",
+          "name": "current_temp_f"
+        },
+        {
+          "description": "BME280 relative humidity, %. Reads ~4 %RH low — add ~4 for ambient.",
+          "name": "current_humidity"
+        },
+        {
+          "description": "Dew point, F, derived from the raw temp/humidity.",
+          "name": "current_dewpoint_f"
+        },
+        {
+          "description": "Barometric pressure, hPa/mbar.",
+          "name": "pressure"
+        },
+        {
+          "description": "Wi-Fi RSSI, dBm.",
+          "name": "rssi"
+        },
+        {
+          "description": "Seconds since boot.",
+          "name": "uptime"
+        },
+        {
+          "description": "Health flags (status_0..status_10): 0 not-started/idle, 1 in-progress, 2 OK, 3 error. status_0 NTP, 1 LOC(googleapis), 2 UPD(update.purpleair.com), 3 PAA(purpleair.com), 4/5/8/9 ThingSpeak. All can be failing while /json still serves locally.",
+          "name": "status_0"
+        }
+      ],
+      "parse_rules": [
+        "Raw display value: *_atm for an outdoor sensor (matches the device UI), *_cf_1 for an indoor sensor. Corrected outdoor AQI: use *_cf_1 with the Barkjohn/EPA formula and raw current_humidity. Below ~28 ug/m3 the two are equal.",
+        "A single-laser unit has no *_b fields; on a dual-laser PA-II, average A and B and flag large divergence as a failing laser.",
+        "/json?live=true is a single sample; /json (or ?live=false) is a `period`-second average (normally 120; shorter right after boot, so treat the first sample as partial).",
+        "Fields are hardware-optional: no BME -> no temp/humidity/pressure; single laser -> no *_b; no Data Processor -> no response/response_date."
+      ]
+    }
+  }
+}
