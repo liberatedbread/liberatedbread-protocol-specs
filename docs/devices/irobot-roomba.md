@@ -71,10 +71,21 @@ is the MQTT username. A datagram whose hostname starts with neither prefix is
 not a robot; the probe reaches every host on the segment, so filter on it.
 
 Send the probe more than once. UDP is lossy, and a dropped datagram is a robot
-never found. Discovery needs broadcast to reach the robot, so a client-isolated
-guest SSID or a VLAN that does not forward broadcast will find nothing even
-though the robot is up and its broker is answering — falling back to a known IP
-is always valid.
+never found.
+
+!!! note "There is no mDNS entry here on purpose"
+    Robots are reported to be visible on 5353, but nothing this page draws on
+    names the service type they advertise — so the spec declares no `mdns`
+    discovery method. An earlier revision guessed `_amzn-wplay._tcp`, which is
+    Amazon's Whisperplay (Fire TV) and not iRobot at all. A wrong service type
+    is worse than a missing one: it sends a client hunting on somebody else's
+    protocol and reports their hardware as robots. The UDP broadcast is the
+    documented path; if someone captures the real mDNS type, it can be added.
+
+Discovery needs broadcast to reach the robot, so a client-isolated guest SSID
+or a VLAN that does not forward broadcast will find nothing even though the
+robot is up and its broker is answering — falling back to a known IP is always
+valid.
 
 ## Getting the password
 
