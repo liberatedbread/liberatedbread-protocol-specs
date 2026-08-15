@@ -551,39 +551,93 @@ binds only the roles its hardware honestly supports:
 | `vizio-smartcast` | `press_power_off` | `press_power_on` | `press_power_toggle` | yes — `Power Mode` |
 | `philips-jointspace` | `press_power_off` | `press_power_on` | `press_standby` | yes — `Power State`, v6 only |
 | `lg-webos` | `power_off` | — | — | no |
-| `samsung-tizen-tv` | — | — | `press_power` | no |
-| `panasonic-viera` | — | — | `press_power` | no |
+| `samsung-tizen-tv` | `press_power` † | — | — | no |
 | `hisense-vidaa` | — | — | `press_power` | yes — `TV State` |
 | `android-tv-remote` | — | — | `press_power` | yes — `Power State` |
+| `panasonic-viera` | *no switch entity — see below* | | | no |
 
-`turn_on` is deliberately unbound for LG, Samsung, Hisense and Panasonic. Those
-specs already state that no network command can wake a standby set because the
-network stack is down; binding one would be a lie the file currently avoids
-telling. Wake-on-LAN is the documented route for those sets and has no
-declarative representation in the schema — **out of scope here**, and worth its
-own proposal rather than a field smuggled in beside `commands`.
+† Samsung's `KEY_POWER` is nominally a toggle, but the spec records that the
+network stack is down in standby, so **no network client can reach an off set**.
+The toggle is therefore discrete-off in practice, and binding it as `turn_off`
+with that reasoning in `notes:` is the honest description rather than a
+convenient one. This is a *verified protocol signal*, not an assumption — which
+is exactly what separates it from Panasonic.
 
-**Bind two discrete offs that are documented but unreachable.** Both are
-catalogued under `http_endpoints` and never exposed as `commands`, so no
-consumer can invoke either:
+**Panasonic is deliberately excluded.** It is the one set that is toggle-only
+*and* reachable while off: `panasonic-viera.yaml` states that power-on over the
+network works from network standby ("Powered On By Apps" / "Networked Standby"),
+with Wake-on-LAN needed only when that is disabled or on several older plasma
+models. So a Viera in standby **will** receive `NRC_POWER-ONOFF` and turn on. It
+also reports no power state, so a consumer can never establish that it is safe
+to send. Giving it a Power switch would ship a control that is either inoperable
+under the rule below or actively harmful in a bulk off; it keeps its remote
+button and nothing else until it gains a readable state or a discrete off.
 
-- `sony-bravia.yaml` "Set Power Status" — `POST /sony/system`
-  `{"method": "setPowerStatus", "params": [{"status": false}]}`
-- `philips-jointspace.yaml` "Set Power State" — `POST /{api_version}/powerstate`
-  `{"powerstate": "Standby"}`
+`turn_on` is deliberately unbound for LG, Samsung and Hisense: those specs state
+that no network command can wake a standby set, because the network stack is
+down. Note this is "cannot wake over the network", which is a different claim
+from Panasonic's "has no *discrete* on command" — Panasonic can wake, it just
+cannot be told which direction to go. Wake-on-LAN, the documented route for the
+first group, has no declarative representation in the schema — **out of scope
+here**, and worth its own proposal rather than a field smuggled in beside
+`commands`.
 
-Cheap to add, and they give Sony and Philips an off that does not depend on an
-IRCC key code being accepted.
+**Bind Philips' discrete off, which is documented but unreachable.**
+`philips-jointspace.yaml` catalogues "Set Power State" under `http_endpoints`
+and never exposes it as a `command`, so no consumer can invoke it:
+
+```yaml
+  set_power_standby:
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/powerstate"
+    arguments: { powerstate: "Standby" }
+```
+
+Genuinely cheap — a flat scalar body, the same shape Vizio's and Philips' own
+existing HTTP commands already render through `arguments` — and it gives Philips
+an off that does not depend on a key code being accepted.
+
+**Sony's equivalent is *not* cheap, and this proposal should not pretend it is.**
+`sony-bravia.yaml` documents `setPowerStatus`, but every Sony REST call is a
+JSON-RPC envelope — `{"method": …, "params": [ … ], "id": N, "version": "1.x"}`,
+where the spec states `params` is **always** an array. `arguments` cannot
+express that: the schema constrains its values to
+`["string", "number", "boolean"]`, so an array containing an object has nowhere
+to live. `body:` does not rescue it either — the schema defines `body` as the
+counterpart of `arguments` for SOAP and `path` for HTTP, i.e. *for a
+JSON-over-socket protocol* (`tcp-json`), not for HTTP.
+
+So binding Sony's REST off depends on a prior extension: literal or nested
+body values for `transport: http`. That is a vocabulary gap of its own and
+belongs in its own proposal — the same call P12 made when it deferred a
+`headers:` vocabulary rather than widening its scope. **Sony loses nothing in
+the meantime**: its `press_power_off` IRCC command already works over SOAP, and
+that is what the table above binds.
 
 **A note the consumer contract needs.** On a toggle-only set the Power switch
 resolves *only* `toggle`, so a consumer predating the role sees a switch with no
 resolvable actions. `docs/api/spec-format.md` should state that a control which
 resolves no roles must be hidden, not rendered dead — otherwise this proposal
-ships a non-functional toggle to older clients. Related, and worth writing down
-because three specs volunteer it: on Vizio, Philips and Hisense the state
-endpoint becomes *unreachable* rather than wrong when the set is asleep, so a
-failed state read is evidence of "off", and a consumer should treat it as "not
-confirmed on" rather than as an error to retry.
+ships a non-functional toggle to older clients.
+
+**A failed read is not the same as "off", and the contract must not conflate
+them.** A state read can fail from packet loss, a stale address, an auth
+failure, or an endpoint that was never there — `philips-jointspace.yaml`
+explicitly documents 403/404 as *endpoint-not-present*, which says nothing about
+power at all. Two separate rules, then:
+
+- **Infer standby only from a verified, protocol-specific signal.** Some specs
+  supply one: a Sony in standby answers control calls with the error string
+  `"not power-on"`, which its spec says "a client should read as 'off', not
+  'broken'"; Vizio documents its state endpoint as unreachable rather than wrong
+  while the set is asleep. Where such a signal is documented, a consumer may act
+  on it.
+- **Otherwise the state is *unknown*, and must be surfaced as unavailable —
+  never as off.** Unknown still means "do not send the toggle", because
+  declining to act is the safe default for a bulk off. But that is a rule about
+  the *toggle decision only*: it must not suppress ordinary retries or hide a
+  recoverable network or configuration fault behind a confident-looking "off".
 
 **Compatibility.** Additive. The button contract is untouched, every existing
 `button` entity keeps working, and a consumer that does not know `toggle`
@@ -592,10 +646,11 @@ behaviour, so nothing regresses. The switch is also shaped to map cleanly onto a
 Home Assistant `media_player`/`switch` with `assumed_state: true` where no state
 is readable, keeping that consumer's route open.
 
-**Effort.** Small per spec — one entity each, plus two new commands for Sony and
-Philips. The real half is consumer work: a `toggle` role in the mobile app's
-network role table, and the read-state-then-toggle rule that makes it safe. As
-with P12, the schema change is not the interesting part.
+**Effort.** Small per spec — one entity each, plus one new command for Philips.
+Sony's REST off is explicitly *not* in scope, for want of an HTTP nested-body
+vocabulary. The real half is consumer work: a `toggle` role in the mobile app's
+role tables, and the read-state-then-toggle rule that makes it safe. As with
+P12, the schema change is not the interesting part.
 
 ## Strategic / optional
 
