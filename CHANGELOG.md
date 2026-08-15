@@ -330,8 +330,140 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the two things the bare table does not say: the numbers are not an ordering,
   and an unrecognised value must not be folded into `off`, which would tell a
   user their cooker is off while it is heating
+- **`tplink-kasa-smart-plug` gains energy monitoring.** The HS110's
+  `emeter.get_realtime` — previously only named in the command tree — is now
+  a `get_emeter` command with documented returns, and four HS110-only sensor
+  entities (Voltage, Current, Power, Total Consumption) whose `state_mapping`
+  values are dotted JSON paths from the reply root
+  (`emeter.get_realtime.power`, etc.). The field-name quirk is documented as
+  data, not folklore: current firmware reports plain float fields already in
+  V/A/W/kWh, HS110 hardware v1 reports `voltage_mv`/`current_ma`/`power_mw`/
+  `total_wh` in milli-units, and consumers normalize as python-kasa's
+  `EmeterStatus` does — both code paths confirmed by a clean-room jadx audit
+  of the vendor app (recorded under the spec's `evidence:` block).
+  `scripts/test_kasa_spec.py` now pins the get_emeter request to its exact
+  framed bytes and decodes a sample emeter reply through the sensor mappings.
+  The paths are rooted at the reply root because the reference app's
+  `kasaSysinfoFields` flattener lifts only `system.get_sysinfo` replies — it
+  needs extending for the nested emeter reply before these sensors resolve
+  there
+- **`rabbit-air-purifier` becomes consumable, not just documented.** The spec
+  — the vendor's own published LAN library, transcribed — gains the
+  `commands:` block a client binds (`get_state`/`time_sync`/`get_info` for
+  cmd 4/9/255, `turn_on`/`turn_off`, parameterized `set_mode` and
+  `set_speed`, ionizer and child-lock toggles), each body carrying only the
+  static envelope fields while `id`/`ts` stay runtime-generated per the new
+  `client_rendering` note: wrap minified `{id, cmd, ts, data}`, AES-128-CBC
+  with the per-device user key, random IV appended as the datagram's last 16
+  bytes, one datagram to UDP 9009. The entities are rewritten from prose into
+  bindable form — power switch, mode select with static options, fan-speed
+  number, air-quality/filter-life/RSSI sensors, ionizer and child-lock
+  switches — with state paths rooted at the reply's `data` object, and the
+  two candidate BLE provisioning GATT UUIDs move into `identification` as
+  hypothesis-marked hints so a BLE scan can flag an unprovisioned unit.
+  `scripts/test_rabbit_air_spec.py` (sibling of `test_kasa_spec.py`)
+  transcribes the envelope, cipher and substitution rules from the YAML
+  alone, reproduces the spec's `example_exchange` plaintexts byte-for-byte,
+  and round-trips every command through the cipher; `cryptography` joins the
+  dev requirements for it
+- **`enphase-envoy` gains a bindable telemetry surface.** A `commands:`
+  block names the four local GETs (`get_production_v1`, `get_production_json`,
+  `get_inverters`, `get_info`) as invocations, and the sensor entities —
+  Solar Production, Lifetime Energy, plus a new Today's Energy — move off the
+  unconsumed `state_topic` onto `state_command: get_production_v1` with flat
+  dotted-path mappings (`wattsNow`, `wattHoursLifetime`, `wattHoursToday`).
+  The flat `/api/v1/production` object is the binding target precisely
+  because `/production.json`'s per-type array (`production[i].wNow`) cannot
+  be named by a flat path; both forms stay documented. The firmware-7+ JWT
+  gating caveat is unchanged and applies to every command.
+- **New device: `jlx-laser-distance-meter`.** The Johnson JLX LDM330
+  (40-6013) and its rebadge family (the vendor app's own build enum spans
+  Johnson Measure-Up, Starrett STR3, Ronix, MeasureMate and more) speak an
+  ASCII BLE protocol with no pairing: subscribe to the `f154` notify
+  characteristic, write a six-byte init handshake, and the meter streams
+  10-byte measurement frames — a 6-char decimal always in meters plus a
+  display-unit code — while commands are 13-byte checksummed frames.
+  Recovered by clean-room jadx analysis of the Measure-Up app
+  (`com.winho.measure_up`, APK hash in the research note); marked untested
+  with the open questions (advertised name/UUIDs, the byte-0 prefix,
+  error-frame formats) listed for the first hardware session.
+- **`schlage-smart-locks` gains its first live-hardware evidence.** A
+  read-only BLE + LAN session against a real installed fleet (2026-08-14)
+  caught one commissioned lock advertising once — name `SCHLAGE` + serial
+  suffix, Allegion's Bluetooth company ID 315 (checked against the repo's
+  own registry), MAC embedded in the manufacturer payload — and then
+  silence: idle locks advertise rarely enough that a 75-minute scan saw one
+  packet, so GATT enumeration stays app-derived. On the LAN the locks make
+  no mDNS/SSDP announcements of any kind and no HomeKit `_hap` presence —
+  consistent with, not proof of, the no-local-WiFi-API claim. Recorded as
+  an `evidence: live_hardware:` block with per-claim verdicts (confirmed /
+  not-observed / consistent / untested), names and MACs truncated; the
+  DataTransfer UUID's absence from the idle advertisement is logged as
+  "not observed", pending a capture from a woken lock.
+- **`schlage-smart-locks` WiFi surface, settled from both directions.** A
+  code-level audit of the app's WiFi path (com.allegion.leopard 3.6.0;
+  research-notes/schlage-wifi-local-surface.md) confirms provisioning is
+  100% BLE-driven — the app pushes credentials and the cloud-minted JITR
+  blob over the encrypted uWeave channel and never opens a socket to a lock,
+  and the lock hosts no softAP or listener — while a full-/16 LAN census of
+  the household (88 live hosts, OUI-resolved, candidates port-scanned) found
+  no lock-like listener on any host. Firmware: residential images are not on
+  the commercial release-notes page; metadata is
+  `GET api.allegionengage.com/api/firmware/{platformType}` with a
+  server-supplied binary URL and content-length-only verification, and WiFi
+  locks can self-download (interior button ×5). The one local WiFi surface
+  in the family is the Sense's BR400 adapter: an unauthenticated LAN HTTP
+  API including a firmware-update endpoint taking an arbitrary URL —
+  accessory-scoped, absent on Encode-family locks. Corrects the JITR status
+  enum to 0..5 (no state 6 exists) and records the hardcoded WiFi security
+  field.
 
 ### Fixed
+
+- `tplink-kasa-smart-plug` stops offering the energy meter on plugs that do not
+  have one. The four emeter sensors were unscoped, so a consumer drew Voltage /
+  Current / Power / Total Consumption on an HS100, HS103, HS105 or KP105 —
+  models with no metering hardware, which answer `emeter.get_realtime` with an
+  error — leaving four tiles permanently unavailable. The spec now carries a
+  `device.variants` table of the six covered models, each identified by a new
+  `identification.model_prefix` (matched as a prefix against `get_sysinfo`'s
+  `model`, because the reply is `"HS110(US)"`, region suffix and all), and the
+  sensors carry `variants: ["HS110", "KP115"]`. `get_sysinfo`'s `feature` field
+  is documented alongside as the better runtime test — `"ENE"` in that
+  colon-separated list means this unit has the meter, which is what
+  python-kasa's `has_emeter` checks and what stays correct when a new model
+  ships.
+
+- `tplink-kasa-smart-plug` makes the HS110 hardware-v1 emeter reply actually
+  resolvable. Hardware v1 does not merely scale its readings, it *renames*
+  them: `voltage_mv` / `current_ma` / `power_mw` / `total_wh`, in milli-units,
+  with the modern keys absent from the reply entirely. The sensors' dotted
+  paths therefore found nothing on that hardware and prose telling a consumer
+  to divide by 1000 could not help — there was no key to divide. Each sensor
+  now declares `state_mapping.value_fallback` (`path` plus `scale: 0.001`), the
+  legacy field family is declared in `get_emeter`'s `returns` rather than
+  described only in prose, and `scripts/test_kasa_spec.py` decodes both reply
+  shapes through one reader. The fallback is deliberately not a variant split:
+  a consumer ignoring `value_fallback` keeps working on current firmware,
+  whereas two entities per reading would make a consumer ignoring `variants`
+  draw every meter tile twice.
+
+- `schlage-smart-locks` stops using the BLE address as lock identity.
+  `discovery.identity.stable_keys` was `["address"]`, contradicting the
+  2026-08-14 live-hardware finding recorded in the same file: both observed
+  lock addresses have the locally-administered bit set, so these are
+  random-static addresses the lock may rotate — a client keying on one either
+  loses a lock it already knows or enrols the same lock twice. Identity is now
+  the full `SCHLAGE<8 hex>` local name, whose suffix is serial-derived and
+  survives a rotation, with the address demoted in `identity.notes` (a new,
+  documented key) to an ephemeral connection locator to be re-resolved by
+  scanning. Discovery gains the two match rules the evidence supports —
+  Allegion manufacturer-data company ID 315, and the `SCHLAGE` name prefix —
+  ahead of the DataTransfer service UUID the one captured advertisement did not
+  carry. The sighting record's "public Bluetooth address with OUI `B7:AC:C2`"
+  is corrected: that prefix is not a vendor OUI, and whether the MAC embedded
+  in the Allegion payload is the stable public address or a copy of the
+  rotating one is called out as unresolved, for the planned HCI-snoop session.
 
 - `roku-ecp` corrects the "Control by mobile apps" gating from a live
   2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position

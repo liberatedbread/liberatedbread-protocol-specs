@@ -899,11 +899,15 @@
                   "type": "array",
                   "minItems": 1,
                   "items": { "type": "string" },
-                  "description": "Field names in priority order for stable device identity. First non-empty value wins. BLE typically: ['address']. Wemo: ['udn', 'serial', 'mac']. Vector: ['serial', 'hostname']."
+                  "description": "Field names in priority order for stable device identity. First non-empty value wins. BLE typically: ['address']. Wemo: ['udn', 'serial', 'mac']. Vector: ['serial', 'hostname']. 'address' is only a stable key for a device whose BLE address is PUBLIC: a random-static or resolvable-private address rotates, and keying on one makes a client either lose the device it already knows or enrol the same lock twice under two names. When a spec's evidence shows a rotating address, key on something the device carries across the rotation -- a serial-bearing local name, a manufacturer-data payload -- and treat the address as an ephemeral connection locator to be re-resolved by scanning, not as identity."
                 },
                 "display": {
                   "type": "string",
                   "description": "Field name for user-facing display. 'friendlyName' for Wemo, 'name' for mDNS, 'local_name' for BLE."
+                },
+                "notes": {
+                  "type": "string",
+                  "description": "Caveats about this identity that the key list alone cannot carry: which keys are only present in some device mode, what a client should do when the top-priority key is missing, or why an obvious-looking key (a rotating BLE address, a DHCP-assigned IP) was deliberately left out."
                 }
               }
             },
@@ -1155,14 +1159,14 @@
         },
         "variants": {
           "type": "array",
-          "description": "Distinct device models that share the same BLE service UUIDs but differ in command set. Consumers match a connected device to a variant via its identification block.",
+          "description": "Distinct device models covered by this one spec because they speak the same protocol, but which differ in command set or in what hardware they actually have -- BLE families sharing service UUIDs, and LAN families sharing a control protocol (the metering and non-metering Kasa plugs answer the same port-9999 JSON). Consumers match a connected device to a variant via its identification block, and an `entities[].variants` list says which models actually expose a given entity: without that pairing a spec draws a permanently unavailable control on the half of the family whose hardware does not have the sensor.",
           "items": {
             "type": "object",
             "required": ["model"],
             "properties": {
               "model": {
                 "type": "string",
-                "description": "Model identifier (e.g. 'SP107E')."
+                "description": "Model identifier (e.g. 'SP107E'). This string is the name `entities[].variants` refers to, so spell it identically in both places."
               },
               "identification": {
                 "type": "object",
@@ -1176,6 +1180,10 @@
                     "type": "array",
                     "items": { "$ref": "#/$defs/uuid" },
                     "description": "BLE service UUIDs advertised by this variant."
+                  },
+                  "model_prefix": {
+                    "type": "string",
+                    "description": "Prefix of the model string the device reports about ITSELF, for a LAN device that advertises no BLE local name: TP-Link's get_sysinfo answers `model: \"HS110(US)\"`, so the prefix 'HS110' matches every region's units. Matched as a prefix precisely because vendors suffix region and hardware-revision codes onto an otherwise stable model name. Where the device also reports a capability list, prefer that at runtime -- a variant table has to be edited when a new model ships, a capability flag does not."
                   }
                 }
               }
@@ -2678,7 +2686,7 @@
           },
           "state_mapping": {
             "type": "object",
-            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. On an HTTP entity the role values are dotted JSON paths into what `state_command` returns ('state.on', 'state.bri') -- resolved from the response root, or, when the entity declares `instances:`, from inside the current child's object. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
+            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. On an HTTP entity the role values are dotted JSON paths into what `state_command` returns ('state.on', 'state.bri') -- resolved from the response root, or, when the entity declares `instances:`, from inside the current child's object. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. A `<role>_fallback` key -- `value_fallback` for `value` -- is a SECOND source for that same role, for a firmware or hardware revision that reports the identical reading under a different field name: an object with `path` (resolved exactly as the role's own value is) and an optional `scale` applied to whatever `path` yields. Read the role's primary source first and fall back only when that key is absent from the reply; a consumer that ignores the key still works on current firmware, which is why this is a fallback rather than a variant split -- splitting a renamed field across two entities makes a consumer that ignores `variants` draw the tile twice. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
           },
           "options_source": {
             "type": "object",
