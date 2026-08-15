@@ -597,6 +597,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `device-specs/index.json` is now built and committed by CI (the
+  `publish-index` job) on every push to main instead of by hand in each spec
+  PR. It is a generated file that every spec branch touched, so any two open
+  spec PRs conflicted on it — 60 kB of machine-written JSON whose only honest
+  resolution is to regenerate. Branches no longer carry it at all: a PR that
+  modifies it fails `validate-specs`, which still *builds* the index (and so
+  still catches a spec the generator chokes on) but no longer diffs it against
+  the committed copy. The file stays checked in because it is a shipped asset —
+  the mobile app vendors this repo as a subtree and bundles it — so consumers
+  see no change beyond it landing one commit after the spec rather than in the
+  same one. `scripts/generate_index.py` gained `--check` (report staleness,
+  write nothing) and a `collect_entries()` entry point the tests use to verify
+  coverage without touching the working tree
 - Every key used in the blocks a client *executes* — `entities`,
   characteristic `format:` fields, commands and their `parameters` — must now
   be one `schema.json` declares, enforced by `scripts/test_device_specs.py`
