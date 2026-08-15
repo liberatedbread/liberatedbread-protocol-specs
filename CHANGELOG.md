@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `auto: xor_checksum`, a fourth encoder-filled parameter role. `auto:
+  checksum` is an additive sum8 salted by `checksum_xor`; the Govee 20-byte
+  frames end in an XOR fold over bytes 0-18 instead (`checksum_start: 0`) —
+  the same shape, a different reduction, and no way to say so. Without a term
+  for it a spec has to declare the byte as an ordinary parameter, which makes
+  a generic UI render a checksum control and makes the command unsendable
+  without a value the caller cannot know. Deliberately a distinct `auto`
+  VALUE rather than a modifier key beside `checksum`: consumers ignore
+  unknown keys by design, so a `checksum_op: xor` would be read as plain
+  additive and emit a byte the device silently drops, from a spec that
+  validates. An unrecognised `auto` value cannot be misread as a mode the
+  reader knows. `checksum_xor` stays additive-only for the same reason.
+
 - Eight smart-TV local-control specs: `android-tv-remote` (Remote Protocol
   v2 protobuf-over-TLS, plus Fire TV ADB variant), `hisense-vidaa` (MQTT
   over TLS), `lg-webos` (WebSocket SSAP), `panasonic-viera` (plain SOAP,
