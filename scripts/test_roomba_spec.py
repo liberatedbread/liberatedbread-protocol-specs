@@ -40,6 +40,19 @@ SPEC_PATH = REPO_ROOT / "device-specs" / "devices" / "irobot-roomba.yaml"
 SAMPLE_PASSWORD = ":1:1486937829:gktkDoYpWaDxCfGh"
 
 
+class NotDisclosing(ValueError):
+    """The robot was not in password-disclosure mode. Retrying can work."""
+
+
+class UnsupportedModel(ValueError):
+    """The robot answered that it cannot disclose locally. Retrying cannot.
+
+    A distinct type rather than a message, because a test that accepts any
+    `ValueError` cannot tell the two apart — which is exactly how the ordering
+    bug this guards against survived its own test.
+    """
+
+
 @pytest.fixture(scope="module")
 def spec() -> dict:
     return yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
@@ -88,10 +101,16 @@ def extract_password(reply: bytes, response_rules: dict) -> str:
     the whole point of stating it as a rule.
     """
     header = response_rules["header_length"]
-    if len(reply) < response_rules["minimum_length"]:
-        raise ValueError("robot is not in password-disclosure mode")
+    # The sentinel FIRST, and the order is load-bearing: the unsupported reply
+    # is seven bytes and `minimum_length` is eight, so a length check in front
+    # of it swallows the one answer that must not be retried. The two failures
+    # send the user to different places — hold the button again, versus stop
+    # trying and use the account route — so collapsing them into "not in
+    # disclosure mode" is worse than no check at all.
     if reply.hex() == response_rules["unsupported_reply_hex"]:
-        raise ValueError("this model cannot disclose its password locally")
+        raise UnsupportedModel("this model cannot disclose its password locally")
+    if len(reply) < response_rules["minimum_length"]:
+        raise NotDisclosing("robot is not in password-disclosure mode")
 
     body = reply[header:]
     start = 0
@@ -238,16 +257,38 @@ def test_a_short_reply_is_the_not_in_disclosure_mode_case(protocol):
     """The failure a user actually hits: they did not hold HOME long enough."""
     rules = protocol["password_disclosure"]["response"]
     for length in range(rules["minimum_length"]):
-        with pytest.raises(ValueError):
+        with pytest.raises(NotDisclosing):
             extract_password(b"\xf0" * length, rules)
 
 
 def test_the_unsupported_reply_is_distinguished_from_a_password(protocol):
-    """A model that cannot disclose says so; that is not a retryable failure."""
+    """A model that cannot disclose says so; that is not a retryable failure.
+
+    Asserted as a DISTINCT type, not merely "raises". The sentinel is seven
+    bytes and the minimum length is eight, so checking length first makes this
+    branch unreachable — and a test that accepted any ValueError would keep
+    passing while every client copied from this reference sent users into
+    futile button retries.
+    """
     rules = protocol["password_disclosure"]["response"]
     unsupported = bytes.fromhex(rules["unsupported_reply_hex"])
-    with pytest.raises(ValueError):
+    with pytest.raises(UnsupportedModel):
         extract_password(unsupported, rules)
+
+
+def test_the_sentinel_is_shorter_than_the_minimum_length(protocol):
+    """The reason the check order matters, pinned as a fact about the spec.
+
+    If a later revision made the sentinel eight bytes or longer, the ordering
+    would stop being load-bearing and the comment in `extract_password` would
+    become misleading. This fails when that day comes.
+    """
+    rules = protocol["password_disclosure"]["response"]
+    sentinel = bytes.fromhex(rules["unsupported_reply_hex"])
+    assert len(sentinel) < rules["minimum_length"], (
+        "the sentinel is no longer shorter than minimum_length — re-read the "
+        "ordering comment in extract_password, it may no longer be needed"
+    )
 
 
 def test_the_extraction_rule_admits_it_is_a_hypothesis(protocol):

@@ -261,14 +261,28 @@ robot.
 its password down will refuse the old one. Maps and mission history are lost on
 the models that keep them.
 
-- **600/800/900 series**: off the dock, hold `CLEAN` for ~20 s until the light
-  ring swirls.
+- **600/800/900 series**: hold `DOCK` + `SPOT Clean` + `CLEAN` together until
+  the robot signals the reset, then release.
 - **i/j/s series**: hold `HOME` + `SPOT Clean` + `CLEAN` together until the
   ring swirls clockwise, then release.
 
-**Rebinding to a new router** is not supported in place on current firmware:
-re-running onboarding means resetting first, and that reset changes the
-password. Plan on re-extracting afterwards.
+!!! warning "Holding CLEAN alone is a reboot, not a reset"
+    It restarts the robot and changes nothing else. That distinction matters
+    more here than it usually would: this page tells you a reset mints a new
+    password, so someone who reboots believing they reset will either wait for
+    a credential change that never comes, or decide their saved password is
+    dead and redo the whole handshake for nothing. Both procedures above are
+    multi-button holds for exactly that reason.
+
+**Rebinding to a new router** does not need a factory reset. A provisioned
+robot can be put back into Wi-Fi setup mode and pointed at the new network —
+vendor-documented and widely reported, though not replayed here, so treat it as
+low confidence and be ready to fall back to a reset.
+
+The useful consequence: **if the move doesn't reset the robot, the password
+survives it.** A credential you saved before changing routers keeps working —
+which is why anything storing one should key it on the BLID rather than on the
+address the robot happened to have.
 
 ## References
 
