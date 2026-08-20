@@ -185,7 +185,7 @@ All pure Java (JCA + vendored Tink) — no native code:
 ### Lock Information Certificate (LIC)
 
 The result certificate the lock returns after DIQR commands; field layout
-recovered from `LockInformationCertificate.kt`:
+recovered from the app's lock-information certificate class:
 
 | Tag | Meaning |
 |-----|---------|

@@ -49,7 +49,7 @@ Variable-length bytearrays written to `0xFA02`.
 
 The recovered app (service `0xFEE9`, characteristic `d44bc439-…-925416129600`) sends
 GIF / image / text as framed 4096-byte payload chunks, each prefixed by a 16-byte
-header. This is the authoritative layout, derived from `GifAgreement.java` (see the
+header. This is the authoritative layout, derived from the app's GIF-agreement class (see the
 evidence report and the device-spec YAML, which use the same layout):
 
 | Offset | Length | Field |

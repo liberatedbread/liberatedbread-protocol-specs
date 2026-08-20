@@ -83,7 +83,7 @@ All commands are 16-byte fixed-length packets (plaintext, before AES encryption)
 | SMVEW n | `[6, 'S','M','V','E','W', n]` | DIY sync draw: 1 = enter, 0 = exit, 2 = save-and-exit |
 | STOPR | `[5, 'S','T','O','P','R']` | Stop music/rhythm mode |
 
-The sibling Shining Glasses multi-frame `MANY <count> <profile>` … `MANCPOK` transaction does **not** exist in this app (no such command or dispatch code in the decompiled APK); animation upload here is a plain DATS/data/DATCP transfer. All command bytes above are verified directly against the decompiled `com.tirohk.magicdisplay` 1.5.6 (`data/Agreement.java`).
+The sibling Shining Glasses multi-frame `MANY <count> <profile>` … `MANCPOK` transaction does **not** exist in this app (no such command or dispatch code in the decompiled APK); animation upload here is a plain DATS/data/DATCP transfer. All command bytes above are verified directly against com.tirohk.magicdisplay 1.5.6 by static analysis of its protocol-agreement class.
 
 ### Data Transfer Protocol
 

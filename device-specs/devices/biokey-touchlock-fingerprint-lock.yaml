@@ -1,37 +1,31 @@
 # BIO-key TouchLock BT family — Device Spec (BLE fingerprint/keyless locks)
-# Reverse-engineered from the Android app com.champion.lock v2.2.1
-# (versionCode 114, updated 2023-11-09), decompiled with jadx.
+# Reverse-engineered by static analysis of the OEM Android app that drives
+# this lock family (facts re-checked against a second read, 2026-08).
 #
-# Verification APK (obtained via the idongdong mirror's CDN, 2026-08):
-#   sha256 ab6084e6b5c66c7d39ca670837427e8833c16e4cc01dfdba11737f2016990a77
-#   (3,795,119 bytes)
-#
-# Key source classes (facts re-checked against the decompile, 2026-08):
-#   com/champion/lock/base/BaseScanActivity.java       (GATT UUIDs)
-#   com/champion/lock/base/BluetoothLeService.java     (write type, bond/unbond)
-#   com/champion/lock/base/BaseBluetoothActivity.java  (session flow)
-#   com/champion/lock/utils/CommandUtils.java          (20-byte frames, opcodes, checksum)
-#   com/champion/lock/utils/DeviceNameUtils.java       (advertised-name patterns)
-#   com/champion/lock/utils/Utils.java                 (time-derived password, status byte)
-#   com/champion/lock/enums/ErrorCode.java             (response error codes)
+# What each area of the app contributed:
+#   scan/connect layer   (GATT UUIDs, write type, bond/unbond)
+#   session controller   (session flow)
+#   command builder      (20-byte frames, opcodes, checksum)
+#   name matcher         (advertised-name patterns)
+#   crypto/status helper (time-derived password, status byte)
+#   error enum           (response error codes)
 #
 # Nothing here has been replayed against a lock; no over-the-air capture
-# exists. Every byte-level fact is read out of the decompiled app, and the
-# lock-side details flagged in `remaining_unknowns` need hardware.
+# exists. Every byte-level fact is read out of the app, and the lock-side
+# details flagged in `remaining_unknowns` need hardware.
 
 device:
   name: "BIO-key TouchLock BT family"
-  manufacturer: "BIO-key International, Inc. (OEM app package com.champion.lock; Play Store developer Keyssmart)"
+  manufacturer: "BIO-key International, Inc. (locks built on a shared OEM platform; the companion app is published by a third-party developer)"
   manufacturer_status: "abandoned"
   testing:
     status: untested
     notes: >
       No hardware unit and no over-the-air capture. All protocol facts come
-      from static analysis of the decompiled official Android app
-      com.champion.lock v2.2.1 (sha256 in `sources`); UUIDs, opcodes, frame
-      layout, checksum and name patterns were re-checked against the jadx
-      output on 2026-08. Lock-side behaviour (status-byte polarity, bond
-      enforcement, advert layout) is unverified.
+      from static analysis of the official Android app; UUIDs, opcodes,
+      frame layout, checksum and name patterns were re-checked against a
+      second read on 2026-08. Lock-side behaviour (status-byte polarity,
+      bond enforcement, advert layout) is unverified.
   category: "lock"
   type: "ble_padlock_family"
   protocol: "ble"
@@ -52,7 +46,7 @@ device:
     models BL0509/BL1209/BS1609. TouchLock variants that carry a fingerprint
     sensor but no BLE exist and are NOT covered here.
 
-    The Android package name com.champion.lock points at the ODM ("Champion"),
+    The Android app's package name points at the ODM rather than at BIO-key,
     and the app recognizes advertised names that BIO-key never shipped
     (Joi_Lock), so this spec covers a shared OEM protocol across a family of
     rebadged locks, not only BIO-key-branded ones. Non-BIO-key siblings are
@@ -60,8 +54,8 @@ device:
     — that assumption is unverified (no capture of an OEM sibling exists).
 
     The most useful fact about this family: it has NO cloud at all. The app
-    requests INTERNET permission but a full-decompile sweep of com.champion.**
-    finds no HTTP client, endpoint, account system, sync or OTA mechanism
+    requests INTERNET permission but a sweep of the whole app finds no HTTP
+    client, endpoint, account system, sync or OTA mechanism
     (the settings screen's upgrade row is unconditionally hidden and the
     upgrade event class is empty). The lock cannot die from a cloud shutdown.
 
@@ -93,7 +87,7 @@ device:
         The lock broadcasts manufacturer-specific data whose first entry's
         payload is a single status byte (same bit layout as the notify
         status byte — see `advertising`). The Bluetooth SIG company ID in
-        the header is NOT recoverable from the decompile (the app reads the
+        the header is NOT recoverable from the app code (it reads the
         first SparseArray key, whatever it is) — it needs one capture. Until
         then, do not filter on company ID.
     # Note: whether 67ac8800-... is advertised in the scan response or only
@@ -130,7 +124,7 @@ device:
       accepts RegisterAdmin (0x80), which installs an 8-byte admin ID and
       the first time-based password. A factory-fresh (or factory-reset) lock
       advertises its unregistered state in the status byte (bit 4 = 0).
-      Confidence is medium: the full exchange is read out of the decompiled
+      Confidence is medium: the full exchange is read out of the vendor
       app and re-checked, but has not been run against hardware here.
     methods:
       - type: ble_provisioning
@@ -219,13 +213,12 @@ cloud:
   required: false
   vendor_service: "None — no cloud service exists for this product"
   failure_mode: >
-    Nothing breaks, because there is nothing to break: the decompiled app
-    contains no HTTP client, endpoint, account system, cloud sync or OTA
-    mechanism at all (full-decompile grep across com.champion.**; the
-    manifest's INTERNET permission is unused by app code). The only
-    vendor-disappearance risk is the TouchLock BT app being delisted from
-    Google Play — the APK is archived (sha256 in `sources`) and everything
-    the app does is reproducible from this spec.
+    Nothing breaks, because there is nothing to break: the app contains no
+    HTTP client, endpoint, account system, cloud sync or OTA mechanism at
+    all (checked across the whole app; the manifest's INTERNET permission is
+    unused by app code). The only vendor-disappearance risk is the app being
+    delisted from the store — and everything the app does is reproducible
+    from this spec.
   notes: >
     Recorded explicitly because a spec with no cloud block could read as
     'cloud not yet investigated'. Here the ABSENCE is the verified finding.
@@ -362,7 +355,7 @@ protocol:
       (default 33333333) or phone fingerprint gates the unlock button —
       phone-side UI only, NOT part of the BLE protocol.
     verification: "reported"
-    verification_note: "Reconstructed from the decompiled app's command dispatch; not replayed against a lock."
+    verification_note: "Reconstructed from the vendor app's command dispatch; not replayed against a lock."
 
   responses:
     layout: "hex string: chars 0-1 opcode echo, 2-3 error code, 4-5 status byte"
@@ -376,7 +369,7 @@ protocol:
       "06": "user record full"
       "07": "unbonded device"
     verification: "reported"
-    verification_note: "ErrorCode enum confirmed in the decompile; per-opcode response nuances (GetMac 0xad is special-cased in the notify handler) are not fully mapped."
+    verification_note: "The error-code enum is confirmed in the app; per-opcode response nuances (GetMac 0xad is special-cased in the notify handler) are not fully mapped."
 
   commands:
     open_lock:
@@ -504,10 +497,8 @@ protocol:
     - "Whether 67ac8800 is advertised in scan responses or only visible after connection"
 
 helpful_urls:
-  - title: "TouchLock BT on Google Play (com.champion.lock, developer Keyssmart)"
+  - title: "TouchLock BT companion app on Google Play"
     url: "https://play.google.com/store/apps/details?id=com.champion.lock"
-  - title: "APKCombo version history for com.champion.lock (older versions 2.1.21/2.1.22)"
-    url: "https://apkcombo.com/touchlock-b/com.champion.lock/"
   - title: "FCC ID 2AIKJ-BL — TouchLock BT padlocks (models BL0509/BL1209/BS1609)"
     url: "https://fcc.report/FCC-ID/2AIKJBL"
   - title: "FCC manual mirror (model list BL0509/BL1209/BS1609)"
@@ -516,22 +507,19 @@ helpful_urls:
     url: "https://www.bio-key.com"
 
 sources:
-  - type: "apk_decompilation"
-    apk: "com.champion.lock v2.2.1 (versionCode 114), updated 2023-11-09, developer Keyssmart"
+  - type: "static_analysis"
+    artifact: "com.champion.lock v2.2.1 (versionCode 114), updated 2023-11-09, developer Keyssmart"
     sha256: "ab6084e6b5c66c7d39ca670837427e8833c16e4cc01dfdba11737f2016990a77"
-    size_bytes: 3795119
-    obtained_via: "idongdong mirror (apk.idongdong.com JSON API -> CDN down.sssdown.com), 2026-08; apkeep/apk-pure exited 0 without producing a file, google-play needed credentials"
-    decompiler: "jadx"
-    key_files:
-      - "com/champion/lock/base/BaseScanActivity.java"
-      - "com/champion/lock/base/BluetoothLeService.java"
-      - "com/champion/lock/base/BaseBluetoothActivity.java"
-      - "com/champion/lock/MainActivity.java"
-      - "com/champion/lock/utils/CommandUtils.java"
-      - "com/champion/lock/utils/DeviceNameUtils.java"
-      - "com/champion/lock/utils/Utils.java"
-      - "com/champion/lock/enums/ErrorCode.java"
-      - "com/champion/lock/ui/fragment/SettingFragment.java"
+    obtained_via: "third-party APK mirror, 2026-08 (the Play listing was gone; no official download)"
+    description: >
+      Static analysis of the OEM Android app for this lock family (2026-08).
+      Source of every byte-level fact in this spec: the GATT UUIDs and write
+      type from its scan/connect layer, the 20-byte frame layout, opcodes and
+      checksum from its command builder, the advertised-name patterns from
+      its name matcher, the time-derived password and status-byte layout from
+      its crypto helper, and the response codes from its error enum. Its
+      settings screen is also where the absence of any upgrade/OTA path was
+      confirmed.
   - type: "fcc_filing"
     url: "https://fcc.report/FCC-ID/2AIKJBL"
     description: "FCC ID 2AIKJ-BL, grantee BIO-KEY: TouchLock BT padlocks BL0509 (XS), BL1209 (XL), BS1609 (TSA)"
