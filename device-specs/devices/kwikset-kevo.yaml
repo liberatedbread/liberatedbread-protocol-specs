@@ -1,30 +1,19 @@
 # Kwikset Kevo — Device Spec (BLE, inverted roles: lock is the CENTRAL)
-# Reverse-engineered from the Android app com.unikey.kevo v3.1.1.33967p
-# (versionCode 33967), unobfuscated, decompiled with jadx 1.5.1.
+# Reverse-engineered by static analysis of the official Kevo Android app
+# (2026-08). The app is unobfuscated, so the protocol reads directly.
 #
-# Verification APK (obtained via apkeep / apk-pure, 2026-08):
-#   md5    cbf31ab2a5beb9918d3e246c0855ad2a
-#   sha256 02e7b8ebce18a897f43b33516254a2964c0c3d9d6fb9e3a2fee69fe7262ebc0d
-#   signing cert SHA1 04505561AF11DF80B14BE85B1E13B7593D2A95AB (genuine UniKey
-#   certificate; identical to the mirror metadata cited by the source report —
-#   the report's apk.gold copy has md5 cf92c4dc86795cbc9a765b7838c186bb, same
-#   version and signer, different zip packaging).
+# What the app contributed, by area:
+#   BLE wiring          (service UUID, characteristic set and properties)
+#   advertisement       (advertise-data builder and scan filters)
+#   authentication      (HMAC-SHA256 challenge-response; DBU client challenge)
+#   crypto              (shared-secret derivation)
+#   command layer       (toggle opcode 0x10; local opcodes 0x12/0x13/0x14)
+#   certificates        (LIC/UPC layout and result handlers)
 #
-# Key source classes:
-#   com/unikey/kevo/dagger/BluetoothProductionComponent.java   (service UUID)
-#   com/unikey/sdk/support/bluetooth/gatt/BluetoothGattCharacteristics.java
-#   com/unikey/sdk/support/bluetooth/gatt/MakeServicesKt.java  (char properties)
-#   com/unikey/sdk/residential/hardware/BluetoothDefaultAdvertiseDataBuilder.java
-#   com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceChallengeResponseProtocolMachineDelegateImpl.java (HMAC)
-#   com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl.java (DBU client challenge)
-#   com/unikey/sdk/support/crypto/Secret.java                  (shared-secret derivation)
-#   com/unikey/kevo/application/KevoLockToggleCommand.java     (opcode 0x10)
-#   com/unikey/kevo/bluetooth/LocalCommandWorker.java          (opcodes 0x12/0x13/0x14)
-#
-# Every fact marked "confirmed" below was re-verified against the decompiled
-# v3.1.1.33967p APK above. Nothing here has been replayed against a lock; no
-# over-the-air capture exists yet, so lock-side behaviour (fragmentation,
-# exact nonce handling, LIC layout) remains untested.
+# Every fact marked "confirmed" below was re-verified against that app.
+# Nothing here has been replayed against a lock; no over-the-air capture
+# exists yet, so lock-side behaviour (fragmentation, exact nonce handling,
+# LIC layout) remains untested.
 
 device:
   name: "Kwikset Kevo"
@@ -65,19 +54,19 @@ device:
     an HMAC-SHA256 challenge-response over a per-lock shared secret derived
     from X25519 ECDH during enrollment.
 
-    There is NO WiFi/LAN protocol anywhere in the system (full-decompile
-    sweep: no DatagramSocket/MulticastSocket/NsdManager/WifiManager use in
-    com.unikey.*). The Kevo Plus gateway (RPU) is wired Ethernet + BLE only;
+    There is NO WiFi/LAN protocol anywhere in the system (swept the whole
+    app: no DatagramSocket/MulticastSocket/NsdManager/WifiManager use
+    anywhere in the vendor code). The Kevo Plus gateway (RPU) is wired Ethernet + BLE only;
     every gateway command historically transited the UniKey cloud. Its
     vendor-documented "Local Debug" ports (TCP 499/11000) appear nowhere in
     the app and have never been publicly investigated — the most interesting
     unexplored local surface.
 
-    Research status: phone-side protocol fully mapped from the decompiled
-    APK (service/characteristic UUIDs, properties, opcodes, advertisement
+    Research status: phone-side protocol fully mapped from the vendor app
+    (service/characteristic UUIDs, properties, opcodes, advertisement
     format, HMAC construction, secret derivation, enrollment state machines,
-    DBU client challenge-response, absence of LAN code all re-verified in
-    v3.1.1.33967p). Lock-side
+    DBU client challenge-response and the absence of LAN code were all
+    re-verified). Lock-side
     firmware behaviour, TLV certificate field names, LIC/time-sync layout
     and the trailing bytes of the lock advertisement need one over-the-air
     capture (no link-layer encryption, so any LE sniffer works).
@@ -99,7 +88,7 @@ device:
       new eKey to the cloud afterwards, but that step is irrelevant to local
       operation; whether the lock later de-auths devices that never appear
       in the cloud is UNKNOWN and needs a capture). Confidence is medium:
-      the full exchange is read out of the decompiled app but has not been
+      the full exchange is read out of the vendor app but has not been
       run against hardware here.
     methods:
       - type: ble_provisioning
@@ -403,7 +392,7 @@ protocol:
     idle_pending_commands: [0x10, 0x19]
     battery_reporting: "Byte[1] of the 0x04 verdict STATUS; no separate battery opcode."
     verification: "reported"
-    verification_note: "State machine read from the decompiled APK; not replayed against a lock."
+    verification_note: "State machine read from the vendor app; not replayed against a lock."
 
   commands:
     toggle:
@@ -501,8 +490,8 @@ protocol:
   lock_information_certificate:
     description: >
       The Lock Information Certificate (LIC) is the result certificate the
-      lock returns in response to DIQR commands; layout recovered from
-      LockInformationCertificate.kt and its result handlers. TLV fields:
+      lock returns in response to DIQR commands; layout recovered from the
+      app's certificate model and its result handlers. TLV fields:
       0x11 cert type, 0x13 serialization version (u8; the server-timing-info
       path requires >= 3), 0x17 latest client nonce, 0x50 device version
       (3 bytes [patch, minor, major], displayed "major.minor.patch"),
@@ -518,7 +507,7 @@ protocol:
       1=charging, 2=not charging — gateway/RPU), 0xC2 main power status
       (0=unknown, 1=available, 2=disconnected — gateway/RPU).
     verification: "reported"
-    verification_note: "Parsed field-by-field in the decompiled app; not replayed against a lock."
+    verification_note: "Parsed field-by-field in the vendor app; not replayed against a lock."
 
   time_sync:
     description: >
@@ -555,7 +544,7 @@ protocol:
          and authorizes / unauthorizes the connection accordingly
          (ClientChallengeResponseStartState -> ValidateHmacState).
     verification: "reported"
-    verification_note: "Read from decompiled state machines; not replayed against hardware."
+    verification_note: "Read from the app's state machines; not replayed against hardware."
 
   remaining_unknowns:
     - "Lock-side firmware behaviour: exact nonce lengths, fragmentation, session-cert construction (needs one OTA capture)"
@@ -564,48 +553,23 @@ protocol:
     - "Lock history record layout inside the field-0x60 history cert (parsed only server-side)"
     - "Server-side computation of the timing certificate behind time sync (cloud-mediated; dead with the shutdown)"
     - "Whether the lock prunes self-enrolled devices that never appear in the cloud (the 0xF0 wipe verdict exists)"
-    - "What listens on the gateway's TCP 499/11000 (and 8100/8301/13252) 'Local Debug' ports (verified absent from the app by full-decompile grep)"
+    - "What listens on the gateway's TCP 499/11000 (and 8100/8301/13252) 'Local Debug' ports (verified absent from the app)"
 
 sources:
-  - type: "apk_decompilation"
-    apk: "com.unikey.kevo v3.1.1.33967p (versionCode 33967)"
-    md5: "cbf31ab2a5beb9918d3e246c0855ad2a"
+  - type: "static_analysis"
+    artifact: "com.unikey.kevo v3.1.1.33967p (versionCode 33967)"
     sha256: "02e7b8ebce18a897f43b33516254a2964c0c3d9d6fb9e3a2fee69fe7262ebc0d"
     signing_cert_sha1: "04505561AF11DF80B14BE85B1E13B7593D2A95AB"
-    obtained_via: "apkeep (apk-pure), 2026-08"
-    decompiler: "jadx 1.5.1"
-    key_files:
-      - "com/unikey/kevo/dagger/BluetoothProductionComponent.java"
-      - "com/unikey/sdk/support/bluetooth/gatt/BluetoothGattCharacteristics.java"
-      - "com/unikey/sdk/support/bluetooth/gatt/MakeServicesKt.java"
-      - "com/unikey/sdk/residential/hardware/BluetoothDefaultAdvertiseDataBuilder.java"
-      - "com/unikey/sdk/support/bluetooth/scanner/BluetoothUuidScanFilterBuilder.java"
-      - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceChallengeResponseProtocolMachineDelegateImpl.java"
-      - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl.java"
-      - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceConnectionProtocolMachineDelegateImpl.java"
-      - "com/unikey/sdk/support/crypto/Secret.java"
-      - "com/unikey/sdk/support/protocol/delegate/CryptoDelegate.java"
-      - "com/unikey/kevo/application/KevoLockToggleCommand.java"
-      - "com/unikey/kevo/bluetooth/LocalCommandWorker.java"
-      - "com/unikey/sdk/residential/legacy/serverlocksync/lockhistory/LockHistoryCommand.java"
-      - "com/unikey/sdk/residential/network/legacy/UniKeyConnection.java"
-      - "com/unikey/sdk/support/protocol/model/certificate/LockInformationCertificate.java"
-      - "com/unikey/sdk/support/protocol/model/certificate/UniKeyCertificate.java"
-      - "com/unikey/sdk/support/protocol/model/certificate/CertificateSigner.java"
-      - "com/unikey/sdk/support/protocol/model/certificate/HardwarePublicCertificate.java"
-      - "com/unikey/sdk/support/protocol/model/certificate/DeviceSettingCertificateUtil.java"
-      - "com/unikey/sdk/support/crypto/Crypto.java"
-      - "com/unikey/sdk/residential/key/Hardware.java"
-      - "com/unikey/sdk/support/bluetooth/scanner/BluetoothIdleScanCallback.java"
-      - "com/unikey/sdk/support/bluetooth/scanner/BluetoothDeviceStatusHandler.java"
-      - "com/unikey/sdk/residential/legacy/TimeSyncService.java"
-      - "com/unikey/sdk/residential/legacy/LockInformationRemoteDataUpdater.java"
-      - "com/unikey/sdk/residential/legacy/PutLockInformationCertRequest.java"
-      - "com/unikey/sdk/residential/network/legacy/request/LockGetFirmwareRequest.java"
-      - "com/unikey/sdk/residential/legacy/serverlocksync/lockhistory/data/remote/request/PostLockHistoryRequest.java"
-      - "com/unikey/sdk/support/protocol/machinedelegateimpl/upc/ResultCertificateDelegate.java"
-      - "com/unikey/sdk/support/protocol/machinedelegateimpl/upc/DeviceInformationQueryStateDelegate.java"
-      - "com/unikey/sdk/support/protocol/machinedelegateimpl/upc/result/LockHistoryResultHandler.java"
+    obtained_via: "third-party APK mirror, 2026-08"
+    description: >
+      Static analysis of the official Kevo Android app (2026-08) —
+      unobfuscated, so the protocol reads directly. Source of the service
+      and characteristic UUIDs and their properties, the advertisement
+      format and scan filters, the HMAC-SHA256 challenge-response and DBU
+      client challenge state machines, the shared-secret derivation, the
+      toggle and local command opcodes, the certificate (LIC/UPC) layouts
+      and their result handlers, the lock-history and firmware request
+      shapes, and the finding that no LAN/Wi-Fi code exists anywhere in it.
   - type: "public_research"
     url: "https://www.nccgroup.com/research/technical-advisory-kwiksetweiser-ble-proximity-authentication-in-kevo-smart-locks-vulnerable-to-relay-attacks/"
     description: "NCC Group 2022 advisory: TTO relay attack (CVSS 6.8), no link-layer encryption, inverted BLE roles"

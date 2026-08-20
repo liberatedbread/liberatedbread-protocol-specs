@@ -99,8 +99,8 @@ and color). No acknowledgements — repeat ~3× with ≥100 ms spacing.
 
 ## Tools Used
 
-- [x] Python UDP/TCP probes against the live bridge (scripts + transcripts in
-  `/home/claude/research/limitlessled-milight-bridge/`)
+- [x] Python UDP/TCP probes against the live bridge (scripts + transcripts held
+  in the maintainers' private research workspace, not committed here)
 - [x] Public protocol docs (see References)
 
 ## References

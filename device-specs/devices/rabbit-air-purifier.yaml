@@ -14,12 +14,8 @@
 #   - Home Assistant core integration "rabbitair" (iot_class local_polling,
 #     zeroconf _rabbitair._udp.local.): confirms the mDNS service type and that
 #     the Thing ID shown in the app is the device's mDNS hostname.
-#   - Rabbit Air 2 app com.rabbitair.rabbitair_flutter v1.2.1 (versionCode 117,
-#     APKPure XAPK SHA-256
-#     04c22fc1adeee0da267882c0d0134dcfa83c4305fae91c28da45c42a5434c556, base
-#     APK SHA-256 d3eeb80cb6591e485e3cc3b209b4a0a7f7dc75b1685a2a6b9e06ed48ed15abb9):
-#     Flutter app; libapp.so (Dart AOT) strings independently confirm the local
-#     API field names (particulate_sensor, filter_life, timer_mode,
+#   - The Rabbit Air 2 companion app: a Flutter build whose Dart AOT snapshot
+#     independently confirms the local API field names (particulate_sensor, filter_life, timer_mode,
 #     all_light_off, lsens_ctl, moodlight, filter_ctl, filter_timer,
 #     filter_cleaning, filter_replacement, filter_type, light_sensor,
 #     pm_sensor, ionizer, buzzer, quality, schedule), the thingName/user_key
@@ -32,8 +28,8 @@
 #     $aws/things/<thing>/shadow/{get,update} (/accepted), ota.rabbitair.com,
 #     and a GraphQL account API under path /graphql.json exposing users/*
 #     operations (serialByMac, login_by_pass, etc. — see the cloud block).
-#     A full blutter decompile of that same libapp.so (Dart 3.10.3 AOT,
-#     arm64) subsequently recovered the ENTIRE provisioning protocol —
+#     A full recovery of that same Dart snapshot subsequently yielded the
+#     ENTIRE provisioning protocol —
 #     BLE GATT layout, packetization, the setup command set (cmds 0/1/2/3/5/7),
 #     and the AP-mode transport — see rabbit_air_protocol.setup_commands and
 #     rabbit_air_ble below; the setup flow is no longer an open gap.
@@ -73,7 +69,7 @@ device:
       the library source, not this file, is authoritative for constants.
       reverse_engineered is still true because the Wi-Fi provisioning flow
       (BLE-assisted / AP-mode) is NOT published — it was recovered here from
-      a blutter decompile of the Rabbit Air 2 app binary (v1.2.1) and is
+      static analysis of the Rabbit Air 2 app's Dart snapshot and is
       recorded in setup.methods, rabbit_air_protocol.setup_commands and
       rabbit_air_ble.
   protocol: "wifi"
@@ -120,8 +116,8 @@ device:
       - "RabbitAirSetup"
       - "RabbitAir"
     service_uuids:
-      # BLE GATT roles CONFIRMED by decompiling the Rabbit Air 2 app
-      # (blutter, libapp.so Dart 3.10.3 AOT): the app scans with a
+      # BLE GATT roles CONFIRMED by static analysis of the Rabbit Air 2 app
+      # (its Dart AOT snapshot): the app scans with a
       # withServices filter on 366048ae-… (it is the GATT SERVICE) and
       # writes/subscribes 53ef7d7d-… (it is the single command
       # CHARACTERISTIC on that service). Independently corroborated by
@@ -188,9 +184,8 @@ device:
     confidence: "high"
     notes: >
       The purifier must be joined to Wi-Fi once. The full provisioning
-      protocol is documented below — originally recovered from a blutter
-      decompile of the Rabbit Air 2 app binary (v1.2.1, Dart 3.10.3 AOT) and
-      since REPLAYED AGAINST HARDWARE (2026-08-15, MinusA2 gen2, Wi-Fi module
+      protocol is documented below — originally recovered by static analysis
+      of the Rabbit Air 2 app's Dart snapshot, and since REPLAYED AGAINST HARDWARE (2026-08-15, MinusA2 gen2, Wi-Fi module
       mcu 2.2.8): the BLE method below ran end-to-end exactly as written and
       the unit came up on the LAN under a client-generated user key. The app
       offers three connection methods — BLE-assisted ("mobile"), AP-mode
@@ -226,7 +221,7 @@ device:
           reads; failures surface as {"id":<echo>,"error":true} (observed
           when cmd 1/2 were re-sent AFTER setup completed — the setup
           command set is only accepted while the unit is in setup mode).
-          One correction to the decompile reading: the characteristic's
+          One correction to that reading: the characteristic's
           server-to-client leg is INDICATIONS (properties 0x28 = write +
           indicate), not notifications — and its CCCD already reads 0x0002
           on a fresh connection (indications enabled by default), but
@@ -244,7 +239,7 @@ device:
           (rabbit_air_protocol.setup_commands) through the single command
           characteristic 53ef7d7d-c244-42bd-9064-a1569a521ca9
           (write-with-response, INDICATIONS on the same characteristic —
-          verified on hardware; the decompile read "notifications"),
+          verified on hardware; the app code read "notifications"),
           framed and chunked exactly as rabbit_air_ble describes.
           Conversation: cmd 255 + cmd 4 (info/state sanity check), cmd 0
           (read network settings — doubles as the device's own Wi-Fi scan
@@ -328,7 +323,7 @@ device:
           rabbitair-setup.local via mDNS and falls back to the fixed
           gateway IP; the command sequence is identical to the BLE method
           (cmd 255/4 → 0 → 1 → 5 → 3 → 2), and cmd 2 "leave AP mode"
-          closes the AP at the end. Transport confirmed from the decompile
+          closes the AP at the end. Transport confirmed from the app
           (wifi_iot joins the rabbitair_* SSID, then UDP/TCP 9009);
           192.168.10.1:9009 independently corroborated by
           yepher/RabbiteAirProtocol's iOS research.
@@ -383,7 +378,7 @@ device:
         - "Thing ID (mDNS hostname)"
         - "user key / access token (32 hex chars = 16 bytes)"
       notes: >
-        The LAN credential is a per-device 16-byte user key. The decompile
+        The LAN credential is a per-device 16-byte user key. The app
         settled how it is born: the APP generates it — 32 uppercase hex
         characters drawn from dart:math Random — and pushes it to the unit
         with cmd 5, data {"type":4,"value":"<32 hex>"} (feature-gated on
@@ -458,7 +453,7 @@ rabbit_air_protocol:
     `reported`, leaning on an unusually strong source: the reference is the
     vendor's own published library plus its Home Assistant integration,
     cross-checked against the Rabbit Air 2 app binary. Field-name strings in
-    libapp.so match the state model: particulate_sensor, filter_life,
+    its Dart snapshot match the state model: particulate_sensor, filter_life,
     filter_timer, filter_ctl, filter_cleaning, filter_replacement,
     filter_type, timer_mode, all_light_off, lsens_ctl, moodlight,
     light_sensor, pm_sensor, ionizer, buzzer, quality, schedule, plus the
@@ -512,7 +507,7 @@ rabbit_air_protocol:
     iv: "Random 16 bytes per message, APPENDED as the last 16 bytes of the datagram (ciphertext || IV). Decrypt: IV = msg[-16:], ciphertext = msg[:-16]."
     applies_to: "Both directions, once a user key is set. During SETUP (before a user key exists) the app sends the same envelope in CLEARTEXT with no `ts` field — see setup_commands. The library's tokenless plaintext mode is the same code path."
   setup_commands:
-    # Recovered from the blutter decompile of the Rabbit Air 2 app v1.2.1
+    # Recovered by static analysis of the Rabbit Air 2 app's Dart snapshot
     # (AirPurifierApi / AirPurifierBleInteractor / AirPurifierNetInteractor /
     # SetupDeviceProgress), then REPLAYED AGAINST HARDWARE 2026-08-15
     # (MinusA2 gen2, mcu 2.2.8) over BLE: cmds 0/1/2/4/5(type 4)/7/255 all
@@ -524,7 +519,7 @@ rabbit_air_protocol:
     # reads carry `data`; writes ack with a bare {"id":<echo>}. On hardware
     # failures DID surface as an error field — re-sending cmd 1/2 after the
     # unit had left setup mode returned {"id":<echo>,"error":true} over the
-    # encrypted channel (the decompile suggested failures only surfaced as
+    # encrypted channel (the app code suggested failures only surfaced as
     # timeouts).
     verification: "confirmed"
     commands:
@@ -689,8 +684,8 @@ rabbit_air_protocol:
     state_set_power_on_plaintext: '{"id":1234569,"cmd":4,"ts":1700000124,"data":{"power":true}}'
     wire_note: "On the wire each of these is AES-128-CBC(user_key) with PKCS7 padding and a random 16-byte IV appended after the ciphertext."
 
-# BLE transport for the SAME command envelope — recovered from the blutter
-# decompile of the Rabbit Air 2 app v1.2.1 (AirPurifierBleInteractor).
+# BLE transport for the SAME command envelope — recovered by static analysis
+# of the Rabbit Air 2 app's BLE interactor.
 # BLE is both the provisioning channel (cleartext setup_commands against
 # the "RabbitAirSetup" peripheral) AND a full alternate control transport:
 # after setup the app reconnects to the "RabbitAir" peripheral and runs the
@@ -702,7 +697,7 @@ rabbit_air_ble:
     provisioning conversation and the post-setup
     ENCRYPTED command set (cmd 9 clock sync, 255 info, 0 network, 4 state)
     both driven over this GATT channel as written. Hardware details the
-    decompile could not see: the characteristic's properties byte is 0x28 —
+    app code could not show: the characteristic's properties byte is 0x28 —
     write + INDICATE, so server→client messages are ATT Handle Value
     Indications (the client must confirm them), not notifications; the
     stack tolerates an unconfirmed-then-confirmed mix, and the CCCD reads
