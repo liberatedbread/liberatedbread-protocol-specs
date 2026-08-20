@@ -2,22 +2,19 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Protocol source (clean-room): static analysis of the official UREVO app
-#   com.urevo.app v3.6.22 (versionCode 26042201) — a Flutter app; the BLE
-#   stack lives in Dart AOT libapp.so (package:urevo_bluetooth). The Dart
-#   cluster snapshot of the armeabi_v7a libapp.so was parsed and the
-#   protocol-relevant functions disassembled (ARM): frame builders/parsers
+# Protocol source (clean-room): static analysis of the official UREVO app —
+#   a Flutter build whose BLE stack lives in a Dart AOT snapshot. The
+#   snapshot was parsed and the protocol-relevant functions disassembled: frame builders/parsers
 #   (BluePackA/B, BluePackFactory), checksum routines (getCheckSum,
 #   crc16CCITT), command builders (UREquipment.setTargetSpeedAndSlope,
 #   trainingPrepared/Stop/Continue/Pause, getSpeedConfig, getSlopeConfig,
-#   getEquipmentStatus, getControllerVersionInfo; FTEquipment.prepared/stop)
-#   and the GATT UUID getters on FTMSEquipment / FTTreadmill /
-#   URRMEquipmentV2. No vendor code or assets are copied here; only derived
+#   getEquipmentStatus, getControllerVersionInfo; FTEquipment.prepared/stop),
+#   the response dispatch table (ResponseFactory.createResponse — every
+#   cmd/sub key mapped to its parser class via allocation-stub class IDs),
+#   the unit-conversion helpers (BlueNumExt.fromKmh/fromSlope) and the
+#   GATT UUID getters on FTMSEquipment / FTTreadmill / URRMEquipmentV2. No vendor code or assets are copied here; only derived
 #   protocol facts.
-#   Binary evidence (SHA-256, local copies in research dir):
-#     com.urevo.app.apk   3b39a90854c463f7b8cff7bf0a95562aba401c71c5a43e08287aec28d5f56f17
-#     com.urevo.app.xapk  c446b0200ffb27e7bed720293dab5ad4bbe79d9008635673b363239821a4ab63
-#   All frame bytes below come from disassembly, not from on-device captures:
+#   All frame bytes below come from that disassembly, not from on-device captures:
 #   nothing here is hardware-confirmed yet (no HCI snoop on a real pad).
 
 device:
@@ -35,7 +32,7 @@ device:
     UREVO's walking pads / under-desk treadmills (model numbers seen in the
     app: URTM012, URTM018, URTM022, URTM023, URTM024, URTM029, URTM030,
     URTM041, SYWP006; retail families include SpaceWalk, Strol and CyberPad)
-    are controlled over BLE by the official UREVO app (com.urevo.app). The
+    are controlled over BLE by the official UREVO app. The
     manufacturer is alive and shipping; this is a cloud-independence spec:
     the app ties account, workout history, OTA and per-model metadata to the
     UREVO cloud (service.urevosports.com), while the control plane is local
@@ -69,7 +66,7 @@ device:
        (0x5A 0xA5 header, >= 11 bytes) used at least for the controller
        version-info query. NOTA BENE: no GATT service/characteristic UUID
        constants exist in the binary for this class (verified 2026-08-12 by
-       full string-table enumeration of libapp.so: the only 16-bit GATT
+       full string-table enumeration of the snapshot: the only 16-bit GATT
        UUIDs present are 0x180A, 0x1826, 0x2A23-0x2A29, 0x2ACD/2AD3/2AD4/
        2AD5/2AD9/2ADA, 0xFEE0-0xFEE2, 0xFFF0-0xFFF2) — the app binds the
        UR characteristics by GATT enumeration and/or per-model cloud config
@@ -97,7 +94,16 @@ device:
     Cloud dependency: none for control once the GATT endpoints are known.
     The UR class's reliance on cloud per-model config (DeviceConfig) for
     endpoint discovery is the one soft spot — capture the endpoints once
-    and the cloud is no longer needed.
+    and the cloud is no longer needed. Cloud surface seen in the binary
+    (app-side; nothing the pad itself contacts): API hosts
+    service.urevosports.com and urevo.urevosports.com (HTTPS), H5 pages on
+    h5.urevosports.com, plus two hardcoded plain-HTTP IP endpoints
+    (http://106.52.219.41:8082, http://81.71.103.167 — Tencent Cloud
+    ranges, likely legacy/fallback API hosts). OTA metadata comes from
+    /product/api/ota/otaCheckVersion (plus getProductAll, addUpdateLog,
+    addConnectLog) on the API host; workout/history sync under /data/api/
+    and the scale API under /api/service-scale/. All of it is account-
+    bound app traffic — the BLE control plane never touches it.
   identification:
     service_uuids:
       - "00001826-0000-1000-8000-00805f9b34fb"   # FTMS models
@@ -117,7 +123,7 @@ device:
     confidence: medium
     notes: >
       No provisioning, pairing or bonding is visible in any treadmill code
-      path of com.urevo.app v3.6.22: scan, connect over GATT, enable
+      path of the official app: scan, connect over GATT, enable
       notifications and write commands. Confidence medium rather than high:
       this rests on static analysis only — no bonding/pairing API usage
       exists in the treadmill classes, but no hardware capture has confirmed
@@ -175,7 +181,7 @@ services:
       Standard Bluetooth FTMS, selected by EquipmentFactory when the
       advertisement carries 0x1826 (class FTMSEquipment/FTMSTreadmill with
       FtmsReadMixin). The full characteristic set below is confirmed by the
-      class's UUID getters in libapp.so v3.6.22 (each UUID string is
+      class's UUID getters in the app (each UUID string is
       referenced by the corresponding getter/reader method). No vendor
       extension, pre-amble or private characteristic was found in this
       path — unlike KingSmith's FTMS generation, there is no ODM
@@ -261,7 +267,7 @@ services:
 
       BluePack A frame grammar (both directions; recovered from
       BluePackA.toUInt8List / BluePackFactory.create / getCheckSum in
-      libapp.so v3.6.22):
+      the app):
 
         02 <cmd> <sub> <payload...> <checksum> 03
 
@@ -279,36 +285,78 @@ services:
         XOR 0x5A)
       - last byte = 0x03 (frame end)
 
-      A second frame family, BluePack B, starts 5A A5 and is at least 11
-      bytes long (BluePackFactory dispatch + BluePackB.fromUInt8List length
-      check); the binary also contains a crc16CCITT routine (MSB-first,
-      poly 0x1021). BluePack B is used at least by
-      UREquipment.getControllerVersionInfo (which allocates a BluePackB).
-      Its full layout and the CRC's exact coverage are not yet mapped.
+      A second frame family, BluePack B, carries version/OTA traffic. Its
+      full layout is recovered (BluePackB. constructor + toUInt8List +
+      fromUInt8List + crc16CCITT in the app):
+
+        5A A5 <f1> <f2> <f3> <cmd> <sub> <len u16-LE> <data...> <crc u16-LE>
+
+      - bytes 0-1 = 0x5A 0xA5 (BluePackFactory dispatches on these)
+      - f1/f2/f3 = three 1-byte header fields (0x01 0x03 0x00 in the
+        version query; semantics unidentified — possibly
+        protocol-version/type constants)
+      - cmd/sub = the command key (0x10 0x01 = controller version query;
+        the response factory keys BluePack-B answers as
+        <Class>_10<sub>, e.g. URTreadmill_1001 -> OTAMajorVersionResponse)
+      - len = uint16 little-endian count of data bytes
+        (convUInt16List = Uint16List view, i.e. native ARM LE)
+      - crc = CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, MSB-first, no
+        final XOR) over ALL preceding bytes including the 5A A5 header,
+        appended little-endian. The inbound parser recomputes it and
+        rejects on mismatch; minimum accepted frame length is 11 bytes.
+
+      BluePack-B response keys seen in ResponseFactory.createResponse:
+      1001 -> OTAMajorVersionResponse (treadmill and massager V2);
+      1002/1003/1004 -> OTAStartUpdate/OTAWriteUpdate/OTAExitUpdate
+      (massager V2 only — no treadmill OTA-push commands exist in this
+      app version).
 
       Speed/slope encoding: UREquipment.setTargetSpeedAndSlope converts the
-      display speed to wire counts as raw = display / speedStep, where
-      speedStep comes from the unit/config helpers (the slope goes through
-      the symmetric BlueNumExt fromSlope conversion). The absolute speed
-      step (0.1 km/h or otherwise) is not pinned down by static analysis —
-      read it from the 0x50 speed-config response on hardware.
+      display speed via BlueNumExt.fromKmh (slope via the symmetric
+      fromSlope), which divide by a per-unit factor read from a runtime
+      unit-config map (keys 'kmh' / 'slope', default 1.0 when unset). The
+      absolute speed step (0.1 km/h or otherwise) is therefore not a fixed
+      constant in the binary — read it from the 0x50 speed-config response
+      on hardware.
     characteristics:
       - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
         name: "Status / response notifications"
         properties: ["notify"]
         notes: >
-          Inbound BluePack frames. Response model classes in the binary
-          (package:urevo_bluetooth/src/model/response): TMStatusResponse,
-          TMStartResponse, TMStopResponse, TMPauseResponse,
-          TMSpeedConfigResponse, TMSlopeAndConfigResponse,
-          TMVersionInfoResponse, TMMileageResponse, TMBlueStateResponse,
-          TMSetSpeedAndSlopeResponse, TMGetDotMatrixScreenResponse /
-          TMSetDotMatrixScreenResponse (models with a dot-matrix display),
-          and BK*-mirrors for bikes (BKStatusResponse, BKConfigResponse,
-          BKSportDataResponse, …). Per-field offsets inside these responses
-          are not yet recovered — parsing lives in ResponseFactory.
-          createResponse and the per-class parsers; needs an HCI snoop or
-          further disassembly.
+          Inbound BluePack frames. Responses are dispatched by
+          ResponseFactory.createResponse on a key of
+          "<EquipmentClassName>_<cmdhex><subhex>" built from the frame's
+          command class + sub-command bytes (treadmill answers carry the
+          same cmd class as the request). Full treadmill mapping recovered
+          from that dispatch table:
+
+            51   (no sub) -> TMStatusResponse
+            53 01 -> TMPreparedResponse     53 02 -> TMSetSpeedAndSlopeResponse
+            53 03 -> TMStopResponse         53 04 -> TMBlueStateResponse
+            53 09 -> TMStartResponse        53 0A -> TMPauseResponse
+            50 00 -> TMVersionInfoResponse  50 02 -> TMSpeedConfigResponse
+            50 03 -> TMSlopeAndConfigResponse
+            50 04 -> TMMileageResponse
+            53 10 -> TMGetDotMatrixScreenResponse   (UR class only)
+            53 11 -> TMSetDotMatrixScreenResponse   (UR class only)
+            10 01 -> OTAMajorVersionResponse        (BluePack-B frame)
+
+          The FT and UR treadmill classes share this map (keys are
+          prefixed FTTreadmill_ / URTreadmill_ but point at the same
+          parser classes). Keys 50 00 (version info), 50 04 (mileage),
+          53 04 ("blue state"), and the dot-matrix pair have no matching
+          command builders found in UREquipment — either unsolicited /
+          model-specific, or their builders are inlined elsewhere; treat
+          as response-only until a sender is confirmed. Per-field offsets
+          inside these responses are not yet recovered — parsing lives in
+          the per-class onParseData; needs an HCI snoop or further
+          disassembly.
+
+          Command class 0x40 (previously "purpose unidentified") is a
+          different product family: keys 4000-4004 map to CM-series
+          parsers (CMSetLightResponse, CMGetLightInfoResponse,
+          CMGet/SetSwitchConfigResponse, CMGetElectricalStudyResponse) —
+          a lighting/electrical accessory, not a treadmill.
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Command write"
         properties: ["write", "write_without_response"]
@@ -316,18 +364,16 @@ services:
           All commands below are BluePack-A frames; checksums on the
           constant commands are shown resolved per the formula above. Every
           byte sequence here was recovered by disassembling the app's
-          command builders (ARM, libapp.so v3.6.22) — none of it has been
+          command builders — none of it has been
           exercised against real hardware yet.
 
-          Known but NOT yet mapped (deliberately absent from the commands
-          map because no emittable byte sequence is recovered): the UR
-          class's controller version-info query,
-          UREquipment.getControllerVersionInfo. It is built as a BluePack-B
-          frame (5A A5 header, >= 11 bytes, CRC-16/CCITT involvement
-          suspected), not BluePack A; its exact body is not yet extracted
-          from the Dart AOT code. The answer parses as a
-          TMVersionInfoResponse. Add it as a command only once the frame
-          bytes are recovered (further disassembly or an HCI snoop).
+          The UR class's controller version-info query
+          (UREquipment.getControllerVersionInfo) is a BluePack-B frame and
+          is now fully recovered — see ur_get_controller_version below.
+          CRC-16/CCITT-FALSE over the first 9 bytes is 0x6F8C, appended
+          little-endian. The answer parses as OTAMajorVersionResponse
+          (response key URTreadmill_1001), NOT TMVersionInfoResponse —
+          the latter answers the BluePack-A cmd 0x50 sub 0x00 variant.
         commands:
           # ---- FT class (FTEquipment, cmd class 0x44) ----
           ft_prepared:
@@ -391,6 +437,10 @@ services:
             description: "UR class: poll current equipment status — UREquipment.getEquipmentStatus, cmd 0x51 with NO sub-command byte. Answer is a TMStatusResponse."
             verification: "reported"
             value: [0x02, 0x51, 0x0B, 0x03]
+          ur_get_controller_version:
+            description: "UR class: query controller (OTA-major) version — UREquipment.getControllerVersionInfo. BluePack-B frame: header fields 01 03 00, cmd 0x10 sub 0x01, data length 0, CRC-16/CCITT-FALSE over bytes 0-8 appended little-endian. Answer is an OTAMajorVersionResponse. The massager V2 class emits the identical frame."
+            verification: "reported"
+            value: [0x5A, 0xA5, 0x01, 0x03, 0x00, 0x10, 0x01, 0x00, 0x00, 0x8C, 0x6F]
 
   # ------------------------------------------------------------- DIS
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
@@ -416,4 +466,4 @@ helpful_urls:
     description: "Manufacturer status (active, 2026 retail listings)."
   - url: "https://play.google.com/store/apps/details?id=com.urevo.app"
     title: "UREVO app (Google Play)"
-    description: "Official companion app; the protocol source for this spec (v3.6.22, 26042201)."
+    description: "Official companion app — the protocol source for this spec."
