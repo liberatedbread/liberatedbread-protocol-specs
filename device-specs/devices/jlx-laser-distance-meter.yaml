@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 device:
-  name: "Johnson JLX LDM330 / LDM130 Laser Distance Meter (Winho OEM platform)"
-  manufacturer: "Johnson Level & Tool (Winho OEM)"
+  name: "Johnson JLX LDM330 / LDM130 Laser Distance Meter (Precaster Enterprises OEM platform)"
+  manufacturer: "Johnson Level & Tool (Precaster Enterprises OEM)"
   manufacturer_status: "active"
   testing:
     status: verified
@@ -42,18 +42,34 @@ device:
     LDM130. Companion app: "Measure-Up" by Johnson Level
     (com.winho.measure_up, Android v1.0.1, APKPure mirror, APK sha256
     fc7ac7272f8604bc3636874055a4d6fe7f6b5e989ee02db1255ce9a9e9fd9deb).
-    The "winho" package name and the app's internal AppName enum show this is
-    a shared OEM platform whose single codebase builds the Johnson Measure-Up
-    app plus sibling-branded builds: IM2, MeasureCam, TargetCam, three
-    Starrett STR3 variants, MeasureMate, and three Ronix variants
-    (MeasureBox / MeasureCam / TargetCam). All of those should speak the
-    protocol below (unverified against any of them).
+    The "winho" package name marks the shared codebase of a single OEM
+    platform, but the OEM itself is Precaster Enterprises Co., Ltd.
+    (Taichung, Taiwan, est. 1977 — active as of 2026-08): the Measure-Up
+    app's only hardcoded URL is a Precaster about page, and Precaster's iM2
+    app is the flagship build of the same codebase. The app's internal
+    AppName enum lists the sibling-branded builds: IM2, MeasureCam,
+    TargetCam, three Starrett STR3 variants, MeasureMate, and three Ronix
+    variants (MeasureBox / MeasureCam / TargetCam). Four siblings were
+    acquired (apkcombo mirror, sha256): com.winho.im2 3.0.0
+    ee535b7b4e69d2922761d4cb08bb43e950a2d21c7ca1abdb1ce05b92c11ecd04,
+    com.winho.measure_mate 1.0.0
+    ec7ec7e0f78871a6a8f5bc9b2651660539d4fd4e57cbb415e75786503da2bf61,
+    com.winho.ronix_measure_box 1.0.0
+    dd08598668251bfdbcd46c9625ae0405a4d5d007f3379495dd5bb111521f2858,
+    com.winho.ronix_target_cam 1.0.0
+    9f335cdb0970a24fe29a09e6161132825c1f8735b6c5e9d51398d52f89b69e06.
+    All four carry the same f151/f154 UUIDs and Ztest01/Zbleoff frame
+    literals at the binary level, so they speak the protocol below; the
+    Ronix builds use the older package root com.wiho (one "n") with
+    byte-identical protocol constants. No cloud service or OTA/firmware-
+    update mechanism exists in any build — the protocol is fully local.
 
     Originally desk research recovered by static analysis of the Measure-Up
-    APK (jadx, sources under workspace/static/, gitignored). HARDWARE
-    2026-08-19: verified against a live LDM330 plus an HCI capture of the
-    vendor app driving it — see device.testing and the corrections marked
-    HARDWARE below.
+    APK (jadx, sources under workspace/static/, gitignored), re-verified in a
+    second pass against the decompile of all four acquired builds, which match
+    the frames and parser behavior exactly. HARDWARE 2026-08-19: verified
+    against a live LDM330 plus an HCI capture of the vendor app driving it —
+    see device.testing and the corrections marked HARDWARE below.
 
     PROTOCOL SHAPE: a BLE GATT serial-style exchange over two vendor
     characteristics, 0000f151 (write) and 0000f154 (notify), discovered by
@@ -87,8 +103,15 @@ device:
     a=m, b=ft, c=in, d=ft'in" 1/32, e=in 1/32, f=in 1/16, g=in 1/8,
     h=in 1/4, i=in 1/2, j=Taiwanese/Chinese foot. The app also guards
     against the literal strings "error1".."error6", so the device likely
-    reports measurement failures as ASCII error frames (hypothesis — those
-    strings are only compared against, never produced, in the app).
+    reports measurement failures as ASCII error frames (those strings are
+    only compared against, never produced, in the app). Two parser quirks a
+    replacement client must handle explicitly (verified in the decompile):
+    a literal "errorN" frame makes the app's Float.parseFloat on bytes 1-6
+    throw an UNCAUGHT NumberFormatException, so this build silently drops
+    error frames before they ever reach the error-string comparison; and a
+    unit code outside a-j falls into the default branch, which surfaces the
+    reading to the UI as "Zbleoff" — an unknown unit code looks like a
+    power-down to the vendor app.
 
     HARDWARE, 2026-08-19, session behaviour: Ztest01 is NOT guaranteed — one
     live session got it ~7 s after subscribing, another skipped it entirely
@@ -137,11 +160,18 @@ device:
 
     ANGLE: the LDM330 has an integrated angle sensor (digital level /
     indirect measurement), but no angle path was found in the recovered BLE
-    code — every frame carries a single scalar distance. Angle is likely
-    on-device only, or shares the measurement frame with a distinct byte-0
-    prefix the app ignores (unknown; needs a capture). Prefixes 'A', 'B' and
-    'C' were all seen on plain button-press distance readings in the capture,
-    so the prefix does not simply mean "distance".
+    code of any acquired build (Measure-Up, iM2, MeasureMate, Ronix) — every
+    frame carries a single scalar distance, so angle is not exposed over BLE
+    app-side. Angle is likely on-device only, or shares the measurement frame
+    with a distinct byte-0 prefix the app ignores (unknown; needs a capture).
+    Prefixes 'A', 'B' and 'C' were all seen on plain button-press distance
+    readings in the capture, so the prefix does not simply mean "distance".
+
+    CHECKSUM VARIANT: the Ronix build carries a dead, unreferenced duplicate
+    class (com.wiho.ble.BluetoothLeServicebafn) that writes the identical
+    "Link" payload with checksum 0xDB instead of 0xBB. The live path uses
+    0xBB, but the duplicate hints a firmware/revision variant with a
+    different checksum may exist — flag for hardware testing.
 
     IDENTIFICATION: the vendor app scans with NO name or service-UUID filter
     and shows every BLE peripheral for the user to pick. HARDWARE: the meter
@@ -241,7 +271,7 @@ device:
       notes: "130 ft sibling without the angle sensor; same Measure-Up app and protocol per the vendor app listing."
 
 payload_formats:
-  Winho_Command_Frame:
+  Precaster_Command_Frame:
     description: >
       13-byte command written to 0000f151: '#' (0x23), LF (0x0A), an ASCII
       command string, NUL padding to 12 bytes, then a 1-byte checksum equal
@@ -261,7 +291,7 @@ payload_formats:
       - "checksum = sum(bytes 0..11) & 0xFF"
       - "init frame is a separate fixed 6-byte write: 03 0D 0A 03 0D 0A (no checksum)"
 
-  Winho_Measurement_Frame:
+  Precaster_Measurement_Frame:
     description: >
       10-byte ASCII notification on 0000f154 carrying one measurement.
       Value is always meters; the unit code only reports the device display
@@ -283,11 +313,13 @@ payload_formats:
     parse_rules:
       - "value_m = float(ascii bytes 1-6)  # meters, regardless of unit_code"
       - "control frames instead of a measurement: 'Ztest01', 'Ztest02', 'Zbleoff' (7 chars + 3 NUL)"
-      - "measurement failures are likely 'error1'..'error6' ASCII frames (hypothesis: app compares against these strings)"
+      - "measurement failures are likely 'error1'..'error6' ASCII frames; the app compares against these strings but never produces them"
+      - "guard the float parse: a literal 'errorN' frame throws uncaught NumberFormatException in the vendor app, silently dropping the frame"
+      - "unit_code outside a-j hits the app's default branch and displays as 'Zbleoff' — treat unknown codes as unknown, not power-off"
 
 services:
   - uuid: "0000f150-0000-1000-8000-00805f9b34fb"
-    name: "Winho LDM Service"
+    name: "Precaster LDM Service"
     notes: >
       HARDWARE 2026-08-19: confirmed on an LDM330, live and in the vendor-app
       capture — primary service 0xf150 at handles 0x0050..0x0055 (f154 value
@@ -342,7 +374,7 @@ services:
           frames: "Ztest01" (send init), "Ztest02" (send link keep-alive),
           "Zbleoff" (device BLE powering down — treat as a clean
           disconnect), or a measurement frame (see
-          payload_formats.Winho_Measurement_Frame).
+          payload_formats.Precaster_Measurement_Frame).
 
 ble:
   connection_sequence:
@@ -382,6 +414,11 @@ entities:
       on this firmware, so clients must read it by handle.
 
 helpful_urls:
+  - title: "Precaster Enterprises (OEM)"
+    url: "https://www.precaster.com.tw/"
+    description: >-
+      OEM of the shared platform. The Measure-Up app's only hardcoded URL is a Precaster about
+      page, and Precaster's iM2 app is the flagship build of the same codebase.
   - title: "Johnson LDM330 product page"
     url: "https://www.johnsonlevel.com/P/1762/LaserDistanceMeterwAngleSensorandBluetooth"
     description: >-
@@ -401,4 +438,4 @@ helpful_urls:
     url: "https://www.imagemeter.com/manual/bluetooth/devices/"
     description: >-
       Third-party app's catalogue of which meters it speaks to and how, useful for placing this
-      Winho OEM platform among the other vendors' protocols.
+      Precaster OEM platform among the other vendors' protocols.
