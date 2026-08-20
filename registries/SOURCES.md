@@ -83,7 +83,7 @@ vendors squat on IDs they were never assigned all the time (this repo's own
 The same caution applies harder to an OUI, and in a way worth stating plainly:
 **an address block identifies whoever bought the block, which is frequently the
 chip vendor rather than the product vendor.** The Lutron Caséta bridge captured
-in `lutron-caseta-smart-bridge.yaml` advertises `b8:94:d9:1e:e7:67`; that block
+in `lutron-caseta-smart-bridge.yaml` advertises `b8:94:d9:aa:bb:cc`; that block
 belongs to Texas Instruments, because the address comes off the radio module
 inside the bridge. Lutron's own OUI, `00:0F:E7`, appears nowhere on the device.
 Anyone reading a vendor name off an OUI is being told what silicon is in the

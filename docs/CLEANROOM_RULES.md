@@ -24,8 +24,8 @@ before committing.
 
 **Scrub:**
 
-- LAN addresses a capture happened to assign (`10.69.193.194`)
-- Full BLE or Wi-Fi MACs of a specific unit (`E7:4D:5D:A9:95:74`)
+- LAN addresses a capture happened to assign — whatever your DHCP handed out
+- Full BLE or Wi-Fi MACs of a specific unit
 - Hostnames, mDNS instance names, SSIDs, and device names you set
 - Serial numbers, Thing IDs, account emails, and anything key-shaped — user
   keys, bindkeys, tokens, pairing PINs. A key read off your own device is

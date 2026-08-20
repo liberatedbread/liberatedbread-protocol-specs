@@ -23,7 +23,7 @@ The same raster byte stream is accepted over **TCP RAW port 9100**
 !!! note "Bluetooth is Classic, not BLE"
     The radio is BT 2.1+EDR with SPP/BIP/OPP/HCRP/iAP profiles — there is no
     BLE GATT surface at all. The printer advertises a Classic name like
-    `QL-1110NWB5972` (last 4 of the serial); pair and open an SPP channel
+    `QL-1110NWB0000` (last 4 of the serial); pair and open an SPP channel
     (standard UUID `00001101`). Retailer pages claiming "Bluetooth 5.2" are
     aggregator noise. Because no GATT protocol exists, the iPrint&Label APK
     was deliberately not decompiled — it speaks this same documented raster

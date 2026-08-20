@@ -5,7 +5,7 @@ produced it and what a pass looks like. Checks 1 to 8 take about an hour. Check 
 full heat cycle on top of that, check 10 runs while 9 does, check 11 is three short writes, check 12 needs the mug
 actively heating so run it off the back of 9, and checks 13 and 14 clear the claim, so do them last.
 
-Results below are from an Ember Mug 2, 10 oz, at `E7:4D:5D:A9:95:74`, serial `WHC93801252`, firmware
+Results below are from an Ember Mug 2, 10 oz, at `E7:AA:BB:CC:DD:EE`, serial `WHCXXXXXXXX`, firmware
 367, hardware 10. Your unit will differ in the MAC, the serial, the LED colour and probably the
 firmware. The body style matters more than any of those: this file covers five and only the Mug 2 was
 tested, and the characteristic table is not the same across them.
@@ -34,7 +34,7 @@ reset and does not restore. Nothing touches the Nordic DFU service or the contro
 
 Twenty seconds of passive scanning, before you connect to anything.
 
-    E7:4D:5D:A9:95:74  Ember Ceramic Mug  rssi -47
+    E7:AA:BB:CC:DD:EE  Ember Ceramic Mug  rssi -47
       manufacturer 0xFFFF  82
       advertised uuids: 0000180a-0000-1000-8000-00805f9b34fb
 
@@ -153,7 +153,7 @@ result you record, because Device Information is advertised and absent so this i
 version number.
 
 **`fc54000d`** is the mug id and it decodes as the BLE address, an ASCII hyphen, then the serial. Ours
-gives `WHC93801252` after the hyphen, matching the box. That hyphen is the byte 6 the spec's format
+gives `WHCXXXXXXXX` after the hyphen, matching the box. That hyphen is the byte 6 the spec's format
 block never accounted for.
 
 ## 6. Push events and the charging byte

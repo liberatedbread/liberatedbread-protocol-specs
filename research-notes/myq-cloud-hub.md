@@ -11,8 +11,8 @@ with Security+ 3.0 (see below). MyQ-the-cloud-product is not locally
 controllable.
 
 ## Live observation (2026-08-14)
-The MyQ hub on the LAN (MAC CC:6A:10:2A:11:F4, The Chamberlain Group,
-10.69.198.170) had ports 80/443/8080 all CLOSED to probes — consistent with an
+The MyQ hub on the LAN (MAC CC:6A:10:AA:BB:CC, The Chamberlain Group,
+192.168.1.170) had ports 80/443/8080 all CLOSED to probes — consistent with an
 outbound-cloud-only device that accepts nothing locally.
 
 ## BUT the opener itself IS locally controllable — via a wired bridge

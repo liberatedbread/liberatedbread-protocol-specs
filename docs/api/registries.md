@@ -47,7 +47,7 @@ An address block identifies **whoever bought the block**. That is often the chip
 vendor, not the product vendor.
 
 The Lutron Caséta bridge in [`lutron-caseta-smart-bridge`](../devices/lutron-caseta-smart-bridge.md)
-reports `b8:94:d9:1e:e7:67`. `B8:94:D9` belongs to Texas Instruments, because the
+reports `b8:94:d9:aa:bb:cc`. `B8:94:D9` belongs to Texas Instruments, because the
 address comes off the radio module inside the bridge. Lutron's own OUI,
 `00:0F:E7`, appears nowhere on the device. That spec therefore carries no
 `mac_prefixes` at all — the observed one would flag every TI-radio device on the

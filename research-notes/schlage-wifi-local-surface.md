@@ -153,7 +153,7 @@ is the **commercial** catalog. Product families with firmware release notes ther
   "during the next scheduled WiFi connection", or pushed **locally over BLE** from
   the ENGAGE mobile app — same architecture as leopard's BLE-push/WiFi-pull duality.
 
-## 4. Live LAN observations (2026-08-15, 10.69.0.0/16, from 10.69.200.180)
+## 4. Live LAN observations (2026-08-15, 192.168.1.0/24, from 192.168.1.180)
 
 - `nmap -sn` ping sweep of the full /16: **51 hosts up** (of 65536), ~225 s.
 - ARP + OUI resolution against `registries/ieee-oui.tsv` for all 51: no Allegion
@@ -164,15 +164,15 @@ is the **commercial** catalog. Product families with firmware release notes ther
   Raspberry Pi, Intel, one locally-administered MAC.
 - Light port scan (22/23/53/80/443/1883/5683/8080/8443/9009) of the plausible
   IoT-module candidates, then HTTP identification of anything listening:
-  - `10.69.193.104` (FN-LINK, port 80): **myQ Wi-Fi Hub** (Chamberlain garage)
+  - `192.168.1.104` (FN-LINK, port 80): **myQ Wi-Fi Hub** (Chamberlain garage)
     in provisioning mode — "Wi-Fi Setup" page, myQ logo. Not Schlage.
-  - `10.69.123.198` (FN-LINK, 443): ancient **Boa/0.94** webserver, GB2312 404 —
+  - `192.168.1.198` (FN-LINK, 443): ancient **Boa/0.94** webserver, GB2312 404 —
     some Chinese IoT gadget, unidentified, not Schlage-like.
-  - `10.69.146.2` (Murata, 80+443): `470 Connection Authorization Required` —
+  - `192.168.1.2` (Murata, 80+443): `470 Connection Authorization Required` —
     unidentified proprietary device.
-  - `10.69.164.48` (Espressif, 80): hobbyist ESP web UI (dark theme). Not Schlage.
-  - `10.69.198.31` (Espressif), `10.69.193.194` (High-Flying): all ports closed.
-  - `10.69.197.33` (LAA MAC): SSH open — a Linux box, not a lock.
+  - `192.168.1.48` (Espressif, 80): hobbyist ESP web UI (dark theme). Not Schlage.
+  - `192.168.1.31` (Espressif), `192.168.1.194` (High-Flying): all ports closed.
+  - `192.168.1.33` (LAA MAC): SSH open — a Linux box, not a lock.
 - **No host was positively identifiable as a Schlage lock.** If the locks are on
   WiFi they present zero listening ports among the common set and answer nothing on
   HTTP — consistent with the app evidence (outbound-only cloud relay). Passive

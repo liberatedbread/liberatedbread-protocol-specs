@@ -4,7 +4,7 @@ Every confirmed claim in the spec, in the order that makes sense to run them, wi
 produced it and what a pass looks like. Working through this end to end takes about half an hour plus
 whatever you leave the record-interval check running for.
 
-Results below are from `GVH5075_0969` at `A4:C1:38:F9:09:69` on firmware 1.04.07, hardware 1.03.02.
+Results below are from `GVH5075_BBCC` at `A4:C1:38:AA:BB:CC` on firmware 1.04.07, hardware 1.03.02.
 Your unit will differ in the MAC, the name suffix, the device string in check 7, and possibly the
 firmware. Nothing else should.
 
@@ -31,7 +31,7 @@ whatever history is stored.
 Twenty seconds of passive scanning. Expect one line per unit with the name, RSSI, the raw 24-bit
 value and two candidate temperatures.
 
-    A4:C1:38:F9:09:69  GVH5075_0969  rssi -32
+    A4:C1:38:AA:BB:CC  GVH5075_BBCC  rssi -32
       manufacturer 0xEC88  0003c3126400
       raw 0x03C312
       temp, source form  24.6
@@ -116,10 +116,10 @@ Each line writes a 20-byte packet to `...2011` and prints the notification that 
 unit demanded the app-layer handshake it would refuse or drop the link here, and it does not.
 
     aa086400...c6                      battery 100
-    aa0c6909f938c1a420c3...81          MAC reversed, then 20 c3
+    aa0cccbbaa38c1a420c3...81          MAC reversed, then 20 c3
     aa0d312e30332e3032...97            ASCII 1.03.02
     aa0e312e30342e3037...96            ASCII 1.04.07
-    aa0f6909f938c1a4...61              MAC reversed
+    aa0fccbbaa38c1a4...61              MAC reversed
     aa030000001027...9e                humidity alarm, 0.00 to 100.00 %
     aa040030f8701700...01              temperature alarm, -20.00 to 60.00 C
     aa06 / aa07 all zero               uncalibrated
