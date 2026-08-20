@@ -126,6 +126,38 @@ code of any acquired build (Measure-Up, iM2, MeasureMate, Ronix) — every
 frame carries a single scalar distance, so angle is likely on-device only
 (unverified).
 
+## Linux desktop sees zero services
+
+A BlueZ-based client — `bleak`, `flutter_blue_plus` on Linux, anything layered
+on `bluetoothd` — connects to this meter, negotiates an MTU, and then discovers
+**no services at all**. That is this device, not your code.
+
+`bluetoothd` (BlueZ ≥ 5.62, reproduced on 5.85) reads the Database Hash
+(`0x2b2a`) by type during GATT client init. The meter answers that particular
+read with silence rather than an error, so `bluetoothd` waits out the 30 s ATT
+transaction timeout, abandons init, and reports the device "resolved" with an
+empty database — about 32.5 s in, with the ATT channel left dead. A client that
+gives up sooner (the app retries discovery for ~6 s) just sees the empty result
+earlier; waiting longer does not help, because the database is still empty when
+`bluetoothd` finally answers.
+
+What still works: plain Read Requests **by handle** (every Device Information
+string and the battery level read fine), Exchange MTU, and — over a raw ATT
+channel — discovery, writes and notifications. Android and iOS are unaffected.
+
+Narrower than it first looked. In the vendor-app HCI capture the meter answered
+every Read By Type it received (29 by-type and 9 by-group-type requests, 38
+responses, no silences), including correct `Attribute Not Found` (`0x0a`) errors
+for by-type reads of UUIDs it does not carry. The handler is not broken in
+general; what that capture never contains is a read of `0x2b2a`. Robust caching
+is the one thing `bluetoothd` does that the vendor app does not.
+
+**Untested, and worth trying before writing Linux off:** set `Cache = no` under
+`[GATT]` in `/etc/bluetooth/main.conf` and restart `bluetoothd`. If that skips
+the Database Hash read, Linux clients work after a config change rather than not
+at all. Otherwise use a raw ATT path (`gatttool`, or a custom L2CAP CID 4
+client), or drive the meter from Android or iOS.
+
 ## Family survey (Bluetooth laser distance meters)
 
 | Family | Transport | Notes |
