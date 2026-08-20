@@ -453,11 +453,15 @@ and parses the published `InsightParams` string into named fields.
 
 ```yaml
 factory_reset:
-  applicable: true                     # false when the device has none at all
+  applicable: true              # false = none at all; "unknown" = not established
   confidence: "medium"
   effect: "What is actually cleared — and what survives."
+  description: |
+    Prose for a person: which part is established, which is inferred, and
+    what to watch for. `effect` is the one-liner; this is the context.
   procedures:
     - name: "Restore button held while power is applied"
+      verified: true                     # false = a candidate, and `basis` is required
       applies_to: ["F7C063", "WSP080"]   # omit when it applies to all variants
       hold_seconds: 5
       indicator: "Status LED blinks, then the setup AP reappears."
@@ -485,6 +489,21 @@ Two fields deserve a second look:
   state, and ECU resets are dealer-tool operations rather than a setup step.
   Saying so beats inventing a procedure, which on safety-relevant hardware is
   worse than an admission of nothing to document.
+- **`factory_reset.applicable: "unknown"`** — nobody has established a reset on
+  this hardware. It is a different claim from `false`: one says there is
+  nothing to find, the other says nobody has looked hard enough yet.
+
+  An unknown reset may still list what to try. Dropping a likely procedure
+  throws away real knowledge — it is the first thing someone holding the device
+  should attempt — so the rule is not silence but labelling: every procedure
+  under an unknown reset must say `verified: false` and cite a **`basis`**.
+  Whether a candidate came from the vendor's manual or from "every other bulb
+  in this family works this way" changes how much a reader should trust it, and
+  a candidate nobody can weigh is indistinguishable from a guess.
+
+  `verified` is about the *procedure*; `applicable` is about the *device*. They
+  move independently: a device can plainly have a reset whose exact sequence
+  nobody has pinned down.
 - **`credentials.wifi_passphrase_protection: device_encrypted`** — treat with
   scepticism. When the key is derived from data the device hands out
   unauthenticated, it stops an opportunistic listener and nothing else. It is
