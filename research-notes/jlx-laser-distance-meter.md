@@ -6,8 +6,8 @@ decompiled companion app.
 
 ## APK Provenance
 
-- **App**: "Measure-Up" by Johnson Level (listing contact
-  `a johnsonlevel.com address`); Play listing currently shows v1.6 /
+- **App**: "Measure-Up" by Johnson Level (Play listing contact is a
+  johnsonlevel.com address); Play listing currently shows v1.6 /
   ~8K downloads per chrome-stats; the APKPure mirror serves v1.0.1.
 - **Package**: `com.winho.measure_up`
 - **Source**: `./scripts/fetch_apks_apkeep.sh com.winho.measure_up` (APKPure)
