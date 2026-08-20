@@ -1,6 +1,6 @@
 # Rabbit Air Purifiers (MinusA2 / A3 / BioGS 2.0)
 
-> **Status**: Complete (LAN protocol from the vendor's own library; BLE + AP-mode provisioning recovered from a full decompile of the Rabbit Air 2 app)
+> **Status**: Complete and hardware-verified (2026-08-15): LAN protocol from the vendor's own library; BLE provisioning recovered from a full decompile of the Rabbit Air 2 app AND replayed end-to-end against a real MinusA2 — cleartext setup commands, client-generated user key, encrypted LAN + BLE control all confirmed
 > **Protocol**: WiFi (mDNS + encrypted JSON over UDP 9009) and BLE (GATT provisioning channel, also usable for local control)
 > **Manufacturer**: Rabbit Air
 > **Manufacturer Status**: Active — and unusually cooperative: Rabbit Air published the LAN client library itself
@@ -28,7 +28,7 @@ supported" and Home Assistant cannot connect to them.
 | Path | Transport | Auth | Required for control? |
 |------|-----------|------|----------------------|
 | **LAN protocol** | UDP 9009 (or TCP 9009, length-prefixed) | AES-128-CBC with a per-device 16-byte user key | Yes — this is the control plane |
-| **BLE** | GATT service `366048ae-…`, characteristic `53ef7d7d-…` | Cleartext during setup; same user-key AES after | Alternate control transport + provisioning channel |
+| **BLE** | GATT service `366048ae-…`, characteristic `53ef7d7d-…` | Cleartext during setup; same user-key AES after | Alternate control transport + provisioning channel. Hardware note: the characteristic is write + **indicate** (ATT indications, not notifications) |
 | mDNS discovery | `_rabbitair._udp.local.` | none | Optional (IP works too) |
 | Rabbit Air cloud | AWS IoT Core MQTTS 8883 (`au32ip2ri54us-ats.iot.us-east-1.amazonaws.com`), device shadow `$aws/things/<thingName>/shadow/…` | Per-thing X.509 certificate | No — remote access / account / OTA only |
 | Firmware OTA | `ota.rabbitair.com` | — | No |
@@ -51,10 +51,10 @@ below), even *first-time setup* can be done cloud-free.
 | Property | Value |
 |----------|-------|
 | Setup required | Yes — one-time Wi-Fi provisioning |
-| Method | `ble_provisioning` (preferred), `softap_udp` AP mode (fallback), or WPS — the first two fully documented below |
+| Method | `ble_provisioning` (preferred, **verified against hardware 2026-08-15**), `softap_udp` AP mode (fallback, unreplayed), or WPS (unreplayed) — the first two fully documented below |
 | Setup identity | BLE name `RabbitAirSetup` + service `366048ae-…`; AP mode: open `rabbitair_*` SSID, device at `192.168.10.1` (mDNS `rabbitair-setup.local`) |
 | Passphrase protection | none — setup commands are cleartext JSON; encryption starts only after the user key is pushed |
-| Confidence | medium (recovered from a blutter decompile of the app binary; not replayed against hardware) |
+| Confidence | high (BLE path replayed against a real MinusA2; AP-mode path still decompile-only) |
 
 The BLE and AP-mode paths speak the **same cleartext JSON command envelope**
 as the LAN protocol (`{"id":…,"cmd":…,"data":{…}}` — no `ts`, no AES during
@@ -62,9 +62,11 @@ setup), carried over GATT or over UDP/TCP 9009 to `192.168.10.1`:
 
 1. **cmd 255 + cmd 4** — device info / state sanity check (retry 5×, 1 s).
 2. **cmd 0** — read network settings; doubles as the device's own Wi-Fi scan
-   (`data.networks[]` = `{ssid, security}`). Re-poll until non-empty.
+   (`data.networks[]` = `{ssid, security}`, one entry per visible BSSID —
+   dedupe SSIDs). Re-poll until non-empty.
 3. **cmd 1** — join network: `data {"ssid","passphrase","security"}` with
-   `security` echoed from the chosen `networks[]` entry.
+   `security` echoed from the chosen `networks[]` entry (hardware-observed:
+   **3 = WPA2-PSK**).
 4. **cmd 5, type 4** — push the **user key**: 32 uppercase hex chars
    (16 bytes) generated *client-side*. Firmware gate: `mcu` ≥ 24 (ESP32) /
    ≥ 2.2 (Inventek). This key is all local control needs — the vendor app's
@@ -72,19 +74,33 @@ setup), carried over GATT or over UDP/TCP 9009 to `192.168.10.1`:
    unit to the cloud and can be skipped.
 5. **cmd 3** — set module name (optional).
 6. **cmd 2** — leave setup mode; the unit joins Wi-Fi and appears on the LAN
-   advertising `_rabbitair._udp.local.`.
+   advertising `_rabbitair._udp.local.`. **Allow minutes**: the verified unit
+   held `ip 0.0.0.0` in cmd 0 for ~4 minutes after cmd 2 before associating
+   and taking a DHCP lease.
 
-Provisioning produces the purifier on your LAN with a **Thing ID** — also
-its mDNS hostname, e.g. `abcdef1234_123456789012345678.local` — and the
-**user key**. On a unit set up by the official app, retrieve both from the
-app: device page → three-dot menu → *Rename* → tap the device name to
-expand the hidden section (older app versions: *Edit* screen, tap "Serial
-Number" repeatedly).
+Hardware notes from the 2026-08-15 replay (MinusA2 gen2, Wi-Fi module
+mcu 2.2.8): replies to the write commands are bare `{"id":<echo>}` acks;
+commands that are out of phase come back `{"id":<echo>,"error":true}`
+(e.g. cmd 1/2 re-sent after setup completed). A **keyed** unit (already
+provisioned, not in setup mode) answers no cleartext command and
+intermittently rejects writes with ATT application error `0x87` — that
+signature means "hold the wireless button and retry", not a broken link.
+
+Provisioning produces the purifier on your LAN. With the vendor cloud flow
+it has a **Thing ID** — also its mDNS hostname, e.g.
+`abcdef1234_123456789012345678.local`. With the local-only flow above the
+unit never gets a Thing ID (cmd 255 `data.name` stays empty) and its mDNS
+hostname falls back to **`RabbitAir-<WIFI MAC>`** (e.g.
+`RabbitAir-A1B2C3D4E5F6.local`, TXT record `id=A1B2C3D4E5F6`) — verified on
+hardware. The **user key** works the same either way. On a unit set up by
+the official app, retrieve both from the app: device page → three-dot menu
+→ *Rename* → tap the device name to expand the hidden section (older app
+versions: *Edit* screen, tap "Serial Number" repeatedly).
 
 On BLE the framed payload is prefixed with a 2-byte little-endian length and
 split into (MTU − 5)-byte chunks — the app negotiates MTU 515, so 510-byte
 chunks — written with response to characteristic
-`53ef7d7d-c244-42bd-9064-a1569a521ca9`; notifications on the same
+`53ef7d7d-c244-42bd-9064-a1569a521ca9`; **indications** on the same
 characteristic carry the chunked reply (7 s timeout). See the
 `rabbit_air_ble` block of the spec for the byte-level framing.
 
@@ -181,12 +197,14 @@ needed for local control; do not build on it.
 
 ## Open gaps
 
-- **Hardware verification** — the provisioning flows (BLE + AP-mode) are
-  recovered from the app decompile, not replayed against a real unit; the
-  YAML keeps `verified: false` on both until someone does.
-- The integer `security` enum in cmd 0/1 (which value is WPA2 etc.) is
-  unmapped — echo the `networks[]` entry's value rather than constructing
-  one.
+- ~~**Hardware verification**~~ — done for the BLE path (2026-08-15): the
+  full cleartext provisioning conversation, the client-side user key, and
+  the encrypted LAN/BLE control channels were all replayed against a real
+  MinusA2. The **softap_udp** AP-mode and **WPS** methods remain
+  decompile-only (`verified: false` in the YAML).
+- The integer `security` enum in cmd 0/1 is partially mapped (3 = WPA2-PSK,
+  hardware-observed); other values (open/WEP/WPA3) unconfirmed — echo the
+  `networks[]` entry rather than constructing one.
 - TCP (9009) response framing has one unresolved inconsistency in the
   decompiled client; UDP is the reference transport.
 - First-generation MinusA2 protocol — entirely undocumented.
