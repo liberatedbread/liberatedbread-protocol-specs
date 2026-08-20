@@ -96,10 +96,10 @@ Other STATUS byte[3] types: `0x9A` = lock firmware version (`[patch,minor,major]
 
 | Opcode | Meaning | Source |
 |---|---|---|
-| 0x10 | **Toggle** lock/unlock (touch-to-open) | `KevoLockToggleCommand.getType()` |
-| 0x12 | Bolt position / status query | `LocalCommandWorker` |
-| 0x13 | **Lock** | `LocalCommandWorker` |
-| 0x14 | **Unlock** | `LocalCommandWorker` |
+| 0x10 | **Toggle** lock/unlock (touch-to-open) | App's lock-toggle command |
+| 0x12 | Bolt position / status query | App's local command path |
+| 0x13 | **Lock** | App's local command path |
+| 0x14 | **Unlock** | App's local command path |
 | 0x15 | Tap-to-enroll (locks *and* Kevo Plus gateway) | `…DelegateImpl.tapToEnrollCommand`, `GatewaySetupActivity` |
 | 0x19 | Lock history request | `LockHistoryCommand` |
 | 0x9B | Firmware upgrade begin (command = `[ver LE…, 0x9B]`) | `…DelegateImpl.firmwareUpgradeCommand` |

@@ -93,9 +93,9 @@ Answer to the device's `Ztest02` notification (write to `f151`, 13 bytes):
 `23 0A 4C 69 6E 6B 00 00 00 00 00 00 BB` — `'#' LF "Link"`, NUL-padded,
 checksum `0xBB`.
 
-Note: the Ronix build carries a dead, unreferenced duplicate class
-(`com.wiho.ble.BluetoothLeServicebafn`) that writes the identical `Link`
-payload with checksum `0xDB` instead of `0xBB`. The live path uses `0xBB`,
+Note: the Ronix build carries a dead, unreferenced second copy of the BLE
+service class that writes the identical `Link` payload with checksum `0xDB`
+instead of `0xBB`. The live path uses `0xBB`,
 but the duplicate hints a firmware variant with a different checksum may
 exist — worth testing if a meter rejects the link frame.
 
