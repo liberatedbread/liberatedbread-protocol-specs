@@ -64,9 +64,11 @@ device:
     music/rhythm visualizer sends encrypted 16-byte packets ([0x12][14 bytes
     of packed 4-bit levels]) on the same channel
     (music/VisualizerView.java:111-121) — not the sibling's plain 20-byte
-    pixel writes. Multi-frame animation uses a MANY <count> <profile>
-    transaction with per-frame DATS/data/DATCP, closed by MANCPOK (sibling
-    DiyMutiAgreement; unverified for this app). Agreement.parseType maps the
+    pixel writes. Animation upload (data/AnimationAgreement.java) uses the
+    same DATS/data/DATCP flow as images but with 50 ms pacing. This app has
+    NO multi-frame MANY transaction — a 2026-08-18 re-mine finds no
+    MANY/MANCPOK strings and no DiyMutiAgreement class; the MANY <count>
+    <profile> … MANYOK … MANCPOK flow is sibling-only (shining-glasses).
     STYPE response to a size code: STYPE5X36→536, STYPE5X36N→5360,
     STYPE12X48→1248, STYPE12X48N→12480, STYPE14X56→1456, STYPE16X64→1664
     (data/Agreement.java:44-78; N-suffixed variants exist only for 5X36 and
@@ -184,7 +186,12 @@ services:
           csh/tiro/cc/aes.java:11 (native); com/cdbwsoft/library/ble/BleManager.java:50-57.
         commands:
           query_device_type:
-            description: "Query display dimensions. Response on notify: 'STYPE5X36', 'STYPE12X48', 'STYPE16X64', etc."
+            description: >
+              Query display dimensions. Response on notify: 'STYPE5X36',
+              'STYPE12X48', 'STYPE16X64', etc. NOTE: the builder
+              (Agreement.getTypeCommand) has no call site in app 1.5.6 — the
+              device pushes its STYPE notification unsolicited after connect
+              (parsed in MainPresenter.java:158), so clients can simply listen.
             value: [0x05, 0x53, 0x54, 0x59, 0x50, 0x45]
           led_on:
             description: "Turn LED display on"
@@ -246,6 +253,99 @@ services:
           invert_display:
             description: "Invert/flip display"
             value: [0x05, 0x45, 0x56, 0x45, 0x52, 0x54]
+          set_mode_flash:
+            description: "Flash mode; interval in ms, big-endian 16-bit (Agreement.getFlashingScreenCommand)."
+            template: [0x07, 0x4D, 0x4F, 0x44, 0x45, 0x02, "{interval_hi}", "{interval_lo}"]
+            parameters:
+              interval_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+              interval_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_mode_music:
+            description: "Music/rhythm mode (MODE 7); level frames go to WRITE3. Backed by libint16fft.so."
+            value: [0x05, 0x4D, 0x4F, 0x44, 0x45, 0x07]
+          set_mode_scroll_right_linked:
+            description: "Daisy-chained scroll right across linked displays (MODE 8), with speed byte."
+            template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x08, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_mode_scroll_left_linked:
+            description: "Daisy-chained scroll left across linked displays (MODE 9), with speed byte."
+            template: [0x06, 0x4D, 0x4F, 0x44, 0x45, 0x09, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          torch_on:
+            description: "Torch/flashlight on (LIGHTON; distinct from LIGHT brightness — Agreement.getFlashLight)."
+            value: [0x07, 0x4C, 0x49, 0x47, 0x48, 0x54, 0x4F, 0x4E]
+          torch_off:
+            description: "Torch/flashlight off (LIGHTOFF)."
+            value: [0x08, 0x4C, 0x49, 0x47, 0x48, 0x54, 0x4F, 0x46, 0x46]
+          select_animation:
+            description: "Select built-in animation frame (ANIM n — Agreement.getImageCommand)."
+            template: [0x05, 0x41, 0x4E, 0x49, 0x4D, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          call_notification:
+            description: "Phone-call notification passthrough (CALL status time — Agreement.getCallPhone)."
+            template: [0x06, 0x43, 0x41, 0x4C, 0x4C, "{status}", "{time}"]
+            parameters:
+              status:
+                type: "uint8"
+                min: 0
+                max: 255
+              time:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_schedule:
+            description: "Timer auto on/off schedule (SCHD enable hour minute — Agreement.getTimerLightSwitch). Response to STSC uses prefix 'SBHD'."
+            template: [0x07, 0x53, 0x43, 0x48, 0x44, "{enable}", "{hour}", "{minute}"]
+            parameters:
+              enable:
+                type: "uint8"
+                min: 0
+                max: 1
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+          read_schedule:
+            description: "Read back the timer schedule (STSC — Agreement.readTimerLight)."
+            value: [0x04, 0x53, 0x54, 0x53, 0x43]
+          diy_sync_mode:
+            description: "DIY sync-draw mode (SMVEW): 1 = enter, 0 = exit, 2 = save-and-exit (Agreement.getEnterDiyCommand/getExitDiyCommand/getExitDiyAndSaveCommand)."
+            template: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+          stop_rhythm:
+            description: "Stop music/rhythm mode (STOPR — Agreement.getStopRhythmCommand)."
+            value: [0x05, 0x53, 0x54, 0x4F, 0x50, 0x52]
+          select_display_first:
+            description: "Address this unit as the first of a daisy chain (LEDFIRST — Agreement.getWhichCommand(1)). Sent on connect based on join order (MainPresenter.java:246)."
+            value: [0x08, 0x4C, 0x45, 0x44, 0x46, 0x49, 0x52, 0x53, 0x54]
+          select_display_second:
+            description: "Address this unit as the second of a daisy chain (LEDSECOND — Agreement.getWhichCommand(2))."
+            value: [0x09, 0x4C, 0x45, 0x44, 0x53, 0x45, 0x43, 0x4F, 0x4E, 0x44]
           data_transfer_start:
             description: "Start bulk data transfer. hi/lo = big-endian 16-bit data length."
             template: [0x08, 0x44, 0x41, 0x54, 0x53, "{len_hi}", "{len_lo}", 0x00, "{link_flag}"]
@@ -266,7 +366,19 @@ services:
             description: "Signal bulk data transfer complete"
             value: [0x05, 0x44, 0x41, 0x54, 0x43, 0x50]
           multi_frame_animation_start:
-            description: "Multi-frame animation transaction: MANY <count> <profile>, then per-frame DATS/data/DATCP; the device closes with MANCPOK (sibling evidence: shining-glasses DiyMutiAgreement). Exact byte layout TBD."
+            description: >
+              NOT PRESENT in com.tirohk.magicdisplay 1.5.6: a 2026-08-18
+              re-mine of the jadx tree finds no MANY/MANCPOK command and no
+              DiyMutiAgreement class — in this app, animation upload
+              (data/AnimationAgreement.java) is a plain DATS/DATSOK → data →
+              DATCP/DATCPOK transfer on WRITE2 with 50 ms pacing (vs 60 ms in
+              ImageAgreement). The multi-frame transaction is sibling-only
+              (shining-glasses DiyMutiAgreement + hardware captures): send
+              "MANY <frameCount> <profile>" (profile 01 = stable/fast, 02/03
+              slower), wait for MANYOK, upload each frame via the normal
+              DATS/data/DATCP sequence, then send MANCPOK and wait for the
+              MANCPOK reply. Whether Magic Display firmware accepts this flow
+              is unknown — unverified for this device.
 
       - uuid: "d44bc439-abfd-45a2-b575-925416129601"
         name: "Notification"
@@ -284,7 +396,8 @@ services:
           16-byte blocks — [length][up to 15 payload bytes] per block, each
           block passed through Agreement.getEncryptData() before
           writeCharacteristicBy2, with a fixed 60 ms sleep between blocks
-          (data/ImageAgreement.java:404-436). There is no per-chunk ack
+          (data/ImageAgreement.java:404-436; animation uploads use 50 ms,
+          data/AnimationAgreement.java:68-72). There is no per-chunk ack
           ("REOK" appears nowhere in the app); flow control is timing-only.
           Only the framing commands on WRITE1 are acked (DATS→DATSOK,
           DATCP→DATCPOK). BleDevice.onEncrypt is an identity no-op
@@ -324,6 +437,81 @@ services:
           TI-variant command characteristic; same AES-128-ECB native key as
           WRITE1 (recovered from libAES.so, see there). Evidence:
           BleManager.java:55 (FFF1 characteristic), 58 (FFF0 service).
+
+  # Quintic OTA service (library/ble/BleGlobalVariables.java:10-16).
+  - uuid: "0000fee8-0000-1000-8000-00805f9b34fb"
+    name: "OTA Service"
+    characteristics:
+      - uuid: "013784cf-f7e3-55b4-6c4c-9fd140100a16"
+        name: "OTA Write"
+        properties: ["write"]
+        notes: >
+          Standard Quintic OTA: host sends meta data (cmd 0x01), then the
+          firmware image in 256-byte packets (cmd 0x02), then data-verify
+          (0x03) and execution-new-code (0x04); the device reports an
+          OtaResult status byte on the notify characteristic
+          (library/ble/BleOtaUpdater.java, BleGlobalVariables.java:20-51).
+          OTA writes are NOT AES-encrypted (BleDevice.writeOtaData writes raw,
+          library/ble/BleDevice.java:616-641). Four firmware images are
+          bundled in the app assets (TR1805R03-9/-10, TR1806R06-2/-3 OTA
+          bins, ~39 KB each; ConnectPresenter.java:221-269).
+      - uuid: "003784cf-f7e3-55b4-6c4c-9fd140100a16"
+        name: "OTA Notify"
+        properties: ["notify"]
+
+# Vendor cloud is app-side only; the device itself never talks to it. All
+# control is local BLE, so this device keeps working when the service dies.
+cloud:
+  required: false
+  vendor_service: "e-toys.cn app backend (Tianlang Innovation Technology, Shenzhen)"
+  hosts:
+    - "http://api.e-toys.cn/api/ (hardcoded as AppConfig.SERVER, com/cdbwsoft/library/AppConfig.java:27)"
+  endpoints:
+    - path: "app/lastOtaUpdate"
+      method: "POST"
+      name: "OTA version check"
+      returns: "Latest OTA metadata for an app_id. Server alive on 2026-07-31 but returns {\"status\":0,\"data\":null} for com.tirohk.magicdisplay — no firmware is served; the app falls back to the four OTA images bundled in its own assets."
+      verification: "reported"
+    - path: "ad/getAdInfo"
+      method: "POST"
+      name: "Ad fetch"
+      verification: "reported"
+    - path: "app/uploadLog"
+      method: "POST"
+      name: "Log upload (telemetry)"
+      verification: "reported"
+    - path: "app/runningLog"
+      method: "POST"
+      name: "Running-log upload (telemetry)"
+      verification: "reported"
+  failure_mode: >
+    Nothing user-visible stops working. The device is driven entirely over
+    local BLE with no account and no pairing; the cloud only feeds the app's
+    OTA-version check, ads and log/telemetry uploads
+    (com/cdbwsoft/library/net/Api.java, NetApi.java). OTA images are bundled
+    in the APK assets, so even firmware update survives the backend.
+  data_leaves_device:
+    - "app usage/diagnostic logs (phone-side; the BLE device itself has no network interface)"
+  notes: >
+    Endpoint set and parameter shapes read from jadx of
+    com.tirohk.magicdisplay 1.5.6 (com/cdbwsoft/library/net/). The library
+    also carries app/count, app/lastUpdate, app/bindDevice and
+    app/appInstalled call paths. Server reachability/empty-data status per
+    the 2026-07-31 CONFIRMATION report; not re-probed 2026-08-18.
+
+local_access:
+  status: "native"
+  summary: >
+    Full local control over BLE as shipped: connect to the FEE9 QPP service
+    (or FFF0 on TI variants), AES-128-ECB with the static key recorded on
+    WRITE1, no pairing, no account, no cloud dependency at any step.
+  covers:
+    - "power on/off, brightness, speed, all display modes"
+    - "text/image/animation upload (DATS/data/DATCP)"
+    - "DIY sync draw and music/rhythm visualizer"
+    - "timer schedule (SCHD/STSC) and clock sync (TIME)"
+    - "firmware OTA from the app-bundled images"
+  not_covered: []
 
 entities:
   - platform: "light"
