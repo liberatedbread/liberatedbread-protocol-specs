@@ -127,5 +127,6 @@ required.
 - [Brother Raster Command Reference (QL series)](https://www.jarcomputers.com/images/custom/docs/b471757576aff4ef4eb7f8bd96a113c575133c95_1722315_ql820nwbcyj1_icecat_multimedia_other_digital_assets_2_en_gb-1725017762.pdf) — vendor-authoritative command text
 - [Brother developer FAQ — command printing](https://support.brother.com/g/s/es/dev/en/command/faq/index.html?navi=offall) — 9100/LPR/FTP transports, SNMP OID
 - [QL-1110NWB user manual — reset procedures](https://www.manualslib.com/manual/1361694/Brother-Ql-1110nwb.html?page=141)
+- [Home Assistant Brother integration](https://www.home-assistant.io/integrations/brother/) — HA core; SNMP monitoring covers the QL label-printer family
 
 Machine-readable spec: `device-specs/devices/brother-ql-1110nwb.yaml`
