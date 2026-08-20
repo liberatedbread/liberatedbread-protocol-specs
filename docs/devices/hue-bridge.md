@@ -36,7 +36,7 @@ authentication. Current firmware advertises SRV port 443 (HTTPS primary);
 
 `bridgeid` is the stable identity everything keys off — credentials, TLS
 pins, scan dedupe — because the IP is just a DHCP lease. It is the Ethernet
-MAC in EUI-64 clothing: `00:17:88:61:fc:b0` becomes `001788FFFE61FCB0`
+MAC in EUI-64 clothing: `00:17:88:aa:bb:cc` becomes `001788FFFEAABBCC`
 (splice `FFFE` into the middle, uppercase). The spec's Bridge Config example
 satisfies that rule and the test suite checks it.
 
@@ -149,3 +149,5 @@ the executable `commands:` block, the instanced light entity, and a live
 BSB002 probe (2026-07-16) under `evidence`. `scripts/test_hue_spec.py`
 transcribes pairing, rendering, and child enumeration from the YAML alone
 and diffs them against the spec's own examples.
+
+Home Assistant: the core [Philips Hue integration](https://www.home-assistant.io/integrations/hue/) consumes this local bridge API in production.

@@ -2,7 +2,7 @@
 
 What was confirmed, what was refuted, and what is still genuinely unknown after driving the device.
 
-One unit, an Ember Mug 2, 10 oz, serial `WHC93801252`, firmware 367 and hardware 10, both read off
+One unit, an Ember Mug 2, 10 oz, serial `WHCXXXXXXXX`, firmware 367 and hardware 10, both read off
 the device with `fc54000c` rather than off the box. Measured from 2026-08-13 to 2026-08-16 on a
 Raspberry Pi 5, BlueZ 5.82, bleak 3.0.2. Captures are in the captures repo under `ember/` and the
 reproduction steps are in `ember-mug-checklist.md`.

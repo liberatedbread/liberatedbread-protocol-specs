@@ -13,8 +13,8 @@ pictogram and deep-links to WebFig — rather than implementing RouterOS control
 (the API/WebFig/Winbox all exist and are out of scope as home infrastructure).
 
 Verified live 2026-08-14 against three RouterOS devices: a CCR2004-1G-12S+2XS
-gateway ("newhouse-core", RouterOS 7.13), a CRS354-48P-4S+2Q+ ("CoreSwitch")
-and a CRS326-24S+2Q+ ("Pleakley-switch"), each decoded from its MNDP TLVs.
+gateway ("core-router", RouterOS 7.13), a CRS354-48P-4S+2Q+ ("core-switch")
+and a CRS326-24S+2Q+ ("edge-switch"), each decoded from its MNDP TLVs.
 
 ## Protocol Summary
 
@@ -33,3 +33,4 @@ TCP 8291.
 
 - <https://help.mikrotik.com/docs/spaces/ROS/pages/24805517/Neighbor+discovery>
 - <https://github.com/boundary/wireshark/blob/master/epan/dissectors/packet-mndp.c>
+- [Home Assistant MikroTik integration](https://www.home-assistant.io/integrations/mikrotik/)

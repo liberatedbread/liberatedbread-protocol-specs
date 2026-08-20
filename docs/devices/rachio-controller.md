@@ -14,15 +14,17 @@ protocol still needs capture or HAP implementation work.
 ## Discovery
 
 Browse `_hap._tcp.local.` and match Rachio model TXT values such as
-`md=Rachio-B68A9A`. Use TXT `id` as the stable identity.
+`md=Rachio-AABBCC`. Use TXT `id` as the stable identity.
 
 Observed identity:
 
 | Field | Value |
 |---|---|
 | Hostname | `WICED-hap-B68A9A.local` |
-| HAP ID | `0A:01:0A:36:39:1E` |
-| Model TXT | `Rachio-B68A9A` |
+| HAP ID | `0A:01:0A:AA:BB:CC` |
+| Model TXT | `Rachio-AABBCC` |
 
 Machine-readable spec: `device-specs/devices/rachio-controller.yaml`
+
+Home Assistant: the core [Rachio integration](https://www.home-assistant.io/integrations/rachio/) covers these controllers (cloud API; the local HAP path above is independent).
 

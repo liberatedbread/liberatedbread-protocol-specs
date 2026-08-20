@@ -2,7 +2,7 @@
 
 What was confirmed, what was refuted, and what is still genuinely unknown after driving the device.
 
-One unit, `GVH5075_0969` at `A4:C1:38:F9:09:69`, firmware 1.04.07 and hardware 1.03.02, both read
+One unit, `GVH5075_BBCC` at `A4:C1:38:AA:BB:CC`, firmware 1.04.07 and hardware 1.03.02, both read
 back off the device rather than off the box. Everything below was measured on a Raspberry Pi 5 on
 BlueZ 5.82 with bleak 3.0.2, and the captures are in the captures repo under `govee/`. The
 reproduction steps are in `govee-h5075-checklist.md` and every claim here can be re-run from it.
