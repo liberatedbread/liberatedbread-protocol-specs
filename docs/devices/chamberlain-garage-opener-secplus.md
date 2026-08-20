@@ -55,8 +55,8 @@ on port 80:
   hub's BLE link to the opener. The wired ratgdo/Konnected bridge remains the
   only local control path.
 
-Captured responses are archived in `/home/claude/research/tuya-mystery-devices/`
-(`myq_jabout.json`, `myq_index.html`; checksums in its `SHA256SUMS.txt`).
+Captured responses (`myq_jabout.json`, `myq_index.html`, with checksums) are
+archived in the maintainers' private research workspace, not committed here.
 
 ## References
 
