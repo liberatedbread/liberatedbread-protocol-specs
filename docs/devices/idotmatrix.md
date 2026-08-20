@@ -85,6 +85,7 @@ confidence and needs live-capture confirmation.
 - [derkalle4/python3-idotmatrix-library](https://github.com/derkalle4/python3-idotmatrix-library) (archived)
 - [8none1/idotmatrix](https://github.com/8none1/idotmatrix)
 - [markusressel/idotmatrix-api-client](https://github.com/markusressel/idotmatrix-api-client)
+- [adriantukendorf/iDotMatrix-HomeAssistant — HACS integration](https://github.com/adriantukendorf/iDotMatrix-HomeAssistant)
 
 ## Contributors
 

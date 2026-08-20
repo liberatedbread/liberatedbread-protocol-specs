@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Final acquisition sweep (2026-08-19).** The APKs that failed in the
+  2026-08-12 wave were retried through working mirror flows: Omron Connect
+  JP acquired via Aptoide (the 2026-08-12 failures traced to a wrong
+  package name), Lutron's current app (`com.lutron.mmw`) — yielded LEAP
+  `GoToDimmedLevel`/`GoToSwitchedLevel` corrections (no plain `GoToLevel`
+  exists in the vendor enum) and the full LAP `/pair` CSR-signing
+  exchange, Wemo v1.30.2 (smartsetup/remoteaccess services mapped), Hue
+  v5.73.0 (spec confirmed, no changes), SensorPush's legacy package
+  (model table incl. a new Aqua water sensor, factory-recovery service),
+  and Inkbird's current `engbird` app (advertisement bytes 4-6 decoded,
+  fff1/fff6/fff8/fff9 and the PhyPlus OTA path added). iBBT Go and the
+  Vizio SmartCast app are delisted everywhere and unacquirable (their
+  specs rest on stronger community sources anyway). SPOTLED firmware is
+  confirmed unrecoverable — the Wayback Machine never crawled the host.
+  An HA/ESPHome reference sweep linked ~80 specs to their real
+  integrations (core, HACS, ESPHome, Theengs); the ~43 without any are
+  verified to genuinely have none. `ember-mug` now records that the
+  advertised company ID varies by unit — 0x03C1 (Ember's assigned ID) or
+  0xFFFF (measured on a Mug 2) — matching python-ember-mug's fallback.
+
 - **Seven more specs from the expansion wave (2026-08-19).**
   `brother-ql-1110nwb` (P-touch raster language over TCP 9100 / BT Classic
   SPP — no BLE GATT; status via `ESC i S` 32-byte reply), `flowtoys-props`
