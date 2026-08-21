@@ -25,8 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `set_power_standby` on `philips-jointspace`: the `/powerstate` resource
   written instead of read — documented under `http_endpoints` all along,
-  now invocable as a command. The non-key off for sets that ignore the
-  PowerOff key.
+  now invocable as a command. A second discrete off for v6 sets that answer
+  powerstate but do not honour the PowerOff key, and an explicit state
+  request rather than a keypress. Narrower than the key route rather than a
+  fallback for it: older sets have no powerstate resource at all, which is
+  why the Power switch still binds `turn_off` to the key and leans on the
+  universally-accepted Standby key as its state-gated `toggle`.
 
 - **Final acquisition sweep (2026-08-19).** The APKs that failed in the
   2026-08-12 wave were retried through working mirror flows: Omron Connect
