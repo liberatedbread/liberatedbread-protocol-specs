@@ -148,6 +148,22 @@ remote as `button` entities in remote-layout order: power, navigation and
 D-pad, transport, volume, channel stepping, digits, colour keys, then TV
 functions.
 
+A stateful **Power** `switch` entity binds `turn_on`/`turn_off` to the
+discrete keys, `toggle` to Standby, and the `powerstate` resource as its
+state ([Spec Evolution P13](../contributing/spec-evolution.md#p13)). Key
+availability varies by model and year; Standby is the one key every model
+takes, so the toggle — sent only after reading the state — is the off that
+works even where the PowerOff key is ignored.
+
+The `set_power_standby` command writes the same resource the state reads.
+It is a second discrete off, but a *narrower* one, not a fallback for sets
+that ignore the PowerOff key: the powerstate resource is v6-only and
+"support varies by firmware" even there, so the older sets most likely to
+ignore the key have no such endpoint at all. Its value is on a v6 set that
+answers powerstate but does not honour the key, and in being an explicit
+state request rather than a keypress. The state read carries the same v6
+limit, and a 403/404 there is endpoint-not-present, not standby.
+
 ## Transport gap — read before building on this spec
 
 **JSON request bodies on every POST, plus HTTPS with a self-signed
