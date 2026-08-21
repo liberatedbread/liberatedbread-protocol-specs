@@ -1,5 +1,7 @@
 # Govee H5075: hardware checklist
 
+Hardware verification by Devin Wittmayer.
+
 Every confirmed claim in the spec, in the order that makes sense to run them, with the command that
 produced it and what a pass looks like. Working through this end to end takes about half an hour plus
 whatever you leave the record-interval check running for.
