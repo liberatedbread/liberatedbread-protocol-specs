@@ -155,7 +155,7 @@ is the **commercial** catalog. Product families with firmware release notes ther
 
 ## 4. Live LAN observations (2026-08-15, 192.168.1.0/24, from 192.168.1.180)
 
-- `nmap -sn` ping sweep of the full /16: **51 hosts up** (of 65536), ~225 s.
+- `nmap -sn` ping sweep of the whole segment: **51 hosts up**, ~225 s.
 - ARP + OUI resolution against `registries/ieee-oui.tsv` for all 51: no Allegion
   OUI exists (confirmed again; the lock BLE MAC OUI B7:AC:C2 is unregistered), so
   locks can only be found as "unidentified" hosts. Vendors seen: Ubiquiti (many),
@@ -246,7 +246,7 @@ deployments with that accessory.
   (`links[rel=self]`); app verifies content-length only; WiFi locks self-download
   (interior-button ×5 manual trigger per vendor support doc) — the "image bytes
   come from the vendor cloud" note applies to both delivery paths.
-- The `evidence.lan_observations` section can add the /16 census result (51 hosts,
+- The `evidence.lan_observations` section can add the census result (51 hosts,
   no lock-like listener) once merged.
 
 ## Sources

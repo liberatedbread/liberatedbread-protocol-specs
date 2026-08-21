@@ -14,7 +14,7 @@ serial and WiFi password during/after pairing.
 ## Discovery
 
 Browse `_dyson_mqtt._tcp.local.` on port 1883. The hostname contains the serial
-number, such as `F3H-US-PFA5664A.local`.
+number, such as `F3H-US-XXXXXXXX.local`.
 
 Use:
 

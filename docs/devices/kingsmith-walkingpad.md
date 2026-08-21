@@ -200,7 +200,7 @@ km/h R/W/N, 0.5–6 on walking-pad.v1, 0–13/15 step 0.1 on treadmill.v1/v2),
 calorie counters, plus `start-work` / `pause` / `stop-working` actions. So
 the Wi-Fi variants are also drivable via python-miio or the Home Assistant
 Xiaomi MIOT integration (Xiaomi cloud/token required). MIOT firmware
-upgrades ride Xiaomi's SDK (`MiotManager.startUpgradeFirmware`).
+upgrades ride Xiaomi's SDK (the MIOT plugin's firmware-upgrade entry point).
 
 ## Model ↔ prefix ↔ factory max speed table
 
