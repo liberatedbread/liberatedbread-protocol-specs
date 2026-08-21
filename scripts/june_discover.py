@@ -81,10 +81,13 @@ def probe_port(address: str, port: int, timeout: float, reason: str = "") -> Por
     try:
         sock.connect((address, port))
     except socket.timeout:
+        sock.close()
         return PortResult(port=port, state="filtered", reason=reason)
     except ConnectionRefusedError:
+        sock.close()
         return PortResult(port=port, state="closed", reason=reason)
     except OSError as exc:  # unreachable host, no route, etc.
+        sock.close()
         return PortResult(port=port, state="filtered", reason=f"{reason} ({exc})")
 
     banner = ""
@@ -127,7 +130,13 @@ def interpret(result: ReconResult) -> list[str]:
     filtered = sum(1 for p in result.ports if p.state == "filtered")
 
     if not open_ports:
-        if filtered == len(result.ports):
+        # Strong vs weak turns on whether anything TIMED OUT. A host that RSTs
+        # every port is reachable and listening on nothing; one that swallows
+        # even a single probe might be firewalling the interesting one. The
+        # old test was `filtered == len(ports)` for the weak case, which made
+        # its complement — "one closed port among nine timeouts" — read as a
+        # STRONG negative the script then told the author to write into a spec.
+        if filtered:
             notes.append(
                 "Every port timed out. This is a weak negative — the host may be "
                 "firewalled, asleep, or not the oven. Confirm the address is right "
@@ -183,8 +192,27 @@ def browse(timeout: float) -> list[dict]:
         from _lan_discovery import browse_mdns
     except ImportError:
         return []
+    # Two phases, because "browse everything" is not one query.
+    # `_services._dns-sd._udp.local.` is the DNS-SD META-query: it enumerates
+    # service TYPES, and its answers are type names, not instances. Handing
+    # those to browse_mdns made it call get_service_info(type, name) with a
+    # type where an instance name belongs, which raises inside the zeroconf
+    # browser thread — so this returned [] on every LAN, including ones with
+    # plenty of services, and main() printed that as a confident negative.
     try:
-        records = browse_mdns(["_services._dns-sd._udp.local."], timeout)
+        from zeroconf import ZeroconfServiceTypes
+
+        types = sorted(ZeroconfServiceTypes.find(timeout=max(timeout, 1.0)))
+    except SystemExit:
+        return []
+    except Exception:
+        # No zeroconf, or the meta-query itself failed: fall back to the
+        # types an oven could plausibly answer on rather than claiming none.
+        types = ["_http._tcp.local.", "_googlecast._tcp.local."]
+    if not types:
+        return []
+    try:
+        records = browse_mdns(types, timeout)
     except SystemExit:
         # _lan_discovery exits when zeroconf is missing. Recon should degrade,
         # not abort: the caller may only care about the port scan.
