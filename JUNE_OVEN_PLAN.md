@@ -216,7 +216,12 @@ Branch: `claude/june-oven-support-plan-mk9kwr`.
 2. `docs/devices/june-oven.md` — device page, from `docs/devices/_template.md`
 3. `targets/june-oven.md` — already written by this plan; extend if new facts land
 4. `mkdocs.yml` — add the device page to `nav` (CI runs `mkdocs build --strict`)
-5. `device-specs/index.json` — regenerate, do not hand-edit
+
+**Not** `device-specs/index.json`. This plan predates the current policy: the
+file is generated, CI rebuilds and commits it on `main`, and a branch carrying
+it fails CI — it is the file every parallel spec PR used to conflict on. Run
+`python scripts/generate_index.py` locally if you want to look at it, but never
+stage it. See `CLAUDE.md` and `AGENTS.md`.
 
 **Spec shape.** `niu-escooter.yaml` is the closest precedent — a cloud-only device
 whose spec exists to record the dependency honestly. Follow it. Skeleton:
@@ -280,9 +285,10 @@ local_access:
   mitigations live on the oven and must never be worked around.
 
 **Acceptance:** `python scripts/validate_specs.py` passes; `python
-scripts/generate_index.py && git diff --exit-code device-specs/index.json` is
-clean; `python scripts/build_index.py --check` passes; `mkdocs build --strict`
-passes; `pytest -q` passes.
+scripts/build_index.py --check` passes; `mkdocs build --strict` passes;
+`ruff check .` passes; `pytest -q` passes. Do not gate on a clean
+`git diff` of `device-specs/index.json` — satisfying that means committing the
+regenerated file, which is exactly what CI rejects.
 
 ### 4.2 D2 — the app (mobile repo)
 

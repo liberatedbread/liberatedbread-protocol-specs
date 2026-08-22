@@ -1,8 +1,18 @@
 # Candidate Devices & Hardware Sourcing
 
-**Survey date: 2026-07-30.** Candidates were checked against the 69 specs in
-`device-specs/devices/` and the 51 target stubs in `targets/`; nothing on this
-page duplicates existing coverage.
+**Survey date: 2026-07-30.** Candidates were checked against the catalogue as
+it stood that day — 69 specs in `device-specs/devices/` and 51 target stubs in
+`targets/`.
+
+!!! warning "The catalogue has moved on; check before you buy"
+
+    This is a survey with a date on it, not a live view. The catalogue has grown
+    well past those counts since, and some candidates below have been specced in
+    the meantime — iRobot Roomba and the June Oven both ship specs now, and each
+    section says so inline. Before spending money on a candidate here, check
+    `device-specs/devices/` and `targets/` for it first. The reasoning about
+    *why* a device is worth doing survives; the "nobody has done this" half does
+    not age.
 
 This page answers two questions at once:
 
@@ -49,8 +59,8 @@ groups surfaced specifically by scanning for subscription and shutdown risk.
 
 ## What this repo should actually spend effort on
 
-Two filters decide whether a candidate is *our* work, applied in order. Both
-must pass:
+Three filters decide whether a candidate is *our* work, applied in order. All
+three must pass — the third is the one that usually settles it:
 
 1. **Can it be saved locally at all?** If the device only ever talks to the
    vendor cloud with no LAN path (Cosori/VeSync, and — on the evidence — June),
@@ -205,7 +215,8 @@ explicitly do not support the Qingping frames.
 
 ## Tier 3 — Battery, solar and energy (a transport family the repo lacks)
 
-The repo has `enphase-envoy` and nothing else in this space, yet this is the
+The repo had only `enphase-envoy` in this space at survey time — it now also
+has `enphase-iqbattery-ble` and `bluetti-power-station` — and this is still the
 best-documented and cheapest-to-buy category surveyed.
 
 ### JK-BMS / JBD (Xiaoxiang) / Daly BMS — BLE + UART
@@ -434,11 +445,17 @@ used to own.
 | Public RE | [koalazak/dorita980](https://github.com/koalazak/dorita980) (900/960/980/i7/e5/690 and more), [koalazak/rest980](https://github.com/koalazak/rest980) (local REST wrapper) |
 | Cheap unit | **$32.50** Wi-Fi robot w/ dock · **$40–$70** for a tested 980 |
 
-The strongest single A-group find. A ~50-million-device installed base whose
-maker is in bankruptcy, and the local protocol is *already* mapped in a mature,
-widely-forked library that talks straight to the robot over the LAN. The spec
-almost writes itself from dorita980, and $33 hardware verifies it. This is the
-canonical case the project was built for.
+!!! success "Done — `device-specs/devices/irobot-roomba.yaml`"
+
+    This one was acted on after the survey and the spec ships, including a
+    dated field test of the discovery probe. What is left here is hardware
+    verification of the rest of the command set, not a fresh write-up.
+
+The strongest single A-group find, and the reason it was picked up first. A
+~50-million-device installed base whose maker is in bankruptcy, and the local
+protocol *already* mapped in a mature, widely-forked library that talks straight
+to the robot over the LAN. The spec largely wrote itself from dorita980, and $33
+hardware verifies it. This is the canonical case the project was built for.
 
 #### Eight Sleep Pod (Pod 2 / Pod 3)
 
@@ -479,6 +496,13 @@ so. Lower priority than the local-capable A devices.
 | Transport | Wi-Fi / **cloud-only** — the app appears to reach the oven only through Weber's hosted service, with no local LAN control path |
 | Public RE | Minimal — no complete local protocol map located; the petition exists precisely because owners have no fallback |
 | Cheap unit | **$60 parts-only**; working Gen3 units $950 |
+
+!!! info "Partly acted on — `device-specs/devices/june-oven.yaml`"
+
+    A spec and a target stub exist, recording the cloud-only finding rather than
+    a local protocol; `docs/devices/june-oven-lan-recon.md` and
+    `scripts/june_discover.py` cover the recon. The open work is the
+    capture-before-shutdown investigation described below, not a first write-up.
 
 The honest revision: June has **no confirmed local path**, so it belongs with
 the [no-local-path group](#no-local-path-cloud-only-architecture) — a clean RE

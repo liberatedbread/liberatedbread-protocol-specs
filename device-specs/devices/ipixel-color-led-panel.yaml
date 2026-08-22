@@ -200,13 +200,22 @@ services:
 
             bytes 0-1: total frame length N, little-endian u16 (covers
                        the whole frame including these two bytes)
-            bytes 2-3: opcode, little-endian u16 — by convention the
-                       high byte sub-selects within a command group
-                       (e.g. 0x8004 = brightness vs 0x0104 = fun/DIY
-                       mode). Note the rule only relates opcodes that
-                       share a low byte: clear is 0x8003 and delete-slot
-                       is 0x0102, which differ in BOTH bytes and are
-                       simply different commands, not a sub-selection.
+            bytes 2-3: opcode, little-endian u16. Across the opcodes
+                       this spec records, the HIGH byte is the group and
+                       the LOW byte is the command within it: 0x80xx is
+                       display and system (sync_time, clear, brightness,
+                       orientation, screen select, show_slot), 0x01xx is
+                       content and mode (delete_slot, DIY mode, set_pixel,
+                       clock mode, power), 0x00xx is upload (send_png,
+                       send_gif) and 0x02xx is rhythm. Sharing a LOW byte
+                       relates nothing — 0x8004 brightness and 0x0104
+                       DIY mode, 0x8001 sync_time and 0x0201 rhythm,
+                       0x8003 clear and 0x0003 send_gif are unrelated
+                       pairs. The one genuinely related pair recorded
+                       here, show_slot 0x8008 and the screen-select
+                       0x8007, shares the HIGH byte. This is a reading of
+                       17 observed opcodes, not a documented scheme:
+                       do NOT derive an unlisted opcode from it.
             bytes 4..: payload
 
           Written as raw bytes; large writes (image uploads) are split
@@ -222,6 +231,15 @@ services:
                 type: "uint8"
                 allowed: [0, 1]
                 labels: ["OFF", "ON"]
+          # Discrete pair for the on/off roles — see led-helmet-display.yaml
+          # for the same shape: a role binding is a name with no room for an
+          # argument, so a parameterised set_power cannot serve both.
+          power_on:
+            description: "Display power ON (set_power with state=1, opcode 0x0107)."
+            template: [0x05, 0x00, 0x07, 0x01, 0x01]
+          power_off:
+            description: "Display power OFF (set_power with state=0, opcode 0x0107)."
+            template: [0x05, 0x00, 0x07, 0x01, 0x00]
           set_brightness:
             description: "Set display brightness (opcode 0x8004)"
             template: [0x05, 0x00, 0x04, 0x80, "{level}"]
@@ -239,6 +257,12 @@ services:
                 type: "uint8"
                 allowed: [0, 1]
                 labels: ["OFF", "ON"]
+          fun_mode_on:
+            description: "Enable DIY ('fun') mode (set_fun_mode with state=1, opcode 0x0104)."
+            template: [0x05, 0x00, 0x04, 0x01, 0x01]
+          fun_mode_off:
+            description: "Disable DIY ('fun') mode (set_fun_mode with state=0, opcode 0x0104)."
+            template: [0x05, 0x00, 0x04, 0x01, 0x00]
           set_pixel:
             description: "Set one pixel to an RGB colour while in DIY mode (opcode 0x0105)"
             template: [0x0A, 0x00, 0x05, 0x01, 0x00, "{r}", "{g}", "{b}", "{x}", "{y}"]
@@ -477,9 +501,11 @@ entities:
   - platform: "switch"
     name: "Display Power"
     commands:
-      turn_on: "set_power"
-      turn_off: "set_power"
-    notes: "Write-only channel; no state readback is documented."
+      turn_on: "power_on"
+      turn_off: "power_off"
+    notes: >
+      Write-only channel; no state readback is documented, so a consumer must
+      track what it sent rather than reading the panel back.
 
   - platform: "number"
     name: "Brightness"
@@ -496,8 +522,11 @@ entities:
   - platform: "switch"
     name: "DIY (Fun) Mode"
     commands:
-      turn_on: "set_fun_mode"
-      turn_off: "set_fun_mode"
+      turn_on: "fun_mode_on"
+      turn_off: "fun_mode_off"
+    notes: >
+      Write-only channel; no state readback is documented, so a consumer must
+      track what it sent rather than reading the panel back.
 
 helpful_urls:
   - title: "lucagoc/pypixelcolor (iPixel-CLI)"

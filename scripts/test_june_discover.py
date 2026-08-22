@@ -137,3 +137,29 @@ def test_a_named_oven_qualifies_without_a_target_address():
     """--mdns-only has no address to match on, so the name has to carry it."""
     record = {"name": "June Oven 1234", "service_type": "_http._tcp.local.", "address": "192.0.2.77"}
     assert june_discover.looks_like_oven(record, address="")
+
+
+def test_a_mixed_scan_is_a_weak_negative_not_a_strong_one():
+    """Nine refusals and one timeout is not "every port timed out"."""
+    ports = [(p, "closed") for p in (22, 23, 53, 80, 443, 1883, 5683, 8080, 8443)]
+    notes = june_discover.interpret(_result(*ports, (9009, "filtered")))
+    joined = " ".join(notes)
+    assert "Every port timed out" not in joined
+    assert "STRONG negative" not in joined
+    assert "1 of 10 ports timed out" in joined
+
+
+def test_all_timed_out_still_reads_as_the_weak_negative():
+    notes = june_discover.interpret(_result((80, "filtered"), (443, "filtered")))
+    assert "Every port timed out" in " ".join(notes)
+
+
+def test_a_browse_that_never_ran_is_not_a_protocol_negative():
+    """The distinction MdnsOutcome exists for.
+
+    An absent zeroconf package used to arrive at main() as an empty list and get
+    printed as "the oven has never been observed to announce itself".
+    """
+    outcome = june_discover.MdnsOutcome(status="unavailable", detail="no zeroconf")
+    assert outcome.records == []
+    assert outcome.status != "ok"

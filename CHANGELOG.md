@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Stateful **Power** `switch` entities on eight TV specs, landing the spec
+- Stateful **Power** `switch` entities on seven TV specs, landing the spec
   half of [Spec Evolution P13](docs/contributing/spec-evolution.md#p13):
   discrete `turn_on`/`turn_off` bindings where the hardware honestly has
   them (`roku-ecp`, `sony-bravia`, `vizio-smartcast`, `philips-jointspace`;
@@ -17,11 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   practice), and the new **`toggle`** role — a command declared to *flip*
   power, which a consumer must not send without establishing state first —
   where a flip is all the set offers (`sony-bravia`, `vizio-smartcast`,
-  `philips-jointspace` as alternates; `hisense-vidaa` and
-  `android-tv-remote` as the only binding, each gated on its declared
-  reading). `panasonic-viera` is deliberately excluded: toggle-only,
-  reachable in network standby, and no readable state — the one set a bulk
-  off could turn on. The remote `button` entities are untouched.
+  `philips-jointspace` as alternates; `hisense-vidaa` as the only binding,
+  gated on the `state_topic` it declares). `panasonic-viera` and
+  `android-tv-remote` are deliberately excluded on the same test:
+  toggle-only, reachable in network standby, and no readable state a
+  binding can name — the set a bulk off could turn on. Android TV does push
+  `remote_start { started }`, and it is surfaced as a Power State
+  `binary_sensor`, but it arrives over the session rather than a pollable
+  endpoint, so no `state_*` field can point at it and nothing ties the
+  sensor to a switch. The remote `button` entities keep the key, renamed
+  `Power Key` where a `Power` switch now shares the file — two controls
+  with one name are indistinguishable to a consumer that keys on the name.
 
 - `set_power_standby` on `philips-jointspace`: the `/powerstate` resource
   written instead of read — documented under `http_endpoints` all along,

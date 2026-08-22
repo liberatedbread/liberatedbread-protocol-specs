@@ -71,6 +71,10 @@ class ReconResult:
     hostname: str = ""
     ports: list[PortResult] = field(default_factory=list)
     mdns: list[dict] = field(default_factory=list)
+    # "not_attempted" | "ok" | "unavailable" | "failed" — an empty `mdns` means
+    # nothing without this, and a spec should never carry a negative drawn from
+    # a browse that did not run.
+    mdns_status: str = "not_attempted"
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -142,15 +146,23 @@ def interpret(result: ReconResult) -> list[str]:
     if not open_ports:
         # Strong vs weak turns on whether anything TIMED OUT. A host that RSTs
         # every port is reachable and listening on nothing; one that swallows
-        # even a single probe might be firewalling the interesting one. The
-        # old test was `filtered == len(ports)` for the weak case, which made
-        # its complement — "one closed port among nine timeouts" — read as a
-        # STRONG negative the script then told the author to write into a spec.
-        if filtered:
+        # even a single probe might be firewalling the interesting one, so any
+        # timeout at all weakens the negative. Three cases, not two: all timed
+        # out, some timed out, none did. Collapsing the middle case into either
+        # neighbour puts a sentence in the author's spec that the scan does not
+        # support.
+        if filtered == len(result.ports):
             notes.append(
                 "Every port timed out. This is a weak negative — the host may be "
                 "firewalled, asleep, or not the oven. Confirm the address is right "
                 "and the oven is powered and awake, then re-run."
+            )
+        elif filtered:
+            notes.append(
+                f"{filtered} of {len(result.ports)} ports timed out and the rest "
+                "were refused. The host is reachable, but a firewall may be "
+                "swallowing probes to exactly the ports that matter, so this is a "
+                "weak negative: name the timed-out ports if you record it."
             )
         else:
             notes.append(
@@ -207,20 +219,38 @@ def looks_like_oven(record: dict, address: str) -> bool:
     return any(hint in haystack for hint in OVEN_HINTS)
 
 
-def browse(timeout: float, address: str = "") -> tuple[list[dict], int]:
+@dataclass
+class MdnsOutcome:
+    """What the browse actually managed to do.
+
+    The distinction this type exists for: "the oven announced nothing" is a
+    publishable protocol fact, and "zeroconf is not installed" is a fact about
+    the operator's laptop. Both used to arrive here as an empty list, and main()
+    printed the second as the first — an environment failure laundered into the
+    confident negative this script exists to produce.
+    """
+
+    status: str = "ok"  # "ok" | "unavailable" | "failed"
+    records: list[dict] = field(default_factory=list)
+    withheld: int = 0
+    detail: str = ""
+
+
+def browse(timeout: float, address: str = "") -> MdnsOutcome:
     """Passively browse mDNS for anything that looks like an oven.
 
-    Returns the matching records and a count of the ones withheld. The browse
-    is deliberately unfiltered — see OVEN_HINTS — but only oven candidates come
-    back, so a caller cannot publish the operator's LAN by accident.
+    Returns the matching records, a count of the ones withheld, and whether the
+    browse ran at all. The browse is deliberately unfiltered — see OVEN_HINTS —
+    but only oven candidates come back, so a caller cannot publish the
+    operator's LAN by accident.
 
     Imported lazily so the port scan — the part that matters — still runs on a
     box without the zeroconf package installed.
     """
     try:
         from _lan_discovery import browse_mdns
-    except ImportError:
-        return [], 0
+    except ImportError as exc:
+        return MdnsOutcome(status="unavailable", detail=f"_lan_discovery: {exc}")
     # Two phases, because "browse everything" is not one query.
     # `_services._dns-sd._udp.local.` is the DNS-SD META-query: it enumerates
     # service TYPES, and its answers are type names, not instances. Handing
@@ -232,23 +262,28 @@ def browse(timeout: float, address: str = "") -> tuple[list[dict], int]:
         from zeroconf import ZeroconfServiceTypes
 
         types = sorted(ZeroconfServiceTypes.find(timeout=max(timeout, 1.0)))
-    except SystemExit:
-        return [], 0
+    except SystemExit as exc:
+        # _lan_discovery and zeroconf both exit rather than raise when the
+        # package is missing. Recon should degrade, not abort — the caller may
+        # only care about the port scan — but it must not call this a negative.
+        return MdnsOutcome(status="unavailable", detail=f"zeroconf: {exc}")
     except Exception:
-        # No zeroconf, or the meta-query itself failed: fall back to the
-        # types an oven could plausibly answer on rather than claiming none.
+        # The meta-query itself failed: fall back to the types an oven could
+        # plausibly answer on rather than claiming none.
         types = ["_http._tcp.local.", "_googlecast._tcp.local."]
     if not types:
-        return [], 0
+        return MdnsOutcome(status="failed", detail="no service types to browse")
     try:
         records = browse_mdns(types, timeout)
-    except SystemExit:
-        # _lan_discovery exits when zeroconf is missing. Recon should degrade,
-        # not abort: the caller may only care about the port scan.
-        return [], 0
+    except SystemExit as exc:
+        return MdnsOutcome(status="unavailable", detail=f"zeroconf: {exc}")
+    except Exception as exc:
+        # A malformed service name or a socket error anywhere in the browser
+        # thread must not discard the port scan the caller already paid for.
+        return MdnsOutcome(status="failed", detail=f"{type(exc).__name__}: {exc}")
     everything = [asdict(r) for r in records]
     kept = [r for r in everything if looks_like_oven(r, address)]
-    return kept, len(everything) - len(kept)
+    return MdnsOutcome(records=kept, withheld=len(everything) - len(kept))
 
 
 def main() -> None:
@@ -279,24 +314,39 @@ def main() -> None:
         )
         result = scan(args.address, ports, args.timeout)
 
-    withheld = 0
+    mdns = MdnsOutcome(status="not_attempted")
     if args.mdns or args.mdns_only:
-        result.mdns, withheld = browse(max(args.timeout, 5.0), args.address or "")
-        if not result.mdns and withheld:
+        mdns = browse(max(args.timeout, 5.0), args.address or "")
+        result.mdns = mdns.records
+        result.mdns_status = mdns.status
+        if mdns.status == "unavailable":
             result.notes.append(
-                f"No oven-like mDNS record, out of {withheld + len(result.mdns)} seen "
-                "on this segment. Expected: the oven has never been observed to "
-                "announce itself. A record here would be a genuine discovery. The "
-                f"other {withheld} belong to the operator's LAN and are deliberately "
+                "mDNS NOT ATTEMPTED — the zeroconf package is not installed "
+                f"({mdns.detail}). This is a fact about this machine, not about the "
+                "oven: do not record a discovery negative from this run. "
+                "`pip install zeroconf` and re-run."
+            )
+        elif mdns.status == "failed":
+            result.notes.append(
+                f"mDNS browse FAILED ({mdns.detail}). The port scan above still "
+                "stands; the discovery result does not. Re-run before recording "
+                "anything about mDNS."
+            )
+        elif not mdns.records and mdns.withheld:
+            result.notes.append(
+                f"No oven-like mDNS record, out of {mdns.withheld} seen on this "
+                "segment. Expected: the oven has never been observed to announce "
+                "itself. A record here would be a genuine discovery. The other "
+                f"{mdns.withheld} belong to the operator's LAN and are deliberately "
                 "not emitted — they are not June facts and do not belong in a spec."
             )
-        elif not result.mdns:
+        elif not mdns.records:
             result.notes.append(
-                "No mDNS records at all — not even from unrelated hosts on the "
-                "segment. That is usually a tooling or network problem (zeroconf "
-                "missing, mDNS not routed here) rather than a fact about the oven. "
-                "Confirm the browse sees a host you know announces itself before "
-                "recording this as a negative."
+                "The browse ran and saw nothing at all — not even unrelated hosts "
+                "on the segment. A segment with zero mDNS traffic is unusual, so "
+                "this is more likely a routing or interface problem than a fact "
+                "about the oven. Confirm the browse sees a host you know announces "
+                "itself before recording this as a negative."
             )
 
     result.notes.extend(interpret(result))
@@ -319,11 +369,13 @@ def main() -> None:
             print(line)
     for record in result.mdns:
         print(f"mdns: {record}")
-    if withheld:
+    if mdns.withheld:
         print(
-            f"mdns: {withheld} further record(s) seen and withheld — unrelated hosts "
-            "on this segment, not June facts."
+            f"mdns: {mdns.withheld} further record(s) seen and withheld — unrelated "
+            "hosts on this segment, not June facts."
         )
+    if mdns.status not in ("ok", "not_attempted"):
+        print(f"mdns: {mdns.status} — {mdns.detail}")
     if result.notes:
         print("\nnotes:")
         for note in result.notes:

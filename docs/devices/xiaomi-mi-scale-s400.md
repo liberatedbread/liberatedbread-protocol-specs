@@ -9,6 +9,10 @@
 
 The S400 (MJTZC01YM, MiOT model `yunmai.scales.ms104`) is Xiaomi's
 dual-frequency BIA body-composition scale: weight, impedance, and heart rate.
+Heart rate is the odd one out for a consumer: it is broadcast in the
+advertisement rather than sent over the encrypted measurement channel, so
+the spec declares the sensor but leaves it unbound — see the entity's notes
+in `device-specs/devices/xiaomi-mi-scale-s400.yaml`.
 Unlike the older Mi Scale v1/v2 (`xiaomi-mi-scale` spec),
 nothing is plaintext — all measurement traffic is AES-CCM encrypted with a
 per-device 16-byte BLE bindkey issued by the Xiaomi cloud account the scale
