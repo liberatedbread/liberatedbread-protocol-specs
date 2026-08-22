@@ -623,6 +623,49 @@ def test_entity_keys_are_declared_in_the_schema(specs):
             )
 
 
+def test_entity_names_are_unique_per_variant(specs):
+    """Two controls with one name are indistinguishable on screen and in a
+    consumer's send-in-flight bookkeeping, which keys on the name.
+
+    Not a flat uniqueness rule, because one legitimate case repeats a name:
+    a family spec declares the same logical sensor once per model, each with
+    its own characteristic, and `variants` says which models it applies to.
+    Only one of those is ever instantiated, because a client knows which model
+    it is talking to. So a name may repeat while its entities stay pairwise
+    variant-disjoint. An entity with no `variants` applies to every model, so
+    it collides with any sibling sharing its name.
+
+    `instances` is a second way a name could honestly repeat -- an entity that
+    stands for a set of children keyed by id. Nothing in the catalogue does
+    that today, so this rule does not model it; if a spec ever needs to,
+    extend the disjointness test rather than exempting the file.
+    """
+    for device_id, spec in specs.items():
+        by_name: dict[str, list[frozenset]] = {}
+        for entity in spec.get("entities") or []:
+            name = entity.get("name")
+            if not name:
+                continue
+            by_name.setdefault(name, []).append(frozenset(entity.get("variants") or []))
+        for name, variant_sets in by_name.items():
+            if len(variant_sets) < 2:
+                continue
+            for i in range(len(variant_sets)):
+                for j in range(i + 1, len(variant_sets)):
+                    left, right = variant_sets[i], variant_sets[j]
+                    assert left and right and not (left & right), (
+                        f"{device_id}: {len(variant_sets)} entities are named "
+                        f"{name!r} and at least two of them can be present on "
+                        f"the same device (variants {sorted(left) or 'all models'} "
+                        f"and {sorted(right) or 'all models'}). A consumer keys "
+                        "on the name, so it cannot tell them apart. Give them "
+                        "distinct names -- a remote key alongside a stateful "
+                        "control is conventionally 'Power Key' next to 'Power' "
+                        "-- or scope each to the models it applies to with "
+                        "`variants`."
+                    )
+
+
 def test_format_field_keys_are_declared_in_the_schema(specs):
     """Same rule for the `format:` fields a client decodes bytes with.
 
