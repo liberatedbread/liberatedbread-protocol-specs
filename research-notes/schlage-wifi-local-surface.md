@@ -153,26 +153,29 @@ is the **commercial** catalog. Product families with firmware release notes ther
   "during the next scheduled WiFi connection", or pushed **locally over BLE** from
   the ENGAGE mobile app — same architecture as leopard's BLE-push/WiFi-pull duality.
 
-## 4. Live LAN observations (2026-08-15, 192.168.1.0/24, from 192.168.1.180)
+## 4. Live LAN observations (2026-08-15, one /24 home segment)
 
 - `nmap -sn` ping sweep of the whole segment: **51 hosts up**, ~225 s.
 - ARP + OUI resolution against `registries/ieee-oui.tsv` for all 51: no Allegion
   OUI exists (confirmed again; the lock BLE MAC OUI B7:AC:C2 is unregistered), so
-  locks can only be found as "unidentified" hosts. Vendors seen: Ubiquiti (many),
-  Routerboard (gateway), Apple ×3, TP-Link ×6, Espressif ×2, FN-LINK ×2, Murata,
-  High-Flying, TCL ×2, Brother ×2, Synology, Philips Lighting (Hue), Amazon,
-  Raspberry Pi, Intel, one locally-administered MAC.
+  locks can only be found as "unidentified" hosts. All 51 resolved to a registered
+  OUI or a locally-administered MAC. The IoT-module OUIs that motivated the port
+  scan below were Espressif ×2, FN-LINK ×2, Murata and High-Flying; the remainder
+  were networking gear, computers and consumer appliances irrelevant to the
+  question.
 - Light port scan (22/23/53/80/443/1883/5683/8080/8443/9009) of the plausible
-  IoT-module candidates, then HTTP identification of anything listening:
-  - `192.168.1.104` (FN-LINK, port 80): **myQ Wi-Fi Hub** (Chamberlain garage)
-    in provisioning mode — "Wi-Fi Setup" page, myQ logo. Not Schlage.
-  - `192.168.1.198` (FN-LINK, 443): ancient **Boa/0.94** webserver, GB2312 404 —
-    some Chinese IoT gadget, unidentified, not Schlage-like.
-  - `192.168.1.2` (Murata, 80+443): `470 Connection Authorization Required` —
-    unidentified proprietary device.
-  - `192.168.1.48` (Espressif, 80): hobbyist ESP web UI (dark theme). Not Schlage.
-  - `192.168.1.31` (Espressif), `192.168.1.194` (High-Flying): all ports closed.
-  - `192.168.1.33` (LAA MAC): SSH open — a Linux box, not a lock.
+  IoT-module candidates, then HTTP identification of anything listening. Hosts
+  are given by OUI below: the addresses were this segment's DHCP leases, so they
+  identify the test network rather than any protocol fact.
+  - FN-LINK, port 80: **myQ Wi-Fi Hub** (Chamberlain garage) serving its
+    "Wi-Fi Setup" page. Not Schlage.
+  - FN-LINK, 443: ancient **Boa/0.94** webserver, GB2312 404 — some Chinese IoT
+    gadget, unidentified, not Schlage-like.
+  - Murata, 80+443: `470 Connection Authorization Required` — unidentified
+    proprietary device.
+  - Espressif, 80: hobbyist ESP web UI (dark theme). Not Schlage.
+  - A second Espressif host and a High-Flying host: all ports closed.
+  - One locally-administered MAC: SSH open — a Linux box, not a lock.
 - **No host was positively identifiable as a Schlage lock.** If the locks are on
   WiFi they present zero listening ports among the common set and answer nothing on
   HTTP — consistent with the app evidence (outbound-only cloud relay). Passive

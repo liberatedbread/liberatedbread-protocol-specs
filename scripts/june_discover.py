@@ -47,6 +47,16 @@ DEFAULT_PORTS: dict[int, str] = {
 }
 
 
+# Substrings that make an mDNS record worth emitting. The browse itself has to
+# be unfiltered — a meta-query enumerates every service type on the segment, and
+# the whole point is to catch an announcement nobody predicted — but what comes
+# back is an inventory of the operator's LAN: hostnames, DHCP addresses and
+# serial-shaped TXT keys for every printer, TV and speaker in the house. None of
+# that is a June fact, and this script's output is meant to be publishable, so
+# records are matched against these and the target address before being kept.
+OVEN_HINTS: tuple[str, ...] = ("june", "oven", "weber")
+
+
 @dataclass
 class PortResult:
     port: int
@@ -182,8 +192,27 @@ def interpret(result: ReconResult) -> list[str]:
     return notes
 
 
-def browse(timeout: float) -> list[dict]:
+def looks_like_oven(record: dict, address: str) -> bool:
+    """Is this record plausibly the oven, rather than someone else's appliance?
+
+    Two ways to qualify: it came from the host being scanned, or its name, type
+    or hostname carries one of OVEN_HINTS. Everything else is the operator's
+    own LAN and is counted, not emitted.
+    """
+    if address and record.get("address") == address:
+        return True
+    haystack = " ".join(
+        str(record.get(k, "")) for k in ("name", "service_type", "hostname")
+    ).lower()
+    return any(hint in haystack for hint in OVEN_HINTS)
+
+
+def browse(timeout: float, address: str = "") -> tuple[list[dict], int]:
     """Passively browse mDNS for anything that looks like an oven.
+
+    Returns the matching records and a count of the ones withheld. The browse
+    is deliberately unfiltered — see OVEN_HINTS — but only oven candidates come
+    back, so a caller cannot publish the operator's LAN by accident.
 
     Imported lazily so the port scan — the part that matters — still runs on a
     box without the zeroconf package installed.
@@ -191,7 +220,7 @@ def browse(timeout: float) -> list[dict]:
     try:
         from _lan_discovery import browse_mdns
     except ImportError:
-        return []
+        return [], 0
     # Two phases, because "browse everything" is not one query.
     # `_services._dns-sd._udp.local.` is the DNS-SD META-query: it enumerates
     # service TYPES, and its answers are type names, not instances. Handing
@@ -204,20 +233,22 @@ def browse(timeout: float) -> list[dict]:
 
         types = sorted(ZeroconfServiceTypes.find(timeout=max(timeout, 1.0)))
     except SystemExit:
-        return []
+        return [], 0
     except Exception:
         # No zeroconf, or the meta-query itself failed: fall back to the
         # types an oven could plausibly answer on rather than claiming none.
         types = ["_http._tcp.local.", "_googlecast._tcp.local."]
     if not types:
-        return []
+        return [], 0
     try:
         records = browse_mdns(types, timeout)
     except SystemExit:
         # _lan_discovery exits when zeroconf is missing. Recon should degrade,
         # not abort: the caller may only care about the port scan.
-        return []
-    return [asdict(r) for r in records]
+        return [], 0
+    everything = [asdict(r) for r in records]
+    kept = [r for r in everything if looks_like_oven(r, address)]
+    return kept, len(everything) - len(kept)
 
 
 def main() -> None:
@@ -248,12 +279,24 @@ def main() -> None:
         )
         result = scan(args.address, ports, args.timeout)
 
+    withheld = 0
     if args.mdns or args.mdns_only:
-        result.mdns = browse(max(args.timeout, 5.0))
-        if not result.mdns:
+        result.mdns, withheld = browse(max(args.timeout, 5.0), args.address or "")
+        if not result.mdns and withheld:
             result.notes.append(
-                "No mDNS records at all. Expected: the oven has never been observed "
-                "to announce itself. A record here would be a genuine discovery."
+                f"No oven-like mDNS record, out of {withheld + len(result.mdns)} seen "
+                "on this segment. Expected: the oven has never been observed to "
+                "announce itself. A record here would be a genuine discovery. The "
+                f"other {withheld} belong to the operator's LAN and are deliberately "
+                "not emitted — they are not June facts and do not belong in a spec."
+            )
+        elif not result.mdns:
+            result.notes.append(
+                "No mDNS records at all — not even from unrelated hosts on the "
+                "segment. That is usually a tooling or network problem (zeroconf "
+                "missing, mDNS not routed here) rather than a fact about the oven. "
+                "Confirm the browse sees a host you know announces itself before "
+                "recording this as a negative."
             )
 
     result.notes.extend(interpret(result))
@@ -276,6 +319,11 @@ def main() -> None:
             print(line)
     for record in result.mdns:
         print(f"mdns: {record}")
+    if withheld:
+        print(
+            f"mdns: {withheld} further record(s) seen and withheld — unrelated hosts "
+            "on this segment, not June facts."
+        )
     if result.notes:
         print("\nnotes:")
         for note in result.notes:

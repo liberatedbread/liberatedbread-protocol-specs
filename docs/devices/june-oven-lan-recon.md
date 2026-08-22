@@ -123,14 +123,25 @@ nmap -p- -sV --reason <oven-ip>
 sudo nmap -sU --top-ports 200 <oven-ip>
 ```
 
-Also worth ten minutes: listen for mDNS and SSDP (`--mdns`), and watch during a
-factory reset for a SoftAP appearing — June's own open-source-licenses page lists
-an Android `accesspoint` library, which hints the firmware *can* raise an AP even
-though no provisioning flow uses one.
+Also worth ten minutes: browse mDNS (`--mdns`), and watch during a factory reset
+for a SoftAP appearing — June's own open-source-licenses page lists an Android
+`accesspoint` library, which hints the firmware *can* raise an AP even though no
+provisioning flow uses one. SSDP is not covered by this script: TCP 1900 is in
+the port list, but a UDP multicast announcement will not show up in a connect
+scan, so use `sudo nmap -sU -p1900` or a passive listener for that.
 
 **Publish whatever you get, including nothing.** A documented negative from a
 named generation and firmware version is a real contribution here; the current
 state of the art is one person's unverified recollection of a port number.
+
+**Sanitize first — the output is not publishable verbatim.** The scan emits the
+address you gave it and the target's reverse-DNS name, both of which are yours
+rather than June's. Replace them with the placeholders in
+[`docs/CLEANROOM_RULES.md`](../CLEANROOM_RULES.md) before pasting the result
+anywhere. The mDNS browse deliberately withholds records that are not oven
+candidates — an unfiltered browse returns every printer, TV and speaker on your
+segment, complete with hostnames and serial-shaped TXT keys — so publish the
+withheld *count*, never the records themselves.
 
 ## Tier 2 — DNS redirect and the TLS ladder
 
@@ -191,7 +202,10 @@ hardware, which stay sovereign on the device. The `10020` ack vocabulary
 is reimplemented verbatim, never loosened. See `docs/CLEANROOM_RULES.md`.
 
 Do not publish captures without sanitizing them: a pcap of a pairing session
-contains a bearer token and, potentially, key material. Scrub before pushing.
+contains a bearer token and, potentially, key material. The same applies to
+anything else a recon session produces — scan output, mDNS records, screenshots,
+DHCP lease tables — which carry your addresses, hostnames and serials rather than
+the device's. Scrub before pushing; see [`docs/CLEANROOM_RULES.md`](../CLEANROOM_RULES.md).
 
 ## Consequences for the device spec
 

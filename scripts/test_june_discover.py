@@ -107,3 +107,33 @@ def test_probe_port_reports_a_refused_port_as_closed():
 def test_default_ports_cover_the_leads_that_motivated_the_script():
     assert 8156 in june_discover.DEFAULT_PORTS
     assert 5555 in june_discover.DEFAULT_PORTS
+
+
+def test_unrelated_mdns_records_are_withheld():
+    """The browse has to be unfiltered; the output must not be.
+
+    A meta-query returns every service type on the segment, so the raw result is
+    an inventory of the operator's LAN — hostnames, DHCP addresses, serial-shaped
+    TXT keys. This script's output is meant to be publishable verbatim, so only
+    oven candidates may survive.
+    """
+    printer = {
+        "name": "Brother HL-L2350DW",
+        "service_type": "_ipp._tcp.local.",
+        "hostname": "BRW001122334455.local.",
+        "address": "192.0.2.31",
+        "txt": {"UUID": "e3248000-80ce-11db-8000-001122334455"},
+    }
+    assert not june_discover.looks_like_oven(printer, address="192.0.2.10")
+
+
+def test_the_scanned_host_always_qualifies():
+    """Whatever the target announces is the finding, named like an oven or not."""
+    record = {"name": "unnamed-thing", "service_type": "_http._tcp.local.", "address": "192.0.2.10"}
+    assert june_discover.looks_like_oven(record, address="192.0.2.10")
+
+
+def test_a_named_oven_qualifies_without_a_target_address():
+    """--mdns-only has no address to match on, so the name has to carry it."""
+    record = {"name": "June Oven 1234", "service_type": "_http._tcp.local.", "address": "192.0.2.77"}
+    assert june_discover.looks_like_oven(record, address="")
