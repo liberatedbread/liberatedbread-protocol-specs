@@ -8,6 +8,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Denon AVR-S720W** (`denon-avr-s720w`) — a 2016 KnOS-generation Denon
+  receiver, and the registry's first AV receiver. Four surfaces on one
+  address: the undocumented `/goform/` HTTP API on port 80, the
+  vendor-published ASCII control protocol on port 23, a UPnP MediaRenderer,
+  and AirPlay 1 + Spotify Connect sinks. The two control routes carry the
+  *same* command vocabulary — `GET /goform/formiPhoneAppDirect.xml?PWON` and
+  `PWON\r` on port 23 are one command — so every entity binds over HTTP and a
+  consumer that cannot hold a socket loses only the state push. There is no
+  authentication anywhere on the local surface; reachability *is* the access
+  model, and the spec says so rather than implying a credential protects it.
+
+  Discovery is the hard half, because everything the receiver announces is a
+  generic standard (`_http._tcp`, `_airplay._tcp`, `_raop._tcp`,
+  `_spotify-connect._tcp`; SSDP `MediaRenderer:1`). Three vendor-shaped
+  details do the identifying instead, all three observed on live hardware: the
+  SSDP `SERVER` header reads `KnOS/3.2 UPnP/1.0 DMP/3.5` and `KnOS/` is D&M's
+  firmware platform; the UDN's node field is the MAC, so a UDN ending in
+  twelve hex digits starting `0005cd` is a D&M device (and is how an SSDP hit
+  and an mDNS hit for one receiver get joined); and the Spotify Connect
+  `cpath` is `/goform/spotifyConfig`, putting D&M's own web-API namespace in a
+  TXT record. `device.testing` is `untested`/`capture-verified` accordingly —
+  the discovery half is quoted from a contributed live scan, the control half
+  is graded `reported` from Denon's control-protocol documents and from
+  denonavr and the openHAB denonmarantz binding.
+
+  The traps are written down where a consumer will hit them. Volume is
+  expressed two ways on two routes that both work — signed dB (`-40.0`) in
+  the status documents and on `formiPhoneAppVolume.xml`, an offset integer
+  (`MV40`, where 80 is the 0 dB reference) on the ASCII route — so
+  round-tripping a reading through the wrong one is a 40 dB error; at minimum
+  the receiver reports the literal string `--` rather than a number;
+  `VolumeDisplay: Absolute` changes only the front panel; mute reads lower
+  case and writes upper case; surround selection is a *request* the receiver
+  may substitute and report back with no error; port 23 accepts one client
+  and holding it locks out the vendor app; and the whole LAN surface is
+  powered down in standby unless **Setup > Network > Network Control** is
+  "Always On", with no documented Wake-on-LAN path. Also recorded is what is
+  *absent*, so a probe that finds nothing is not read as a fault: no HEOS
+  Built-in and therefore a closed TCP 1255 (HEOS arrived with the 2018
+  AVR-S750H), AirPlay 1 only with no `pk` record, and a single zone.
+
+  The WiFi discovery guide gains a section on this shape of device — one
+  that offers no vendor search target at all — since it generalises past
+  Denon: identify on the M-SEARCH *reply* rather than the query, using the
+  `SERVER` header, the UDN's node field (very often the MAC, so an OUI lookup
+  names the vendor with no HTTP request at all), and TXT records belonging to
+  third-party protocols, which routinely leak the vendor's own namespace.
+
 - Stateful **Power** `switch` entities on seven TV specs, landing the spec
   half of [Spec Evolution P13](docs/contributing/spec-evolution.md#p13):
   discrete `turn_on`/`turn_off` bindings where the hardware honestly has
