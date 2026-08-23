@@ -137,6 +137,61 @@ evidence and the payload-level matching rules. The duplication is deliberate:
 `identification` is the part a consumer can act on cheaply, and it is what the
 mobile app's spec matcher reads.
 
+#### A service type is often a platform, not a product
+
+`mdns_service_type` looks like a strong signal and frequently is not.
+`_esphomelib._tcp` is every ESPHome node ever flashed; `_hap._tcp` is every
+HomeKit accessory; `_http._tcp` is every web server on the link. A matcher that
+resolves a service type to a spec labels the whole platform with whichever spec
+claimed the type first — which is not hypothetical: while `ratgdo` was the only
+spec claiming `_esphomelib._tcp`, every ESPHome device on the LAN rendered as a
+garage-door opener.
+
+`mdns_txt_match` is how a spec narrows a platform service type to its product.
+Entries are **ANDed** — all must hold — and each says where its value comes
+from:
+
+```yaml
+identification:
+  mdns_service_type: "_esphomelib._tcp.local."
+  mdns_txt_match:
+    - key: "project_name"        # TXT key, spelled as the device publishes it
+      match: "prefix"            # exact (default) | prefix | contains | regex
+      value: "ratgdo."           #                 | present | absent
+      description: >
+        ESPHome publishes `esphome: project: name:` here; every ratgdo board
+        config sets it to `ratgdo.<board>`.
+```
+
+`present`/`absent` take no `value` — use them when the existence of a key is
+itself the signal (ESPHome publishes `config_hash`, and nothing else on
+`_http._tcp` does). `case_sensitive` defaults to true, which is what the wire
+does.
+
+The full conditions, with their evidence, belong in the matching
+`discovery.methods[].mdns.txt_match`; the identification copy is the cheap one.
+A spec whose discovery method narrows a service type but whose identification
+block does not is over-matching, and `scripts/test_esphome_spec.py` fails on it.
+
+The other half of the contract is the catch-all. One spec per platform service
+type may declare `platform_fallback: true` on its discovery method, meaning
+"use me only when no spec matched this service type with a narrower
+`txt_match`":
+
+```yaml
+discovery:
+  methods:
+    - type: "mdns"
+      mdns:
+        service_type: "_esphomelib._tcp.local."
+        platform_fallback: true
+```
+
+That is what makes an unrecognised node render as **itself** — its own name and
+its own entities — instead of as whichever product got there first.
+`esphome-device.yaml` is the worked example, and it deliberately declares no
+`entities`: it cannot know what a node has, so it documents how to ask.
+
 **The four BLE signals are not equally strong, and a consumer should not treat
 them as if they were:**
 

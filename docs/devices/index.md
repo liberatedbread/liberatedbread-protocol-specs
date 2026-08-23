@@ -85,6 +85,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Android Wireless-ADB Device](android-adb-wireless.md) | mDNS / DNS-SD | Identify-only (untested) | None needed | Various (Android 11+) |
 | [Chamberlain Garage Opener (Security+)](chamberlain-garage-opener-secplus.md) | UART | Complete (needs bridge) | ratgdo/Konnected bridge | Chamberlain |
 | [ratgdo Garage-Door Controller](ratgdo.md) | WiFi (ESPHome) | Complete (untested) | Flash + wire to opener | ratgdo / Konnected |
+| [ESPHome Node (generic)](esphome-device.md) | WiFi (ESPHome REST/SSE + native API) | Complete (untested) | Owner-flashed; captive portal / Improv (medium) | Various (ESPHome open firmware) |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
 | [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Pairing (medium) | Generic / ScanTool / Vgate |

@@ -659,6 +659,63 @@ vocabulary. The real half is consumer work: a `toggle` role in the mobile app's
 role tables, and the read-state-then-toggle rule that makes it safe. As with
 P12, the schema change is not the interesting part.
 
+### P14 — Disambiguating a shared discovery service type { #p14 }
+
+**Status: landed.** `$defs/mdns_txt_match`, `identification.mdns_txt_match` and
+`discovery.methods[].mdns.{txt_match,platform_fallback}` are in `schema.json`;
+`ratgdo` and the new `esphome-device` are the two halves of the worked example,
+and `scripts/test_esphome_spec.py` holds the family to it. Kept here as the
+worked reasoning; the rest of this section is written as it was proposed.
+
+**Problem.** `identification.mdns_service_type` is a single string, matched by
+itself. That is fine for `_ankivector._tcp` and wrong for a service type that
+belongs to a *firmware platform* rather than a product. A consumer resolving a
+service type to a spec has no way to prefer one claimant over another, so the
+whole platform gets labelled with whichever spec the matcher reached first.
+
+**Evidence.** `ratgdo` was the only spec claiming `_esphomelib._tcp`, which is
+the service type of ESPHome itself. Every ESPHome node on the LAN — sensors,
+plugs, bluetooth proxies — rendered as a garage-door opener, offering
+`/cover/door` controls for entities those nodes do not have. The same shape is
+sitting in the registry unexploded: `lifx-z`, `rachio-controller` and
+`lutron-caseta-smart-bridge` all claim `_hap._tcp`, and `wled-controller` and
+`purpleair-sensor` both claim `_http._tcp`. Each says the right thing in prose
+`notes` and none of it is machine-readable.
+
+**Proposal.** Two additive keys, and a resolution rule that needs no new
+ordering field:
+
+```yaml
+identification:
+  mdns_service_type: "_esphomelib._tcp.local."
+  mdns_txt_match:                    # ANDed conditions; narrows type -> product
+    - key: "project_name"
+      match: "prefix"                # exact | prefix | contains | regex
+      value: "ratgdo."               #       | present | absent (no value)
+discovery:
+  methods:
+    - type: "mdns"
+      mdns:
+        service_type: "_esphomelib._tcp.local."
+        platform_fallback: true      # the catch-all, on the platform's own spec
+```
+
+A consumer takes the claimant with the most satisfied conditions; a spec with no
+conditions loses to one that has them, and `platform_fallback` marks the spec
+that is *meant* to catch the remainder. The fallback spec declares no
+`entities` — it cannot know them — and documents how to enumerate instead.
+
+**Compatibility.** Additive. A consumer reading only `mdns_service_type` behaves
+exactly as it does today; one reading `mdns_txt_match` stops mislabelling whole
+platforms. No existing spec changes meaning.
+
+**Effort.** Small schema, small consumer work (one filter step before the
+service-type lookup). The open follow-up is evidence, not design: the `_hap._tcp`
+and `_http._tcp` claimants above each need a matcher written from an actual TXT
+dump — HomeKit's `md` (model) and `ci` (accessory category) are the obvious
+candidates — and inventing those values rather than observing them would be
+worse than the prose we have.
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -762,6 +819,7 @@ this page classifiable.
 | [P11](#p11) | Plural `local_name_prefix` | Medium | Very low | **Landed** |
 | [P12](#p12) | Executable HTTP commands + hub children | High | Low | **Landed** |
 | [P13](#p13) | Power as a stateful control + `toggle` role | High | Low | With consumer |
+| [P14](#p14) | Disambiguating a shared discovery service type | High | Very low | **Landed** |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |

@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **ESPHome is a platform, not a garage door.** `_esphomelib._tcp` is the
+  service type of the ESPHome *firmware*, and `ratgdo` was the only spec
+  claiming it — so a consumer resolving a service type to a spec labelled every
+  ESPHome node on the LAN a garage-door opener, complete with `/cover/door`
+  controls for entities those nodes do not have. Three changes fix the class of
+  bug, not just this instance ([P14](docs/contributing/spec-evolution.md#p14)):
+
+  - **Schema**: `$defs/mdns_txt_match` plus `identification.mdns_txt_match` and
+    `discovery.methods[].mdns.txt_match` — ANDed conditions on TXT records
+    (`exact`/`prefix`/`contains`/`regex`/`present`/`absent`) that narrow a
+    platform service type to one product — and
+    `discovery.methods[].mdns.platform_fallback`, which marks the one spec per
+    service type that is *meant* to catch everything no matcher claimed.
+    Additive: a consumer reading only `mdns_service_type` is unchanged.
+  - **`esphome-device`** (new spec): the ESPHome platform itself, as the
+    fallback. It deliberately declares no `entities` — it cannot know what a
+    node has — and instead documents how to ask: `GET /events` emits one
+    `state` event per entity on connect (the enumeration path; there is no
+    list-entities URL), the REST grammar `/<domain>/<entity>[/<action>]` with
+    the sub-device forms, the native API's framing (`0x00` plaintext, `0x01`
+    Noise `NNpsk0_25519_ChaChaPoly_SHA256`, prologue `NoiseAPIInit`), the full
+    mDNS TXT set a node publishes, and ESPHome's `web_server`/`captive_portal`
+    provisioning and factory-reset paths.
+  - **`ratgdo`**: now matches `project_name` prefix `ratgdo.` in both blocks
+    (every published board config sets `ratgdo.<board>`), so it claims its own
+    hardware and nothing else. Konnected's blaQ ships its own build whose
+    project_name has not been observed here, and is no longer claimed by
+    implication.
+
 - Stateful **Power** `switch` entities on seven TV specs, landing the spec
   half of [Spec Evolution P13](docs/contributing/spec-evolution.md#p13):
   discrete `turn_on`/`turn_off` bindings where the hardware honestly has
@@ -621,6 +650,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   field.
 
 ### Fixed
+
+- **ESPHome addressing and cover-position corrections on `ratgdo`.** Two facts
+  the spec had wrong, both from ESPHome's own source. (1) Entity addressing
+  changed generation: `<= 2025.12` matches the slugified `object_id` and emits
+  `id: "cover-door"`; `2026.1.0`-`2026.7` match the entity NAME with an
+  object_id fallback and add `name_id`; `>= 2026.8` dropped the fallback, so
+  URLs are the percent-encoded name (`/cover/Door`, `/lock/Lock%20remotes`) and
+  `id` carries `cover/Door`. Paths and `state_topic`s move to the name form
+  current ratgdo firmware requires, with the legacy form documented and the
+  rule for picking one at runtime (read the identifier out of `/events`; a
+  wrong form is a 404, never a silent no-op). (2) `set?position=` takes
+  ESPHome's cover scale `0.0`-`1.0`, not a percentage — the old `0..100`
+  `uint8` meant every "half open" request drove the door fully open. Also:
+  the legacy `api: password:` was removed in ESPHome 2026.1.0, and
+  `api_encryption` vs `api_encryption_supported` distinguish "PSK set, Noise
+  required" from "Noise-capable, still accepts plaintext".
 
 - `tplink-kasa-smart-plug` stops offering the energy meter on plugs that do not
   have one. The four emeter sensors were unscoped, so a consumer drew Voltage /
