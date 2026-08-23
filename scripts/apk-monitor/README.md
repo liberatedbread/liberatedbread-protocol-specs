@@ -5,22 +5,22 @@ Automated pipeline that discovers new IoT Bluetooth APKs, reverse-engineers thei
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌───────────────────────────────┐
-│  APK Search │────▶│  BT Scanner  │────▶│      RE Agent Launcher        │
-│  (APKPure)  │     │ (jadx/grep)  │     │  ┌───────┐ ┌──────┐ ┌─────┐ │
-└─────────────┘     └──────────────┘     │  │Claude │ │OpenAI│ │QWEN │ │
-                                          │  └───┬───┘ └──┬───┘ └──┬──┘ │
-                                          └──────┼────────┼────────┼────┘
-                                                 │        │        │
-                                          ┌──────▼────────▼────────▼────┐
-                                          │     Cross-Check & Vote      │
-                                          │  (each reviews the others)  │
-                                          └─────────────┬───────────────┘
-                                                        │
-                                          ┌─────────────▼───────────────┐
-                                          │     Auto-Merge Winner       │
-                                          │ (if score ≥ 5.0, votes ≥ 2)│
-                                          └─────────────────────────────┘
+┌─────────────┐     ┌──────────────┐     ┌──────────────────────────────────────────────┐
+│  APK Search │────▶│  BT Scanner  │────▶│              RE Agent Launcher               │
+│  (APKPure)  │     │ (jadx/grep)  │     │ ┌──────┐ ┌──────┐ ┌──────┐ ┌────────┐ ┌────┐ │
+└─────────────┘     └──────────────┘     │ │Claude│ │OpenAI│ │Gemini│ │DeepSeek│ │QWEN│ │
+                                         │ └───┬──┘ └───┬──┘ └───┬──┘ └────┬───┘ └──┬─┘ │
+                                         └─────┼────────┼────────┼─────────┼────────┼───┘
+                                               │        │        │         │        │
+                                         ┌─────▼────────▼────────▼─────────▼────────▼───┐
+                                         │            Cross-Check & Vote                │
+                                         │         (each reviews the others)            │
+                                         └───────────────────┬──────────────────────────┘
+                                                             │
+                                         ┌───────────────────▼──────────────────────────┐
+                                         │              Auto-Merge Winner               │
+                                         │          (if score ≥ 5.0, votes ≥ 2)         │
+                                         └──────────────────────────────────────────────┘
 ```
 
 ## Setup
@@ -47,7 +47,7 @@ Automated pipeline that discovers new IoT Bluetooth APKs, reverse-engineers thei
 4. **Set up local QWEN model (optional):**
    ```bash
    # Using ollama:
-   ollama pull qwen2.5-coder:32b
+   ollama pull qwen3-coder:30b
    # Or use vllm, llama.cpp, etc. — any OpenAI-compatible endpoint works
    ```
 
@@ -102,10 +102,18 @@ See `crontab.example` for more options.
 - Extracts custom (non-SIG) UUIDs for the RE agents
 
 ### 3. RE Agent Launcher (`re_agents.py`)
-- Launches three parallel reverse-engineering agents:
-  - **Claude** (Anthropic API) — best at structured analysis
-  - **OpenAI** (GPT-4o) — good at broad pattern recognition
-  - **Local QWEN** (via ollama/vllm) — runs locally, future fine-tuning target
+- Launches one reverse-engineering agent per configured model:
+  - **Claude** (Anthropic API, `claude-sonnet-5`) — best at structured analysis
+  - **OpenAI** (`gpt-5.6-terra`) — good at broad pattern recognition
+  - **Gemini** (`gemini-3.1-pro-preview`, via its OpenAI-compatible endpoint)
+  - **DeepSeek** (`deepseek-v4-pro`, via its OpenAI-compatible endpoint)
+  - **Local QWEN** (`qwen3-coder:30b` via ollama/vllm) — runs locally, future
+    fine-tuning target
+- Model ids are defaults, not pins: set `CLAUDE_MODEL`, `OPENAI_MODEL`,
+  `GEMINI_MODEL`, `DEEPSEEK_MODEL` or `LOCAL_MODEL` in `config.env` when a
+  vendor retires one (the symptom is a 404 naming its replacement)
+- A hosted agent with no API key configured is skipped, so the panel works
+  with whatever subset of keys you hold
 - Each agent receives the same context: scan results, UUIDs, protocol hints
 - Each produces a YAML device spec + Markdown protocol doc
 - Transcripts saved to the configured transcripts repo

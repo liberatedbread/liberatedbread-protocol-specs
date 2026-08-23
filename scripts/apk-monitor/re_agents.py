@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch reverse-engineering agents across Claude, OpenAI, and a local QWEN model.
+"""Launch reverse-engineering agents across Claude, OpenAI, Gemini, DeepSeek and a local QWEN model.
 
 Each agent gets the same context (APK scan results, existing protocol docs, meta-prompt)
 and works on its own git branch.  Results (transcripts + specs) are saved to a
@@ -37,7 +37,7 @@ class AgentTask:
 
 @dataclass
 class AgentResult:
-    agent_name: str          # "claude" | "openai" | "local-qwen"
+    agent_name: str          # "claude" | "openai" | "gemini" | "deepseek" | "local-qwen"
     model: str
     target_id: str
     branch_name: str
@@ -182,23 +182,41 @@ def _call_anthropic(system: str, user: str, model: str, api_key: str) -> tuple[s
     return text, duration
 
 
+def _output_limit_field(model: str) -> str:
+    """Name of the output-length parameter this model accepts.
+
+    OpenAI's reasoning-era models (the GPT-5 family and the o-series) reject
+    the older ``max_tokens`` on chat completions; everything else — Gemini's
+    and DeepSeek's compatibility layers, ollama, vllm — still takes it.
+    """
+    if model.lower().startswith(("gpt-5", "o1", "o3", "o4")):
+        return "max_completion_tokens"
+    return "max_tokens"
+
+
 def _call_openai(system: str, user: str, model: str, api_key: str,
                  base_url: str = DEFAULT_OPENAI_BASE_URL) -> tuple[str, float]:
-    """Call an OpenAI-compatible API.  Works for OpenAI, ollama, vllm, etc."""
+    """Call an OpenAI-compatible API.
+
+    Works for OpenAI, Gemini and DeepSeek (both serve an OpenAI-compatible
+    endpoint), ollama, vllm, etc.
+    """
+    limit = {_output_limit_field(model): MAX_TOKENS}
+
     try:
         import openai
     except ImportError:
         # Fall back to curl
         payload = {
             "model": model,
-            "max_tokens": MAX_TOKENS,
+            **limit,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
         body, duration = _call_api_curl(
-            f"{base_url}/chat/completions",
+            f"{base_url.rstrip('/')}/chat/completions",
             {"Authorization": f"Bearer {api_key}"},
             payload,
         )
@@ -215,11 +233,11 @@ def _call_openai(system: str, user: str, model: str, api_key: str,
     t0 = time.monotonic()
     completion = client.chat.completions.create(
         model=model,
-        max_tokens=MAX_TOKENS,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
+        **limit,
     )
     duration = time.monotonic() - t0
     text = completion.choices[0].message.content or ""
@@ -368,7 +386,7 @@ def launch_all_agents(
     models: ModelConfig,
     protocol_hints_path: Optional[Path] = None,
 ) -> list[AgentResult]:
-    """Launch all three RE agents sequentially and collect results."""
+    """Launch every configured RE agent sequentially and collect results."""
     results: list[AgentResult] = []
 
     for agent_name, model, api_key, base_url in models.agent_configs():

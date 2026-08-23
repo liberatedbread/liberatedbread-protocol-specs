@@ -5,7 +5,8 @@ This is the cron entry point.  It:
 1. Discovers new APKs from APKPure that might be IoT Bluetooth apps.
 2. Downloads them and scans for Bluetooth/BLE device patterns.
 3. Checks each against the existing targets list.
-4. For new BT-device APKs, launches RE agents on Claude, OpenAI, and local QWEN.
+4. For new BT-device APKs, launches RE agents on Claude, OpenAI, Gemini,
+   DeepSeek and local QWEN.
 5. Saves transcripts to the configured transcripts repo.
 6. Cross-checks agent results and votes on the best spec.
 7. Auto-merges winners that pass the vote threshold.

@@ -3,17 +3,18 @@
 
 
 from config import (
-    DEFAULT_CLAUDE_MODEL, DEFAULT_OPENAI_BASE_URL, ModelConfig, ResolvedPaths, load_config,
+    DEFAULT_CLAUDE_MODEL, DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_GEMINI_BASE_URL,
+    DEFAULT_OPENAI_BASE_URL, ModelConfig, ResolvedPaths, load_config,
 )
 
 
 class TestLoadConfig:
     def test_load_from_file(self, tmp_path):
         cfg_file = tmp_path / "config.env"
-        cfg_file.write_text('CLAUDE_MODEL="my-model"\nOPENAI_MODEL=gpt-4o-mini\n')
+        cfg_file.write_text('CLAUDE_MODEL="my-model"\nOPENAI_MODEL=gpt-5.6-luna\n')
         cfg = load_config(cfg_file)
         assert cfg["CLAUDE_MODEL"] == "my-model"
-        assert cfg["OPENAI_MODEL"] == "gpt-4o-mini"
+        assert cfg["OPENAI_MODEL"] == "gpt-5.6-luna"
 
     def test_skips_comments_and_blanks(self, tmp_path):
         cfg_file = tmp_path / "config.env"
@@ -54,12 +55,21 @@ class TestModelConfig:
         assert mc.claude_model == "custom"
         assert mc.anthropic_api_key == "sk-x"
 
-    def test_agent_configs_returns_three_tuples(self):
+    def test_from_cfg_reads_every_hosted_provider(self):
+        mc = ModelConfig.from_cfg({
+            "GEMINI_MODEL": "gemini-test", "GEMINI_API_KEY": "sk-gem",
+            "DEEPSEEK_MODEL": "deepseek-test", "DEEPSEEK_API_KEY": "sk-ds",
+        })
+        assert mc.gemini_model == "gemini-test"
+        assert mc.gemini_api_key == "sk-gem"
+        assert mc.deepseek_model == "deepseek-test"
+        assert mc.deepseek_api_key == "sk-ds"
+
+    def test_agent_configs_covers_every_agent(self):
         mc = ModelConfig()
         configs = mc.agent_configs()
-        assert len(configs) == 3
         names = [name for name, _, _, _ in configs]
-        assert names == ["claude", "openai", "local-qwen"]
+        assert names == ["claude", "openai", "gemini", "deepseek", "local-qwen"]
 
     def test_agent_configs_uses_instance_values(self):
         mc = ModelConfig(claude_model="my-claude", openai_api_key="sk-test")
@@ -70,6 +80,12 @@ class TestModelConfig:
         assert openai_cfg[0] == "openai"
         assert openai_cfg[2] == "sk-test"
         assert openai_cfg[3] == DEFAULT_OPENAI_BASE_URL
+
+    def test_openai_compatible_agents_get_their_own_base_url(self):
+        mc = ModelConfig(gemini_api_key="sk-gem", deepseek_api_key="sk-ds")
+        by_name = {name: (model, key, url) for name, model, key, url in mc.agent_configs()}
+        assert by_name["gemini"][1:] == ("sk-gem", DEFAULT_GEMINI_BASE_URL)
+        assert by_name["deepseek"][1:] == ("sk-ds", DEFAULT_DEEPSEEK_BASE_URL)
 
 
 class TestResolvedPaths:

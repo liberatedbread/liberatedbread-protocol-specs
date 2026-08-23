@@ -11,7 +11,22 @@ from re_agents import (
     _build_user_prompt,
     _extract_protocol_doc,
     _extract_spec_yaml,
+    _output_limit_field,
 )
+
+
+class TestOutputLimitField:
+    def test_gpt5_family_needs_max_completion_tokens(self):
+        assert _output_limit_field("gpt-5.6-terra") == "max_completion_tokens"
+        assert _output_limit_field("gpt-5.6-sol") == "max_completion_tokens"
+
+    def test_o_series_needs_max_completion_tokens(self):
+        assert _output_limit_field("o3-mini") == "max_completion_tokens"
+
+    def test_other_providers_keep_max_tokens(self):
+        assert _output_limit_field("gemini-3.1-pro-preview") == "max_tokens"
+        assert _output_limit_field("deepseek-v4-pro") == "max_tokens"
+        assert _output_limit_field("qwen3-coder:30b") == "max_tokens"
 
 
 class TestExtractSpecYaml:

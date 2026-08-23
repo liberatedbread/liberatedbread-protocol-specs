@@ -51,11 +51,15 @@ def sample_model_config():
     return ModelConfig(
         claude_model="test-claude",
         openai_model="test-openai",
+        gemini_model="test-gemini",
+        deepseek_model="test-deepseek",
         local_model="test-qwen",
         local_base_url="http://localhost:9999/v1",
         local_api_key="test-key",
         anthropic_api_key="sk-ant-test",
         openai_api_key="sk-test",
+        gemini_api_key="sk-gemini-test",
+        deepseek_api_key="sk-deepseek-test",
     )
 
 

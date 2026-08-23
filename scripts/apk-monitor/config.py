@@ -10,21 +10,29 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # ── Defaults ──────────────────────────────────────────────
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514"
-DEFAULT_OPENAI_MODEL = "gpt-4o"
-DEFAULT_LOCAL_MODEL = "qwen2.5-coder:32b"
+# Model ids go stale as vendors retire them; each is overridable from
+# config.env so a retirement is a one-line edit, not a code change.
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
+DEFAULT_OPENAI_MODEL = "gpt-5.6-terra"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
+DEFAULT_LOCAL_MODEL = "qwen3-coder:30b"
 DEFAULT_LOCAL_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_LOCAL_API_KEY = "ollama"
 DEFAULT_APKEEP_SOURCE = "apk-pure"
 DEFAULT_MAX_NEW_APKS = 10
 DEFAULT_MIN_VOTES = 2
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+# Gemini and DeepSeek both expose OpenAI-compatible chat completions, so they
+# ride the same client as OpenAI — only the base URL and key differ.
+DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 MAX_TOKENS = 16384
 
 # All env vars we recognize (checked even without a config file)
 _KNOWN_KEYS = {
-    "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-    "CLAUDE_MODEL", "OPENAI_MODEL",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY",
+    "CLAUDE_MODEL", "OPENAI_MODEL", "GEMINI_MODEL", "DEEPSEEK_MODEL",
     "LOCAL_MODEL", "LOCAL_MODEL_BASE_URL", "LOCAL_MODEL_API_KEY",
     "PROTOCOL_DOCS_ROOT", "TRANSCRIPTS_REPO", "WORKSPACE_DIR",
     "APKEEP_SOURCE", "APKEEP_EMAIL", "APKEEP_AAS_TOKEN",
@@ -40,32 +48,46 @@ def _detect_root() -> Path:
 
 @dataclass
 class ModelConfig:
-    """API keys and model identifiers for the three RE agents."""
+    """API keys and model identifiers for the RE agents."""
     claude_model: str = DEFAULT_CLAUDE_MODEL
     openai_model: str = DEFAULT_OPENAI_MODEL
+    gemini_model: str = DEFAULT_GEMINI_MODEL
+    deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
     local_model: str = DEFAULT_LOCAL_MODEL
     local_base_url: str = DEFAULT_LOCAL_BASE_URL
     local_api_key: str = DEFAULT_LOCAL_API_KEY
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    gemini_api_key: str = ""
+    deepseek_api_key: str = ""
 
     @classmethod
     def from_cfg(cls, cfg: dict) -> "ModelConfig":
         return cls(
             claude_model=cfg.get("CLAUDE_MODEL", DEFAULT_CLAUDE_MODEL),
             openai_model=cfg.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+            gemini_model=cfg.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+            deepseek_model=cfg.get("DEEPSEEK_MODEL", DEFAULT_DEEPSEEK_MODEL),
             local_model=cfg.get("LOCAL_MODEL", DEFAULT_LOCAL_MODEL),
             local_base_url=cfg.get("LOCAL_MODEL_BASE_URL", DEFAULT_LOCAL_BASE_URL),
             local_api_key=cfg.get("LOCAL_MODEL_API_KEY", DEFAULT_LOCAL_API_KEY),
             anthropic_api_key=cfg.get("ANTHROPIC_API_KEY", ""),
             openai_api_key=cfg.get("OPENAI_API_KEY", ""),
+            gemini_api_key=cfg.get("GEMINI_API_KEY", ""),
+            deepseek_api_key=cfg.get("DEEPSEEK_API_KEY", ""),
         )
 
     def agent_configs(self) -> list[tuple[str, str, str, str]]:
-        """Return (agent_name, model, api_key, base_url) for each agent."""
+        """Return (agent_name, model, api_key, base_url) for each agent.
+
+        Agents without a key are skipped by the callers, so an operator who
+        only has two of the four hosted keys still gets a usable panel.
+        """
         return [
             ("claude", self.claude_model, self.anthropic_api_key, ""),
             ("openai", self.openai_model, self.openai_api_key, DEFAULT_OPENAI_BASE_URL),
+            ("gemini", self.gemini_model, self.gemini_api_key, DEFAULT_GEMINI_BASE_URL),
+            ("deepseek", self.deepseek_model, self.deepseek_api_key, DEFAULT_DEEPSEEK_BASE_URL),
             ("local-qwen", self.local_model, self.local_api_key, self.local_base_url),
         ]
 
