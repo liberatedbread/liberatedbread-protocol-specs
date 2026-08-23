@@ -16,7 +16,7 @@
         <link rel="prev" href="../chamberlain-garage-opener-secplus/">
       
       
-        <link rel="next" href="../frigidaire-ac/">
+        <link rel="next" href="../esphome-device/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -2513,6 +2513,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../esphome-device/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ESPHome Node (generic)
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../frigidaire-ac/" class="md-nav__link">
         
   
@@ -3774,10 +3795,18 @@ terminals; it speaks the opener's Security+ 1.0/2.0 protocol (see the
 <a href="../chamberlain-garage-opener-secplus/">Security+ opener spec</a>) and exposes
 <strong>local, cloud-free</strong> garage control on the network. This is the
 network-facing counterpart to the wired Security+ protocol.</p>
-<p>Target the <strong>mainstream ESPHome ratgdo firmware</strong> (also what Konnected's blaQ
-ships). Discover via mDNS <code>_esphomelib._tcp</code> (the app's meta-query sweep already
-enumerates it); read the <code>project_name</code> TXT to tell a ratgdo from any other
-ESPHome device.</p>
+<p>Target the <strong>mainstream ESPHome ratgdo firmware</strong>. Discover via mDNS
+<code>_esphomelib._tcp</code> (the app's meta-query sweep already enumerates it) — but that
+service type is the <strong>ESPHome platform</strong>, not this product, so the spec narrows
+it with an <code>mdns_txt_match</code> on the <code>project_name</code> TXT record: every published
+ratgdo board config sets it to <code>ratgdo.&lt;board&gt;</code> (<code>ratgdo.v25iboard_secplus2</code>,
+<code>ratgdo.v32board_secplus2</code>, <code>ratgdo.v2board_esp8266_d1_mini_lite</code>). A node that
+does not match is some other <a href="../esphome-device/">ESPHome node</a>, and rendering it
+as a garage door is the bug that matcher exists to prevent. Konnected's blaQ is ratgdo-compatible
+hardware: flashed with mainstream ratgdo firmware it matches like any other
+board, but Konnected's own build sets its own <code>project_name</code>, unobserved here —
+so a blaQ on stock firmware falls to the generic ESPHome spec until somebody
+dumps its TXT records.</p>
 <h2 id="two-local-transports-no-cloud-no-broker">Two local transports (no cloud, no broker)<a class="headerlink" href="#two-local-transports-no-cloud-no-broker" title="Permanent link">&para;</a></h2>
 <p><strong>Web server (HTTP :80, enabled by default)</strong> — simplest for a phone app:</p>
 <table>
@@ -3790,27 +3819,27 @@ ESPHome device.</p>
 <tbody>
 <tr>
 <td>Door state</td>
-<td><code>GET /cover/door</code> → JSON (<code>state</code>, <code>current_operation</code>, <code>position</code>)</td>
+<td><code>GET /cover/Door</code> → JSON (<code>state</code>, <code>current_operation</code>, <code>position</code>)</td>
 </tr>
 <tr>
 <td>Open / close / stop / toggle</td>
-<td><code>POST /cover/door/{open,close,stop,toggle}</code></td>
+<td><code>POST /cover/Door/{open,close,stop,toggle}</code></td>
 </tr>
 <tr>
 <td>Set position (Sec+ 2.0 only)</td>
-<td><code>POST /cover/door/set?position=&lt;0..100&gt;</code></td>
+<td><code>POST /cover/Door/set?position=&lt;0.0..1.0&gt;</code></td>
 </tr>
 <tr>
 <td>Light</td>
-<td><code>POST /light/light/{turn_on,turn_off,toggle}</code></td>
+<td><code>POST /light/Light/{turn_on,turn_off,toggle}</code></td>
 </tr>
 <tr>
 <td>Lock remotes</td>
-<td><code>POST /lock/lock_remotes/{lock,unlock}</code></td>
+<td><code>POST /lock/Lock%20remotes/{lock,unlock}</code></td>
 </tr>
 <tr>
 <td>Sensors (read)</td>
-<td><code>GET /binary_sensor/{obstruction,motion,motor,button}</code></td>
+<td><code>GET /binary_sensor/{Obstruction,Motion,Motor,Button}</code></td>
 </tr>
 <tr>
 <td>Live state push</td>
@@ -3818,12 +3847,54 @@ ESPHome device.</p>
 </tr>
 </tbody>
 </table>
-<p>No auth by default. Entity ids are <code>slugify(name)</code> — the cover is <code>door</code>, not
-its C++ id.</p>
+<p>No auth by default. <code>position</code> is ESPHome's cover scale — <strong>0.0 closed, 1.0
+open, not a percentage</strong>; sending <code>50</code> drives the door fully open.</p>
+<p><strong>Which identifier goes in the URL depends on the firmware</strong>, and ESPHome
+changed it:</p>
+<table>
+<thead>
+<tr>
+<th>Firmware</th>
+<th>Path</th>
+<th>State <code>id</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ESPHome ≤ 2025.12</td>
+<td>slugified object_id — <code>/cover/door</code></td>
+<td><code>cover-door</code></td>
+</tr>
+<tr>
+<td>2026.1.0 – 2026.6</td>
+<td>name first, object_id still accepted</td>
+<td>legacy <code>id</code> (+ <code>name_id</code> from 2026.1.3)</td>
+</tr>
+<tr>
+<td>2026.7</td>
+<td>name only — <code>/cover/Door</code></td>
+<td>still legacy <code>id</code> + <code>name_id</code></td>
+</tr>
+<tr>
+<td>≥ 2026.8</td>
+<td>name only — <code>/cover/Door</code></td>
+<td><code>cover/Door</code>, no <code>name_id</code></td>
+</tr>
+</tbody>
+</table>
+<p>Each command in the spec states the name form as <code>path</code> and the legacy form as
+<code>path_fallback</code> (entities likewise carry <code>state_topic</code> / <code>state_topic_fallback</code>),
+so an older board stays drivable from the file: send <code>path</code>, and on a <strong>404</strong> —
+never on a timeout — send the fallback. A client that would rather not probe
+reads the identifier out of <code>/events</code> instead. See
+<a href="../esphome-device/">ESPHome Node (generic)</a> for the platform-wide rules.</p>
 <p><strong>Native API (TCP :6053, protobuf)</strong> — always present, HA-grade, efficient;
 framing <code>0x00</code> plaintext / <code>0x01</code> Noise-encrypted (PSK from <code>api: encryption:
-key:</code>). Detect encryption via the mDNS <code>api_encryption</code> TXT key. Heavier to
-implement than REST/SSE — prefer the web server for a first cut.</p>
+key:</code>). Detect encryption via the mDNS TXT: <code>api_encryption</code> means a PSK is set
+and Noise is required, <code>api_encryption_supported</code> means the build can do Noise
+but has no key and still accepts plaintext. The legacy <code>api: password:</code> was
+removed in ESPHome 2026.1.0. Heavier to implement than REST/SSE — prefer the web
+server for a first cut.</p>
 <h2 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Security+ 1.0</strong> openers have no stop/position — expose those only for
@@ -3833,7 +3904,9 @@ implement than REST/SSE — prefer the web server for a first cut.</p>
 </ul>
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
 <ul>
+<li><a href="../esphome-device/">ESPHome Node (generic)</a> — the platform this rides on</li>
 <li><a href="https://github.com/ratgdo/esphome-ratgdo">https://github.com/ratgdo/esphome-ratgdo</a></li>
+<li><a href="https://esphome.io/web-api/">https://esphome.io/web-api/</a></li>
 <li><a href="https://esphome.io/components/web_server/">https://esphome.io/components/web_server/</a></li>
 <li><a href="https://esphome.io/components/api/">https://esphome.io/components/api/</a></li>
 <li><a href="https://ratgdo.github.io/esphome-ratgdo/">https://ratgdo.github.io/esphome-ratgdo/</a></li>
