@@ -185,6 +185,7 @@
                 }
               ]
             },
+            "notes": "Discovery only reaches a robot whose Wi-Fi is awake. A robot that has been docked and idle powers its radio down and goes silent on the LAN: it will not answer this UDP probe, an mDNS query, or a TCP connection to 8883. Wake it first — press a button, or reboot it by holding CLEAN for ~20 seconds (Home Assistant's own docs tell you to reboot the robot for auto-discovery) — then probe within the wake window. This is the single most common reason a scan of a segment that provably has robots on it comes back empty.\n",
             "passive_ok": false,
             "port": 5678,
             "probe_hex": "69726f626f746d6373",
@@ -530,14 +531,24 @@
       "description": "HomeKit bridge over the same protocol. Its issue tracker is the best public record of j7-era firmware resetting the TLS connection during the password handshake, and of the retry timings that get past it.\n",
       "title": "homebridge-plugins/homebridge-roomba — where the j-series TLS quirks are recorded",
       "url": "https://github.com/homebridge-plugins/homebridge-roomba"
+    },
+    {
+      "description": "MNDP broadcasts on UDP 5678, the same port as the Roomba discovery probe, so a single `irobotmcs` broadcast also draws MNDP replies from any MikroTik gear on the segment. This spec's 2026-08-14 field test saw exactly that: two MikroTik devices answered the probe with big-endian TLV records (not JSON). The vendor reference for telling that traffic apart from a robot's.\n",
+      "title": "MikroTik — Neighbor Discovery (MNDP), the other protocol on UDP 5678",
+      "url": "https://help.mikrotik.com/docs/spaces/ROS/pages/24805517/Neighbor+discovery"
+    },
+    {
+      "description": "A real-world debugging write-up: the vendor app hangs at 'Verify password' when UDP 5678 discovery and TCP 8883 cannot reach the robot across a subnet boundary. The clearest public confirmation that both ports must reach the robot and that discovery is broadcast-scoped — useful for telling a robot that is asleep apart from one the scanner cannot route to.\n",
+      "title": "packetmischief.ca — 'Roomba Stuck at Verify password' (discovery and ports across subnets)",
+      "url": "https://www.packetmischief.ca/2023/01/15/roomba-stuck-at-verify-password/"
     }
   ],
   "irobot_lan_protocol": {
     "discovery": {
       "destination": "255.255.255.255:5678",
-      "notes": "Requires UDP broadcast to reach the robot: a client-isolated guest SSID or a VLAN without broadcast forwarding will find nothing even though the robot is up and its broker is answering. Falling back to a known IP is always valid — discovery is a convenience, not a dependency.\n",
+      "notes": "Requires UDP broadcast to reach the robot: a client-isolated guest SSID or a VLAN without broadcast forwarding will find nothing even though the robot is up and its broker is answering. Falling back to a known IP is always valid — discovery is a convenience, not a dependency.\nAnd it requires the robot to be AWAKE. Field test, 2026-08-14, on a Wi-Fi segment with three known robots: a dorita980-exact probe (bind UDP 5678, broadcast `irobotmcs` to 255.255.255.255) drew ZERO robot replies across repeated windows up to 60 s; a full-segment TCP scan found NO host with 8883 open; and a 60 s mDNS enumeration surfaced no iRobot service. The same probe drew MNDP replies from two MikroTik devices, and mDNS surfaced a Mac, an Apple TV and Sengled bulbs — so the broadcast-and-reply path itself was working; the robots simply weren't answering. All three were docked and idle. This is the documented behaviour, not a fault: Home Assistant's integration tells you to reboot the robot (hold CLEAN ~20 s) for auto-discovery and notes some models \"answer queries only while actively running\". Treat an empty discovery result as \"nothing awake right now\", not \"no robots here\", and wake a robot before probing for it.\n",
       "request": {
-        "description": "A single datagram containing the nine ASCII bytes `irobotmcs`, broadcast to port 5678. Every iRobot robot on the segment answers to the sender's ephemeral port with a JSON datagram. Send it more than once: UDP is lossy and a dropped probe is a robot never found.\n",
+        "description": "A single datagram containing the nine ASCII bytes `irobotmcs`, broadcast to port 5678. An AWAKE iRobot robot on the segment answers with a JSON datagram sent back to the probe's UDP source port — dorita980 binds and sends from 5678, so its replies land on 5678; roombapy sends from an ephemeral port and reads the reply there. Either works; the robot just answers whoever asked. Send it more than once: UDP is lossy and a dropped probe is a robot never found. A docked, idle robot answers nothing until it is woken — see notes.\n",
         "encoding": "string",
         "payload": "irobotmcs"
       },

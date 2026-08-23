@@ -1,0 +1,418 @@
+{
+  "commands": {
+    "night_mode": {
+      "action": "legacy_command_sequence",
+      "arguments": {
+        "sequence": "<off_cmd> 00 55, then (<off_cmd>|0x80) 00 55 after 100 ms"
+      },
+      "description": "Very dim white — send OFF then, ~100 ms later, OFF|0x80.",
+      "notes": "Example zone 1 RGBW: 46 00 55 then C6 00 55.",
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "set_brightness": {
+      "action": "legacy_command",
+      "arguments": {
+        "argument": "{level}",
+        "command": "0x4E"
+      },
+      "description": "Set RGBW brightness — command 0x4E with an absolute level.",
+      "parameters": {
+        "level": {
+          "description": "0x02 dimmest .. 0x1B brightest. Send a zone ON first; the level applies to the most-recently-addressed zone(s).",
+          "max": 27,
+          "min": 2,
+          "type": "uint8"
+        }
+      },
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "set_color": {
+      "action": "legacy_command",
+      "arguments": {
+        "argument": "{hue}",
+        "command": "0x40"
+      },
+      "description": "Set RGBW color — command 0x40 with a hue byte.",
+      "notes": "Send a zone ON first; hue applies to the most-recently-addressed zone(s).",
+      "parameters": {
+        "hue": {
+          "description": "Color wheel starting at violet: 0x00 violet, 0x10 royal blue, 0x60 green, 0xB0 red, 0xF0 lavender.",
+          "max": 255,
+          "min": 0,
+          "type": "uint8"
+        }
+      },
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "turn_off": {
+      "action": "legacy_command",
+      "arguments": {
+        "argument": 0,
+        "command": "0x41 (all) or 0x46/0x48/0x4A/0x4C (zone 1-4)"
+      },
+      "description": "Turn a zone (or all zones) off.",
+      "notes": "Dual-white page: 0x39 / 0x3B,0x33,0x3A,0x36.",
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "turn_on": {
+      "action": "legacy_command",
+      "arguments": {
+        "argument": 0,
+        "command": "0x42 (all) or 0x45/0x47/0x49/0x4B (zone 1-4)"
+      },
+      "description": "Turn a zone (or all zones) on — legacy RGBW ON frame.",
+      "notes": "Frame: <cmd> 00 55 to port 8899. Use the dual-white page (0x35 / 0x38,0x3D,0x37,0x32) for dual-white bulbs.",
+      "transport": "udp",
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "hub",
+    "discovery": {
+      "identity": {
+        "display": "name",
+        "stable_keys": [
+          "mac"
+        ]
+      },
+      "methods": [
+        {
+          "notes": "Reply is a single ASCII CSV line from source port 48899: `ip,mac,module` — verified live: `192.168.1.194,34EAE7AABBCC,HF-LPB130`. Collect replies for ~1 s; each bridge on the segment answers once. (The schema's response_format enum has no ASCII-CSV value, so the shape is documented here.)\n",
+          "type": "udp_broadcast",
+          "udp_broadcast": {
+            "broadcast_address": "255.255.255.255",
+            "identity_mapping": {
+              "display": {
+                "source": "csv:2"
+              },
+              "stable_keys": [
+                {
+                  "key": "mac",
+                  "source": "csv:1"
+                }
+              ]
+            },
+            "passive_ok": false,
+            "port": 48899,
+            "probe_hex": "48462D4131314153534953544852454144"
+          }
+        },
+        {
+          "notes": "v1-v5 bridges reply `ip,mac,` (empty name field; two commas always present). Unicast to a suspected bridge address also works.\n",
+          "type": "udp_broadcast",
+          "udp_broadcast": {
+            "broadcast_address": "255.255.255.255",
+            "identity_mapping": {
+              "display": {
+                "source": "csv:2"
+              },
+              "stable_keys": [
+                {
+                  "key": "mac",
+                  "source": "csv:1"
+                }
+              ]
+            },
+            "passive_ok": false,
+            "port": 48899,
+            "probe_hex": "4C696E6B5F57692D4669"
+          }
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 8899,
+      "identity_keys": {
+        "display": "name",
+        "primary": "mac"
+      },
+      "ssid_examples": [
+        "milight",
+        "HF-LPB130"
+      ],
+      "ssid_prefix": "milight"
+    },
+    "manufacturer": "LimitlessLED / Mi-Light (Futlight)",
+    "manufacturer_status": "abandoned",
+    "name": "LimitlessLED / Mi-Light WiFi Bridge (legacy)",
+    "notes": "The LimitlessLED/Mi-Light WiFi bridge (sold 2012-2017 under LimitlessLED, Mi-Light, Easybulb, applight and other brands) relays LAN commands to 2.4 GHz RF bulbs (RGB, dual-white, RGBW, RGBW/WW-CW): WiFi -> UART -> MCU -> SPI -> PL1176/LT8900-class transceiver. Two LAN generations exist. LEGACY (v1-v5, the unit this spec was verified against): control is a 3-byte command datagram `<cmd> 0x00 0x55` on port 8899 (UDP per the published docs; TCP 8899 also listens on the observed unit). V6 (\"iBox\", 2016+): control moves to UDP 5987 behind a session handshake with a checksummed 22-byte frame; the v6 layout is included under limitlessled_protocol.v6 for completeness but the observed bridge does not answer it. Discovery for all generations is a UDP 48899 broadcast probe: \"Link_Wi-Fi\" (v1-v5) or \"HF-A11ASSISTHREAD\" (later firmware, including the observed legacy unit); the reply is an ASCII CSV `ip,mac,module`, e.g. `192.168.1.194,34EAE7AABBCC,HF-LPB130`. The legacy protocol is write-only (no status/read command), so the byte-level command tables are transcribed from public sources (the published LimitlessLED developer documentation mirror and python-ledcontroller) and were NOT replayed against the user's bridge — any probe would toggle its paired lights. Discovery and transport (TCP 8899 connect, UDP 48899 discovery exchange) are hardware-verified against a live bridge on 2026-08-19; see the evidence block.\n",
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "Provisioning sends the router passphrase in plaintext HTTP posts to the module web UI (Basic-auth protected only after the default admin/admin is changed). Post-setup LAN control is completely unauthenticated — anything on the LAN that can reach port 8899 (or 5987 on v6) can drive every paired light.\n",
+        "stored_on_device": [
+          "WiFi credentials"
+        ],
+        "wifi_passphrase_protection": "plaintext"
+      },
+      "factory_reset": {
+        "confidence": "low",
+        "effect": "Returns the bridge's WiFi module to AP mode (clears the home-network credentials); paired-bulb links are stored per-zone and survive in typical reports.",
+        "procedures": [
+          {
+            "name": "Module reset via web UI or RST pad",
+            "steps": [
+              {
+                "action": "From the module web UI (10.10.100.254 on the setup AP), use the management/restore page, or hold the hardware reset button if the unit exposes one.",
+                "actor": "user"
+              },
+              {
+                "action": "Wait for the setup AP to reappear.",
+                "actor": "device",
+                "timeout_seconds": 60
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "description": "Join the bridge's setup AP (a milight/HF-module-named open network), browse to http://10.10.100.254 (default credentials admin/admin per the published docs), set Work Mode to STA, pick the home network, enter its passphrase (WPA2PSK/AES), and restart. The bridge drops its AP and joins the home network; find it again with the UDP 48899 discovery probes.\n",
+          "softap": {
+            "gateway_ip": "10.10.100.254",
+            "open_network": true,
+            "port": 80,
+            "ssid_examples": [
+              "milight",
+              "HF-LPB130"
+            ],
+            "ssid_notes": "Setup AP naming varies by module generation (milight* on retail units, HF-* on some); treat any open AP whose gateway serves the High-Flying web UI at 10.10.100.254 as a candidate.\n",
+            "ssid_prefix": "milight"
+          },
+          "steps": [
+            {
+              "action": "Power the bridge and wait for its setup AP.",
+              "actor": "user",
+              "expect": "An open AP (milight*/HF-*) appears; the bridge sits at 10.10.100.254.",
+              "timeout_seconds": 60
+            },
+            {
+              "action": "Join the setup AP from the provisioning client.",
+              "actor": "user",
+              "expect": "Client receives an address on the setup subnet."
+            },
+            {
+              "action": "Open http://10.10.100.254, log in (admin/admin), set Work Mode = STA, choose the home SSID, enter its passphrase, save and restart.",
+              "actor": "user",
+              "expect": "The setup AP disappears; the bridge joins the home network.",
+              "request": {
+                "message": "High-Flying module web UI form posts (exact field names not captured)",
+                "protocol": "http"
+              },
+              "timeout_seconds": 60
+            },
+            {
+              "action": "Rediscover the bridge on the home LAN.",
+              "actor": "client",
+              "expect": "A CSV reply `ip,mac,module` from the bridge.",
+              "request": {
+                "message": "Broadcast 'HF-A11ASSISTHREAD' (and/or 'Link_Wi-Fi') to UDP 48899",
+                "protocol": "udp"
+              },
+              "timeout_seconds": 5
+            }
+          ],
+          "type": "softap_http",
+          "verified": false
+        }
+      ],
+      "notes": "The bridge must be joined to the home WiFi before LAN control works. Public v6 docs describe joining the bridge's own setup AP and driving a web UI at 10.10.100.254 (default login admin/admin) to switch the module from AP to STA mode and hand over the router SSID/passphrase; the same High-Flying module web UI pattern applies to the legacy units. Bulbs are paired to the bridge AFTER it is on the LAN: send a zone's ON command within ~3 s of powering the bulb (public docs; the v6 docs call this the link command 0x3D). Not hardware-verified by this project.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "The module web UI can change the STA credentials without a full reset, but reaching it requires joining the setup AP — which the module only hosts while it cannot see its configured network. If the old network is simply renamed/off, power-cycle the bridge and it falls back to AP mode; reprovision from there.\n",
+        "requires_factory_reset": false
+      },
+      "required": true
+    },
+    "testing": {
+      "detail": "minimally-verified",
+      "notes": "Hardware, 2026-08-19, against a live legacy (v1-v5) bridge on the research LAN: the UDP 48899 discovery exchange was replayed end to end (the \"HF-A11ASSISTHREAD\" probe returned the ASCII CSV `ip,mac,HF-LPB130`) and the TCP 8899 control port was confirmed to accept a connection. That is the whole of what was exercised, hence \"minimally-verified\": the byte-level command tables are transcribed from public sources (the published LimitlessLED developer documentation mirror and python-ledcontroller) and were deliberately NOT replayed, because every legacy command is write-only and any probe would have toggled the owner's paired lights. The v6/iBox layout is unverified — the observed bridge does not answer it.\n",
+      "status": "verified"
+    },
+    "transport": "udp"
+  },
+  "entities": [
+    {
+      "commands": {
+        "set_brightness": "set_brightness",
+        "set_color": "set_color",
+        "turn_off": "turn_off",
+        "turn_on": "turn_on"
+      },
+      "features": [
+        "brightness",
+        "color"
+      ],
+      "name": "Mi-Light RGBW Zone",
+      "platform": "light",
+      "state_topic": "udp://{host}:8899"
+    }
+  ],
+  "evidence": {
+    "live_lan_probe": {
+      "captures": "Probe scripts and transcripts (probe_bridge.py, probe_bridge2.py, probe-results.txt, RESEARCH.md) are held in the maintainers' private research workspace, not committed here.",
+      "date": "2026-08-19",
+      "devices": [
+        {
+          "address": "192.168.1.194",
+          "discovery": "UDP 48899 'HF-A11ASSISTHREAD' broadcast -> '192.168.1.194,34EAE7AABBCC,HF-LPB130' from :48899",
+          "discovery_negative": "No reply to 'Link_Wi-Fi' on UDP 48899 (broadcast or unicast)",
+          "http": "GET / -> 401, Server: HTTPD, Basic realm 'USER LOGIN', clock stuck at epoch",
+          "mac": "34:EA:E7:AA:BB:CC",
+          "mac_oui": "Shanghai High-Flying Electronics",
+          "tcp_8899": "Open; connects; no banner (client-speaks-first)",
+          "v6_negative": "No reply to the 27-byte v6 session init on UDP 5987 or UDP 8899 (unicast and broadcast, both published trailer variants)",
+          "wifi_module": "HF-LPB130 (self-reported in discovery reply)"
+        }
+      ]
+    },
+    "public_sources": [
+      "LimitlessLED developer documentation mirror: github.com/BKrajancic/LimitlessLED-DevAPI (legacy + v6 protocol, discovery strings, checksum, keepalives)",
+      "python-ledcontroller: github.com/ojarva/python-ledcontroller (legacy RGBW and dual-white byte tables, pacing/retry guidance)",
+      "Home Assistant limitlessled integration (uses the same legacy command set via the ledcontroller library)"
+    ]
+  },
+  "helpful_urls": [
+    {
+      "description": "HA core integration driving MiLight/LimitlessLED bridges with the UDP v6 protocol documented here.",
+      "title": "Home Assistant LimitlessLED integration",
+      "url": "https://www.home-assistant.io/integrations/limitlessled/"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "High-Flying module web UI. Verified to return 401 with Basic realm \"USER LOGIN\"; published default credentials are admin/admin (not tried against the user's bridge). Configuration UI only — light control is the byte protocol on 8899.\n",
+      "method": "GET",
+      "name": "Web Admin (Basic auth)",
+      "path": "/",
+      "status": "active"
+    }
+  ],
+  "limitlessled_protocol": {
+    "authentication": "none",
+    "dual_white_commands": {
+      "all_full_brightness": "B5 00 55",
+      "all_nightmode": "B9 00 55",
+      "all_off": "39 00 55",
+      "all_on": "35 00 55",
+      "brightness_down": "34 00 55",
+      "brightness_up": "3C 00 55",
+      "cooler": "3F 00 55",
+      "notes": "Dual-white (warm/cool white) bulbs use a different command page. Brightness and color-temperature are relative steps, not absolute.\n",
+      "warmer": "3E 00 55",
+      "zone_full_brightness": [
+        "B8 00 55",
+        "BD 00 55",
+        "B7 00 55",
+        "B2 00 55"
+      ],
+      "zone_nightmode": [
+        "BB 00 55",
+        "B3 00 55",
+        "BA 00 55",
+        "B6 00 55"
+      ],
+      "zone_off": [
+        "3B 00 55",
+        "33 00 55",
+        "3A 00 55",
+        "36 00 55"
+      ],
+      "zone_on": [
+        "38 00 55",
+        "3D 00 55",
+        "37 00 55",
+        "32 00 55"
+      ]
+    },
+    "legacy_command_frame": {
+      "description": "Every legacy (v1-v5) command is exactly 3 bytes: the command byte, the argument byte (0x00 for all commands except brightness and color), and the constant terminator 0x55. Send to UDP 8899 (TCP 8899 also accepts them on the observed unit). Repeat safe commands ~3 times with a >=100 ms pause between sends — the bridge-to-bulb RF hop drops packets and there is no acknowledgement, so retries-with-pacing is the documented reliability strategy (python-ledcontroller defaults).\n"
+    },
+    "pairing": {
+      "notes": "Bulbs pair to a bridge zone by powering the bulb and sending that zone's ON command within ~3 s (the bulb flashes to confirm). Unlink a zone by powering the bulb and sending zone ON five times within the same 3 s window. FAQ-level public docs; not hardware-verified by this project.\n"
+    },
+    "port": 8899,
+    "reply_to_commands": "none — the legacy protocol is write-only",
+    "rgbw_commands": {
+      "all_nightmode": "C1 00 55",
+      "all_off": "41 00 55",
+      "all_on": "42 00 55",
+      "all_white": "C2 00 55",
+      "disco_faster": "44 00 55",
+      "disco_mode_cycle": "4D 00 55",
+      "disco_slower": "43 00 55",
+      "notes": "RGBW bulbs (the most common pairing). Zone = the group paired in the vendor app; \"all\" addresses every paired group. Night mode per the published docs: send OFF, then ~100 ms later send OFF|0x80 (e.g. zone 1: 46 00 55 then C6 00 55).\n",
+      "set_brightness": "4E <level> 55 — level 0x02 (min) .. 0x1B (max)",
+      "set_color": "40 <hue> 55 — hue 0x00=violet .. 0xF0=lavender in 0x10 steps (0xB0 red, 0x60 green, 0x10 royal blue); color wheel starts at violet",
+      "zone_nightmode": [
+        "C6 00 55",
+        "C8 00 55",
+        "CA 00 55",
+        "CC 00 55"
+      ],
+      "zone_off": [
+        "46 00 55",
+        "48 00 55",
+        "4A 00 55",
+        "4C 00 55"
+      ],
+      "zone_on": [
+        "45 00 55",
+        "47 00 55",
+        "49 00 55",
+        "4B 00 55"
+      ],
+      "zone_to_white": [
+        "C5 00 55",
+        "C7 00 55",
+        "C9 00 55",
+        "CB 00 55"
+      ]
+    },
+    "tcp_also_listens": true,
+    "transport": "udp",
+    "v6": {
+      "bridge_lamp_command_page": "31 00 00 00 ... (iBox's own built-in LED)",
+      "command_frame": "80 00 00 00 11 <wb1> <wb2> 00 <seq> 00 <cmd:9 bytes> <zone 0-4> 00 <checksum>; checksum = sum of the last 11 bytes (cmd + zone + 00) & 0xFF; ack = 88 00 00 00 03 00 <seq> 00",
+      "keepalive": "D0 00 00 00 02 <wb1> <wb2> every ~5 s; reply D8 00 00 00 07 <mac:6> 01",
+      "notes": "The v6 (\"iBox\") generation — included so a consumer can recognize and drive it, but the observed legacy bridge does NOT answer any of this (verified: no reply to the session init on UDP 5987 or 8899, unicast or broadcast, with either published trailer variant D3 E6 / FE F7).\n",
+      "port": 5987,
+      "rgbw_ww_cw_command_page": "31 00 00 08 <op> <arg> 00 00 00 (op 04 arg 01=on/02=off/05=night, 05 64=white, 01 hue x4, 02 saturation 00-64, 03 brightness 00-64, 05 kelvin 00-64, 06 mode 01-09); link 3D 00 00 08 00..., unlink 3E ...",
+      "session_init": "20 00 00 00 16 02 62 3A D5 ED A3 01 AE 08 2D 46 61 41 A7 F6 DC AF D3 E6 00 00 1E",
+      "session_init_response": "28 00 00 00 11 00 02 <mac:6> <4 bytes> 00 01 <session_id1> <session_id2> 00 — session ids at bytes 19-20"
+    }
+  },
+  "payload_formats": {
+    "legacy_command": {
+      "description": "The universal legacy 3-byte frame sent to UDP/TCP 8899. All command tables under limitlessled_protocol use this frame.\n",
+      "fields": [
+        {
+          "bytes": 1,
+          "description": "Command byte; see rgbw_commands / dual_white_commands.",
+          "name": "command",
+          "offset": 0
+        },
+        {
+          "bytes": 1,
+          "description": "0x00 except: brightness level (0x02-0x1B) for 0x4E, hue (0x00-0xFF) for 0x40.",
+          "name": "argument",
+          "offset": 1
+        },
+        {
+          "bytes": 1,
+          "description": "Always 0x55.",
+          "name": "terminator",
+          "offset": 2
+        }
+      ]
+    }
+  },
+  "protocol_handler": "limitlessled_legacy_8899"
+}
