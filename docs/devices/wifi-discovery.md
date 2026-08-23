@@ -200,6 +200,15 @@ OUI lookup identifies the vendor without a single HTTP request), and at TXT
 records belonging to third-party protocols — a `cpath`, a `path`, a `url` value
 frequently leaks the vendor's own namespace.
 
+**Keep matching and identity separate.** All three signals above answer "what
+kind of thing is this?", and none of them answers "which unit is it?" — the
+`SERVER` string and the `cpath` are byte-identical on every device of the
+family, so keying a device list on one collapses two receivers into a single
+entry. Identity here is the SSDP UDN or the `_airplay._tcp` TXT `deviceid`.
+Nor are those two a join key for each other: a device with both a wired and a
+wireless interface has two MACs, and the two records may carry different ones,
+so join across transports by address.
+
 Model and generation then come from the AirPlay TXT records rather than an HTTP
 probe: `am`/`model` carry the model (`AVRS720W`), and `srcvers`/`vs` carry the
 AirPlay generation (`190.9.p6` is AirPlay 1; an AirPlay 2 receiver also
@@ -223,7 +232,7 @@ connection details, not identity.
 | Lutron Caseta Bridge | `_leap._tcp.local.`, `_lutron._tcp.local.` | TXT `MACADDR`, then hostname | LEAP TLS/WebSocket on 8081 |
 | Rachio Controller | `_hap._tcp.local.` where `md` starts with Rachio | TXT `id` | HAP/local control research |
 | SmartThings Hub v2 | `_smartthings._tcp.local.` | TXT `id` | Edge WebSocket on `_smartthings-hedge._tcp` |
-| Denon / Marantz AVR | `_raop._tcp.local.`, `_spotify-connect._tcp.local.` | AirPlay TXT `deviceid` (a `00:05:CD` MAC) | `GET /goform/formMainZone_MainZoneXmlStatusLite.xml` on port 80 |
+| Denon / Marantz AVR | `_airplay._tcp.local.` for identity; `_spotify-connect._tcp.local.` (TXT `cpath=/goform/spotifyConfig`) to recognise one | TXT `deviceid` on `_airplay._tcp` — a `00:05:CD` MAC. `cpath` is a constant, never an identity | `GET /goform/formMainZone_MainZoneXmlStatusLite.xml` on port 80 |
 
 Use the local tools:
 

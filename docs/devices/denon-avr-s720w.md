@@ -46,8 +46,11 @@ Three details do the identifying instead, and all three were observed live:
    request.
 2. **The UDN's node field is the MAC** —
    `uuid:XXXXXXXX-XXXX-XXXX-XXXX-0005CDAABBCC`. `00:05:CD` is D&M's OUI, so a
-   UDN ending in twelve hex digits that start `0005cd` is a D&M device. The same
-   digits are how an SSDP hit and an mDNS hit for one receiver get joined.
+   UDN ending in twelve hex digits that start `0005cd` is a D&M device — a
+   second vendor signal with no HTTP fetch, and the receiver's stable identity.
+   It is *not* a join key against the AirPlay `deviceid`: a receiver has a
+   wired and a wireless MAC, and the two records may carry different ones.
+   Join an SSDP hit to an mDNS hit by address.
 3. **The Spotify Connect `cpath`** is `/goform/spotifyConfig`. `/goform/` is
    D&M's own web-API namespace — this is the strongest single mDNS signal on the
    unit, despite being a third party's protocol.
@@ -139,10 +142,14 @@ status document to find out what actually happened.
 ## Things that bite
 
 - **Volume is expressed two different ways on two routes that both work.** The
-  status documents and `formiPhoneAppVolume.xml` use signed dB (`-40.0`). The
-  ASCII `MV` command uses an offset integer where `80` is the 0 dB reference, so
-  the same level is `MV40`, and a third digit is a half step (`MV505` =
-  −29.5 dB). Round-tripping a reading through the wrong route is a 40 dB error.
+  status documents and `formiPhoneAppVolume.xml` use signed dB. The ASCII `MV`
+  command uses an offset integer where `80` is the 0 dB reference — the two
+  differ by 80 (`dB = MV − 80`), and a third digit is a half step (`MV505` =
+  −29.5 dB). So a reading of `−20.0` goes back as `−20.0` on the goform route
+  but as `MV60` on the ASCII one; send `MV20` instead and you get −60 dB.
+  **−40 dB is the one level where both encodings share their digits** (−40 dB
+  *is* `MV40`), so testing the round-trip at −40.0 passes through the wrong
+  route and hides the bug. Test at −20.0.
 - **At minimum volume the receiver reports the literal string `--`**, not a
   number. Parse defensively.
 - **`VolumeDisplay: Absolute` changes only the front panel.** `MasterVolume` is

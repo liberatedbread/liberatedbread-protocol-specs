@@ -25,8 +25,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   details do the identifying instead, all three observed on live hardware: the
   SSDP `SERVER` header reads `KnOS/3.2 UPnP/1.0 DMP/3.5` and `KnOS/` is D&M's
   firmware platform; the UDN's node field is the MAC, so a UDN ending in
-  twelve hex digits starting `0005cd` is a D&M device (and is how an SSDP hit
-  and an mDNS hit for one receiver get joined); and the Spotify Connect
+  twelve hex digits starting `0005cd` is a D&M device (a vendor signal and the
+  stable identity — but not a join key against the AirPlay `deviceid`, since a
+  receiver has two MACs and the records may carry different ones); and the
+  Spotify Connect
   `cpath` is `/goform/spotifyConfig`, putting D&M's own web-API namespace in a
   TXT record. `device.testing` is `untested`/`capture-verified` accordingly —
   the discovery half is quoted from a contributed live scan, the control half
@@ -34,10 +36,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   denonavr and the openHAB denonmarantz binding.
 
   The traps are written down where a consumer will hit them. Volume is
-  expressed two ways on two routes that both work — signed dB (`-40.0`) in
-  the status documents and on `formiPhoneAppVolume.xml`, an offset integer
-  (`MV40`, where 80 is the 0 dB reference) on the ASCII route — so
-  round-tripping a reading through the wrong one is a 40 dB error; at minimum
+  expressed two ways on two routes that both work — signed dB in the status
+  documents and on `formiPhoneAppVolume.xml`, an offset integer on the ASCII
+  route, differing by 80 (`dB = MV - 80`), so `-20.0` is `MV60` and sending
+  `MV20` instead lands 40 dB quiet. -40 dB is the one level where the two
+  encodings share their digits, so it is the one value a round-trip test must
+  not use; the spec says so where the conversion is defined. At minimum
   the receiver reports the literal string `--` rather than a number;
   `VolumeDisplay: Absolute` changes only the front panel; mute reads lower
   case and writes upper case; surround selection is a *request* the receiver

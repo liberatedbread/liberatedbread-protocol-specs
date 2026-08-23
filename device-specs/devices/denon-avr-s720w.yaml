@@ -110,21 +110,20 @@ device:
       recovered by the community, which is why `reverse_engineered` is true.
 
   identification:
-    # `_raop._tcp` is what the unit is most reliably found under, but it says
-    # only "something here receives AirPlay". The identifying value is in the
-    # TXT records, not the service type: `am`/`model` reads AVRS720W. The
-    # `discovery` block below carries all four service types and the SSDP
-    # side; this is the cheap first-pass signal.
-    mdns_service_type: "_raop._tcp"
-    # GENERIC ON PURPOSE, and a consumer must treat it as a ranking hint, not
-    # an identification: every DLNA renderer on the link answers it. This
-    # generation emits no vendor-specific search target at all — the observed
-    # unit advertised only upnp:rootdevice, its UDN, MediaRenderer:1 and the
-    # three standard renderer services. What promotes a hit to a positive
-    # identification is the SERVER header (`KnOS/`) and the UDN node carrying
-    # the 00:05:CD OUI; both are in `discovery.methods[].ssdp`.
-    ssdp_search_targets:
-      - "urn:schemas-upnp-org:device:MediaRenderer:1"
+    # No mdns_service_type, and no ssdp_search_targets. Both keys are matchers
+    # a scanner applies before connecting, and this receiver emits nothing
+    # vendor-specific for either: it advertises `_raop._tcp`/`_airplay._tcp`
+    # like every Apple TV, HomePod and AirPlay speaker on the link, and
+    # answers `MediaRenderer:1` like every DLNA renderer. Declaring those here
+    # would tag all of them as an AVR-S720W, which is exactly why roku-ecp and
+    # samsung-tizen-tv decline the same AirPlay service type.
+    #
+    # What actually identifies this device is in the SSDP *reply* rather than
+    # the query — the `KnOS/` SERVER header and the UDN node carrying the
+    # 00:05:CD OUI — and those cannot be expressed as a search target. They
+    # are recorded as `parse_rules` under `discovery.methods[].ssdp`, which is
+    # the block that carries matching rules; `discovery` also records all four
+    # mDNS service types for a consumer that browses rather than matches.
     mac_prefixes:
       - prefix: "00:05:CD"
         confidence: "medium"
@@ -137,8 +136,8 @@ device:
           the SSDP UDN.
     default_port: 80
     identity_keys:
-      primary: "mac"
-      secondary: "udn"
+      primary: "udn"
+      secondary: "deviceid"
       display: "friendly_name"
 
   discovery:
@@ -167,12 +166,14 @@ device:
                     source: "xml://root/device/modelName"
                 parse_rules:
                   - >
-                    Resolve the description URL from the LOCATION header and
-                    do NOT assume it shares port 80 with the goform API — the
-                    renderer runs its own HTTP listener and the observed unit
-                    served its goform surface on 80 while LOCATION named the
-                    description document. The goform base is always
-                    http://<ip>:80/ regardless of what LOCATION says.
+                    Take the description URL verbatim from the LOCATION header
+                    and use it for UPnP only. Do not carry its port over to
+                    the control surface: goform is always on port 80, whatever
+                    port LOCATION names. (The observed scan recorded the
+                    services and the SERVER header but not the LOCATION line
+                    itself, so this spec states no port for the description
+                    document — resolving it from the header is the rule
+                    precisely because we cannot name it.)
                   - >
                     The description is standard UPnP with the
                     urn:schemas-upnp-org:device-1-0 namespace; match element
@@ -187,10 +188,13 @@ device:
                   - >
                     The USN/UDN node field is the device's MAC:
                     `uuid:XXXXXXXX-XXXX-XXXX-XXXX-0005CDAABBCC`. A UDN whose
-                    last twelve hex digits begin `0005cd` is a D&M device, and
-                    the same twelve digits are how an SSDP hit and an mDNS hit
-                    for one receiver are joined — see `identity.notes` for the
-                    caveat about wired vs wireless interfaces.
+                    last twelve hex digits begin `0005cd` is a D&M device, so
+                    those digits are a second vendor signal available without
+                    an HTTP fetch — and the UDN as a whole is this device's
+                    stable identity. They are NOT a join key against the
+                    AirPlay `deviceid`: a receiver has a wired and a wireless
+                    MAC and the two records may carry different ones. Join an
+                    SSDP hit to an mDNS hit by address; see `identity.notes`.
                 control_endpoints:
                   source: "xml://root/device/serviceList/service"
                   fields:
@@ -227,8 +231,14 @@ device:
           port: 80
           txt_record_keys: ["cpath", "version"]
           identity_mapping:
+            # `cpath` is the MATCHER, never the identity: its value is the
+            # constant /goform/spotifyConfig on every D&M device, so keying on
+            # it would collapse two receivers on one LAN into one entry. The
+            # instance name is unique per link by DNS-SD rule, which is enough
+            # to keep them apart within a scan; for identity that survives a
+            # rename, join to the AirPlay `deviceid` or the SSDP UDN.
             stable_keys:
-              - source: "txt:cpath"
+              - source: "name"
             display:
               source: "name"
       - type: "mdns"
@@ -249,7 +259,15 @@ device:
         changes if the owner renames the receiver. Use the UDN (SSDP) or the
         AirPlay `deviceid` (mDNS) as the stable key.
 
-        Whether those two are the SAME address was not established here: the
+        Among the mDNS records only `_airplay._tcp`'s `deviceid` is a true
+        per-unit key. The `_http._tcp` hostname, the `_raop._tcp` instance
+        name and the `_spotify-connect._tcp` instance name are unique on a
+        link (DNS-SD guarantees that much, so they will not collide in a
+        scan) but they all change when the owner renames the receiver — they
+        keep entries apart, they do not survive a rename.
+
+        Whether the UDN's MAC and the AirPlay `deviceid` are the SAME address
+        was not established here: the
         contributed scan redacted both below the 00:05:CD OUI before it
         reached this file, and a receiver with both Ethernet and Wi-Fi has two
         MACs. So treat each key as stable WITHIN its transport, and join an
@@ -551,11 +569,19 @@ denon_common:
         once before declaring the unit unreachable.
       body: "Empty for every GET route; an XML document for the AppCommand POST route."
     escaping: >
-      ASCII commands contain no characters needing escaping — the vocabulary
-      is upper-case letters, digits, `/` and space. A space DOES appear in a
-      few commands (`MSDOLBY DIGITAL`, `MVMAX 80`); on the DIRECT route
-      percent-encode it as `%20`. Commands are case-sensitive: `PWON` works,
-      `pwon` does not.
+      The vocabulary is upper-case letters, digits, `/` and space. A space
+      DOES appear in several commands (`MSMCH STEREO`, `MSPURE DIRECT`,
+      `MSDOLBY DIGITAL`); on the DIRECT route it must be percent-encoded as
+      `%20`, and the `/` in `SISAT/CBL` may be sent literally or as `%2F`.
+
+      This spec keeps command `parameters` in their RAW form — `MCH STEREO`,
+      not `MCH%20STEREO` — because percent-encoding is the URL builder's job,
+      not the value's, and because the raw token is also what the status
+      documents report back, so one spelling serves both the send and the
+      state match. A renderer substitutes the raw value into `path` and
+      encodes as it builds the request line.
+
+      Commands are case-sensitive: `PWON` works, `pwon` does not.
   response_format:
     description: >
       Control GETs answer 200 with an empty body or a stub XML document; the
@@ -577,12 +603,13 @@ denon_common:
           <Mute><value>off</value></Mute>
         </item>
 
-      The dotted paths this spec uses in `entities[].state_mapping` walk that
-      tree from the document root, so `item.MasterVolume.value` names the
-      text of the `<value>` element inside `<MasterVolume>`. They are element
-      paths, not JSON paths — the same dotted notation the rest of the
-      catalogue uses for JSON replies, applied to XML because this device's
-      replies are XML.
+      The dotted paths this spec uses in `entities[].state_mapping` are
+      resolved FROM THAT ROOT, not including it: `MasterVolume.value` names
+      the text of the `<value>` element inside `<MasterVolume>`, exactly as
+      wemo's `BinaryState` names an element inside its SOAP reply rather than
+      the envelope path down to it. They are element paths, not JSON paths —
+      the same dotted notation the rest of the catalogue uses for JSON
+      replies, applied to XML because this device's replies are XML.
     value_conventions:
       power: >
         `ON` or `STANDBY`, upper case. Note that `Power` and `ZonePower` are
@@ -619,6 +646,15 @@ denon_common:
       value instead of setting one. On port 23 every command is terminated
       with a single CR (0x0D, no LF); on the DIRECT route the terminator is
       supplied by the receiver and must not be sent.
+
+      THE QUERY FORMS ARE A PORT 23 FEATURE. A `?` command sent over the
+      DIRECT HTTP route is accepted, but its answer arrives on the ASCII
+      channel, which that route does not expose — the HTTP response is the
+      same empty stub every other DIRECT command gets, so the reading is
+      simply lost. Over HTTP, read state from the status documents in
+      `http_endpoints` instead. The `?` forms are documented because they are
+      how a port 23 client reads state, and because a few facts (`MVMAX`) are
+      reachable no other way.
     verification: "reported"
     groups:
       - prefix: "PW"
@@ -629,12 +665,14 @@ denon_common:
         values: ["ZMON", "ZMOFF", "ZM?"]
       - prefix: "MV"
         meaning: >
-          Master volume as an OFFSET INTEGER, not dB: 00 is minimum and 80 is
-          0 dB reference, so `MV50` is -30 dB. A third digit is a half step —
-          `MV505` is -29.5 dB. `MVUP`/`MVDOWN` step by the receiver's own
-          increment. `MV?` answers twice, with the current `MVxx` and with
-          `MVMAX xx`, the ceiling the user configured; a client that reads
-          only the first line will mistake the maximum for the level.
+          Master volume as an OFFSET INTEGER, not dB: dB = MV - 80, so 00 is
+          minimum, 80 is the 0 dB reference and `MV50` is -30 dB. A third
+          digit is a half step — `MV505` is -29.5 dB. `MVUP`/`MVDOWN` step by
+          the receiver's own increment. `MV?` answers TWICE: the current level
+          as `MVxx`, then the configured ceiling as `MVMAX xx`. Both lines
+          start `MV`, so a client that matches on the prefix and keeps the
+          last match reads the ceiling as the level. Take the first reply and
+          treat `MVMAX` as a separate fact.
         values: ["MVUP", "MVDOWN", "MV00 through MV98", "MV?"]
       - prefix: "MU"
         meaning: "Mute"
@@ -798,20 +836,20 @@ http_endpoints:
     response_body:
       content_type: "text/xml"
       fields:
-        - name: "item.Power.value"
+        - name: "Power.value"
           type: "string"
           description: "Whole-unit power: ON or STANDBY."
-        - name: "item.InputFuncSelect.value"
+        - name: "InputFuncSelect.value"
           type: "string"
           description: "Selected input as a wire token (MPLAY, SAT/CBL, BD, TUNER, NET, BT, ...)."
-        - name: "item.VolumeDisplay.value"
+        - name: "VolumeDisplay.value"
           type: "string"
           description: "Relative or Absolute — a front-panel display preference only; MasterVolume is reported in relative dB either way."
-        - name: "item.MasterVolume.value"
+        - name: "MasterVolume.value"
           type: "string"
           unit: "dB"
           description: "Signed decimal dB relative to reference, roughly -80.0 to +18.0. The literal string `--` means minimum."
-        - name: "item.Mute.value"
+        - name: "Mute.value"
           type: "string"
           description: "on or off, lower case (the command spelling is upper case)."
       example: |
@@ -840,22 +878,22 @@ http_endpoints:
     response_body:
       content_type: "text/xml"
       fields:
-        - name: "item.FriendlyName.value"
+        - name: "FriendlyName.value"
           type: "string"
           description: "Owner-assigned display name, e.g. 'Denon AVR-S720W' out of the box."
-        - name: "item.Model.value"
+        - name: "Model.value"
           type: "string"
           description: "Model string as the receiver reports it."
-        - name: "item.ZonePower.value"
+        - name: "ZonePower.value"
           type: "string"
           description: "Main zone power (ASCII ZM): ON or OFF."
-        - name: "item.SurrMode.value"
+        - name: "SurrMode.value"
           type: "string"
           description: "Surround mode in force — which may not be the one last requested; the receiver falls back based on the incoming stream."
-        - name: "item.InputFuncList.value"
+        - name: "InputFuncList.value"
           type: "array"
           description: "Repeated <value> children, one per input this unit accepts. The authoritative per-unit list."
-        - name: "item.RenameSource.value"
+        - name: "RenameSource.value"
           type: "array"
           description: "Repeated <value> children positionally matching InputFuncList — the user-facing label for each input. A blank entry means the input was never renamed; fall back to the wire token."
 
@@ -868,6 +906,12 @@ http_endpoints:
       meaningful while the selected input is a network source; on any other
       input it answers with stale or empty fields rather than an error, so
       gate the read on `InputFuncSelect` rather than trusting the content.
+
+      No `response_body` fields, and deliberately no entity bound to it: this
+      project has not established the element names inside the document, and
+      an entity naming a path nobody has checked renders as a permanently
+      blank tile. The endpoint is catalogued so an implementer knows where to
+      look; binding a sensor to it is work for whoever reads one.
     status: "unverified"
 
   - method: "GET"
@@ -974,7 +1018,9 @@ http_endpoints:
       23 and WITHOUT a terminator. Answers 200 with an empty or stub body
       whether or not the command was meaningful — the receiver does not report
       rejection here, so a client that needs to know whether a change took
-      must re-read a status document. Percent-encode the space in the few
+      must re-read a status document. For the same reason the `?` QUERY FORMS
+      ARE USELESS ON THIS ROUTE: the answer goes to the ASCII channel, not to
+      the HTTP response, so it is lost. Percent-encode the space in the
       commands that carry one (`MSDOLBY%20DIGITAL`).
 
   - method: "GET"
@@ -991,11 +1037,18 @@ http_endpoints:
     name: "Set Volume"
     description: >
       Absolute volume for one zone, where `{level}` is the signed dB decimal
-      the status documents report (`-40.0`), not the offset integer the ASCII
-      `MV` command wants. This asymmetry is the single easiest thing to get
-      wrong on this device: read `-40.0`, and to set the same value here send
-      `-40.0`, but on the DIRECT route send `MV40`. Range roughly -80.0 to
-      +18.0, in 0.5 dB steps.
+      the status documents report, not the offset integer the ASCII `MV`
+      command wants. This asymmetry is the single easiest thing to get wrong
+      on this device: the two encodings differ by 80 (dB = MV - 80), so a
+      reading of `-20.0` is sent here as `-20.0` but on the DIRECT route as
+      `MV60`. Confuse them and `MV20` arrives, which is -60 dB — 40 dB quiet;
+      confuse them the other way and a `MV60` reading is shown as +60 dB.
+
+      NOTE FOR WHOEVER WRITES THE TEST: -40 dB is the one level where the two
+      encodings share their digits (-40 dB is `MV40`), so a round-trip test at
+      -40.0 passes through the wrong route and hides the bug. Test at -20.0.
+
+      Range roughly -80.0 to +18.0, in 0.5 dB steps.
 
   - method: "GET"
     path: "/goform/formiPhoneAppMute.xml?{zone}+{state}"
@@ -1085,10 +1138,14 @@ commands:
           endpoint.
         notes: >
           The upper end is what the hardware accepts, not what is safe. The
-          receiver enforces its own configured ceiling (`MVMAX`, readable via
-          `MV?` on the DIRECT route); a UI that offers +18 dB without checking
-          it is offering a control that will be clamped, and offering it to
-          somebody's speakers.
+          receiver enforces its own configured ceiling, `MVMAX`, and clamps
+          anything above it. That ceiling is NOT readable over HTTP: `MV?`
+          answers on the ASCII channel, so only a port 23 client can read it,
+          and no goform status document carries it. A consumer restricted to
+          HTTP therefore cannot know the real maximum — it should treat +18
+          as the protocol bound rather than a promise, and expect a set above
+          the ceiling to come back clamped in the next status read rather
+          than as an error.
     example_body: "GET /goform/formiPhoneAppVolume.xml?1+-40.0 HTTP/1.1"
     verification: "reported"
   set_volume_offset:
@@ -1105,9 +1162,24 @@ commands:
         type: "string"
         required: true
         description: >
-          Two or three digits, zero-padded: `00`-`98`, where `80` is 0 dB and
-          a third digit is a half step (`505` is -29.5 dB). offset = round((dB
-          + 80) * 2) / 2, rendered without a decimal point.
+          Two digits, or three when the level lands on a half step. Whole
+          steps are `00`-`98` with `80` at 0 dB; a half step appends a `5` to
+          the zero-padded two-digit whole part, so -29.5 dB is `505` and
+          -75.5 dB is `045`.
+        notes: >
+          Build it from an integer count of half-steps, not by formatting a
+          fractional number:
+
+            n     = round((dB + 80) * 2)      # 0..196
+            whole = n // 2                    # 0..98
+            half  = n % 2                     # 0 or 1
+            text  = f"{whole:02d}" + ("5" if half else "")
+
+          The zero-padding is load-bearing and the two-digit width is what
+          makes the third digit unambiguous. Formatting `n / 2` and stripping
+          the decimal point instead produces `45` for -75.5 dB, which the
+          receiver reads as the whole step 45 — -35 dB, and 40 dB louder than
+          asked for.
     example_body: "GET /goform/formiPhoneAppDirect.xml?MV50 HTTP/1.1"
     verification: "reported"
   volume_up:
@@ -1164,8 +1236,17 @@ commands:
       mode:
         type: "string"
         required: true
-        description: "Mode name without the MS prefix: MOVIE, MUSIC, GAME, DIRECT, STEREO, AUTO, MCH%20STEREO, VIRTUAL."
-        notes: "Percent-encode the space in multi-word modes."
+        description: >
+          Mode name without the MS prefix, RAW and unencoded: MOVIE, MUSIC,
+          GAME, DIRECT, PURE DIRECT, STEREO, AUTO, MCH STEREO, VIRTUAL.
+        notes: >
+          Raw because the same token is what `<SurrMode>` reports back, so one
+          spelling serves both the send and the state match. The renderer
+          percent-encodes the space as it builds the request line — see
+          `denon_common.request_format.escaping`. Substituting a value that is
+          already encoded gives `MSMCH%2520STEREO`; substituting a raw one
+          without encoding puts a bare space in the request line and the
+          receiver drops the request.
     example_body: "GET /goform/formiPhoneAppDirect.xml?MSMOVIE HTTP/1.1"
     verification: "reported"
   set_sleep_timer:
@@ -1187,17 +1268,17 @@ commands:
     method: "GET"
     path: "/goform/formMainZone_MainZoneXmlStatusLite.xml"
     returns:
-      - name: "item.Power.value"
+      - name: "Power.value"
         type: "string"
         description: "ON or STANDBY."
-      - name: "item.InputFuncSelect.value"
+      - name: "InputFuncSelect.value"
         type: "string"
         description: "Selected input wire token."
-      - name: "item.MasterVolume.value"
+      - name: "MasterVolume.value"
         type: "string"
         unit: "dB"
         description: "Signed dB decimal, or `--` at minimum."
-      - name: "item.Mute.value"
+      - name: "Mute.value"
         type: "string"
         description: "on or off, lower case."
     verification: "reported"
@@ -1211,7 +1292,7 @@ entities:
       turn_off: "power_standby"
     state_topic: "/goform/formMainZone_MainZoneXmlStatusLite.xml"
     state_mapping:
-      is_on: "item.Power.value"
+      is_on: "Power.value"
       on_value: "ON"
     notes: >
       Discrete on and off, no toggle — the receiver has separate commands for
@@ -1233,13 +1314,16 @@ entities:
       set_value: "set_volume_db"
     state_topic: "/goform/formMainZone_MainZoneXmlStatusLite.xml"
     state_mapping:
-      value: "item.MasterVolume.value"
+      value: "MasterVolume.value"
     notes: >
       Reported and set in the same units, so no conversion is needed on this
       route — but the reading is a STRING that is not always a number: `--`
       means minimum. Parse defensively and map it to -80. `max` here is the
-      protocol ceiling; the receiver's own configured maximum (`MVMAX`) is
-      lower on most installations and clamps anything above it.
+      protocol ceiling, not a promise: the receiver's own configured maximum
+      (`MVMAX`) is lower on most installations and clamps anything above it,
+      and it is readable only on port 23. Over HTTP, expect a set above the
+      ceiling to come back clamped in the next status read rather than as an
+      error.
 
   - platform: "button"
     name: "Volume Up"
@@ -1261,7 +1345,7 @@ entities:
       turn_off: "mute_off"
     state_topic: "/goform/formMainZone_MainZoneXmlStatusLite.xml"
     state_mapping:
-      is_on: "item.Mute.value"
+      is_on: "Mute.value"
       on_value: "on"
     notes: >
       The status document spells this lower case while the command spells it
@@ -1275,7 +1359,7 @@ entities:
       select_option: "select_input"
     state_topic: "/goform/formMainZone_MainZoneXmlStatusLite.xml"
     state_mapping:
-      value: "item.InputFuncSelect.value"
+      value: "InputFuncSelect.value"
       options:
         - "MPLAY"
         - "SAT/CBL"
@@ -1305,30 +1389,40 @@ entities:
       select_option: "select_surround_mode"
     state_topic: "/goform/formMainZone_MainZoneXml.xml"
     state_mapping:
-      value: "item.SurrMode.value"
+      value: "SurrMode.value"
       options:
         - "MOVIE"
         - "MUSIC"
         - "GAME"
         - "DIRECT"
+        - "PURE DIRECT"
         - "STEREO"
         - "AUTO"
         - "MCH STEREO"
         - "VIRTUAL"
     notes: >
-      The selection is a REQUEST: the receiver picks what the incoming stream
-      allows and reports that instead, with no error. Show the value read back
-      from `<SurrMode>`, never the value last sent. State comes from the full
-      status document rather than the Lite one, which does not carry it — so
-      this entity costs a second, heavier fetch and should not drive the poll
-      interval.
+      Two things make this select unusual, and a consumer that models it as an
+      ordinary one will misbehave on both.
 
-  - platform: "sensor"
-    name: "Network Audio Status"
-    icon: "mdi:playlist-music"
-    state_topic: "/goform/formNetAudio_StatusXml.xml"
-    notes: >
-      Now-playing for the built-in network sources. Only meaningful while a
-      network input is selected — on any other input the document answers with
-      stale or blank fields rather than an error, so gate the read on the
-      Input entity's value.
+      First, the selection is a REQUEST: the receiver picks what the incoming
+      stream allows and reports that instead, with no error. Show the value
+      read back from `<SurrMode>`, never the value last sent.
+
+      Second — and following from it — THE STATE ROUTINELY FALLS OUTSIDE THE
+      OPTIONS. `options` lists the modes that can be REQUESTED; `<SurrMode>`
+      reports the mode in force, which is drawn from a wider set that names
+      the decoder actually running (`DOLBY DIGITAL`, `DTS SURROUND`,
+      `MULTI CH IN`, `STEREO`). A consumer must render an unlisted value as
+      the current state rather than treating it as invalid or blanking the
+      control; only the send side is restricted to `options`.
+
+      State comes from the full status document rather than the Lite one,
+      which does not carry it — so this entity costs a second, heavier fetch
+      and should not drive the poll interval.
+
+  # No now-playing entity. /goform/formNetAudio_StatusXml.xml is catalogued
+  # under http_endpoints, but this project has not established the element
+  # names inside it, so nothing here could name a readable path — and an
+  # entity bound to a guessed one renders as a permanently blank tile, which
+  # is worse than an honest absence. It is the obvious next addition for
+  # whoever reads the document off a real unit.
