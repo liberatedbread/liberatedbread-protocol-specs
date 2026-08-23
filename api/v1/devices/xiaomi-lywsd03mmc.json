@@ -16,7 +16,8 @@
               "value": "ATC"
             },
             "service_uuids": [
-              "0000181a-0000-1000-8000-00805f9b34fb"
+              "0000181a-0000-1000-8000-00805f9b34fb",
+              "0000fcd2-0000-1000-8000-00805f9b34fb"
             ]
           },
           "type": "ble_scan"
@@ -27,7 +28,8 @@
     "identification": {
       "local_name_prefix": "ATC",
       "service_uuids": [
-        "0000181a-0000-1000-8000-00805f9b34fb"
+        "0000181a-0000-1000-8000-00805f9b34fb",
+        "0000fcd2-0000-1000-8000-00805f9b34fb"
       ]
     },
     "manufacturer": "Xiaomi",
@@ -101,6 +103,70 @@
           "humidity = byte[8]",
           "battery_percent = byte[9]",
           "battery_mv = uint16_be(bytes[10:12])"
+        ]
+      },
+      "BTHome_v2": {
+        "description": "BTHome v2 advertisement, the pvvx firmware default since v5.8 and so the layout most units are actually broadcasting. Carried as Service Data under 0xFCD2, NOT 0x181A — 0x181A appears only in the connected GATT table on a BTHome-configured unit. Unlike the four layouts above this one is TLV, not fixed: byte 0 is the BTHome device-info byte (0x40 = v2, unencrypted) and the rest is a run of [object id][value] pairs in ascending id order. The indices below are the run this firmware emits; a general decoder should walk the ids rather than trust the offsets, because a field the device has nothing to report is simply absent. Hardware-verified 2026-08-22 on pvvx v5.8 (decoded 92 %, 23.81 °C, 59.93 % RH, matching the values read back over GATT in the same session).\n",
+        "example": "40 00 ?? 01 5c 02 4d 09 03 69 17",
+        "fields": [
+          {
+            "description": "BTHome device-info byte. 0x40 = BTHome v2, unencrypted, no trigger.",
+            "index": 0,
+            "name": "device_info"
+          },
+          {
+            "description": "Object id 0x00 = packet id.",
+            "index": 1,
+            "name": "packet_id_marker"
+          },
+          {
+            "description": "uint8 advertisement counter.",
+            "index": 2,
+            "name": "packet_id"
+          },
+          {
+            "description": "Object id 0x01 = battery.",
+            "index": 3,
+            "name": "battery_marker"
+          },
+          {
+            "description": "uint8, percent.",
+            "index": 4,
+            "name": "battery_percent",
+            "unit": "%"
+          },
+          {
+            "description": "Object id 0x02 = temperature.",
+            "index": 5,
+            "name": "temperature_marker"
+          },
+          {
+            "description": "int16 little-endian, x0.01 degrees C.",
+            "index": 6,
+            "name": "temperature",
+            "scale": 0.01,
+            "unit": "C"
+          },
+          {
+            "description": "Object id 0x03 = humidity.",
+            "index": 8,
+            "name": "humidity_marker"
+          },
+          {
+            "description": "uint16 little-endian, x0.01 %.",
+            "index": 9,
+            "name": "humidity",
+            "scale": 0.01,
+            "unit": "%"
+          }
+        ],
+        "parse_rules": [
+          "Reject the frame unless byte[0] == 0x40; any other value means a BTHome variant this table does not describe (encrypted, or a different version).",
+          "Walk from byte 1: read an object id, then its value, whose width the id fixes (0x00 packet id = 1 byte, 0x01 battery = 1 byte, 0x02 temperature = 2 bytes, 0x03 humidity = 2 bytes).",
+          "temp = int16_le(bytes[6:8]) / 100.0",
+          "humidity = uint16_le(bytes[9:11]) / 100.0",
+          "battery_percent = byte[4]",
+          "The example is the verified reading (battery 0x5c = 92 %, temp 0x094d = 23.81 C, humidity 0x1769 = 59.93 %) with the packet counter written ?? because it changes every advertisement."
         ]
       },
       "Custom_unencrypted": {
@@ -268,7 +334,9 @@
       "required": true
     },
     "testing": {
-      "status": "untested"
+      "detail": "minimally-verified",
+      "notes": "One unit running the pvvx ATC custom firmware v5.8 was scanned and connected on 2026-08-22 (Linux/BlueZ, bleak). What was exercised: the BTHome v2 advertisement under service data 0xFCD2 (decoded battery 92 %, 23.81 degrees C, 59.93 % RH) and the connected GATT table (Device Information reporting manufacturer miaomiaoce.com, model LYWSD03MMC, firmware github.com/pvvx; environmental service 0x181A with 2a1f/2a6e/2a6f, whose reads matched the advertised values). That is the whole of it — the payload_formats for stock firmware, the atc1441 and pvvx-custom advertisement layouts, the comfort/ config writes and the history buffer were NOT exercised, and the other firmware variants in device.variants were not on hand.",
+      "status": "verified"
     },
     "variants": [
       {
@@ -276,7 +344,7 @@
           "local_name_prefix": "ATC_"
         },
         "model": "LYWSD03MMC (custom firmware ATC)",
-        "notes": "Custom firmware. 6 hardware versions. Name format: ATC_XXXXXX."
+        "notes": "Custom firmware. 6 hardware versions. Name format: ATC_XXXXXX — in BTHome format (v5.8 default) the name may arrive only in the scan response, so name-less advertisements are normal; match 0xFCD2 there."
       },
       {
         "identification": {
