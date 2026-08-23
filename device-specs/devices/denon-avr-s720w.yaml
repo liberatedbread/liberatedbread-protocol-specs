@@ -110,20 +110,34 @@ device:
       recovered by the community, which is why `reverse_engineered` is true.
 
   identification:
-    # No mdns_service_type, and no ssdp_search_targets. Both keys are matchers
-    # a scanner applies before connecting, and this receiver emits nothing
-    # vendor-specific for either: it advertises `_raop._tcp`/`_airplay._tcp`
-    # like every Apple TV, HomePod and AirPlay speaker on the link, and
-    # answers `MediaRenderer:1` like every DLNA renderer. Declaring those here
-    # would tag all of them as an AVR-S720W, which is exactly why roku-ecp and
-    # samsung-tizen-tv decline the same AirPlay service type.
+    # No ssdp_search_targets: this receiver answers `MediaRenderer:1` like
+    # every DLNA renderer on the link, and the facts that identify it live in
+    # the SSDP *reply* rather than the query — the `KnOS/` SERVER header and
+    # the UDN node carrying the 00:05:CD OUI. The schema has no reply-header
+    # matcher, so those are recorded as `parse_rules` under
+    # `discovery.methods[].ssdp`.
     #
-    # What actually identifies this device is in the SSDP *reply* rather than
-    # the query — the `KnOS/` SERVER header and the UDN node carrying the
-    # 00:05:CD OUI — and those cannot be expressed as a search target. They
-    # are recorded as `parse_rules` under `discovery.methods[].ssdp`, which is
-    # the block that carries matching rules; `discovery` also records all four
-    # mDNS service types for a consumer that browses rather than matches.
+    # The mDNS side CAN be matched, though every service type it advertises
+    # is a platform (`_airplay._tcp` is every AirPlay device ever made):
+    # `mdns_txt_match` narrows the type to the product, the same contract
+    # that keeps `_esphomelib._tcp` honest. The pair below is the cheapest
+    # vendor-positive pre-connect signal the unit emits — `cpath` naming a
+    # path under `/goform/`, D&M's own web-API namespace. It is family-wide
+    # by design: it says "a D&M device", the same claim `mac_prefixes` makes,
+    # and the variant is then read from the AirPlay `model` TXT record or
+    # `<Model>` in the status document.
+    mdns_service_type: "_spotify-connect._tcp.local."
+    mdns_txt_match:
+      - key: "cpath"
+        match: "exact"
+        value: "/goform/spotifyConfig"
+        description: >
+          Spotify's zeroconf TXT record names the config path the device
+          serves, and on D&M firmware that path lives under `/goform/` — the
+          vendor's own web-API namespace, which no other maker uses. Observed
+          verbatim on the live unit. Constant across the whole D&M catalogue,
+          so it identifies the family, never the unit — identity comes from
+          the SSDP UDN or the AirPlay `deviceid`, not from this record.
     mac_prefixes:
       - prefix: "00:05:CD"
         confidence: "medium"
@@ -203,10 +217,25 @@ device:
                     event_sub_url: "eventSubURL"
       # AirPlay: present whenever the receiver is on the network, and the one
       # place the model string is machine-readable without an HTTP fetch.
+      # `_airplay._tcp` is a platform — every Apple TV and HomePod on the
+      # link — so the method carries the TXT condition that narrows it to
+      # D&M hardware, per the schema's platform-service-type contract.
       - type: "mdns"
         mdns:
           service_type: "_airplay._tcp.local."
           txt_record_keys: ["deviceid", "features", "flags", "model", "srcvers"]
+          txt_match:
+            - key: "deviceid"
+              match: "prefix"
+              value: "00:05:CD"
+              case_sensitive: false
+              description: >
+                The AirPlay device id is the unit's MAC, colon-separated, and
+                00:05:CD is IEEE-registered to D&M Holdings — observed on the
+                live unit. Family-wide, like `identification.mac_prefixes`:
+                it says "a D&M device", and the `model` record then names
+                which one. Case-insensitive because hex case here is the mDNS
+                stack's formatting choice, not a fact about the device.
           identity_mapping:
             stable_keys:
               - source: "txt:deviceid"
@@ -217,6 +246,19 @@ device:
           service_type: "_raop._tcp.local."
           txt_record_keys:
             ["am", "cn", "da", "et", "ft", "fv", "md", "sf", "tp", "vn", "vs"]
+          txt_match:
+            - key: "am"
+              match: "prefix"
+              value: "AVR"
+              description: >
+                `am` is the RAOP model record — `AVRS720W` on the observed
+                unit. The prefix narrows the platform type to a Denon AVR
+                receiver rather than to this model, deliberately: the family
+                shares the surface (AVR-S920W, AVR-X1300W, and siblings this
+                project has no evidence for), and the exact model is read
+                from the record's full value. Weaker than the `deviceid` and
+                `cpath` conditions on the sibling methods — prefer those
+                where both were seen.
           identity_mapping:
             stable_keys:
               - source: "name"
@@ -224,12 +266,22 @@ device:
               source: "name"
       # The strongest single mDNS identification, despite being a third
       # party's protocol: `cpath` names a path under `/goform/`, which is
-      # D&M's own web-API namespace and no one else's.
+      # D&M's own web-API namespace and no one else's. The same condition is
+      # in `identification.mdns_txt_match` as the pre-connect filter; this is
+      # its full-evidence twin.
       - type: "mdns"
         mdns:
           service_type: "_spotify-connect._tcp.local."
           port: 80
           txt_record_keys: ["cpath", "version"]
+          txt_match:
+            - key: "cpath"
+              match: "exact"
+              value: "/goform/spotifyConfig"
+              description: >
+                D&M's own web-API namespace inside Spotify's TXT record —
+                observed verbatim on the live unit, constant across the D&M
+                catalogue. Identifies the family; never the unit.
           identity_mapping:
             # `cpath` is the MATCHER, never the identity: its value is the
             # constant /goform/spotifyConfig on every D&M device, so keying on
@@ -241,15 +293,14 @@ device:
               - source: "name"
             display:
               source: "name"
-      - type: "mdns"
-        mdns:
-          service_type: "_http._tcp.local."
-          port: 80
-          identity_mapping:
-            stable_keys:
-              - source: "hostname"
-            display:
-              source: "name"
+      # No `_http._tcp` method, although the receiver does advertise it (see
+      # `evidence.live_lan_scan.mdns_services`): the record carries no TXT
+      # data to narrow it with, so a method here would claim every web server
+      # on the link — the exact platform-service-type mistake `txt_match`
+      # exists to prevent. The hostname it would have contributed is
+      # model-derived and rename-fragile (see `identity.notes`), and the
+      # three matched methods above plus SSDP already cover every state the
+      # unit can be in.
     identity:
       stable_keys: ["udn", "mac"]
       display: "friendly_name"

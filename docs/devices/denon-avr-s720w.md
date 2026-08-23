@@ -60,6 +60,14 @@ both `AVRS720W`) and the AirPlay generation in two more (`srcvers` and `vs`, bot
 `190.9.p6` — AirPlay 1, with no `pk` record, so AirPlay-2-only senders will not
 see this receiver at all).
 
+Two of the three signals are machine-matchable, and the spec declares them as
+`mdns_txt_match` conditions rather than leaving them as prose: `cpath` equal to
+`/goform/spotifyConfig` on `_spotify-connect._tcp`, and a `deviceid` starting
+`00:05:CD` on `_airplay._tcp` (with `am` starting `AVR` on `_raop._tcp` as a
+weaker third). Only the `SERVER` header stays prose — the schema has no
+SSDP-reply matcher yet. All of these say "a D&M device", never "this unit":
+identity is the UDN or the AirPlay `deviceid` value.
+
 ## Initial Setup
 
 | Property | Value |

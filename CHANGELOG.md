@@ -60,6 +60,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   names the vendor with no HTTP request at all), and TXT records belonging to
   third-party protocols, which routinely leak the vendor's own namespace.
 
+  The TXT-record signals are declared machine-readably, not just narrated:
+  the spec claims `_spotify-connect._tcp` with an `mdns_txt_match` on
+  `cpath = /goform/spotifyConfig`, and its AirPlay/RAOP discovery methods
+  carry `txt_match` conditions (`deviceid` prefix `00:05:CD`, `am` prefix
+  `AVR`) — the platform-service-type contract the ESPHome fix established,
+  applied at authoring time. The advertised-but-unmatchable `_http._tcp`
+  record stays in the evidence and out of the methods, since with no TXT
+  data to narrow it a method there would claim every web server on the
+  link. Only the `KnOS/` SERVER header remains prose, because the schema
+  has no SSDP-reply matcher slot yet.
+
 - Stateful **Power** `switch` entities on seven TV specs, landing the spec
   half of [Spec Evolution P13](docs/contributing/spec-evolution.md#p13):
   discrete `turn_on`/`turn_off` bindings where the hardware honestly has

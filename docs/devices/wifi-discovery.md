@@ -200,6 +200,12 @@ OUI lookup identifies the vendor without a single HTTP request), and at TXT
 records belonging to third-party protocols — a `cpath`, a `path`, a `url` value
 frequently leaks the vendor's own namespace.
 
+The TXT-record signals are declarable, not just observable: a spec claims the
+platform service type and narrows it with `mdns_txt_match` conditions (the
+Denon spec matches `cpath` exactly and the `deviceid` OUI as a prefix), the
+same contract that keeps `_esphomelib._tcp` from claiming every ESPHome node.
+Only the SSDP reply headers still have no machine-matcher slot in the schema.
+
 **Keep matching and identity separate.** All three signals above answer "what
 kind of thing is this?", and none of them answers "which unit is it?" — the
 `SERVER` string and the `cpath` are byte-identical on every device of the
