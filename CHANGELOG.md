@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`commands[].path_fallback` and `entities[].state_topic_fallback`**
+  ([P15](docs/contributing/spec-evolution.md#p15)): a second address for the
+  same invocation or reading, for a family whose firmware generations name
+  entities differently — the HTTP siblings of `fallback_characteristic` and of
+  `state_mapping`'s `<role>_fallback`. Try `path`, and fall back only on an
+  unambiguous 404, never a timeout and never a blind second send; a door that
+  opens twice because the first request was slow is worse than the 404 the key
+  exists to survive. `ratgdo` carries the legacy ESPHome object_id paths this
+  way, so boards on firmware older than 2026.1 stay drivable from the file
+  rather than only from its prose.
+
 - **ESPHome is a platform, not a garage door.** `_esphomelib._tcp` is the
   service type of the ESPHome *firmware*, and `ratgdo` was the only spec
   claiming it — so a consumer resolving a service type to a spec labelled every
@@ -31,6 +42,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     Noise `NNpsk0_25519_ChaChaPoly_SHA256`, prologue `NoiseAPIInit`), the full
     mDNS TXT set a node publishes, and ESPHome's `web_server`/`captive_portal`
     provisioning and factory-reset paths.
+  The catch-all flag sits on the `_esphomelib._tcp` method only: the spec's
+  auxiliary `_http._tcp` method (for API-less builds, matched on ESPHome's
+  `config_hash` TXT key) is narrowed and nothing else, because being the
+  fallback for a service type ESPHome does not own would rebuild the same bug
+  with printers in it. `esphome-device` is `integration: identify_only` rather
+  than `supported`, which is what the field actually asks: with no static
+  entities and an optional HTTP surface, what a consumer does today is name the
+  node and hand the user to its web UI. It flips to `supported`, unchanged
+  otherwise, once a consumer implements runtime enumeration.
+
   - **`ratgdo`**: now matches `project_name` prefix `ratgdo.` in both blocks
     (every published board config sets `ratgdo.<board>`), so it claims its own
     hardware and nothing else. Konnected's blaQ ships its own build whose

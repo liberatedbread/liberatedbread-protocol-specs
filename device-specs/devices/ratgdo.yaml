@@ -99,12 +99,16 @@ device:
       * ESPHome >= 2026.8: the object_id fallback is gone. URLs are the entity
         NAME, percent-encoded (`/cover/Door`, `/lock/Lock%20remotes/lock`), and
         the JSON `id` field carries `<domain>/<name>`.
-    The paths in `commands` below are the NAME form, which is what current
-    ratgdo firmware needs (its base config requires ESPHome >= 2026.4). A
-    client that also supports older boards reads the identifier out of /events
-    rather than assuming: an `id` containing `/` is the new form, and anything
-    else is the legacy one. A wrong form is a 404, not a silent no-op, so
-    falling back on 404 is safe.
+    The `path` of every command below is the NAME form, which is what current
+    ratgdo firmware needs (its base config requires ESPHome >= 2026.4), and
+    each carries the legacy object_id form as `path_fallback` so a board that
+    predates the change stays drivable from this file: send `path`, and on a
+    404 send `path_fallback`. Entities carry the same pair as `state_topic` /
+    `state_topic_fallback`. A client that would rather not probe reads the
+    identifier out of /events instead: an `id` containing `/` is the new form,
+    anything else is the legacy one. Either way, a wrong form is a 404 and
+    never a silent no-op — which is what makes the fallback safe, and why it
+    must be gated on the 404 rather than on a timeout.
 
     ENTITY NAMES (object_id in brackets, for the legacy form): cover `Door`
     [door] (states open/closed/opening/closing/stopped; open/close/stop/toggle/
@@ -296,31 +300,37 @@ commands:
   # ESPHome web_server entity-NAME form (/<domain>/<name>/<action>,
   # percent-encoded) and are fixed for a ratgdo build, so they are stated
   # rather than resolved. On ESPHome <= 2025.12 the segment is the slugified
-  # object_id instead (/cover/door/open); see ADDRESSING in device.notes. A
-  # wrong form answers 404, so a client that supports both can fall back.
+  # object_id instead, and every command below carries that form as its
+  # `path_fallback`: send `path`, and on a 404 — the unambiguous "no such
+  # entity" answer, never a timeout — send the fallback. See ADDRESSING in
+  # device.notes for which firmware accepts which.
   door_open:
     description: "Open the garage door. Moves a heavy motorised door — gate this behind a deliberate action and check the reported state and obstruction sensor first."
     transport: "http"
     method: "POST"
     path: "/cover/Door/open"
+    path_fallback: "/cover/door/open"
     verification: "reported"
   door_close:
     description: "Close the garage door. Same caution as door_open: a closing door is the one that can trap something."
     transport: "http"
     method: "POST"
     path: "/cover/Door/close"
+    path_fallback: "/cover/door/close"
     verification: "reported"
   door_stop:
     description: "Halt a door mid-travel. Security+ 2.0 only — Sec+ 1.0 openers have no stop."
     transport: "http"
     method: "POST"
     path: "/cover/Door/stop"
+    path_fallback: "/cover/door/stop"
     verification: "reported"
   door_set_position:
     description: "Drive the door to a position, 0.0 closed to 1.0 open. Security+ 2.0 only."
     transport: "http"
     method: "POST"
     path: "/cover/Door/set"
+    path_fallback: "/cover/door/set"
     arguments:
       position: "{position}"
     parameters:
@@ -344,30 +354,35 @@ commands:
     transport: "http"
     method: "POST"
     path: "/light/Light/turn_on"
+    path_fallback: "/light/light/turn_on"
     verification: "reported"
   light_turn_off:
     description: "Turn the opener's light off."
     transport: "http"
     method: "POST"
     path: "/light/Light/turn_off"
+    path_fallback: "/light/light/turn_off"
     verification: "reported"
   lock_remotes:
     description: "Engage the opener's remote lock-out, so paired remotes stop working."
     transport: "http"
     method: "POST"
     path: "/lock/Lock%20remotes/lock"
+    path_fallback: "/lock/lock_remotes/lock"
     verification: "reported"
   unlock_remotes:
     description: "Release the remote lock-out."
     transport: "http"
     method: "POST"
     path: "/lock/Lock%20remotes/unlock"
+    path_fallback: "/lock/lock_remotes/unlock"
     verification: "reported"
   restart_board:
     description: "Reboot the ratgdo board. Does not move the door."
     transport: "http"
     method: "POST"
     path: "/button/Restart/press"
+    path_fallback: "/button/restart/press"
     verification: "reported"
 
 entities:
@@ -380,6 +395,7 @@ entities:
       stop_cover: "door_stop"
       set_cover_position: "door_set_position"
     state_topic: "/cover/Door"
+    state_topic_fallback: "/cover/door"
     notes: "Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). States open/closed/opening/closing/stopped."
   - platform: "light"
     name: "Garage Light"
@@ -387,12 +403,14 @@ entities:
       turn_on: "light_turn_on"
       turn_off: "light_turn_off"
     state_topic: "/light/Light"
+    state_topic_fallback: "/light/light"
   - platform: "switch"
     name: "Lock Remotes"
     commands:
       turn_on: "lock_remotes"
       turn_off: "unlock_remotes"
     state_topic: "/lock/Lock%20remotes"
+    state_topic_fallback: "/lock/lock_remotes"
     notes: >
       ESPHome exposes this in the `lock` domain (entity name 'Lock remotes',
       lock/unlock); modelled here as a switch (on = remotes locked out) because
@@ -402,13 +420,16 @@ entities:
     name: "Obstruction"
     device_class: "problem"
     state_topic: "/binary_sensor/Obstruction"
+    state_topic_fallback: "/binary_sensor/obstruction"
   - platform: "binary_sensor"
     name: "Motion"
     device_class: "motion"
     state_topic: "/binary_sensor/Motion"
+    state_topic_fallback: "/binary_sensor/motion"
   - platform: "sensor"
     name: "Openings"
     state_topic: "/sensor/Openings"
+    state_topic_fallback: "/sensor/openings"
     notes: "Cumulative door-open counter (entity name 'Openings')."
 
 helpful_urls:

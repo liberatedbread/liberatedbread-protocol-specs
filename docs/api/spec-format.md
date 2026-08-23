@@ -192,6 +192,35 @@ its own entities — instead of as whichever product got there first.
 `esphome-device.yaml` is the worked example, and it deliberately declares no
 `entities`: it cannot know what a node has, so it documents how to ask.
 
+**The two keys are exclusive.** `txt_match` is a *precondition* — a method
+carrying one may only ever claim what the condition proves. `platform_fallback`
+is what a consumer reaches for when no precondition was met. A method with both
+has no single reading, and read the wrong way it rebuilds the bug one service
+type over: an ESPHome spec that is also the catch-all for `_http._tcp` claims
+every printer and router that fails its TXT condition. Set `platform_fallback`
+only on a service type the firmware actually owns.
+
+#### When one device family has two paths for the same thing
+
+`commands[].path_fallback` and `entities[].state_topic_fallback` are the HTTP
+siblings of `fallback_characteristic` and of `state_mapping`'s `<role>_fallback`:
+a second address for the *same* invocation or reading, for a family whose
+firmware generations name entities differently.
+
+```yaml
+commands:
+  door_open:
+    path: "/cover/Door/open"           # ESPHome >= 2026.1 (name-addressed)
+    path_fallback: "/cover/door/open"  # <= 2025.12 (object_id-addressed)
+```
+
+The contract is narrow on purpose: send `path`, and fall back **only** on an
+unambiguous "no such entity" answer from the device (an HTTP 404) — never on a
+timeout or a 5xx, and never as a blind second send. A command that fires twice
+because the first request was merely slow is a worse failure than the 404, and
+on a garage door it is a moving one. Two genuinely different actions are two
+commands, not a fallback.
+
 **The four BLE signals are not equally strong, and a consumer should not treat
 them as if they were:**
 

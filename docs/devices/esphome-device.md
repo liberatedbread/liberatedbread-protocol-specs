@@ -24,9 +24,27 @@ The fix has two halves:
 
 - Product specs on this platform carry a **`mdns_txt_match` on the
   `project_name` TXT record**. `ratgdo.` is a ratgdo; nothing else is.
-- This spec is the deliberate catch-all, marked `platform_fallback: true`. A
-  node matching no product spec renders as **itself** — its own name, its own
-  entities.
+- This spec is the deliberate catch-all, marked `platform_fallback: true` on
+  the `_esphomelib._tcp` method. A node matching no product spec renders as
+  **itself** — its own name, its own entities.
+
+The catch-all flag is set on that method **only**. The `_http._tcp` method
+below is narrowed by a TXT condition and nothing else: `_http._tcp` belongs to
+every web server on the link, and being its fallback would rebuild this bug
+with printers and routers in it.
+
+### Why `integration: identify_only`
+
+Control here is entirely possible — that is what `local_access: native` says —
+but `integration` records what a consumer of this registry *does* today, and
+for an unrecognised node that is: name it, show it, link to its web UI. Two
+things hold that line. The spec declares no `entities` and cannot, so a
+consumer has controls only once it implements runtime enumeration; and the
+HTTP surface is **optional** (`web_server:` is a build choice — plenty of nodes
+run `api:` alone and answer nothing on :80), so the REST grammar below is for a
+client that has already found one, not a promise every node has it. When a
+consumer implements enumeration over either API, this becomes `supported` with
+no other change to the spec.
 
 ## Telling one node from another
 

@@ -65,12 +65,20 @@ def _mdns_methods(spec: dict, service_type: str) -> list:
 
 
 def _claimants(specs: dict, service_type: str) -> dict:
-    """Specs declaring `service_type`, keyed by device id."""
-    return {
-        device_id: methods
-        for device_id, spec in specs.items()
-        if (methods := _mdns_methods(spec, service_type))
-    }
+    """Every spec claiming `service_type`, by either block, keyed by device id.
+
+    Deliberately not discovery-only. `identification` is the block a scanner
+    matches on, so a spec naming the service type there and nowhere else claims
+    the platform just as effectively — and would slip past a check that only
+    walked `discovery.methods`.
+    """
+    out = {}
+    for device_id, spec in specs.items():
+        methods = _mdns_methods(spec, service_type)
+        identification = spec["device"].get("identification") or {}
+        if methods or identification.get("mdns_service_type") == service_type:
+            out[device_id] = methods
+    return out
 
 
 # ── The platform rule ────────────────────────────────────────────────────────
@@ -88,6 +96,16 @@ def test_every_esphome_claimant_either_narrows_or_declares_itself_the_fallback(s
     assert claimants, "no spec claims the ESPHome service type any more — did one get renamed?"
 
     for device_id, methods in claimants.items():
+        spec = specs[device_id]
+        identification = spec["device"].get("identification") or {}
+
+        assert methods, (
+            f"{device_id}: names {ESPHOME_SERVICE} in `identification` but has "
+            "no matching discovery method. The identification block is the one "
+            "a scanner reads, so this claims the whole platform with no "
+            "evidence behind it and nowhere to put a matcher."
+        )
+
         for mdns in methods:
             narrowed = bool(mdns.get("txt_match"))
             fallback = mdns.get("platform_fallback") is True
@@ -98,11 +116,35 @@ def test_every_esphome_claimant_either_narrows_or_declares_itself_the_fallback(s
                 "service type, so an unqualified claim labels the whole "
                 "platform as this device."
             )
-            assert not (narrowed and fallback), (
-                f"{device_id}: is both narrowed by `txt_match` and marked "
-                "`platform_fallback`. A spec is one or the other — the "
-                "fallback is what a node falls back TO when no matcher hit."
+
+        if all(m.get("txt_match") for m in methods):
+            assert identification.get("mdns_txt_match"), (
+                f"{device_id}: narrows {ESPHOME_SERVICE} in `discovery` but "
+                "not in `identification` — the block the scanner reads would "
+                "still match every ESPHome node."
             )
+
+
+def test_no_method_is_both_narrowed_and_a_fallback(specs):
+    """`txt_match` gates a method; `platform_fallback` is what you reach for
+    when no gate was satisfied. A method carrying both has no single reading —
+    and read the wrong way it is the platform-claiming bug again, one service
+    type over: an ESPHome spec that is the catch-all for `_http._tcp` claims
+    every printer, router and NAS on the link that fails its TXT condition.
+    """
+    for device_id, spec in specs.items():
+        methods = (spec["device"].get("discovery") or {}).get("methods") or []
+        for method in methods:
+            mdns = method.get("mdns") or {}
+            if not mdns:
+                continue
+            if mdns.get("txt_match") and mdns.get("platform_fallback") is True:
+                raise AssertionError(
+                    f"{device_id}: the {mdns.get('service_type')} method is both "
+                    "narrowed by `txt_match` and marked `platform_fallback`. "
+                    "Pick one: a conditional claim, or the catch-all for a "
+                    "service type this firmware actually owns."
+                )
 
 
 def test_exactly_one_esphome_fallback(specs):
@@ -176,12 +218,69 @@ def test_ratgdo_matches_only_ratgdo_firmware(ratgdo):
     )
 
 
+def test_ratgdo_keeps_a_path_for_older_firmware(ratgdo):
+    """The name form is current; the object_id form is what is on the wall.
+
+    ESPHome moved from addressing entities by slugified object_id to addressing
+    them by name, and dropped the old form entirely in 2026.8. A spec that
+    states only one of the two is wrong for half the boards in service — so
+    every command that names a path carries the legacy one as `path_fallback`,
+    and every entity's `state_topic` carries `state_topic_fallback`. Dropping
+    them is a silent 404 on a board that was working yesterday.
+    """
+    for name, command in ratgdo["commands"].items():
+        path = command.get("path")
+        if not path:
+            continue
+        fallback = command.get("path_fallback")
+        assert fallback, (
+            f"ratgdo: command {name!r} states {path!r} with no `path_fallback` "
+            "— a board on ESPHome <= 2025.12 answers that path with a 404"
+        )
+        assert fallback != path, f"ratgdo: command {name!r} falls back to itself"
+        assert fallback.islower(), (
+            f"ratgdo: command {name!r} fallback {fallback!r} is not the "
+            "slugified object_id form the older firmware matches"
+        )
+
+    for entity in ratgdo["entities"]:
+        topic = entity.get("state_topic")
+        if not topic:
+            continue
+        assert entity.get("state_topic_fallback"), (
+            f"ratgdo: entity {entity['name']!r} states {topic!r} with no "
+            "`state_topic_fallback` for older firmware"
+        )
+
+
+def test_the_generic_spec_needs_no_path_fallbacks(esphome):
+    """The platform spec addresses entities by what the node reported.
+
+    Its command paths are `{domain}`/`{entity}` placeholders filled from the
+    node's own state payload, so there is no generation to guess at and nothing
+    to fall back to — the identifier came from the device.
+    """
+    for name, command in esphome["commands"].items():
+        assert "path_fallback" not in command, (
+            f"esphome-device: command {name!r} carries a path_fallback, but "
+            "its path is filled from the node's own identifier — there is no "
+            "second form to try"
+        )
+        assert "{entity}" in command["path"], (
+            f"esphome-device: command {name!r} hardcodes an entity; the "
+            "platform spec cannot know one"
+        )
+
+
 def test_identification_and_discovery_agree(specs):
     """The cheap matcher must not claim more than the evidence block does.
 
     `identification` is derived from `discovery`; a spec whose discovery method
     narrows the service type while its identification block does not is one a
     consumer will over-match on, and the divergence is invisible in review.
+    The reverse is checked too: a matcher in `identification` with no discovery
+    method behind it is a claim with no evidence, which is how the block that
+    scanners actually read drifts away from the one reviewers read.
     """
     for device_id, spec in specs.items():
         identification = spec["device"].get("identification") or {}
@@ -189,10 +288,20 @@ def test_identification_and_discovery_agree(specs):
         if not service_type:
             continue
         methods = _mdns_methods(spec, service_type)
-        if not methods:
+        if identification.get("mdns_txt_match"):
+            assert methods, (
+                f"{device_id}: identification.mdns_txt_match narrows "
+                f"{service_type}, but no discovery method documents it. The "
+                "evidence for a matcher belongs in `discovery`."
+            )
+            assert all(m.get("txt_match") for m in methods), (
+                f"{device_id}: identification narrows {service_type} but a "
+                "discovery method for it does not — the two blocks state "
+                "different claims about the same service type"
+            )
             continue
-        if all(m.get("txt_match") for m in methods):
-            assert identification.get("mdns_txt_match"), (
+        if methods and all(m.get("txt_match") for m in methods):
+            raise AssertionError(
                 f"{device_id}: every discovery method for {service_type} "
                 "narrows it with txt_match, but identification.mdns_txt_match "
                 "is missing — the block the matcher actually reads would match "

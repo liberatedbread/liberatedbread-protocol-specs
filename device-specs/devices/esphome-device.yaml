@@ -53,7 +53,7 @@ device:
   pictogram: "smart-device"
   type: "esphome-node"
   transport: "http"
-  integration: "supported"
+  integration: "identify_only"
   admin_url: "http://{address}/"
   notes: >
     ESPHome is open-source firmware that turns an ESP32/ESP8266/RP2040/nRF52
@@ -72,7 +72,29 @@ device:
     open/close controls that pointed at entities the node does not have. Product
     specs on this platform now carry an `identification.mdns_txt_match` on the
     project_name TXT record, and this spec is the deliberate catch-all
-    (`platform_fallback: true`) for everything that matches none of them.
+    (`platform_fallback: true`) for everything that matches none of them. That
+    flag is set on the _esphomelib._tcp method ONLY: the _http._tcp method
+    below is narrowed by a TXT condition and nothing else, because being the
+    catch-all for a service type ESPHome does not own would rebuild this bug
+    with printers in it.
+
+    WHAT identify_only MEANS HERE, AND WHAT WOULD CHANGE IT. `integration` says
+    what a consumer of this registry actually DOES with a device, and today the
+    honest answer for an unrecognised node is: name it, show it, and hand the
+    user to its own web UI. Two facts hold that line. First, this file declares
+    no `entities` and cannot — the control surface is whatever its owner
+    compiled in — so a consumer has controls only once it implements the
+    runtime enumeration described below, and until then there is nothing for it
+    to draw. Second, the HTTP surface is OPTIONAL: `web_server:` is a choice the
+    builder makes, and a great many nodes run `api:` alone and answer nothing on
+    :80, so the `http_endpoints` and `commands` here describe a surface that may
+    not exist on the node in front of you — they are the grammar for a client
+    that has already found one, not a promise that every node has it. The
+    native API is the surface that is always there, and it is documented here as
+    prose because a length-delimited protobuf schema is not something this file
+    can carry executably. When a consumer implements enumeration over either
+    API, this spec becomes `supported` with no other change to it; that is the
+    intended path, not a caveat about the platform's openness.
 
     WHAT A NODE PUBLISHES ABOUT ITSELF (mDNS TXT on _esphomelib._tcp, from
     ESPHome's mdns component):
@@ -177,7 +199,11 @@ device:
     # service type to the spec with the most satisfied txt_match conditions and
     # lands here only when none matched — see discovery.methods[].platform_fallback.
     mdns_service_type: "_esphomelib._tcp.local."
-    default_port: 80
+    # The native API, which is the service _esphomelib._tcp advertises and the
+    # one surface a node has unless its builder removed `api:`. The web server
+    # is :80 when the build includes it, which many do not — see
+    # WHAT identify_only MEANS in device.notes.
+    default_port: 6053
     identity_keys:
       primary: "mac"
       display: "friendly_name"
@@ -207,7 +233,13 @@ device:
         mdns:
           service_type: "_http._tcp.local."
           port: 80
-          platform_fallback: true
+          # Deliberately NOT platform_fallback. _http._tcp belongs to every web
+          # server on the link, not to ESPHome, so this method may only ever
+          # claim what its txt_match proves — being the catch-all HERE would
+          # rebuild the original bug one service type over, with printers and
+          # routers rendered as ESPHome nodes. The two keys are exclusive by
+          # construction: `txt_match` is a precondition, `platform_fallback` is
+          # what a consumer reaches for when no precondition was met.
           txt_record_keys: ["version", "mac", "config_hash"]
           txt_match:
             - key: "config_hash"
@@ -226,10 +258,12 @@ device:
             display:
               source: "name"
         notes: >
-          Fallback for API-less builds (web_server only). Weaker than the
-          _esphomelib._tcp method: _http._tcp is every web server on the link,
-          and this method leans entirely on the TXT set. Confirm by fetching
-          the node's root page or an entity endpoint before offering controls.
+          For API-less builds (web_server only), which publish no
+          _esphomelib._tcp service at all. Weaker than that method: _http._tcp
+          is every web server on the link, and this one leans entirely on the
+          TXT set, so a node that fails the config_hash condition is simply not
+          matched here — not claimed by default. Confirm by fetching the node's
+          root page or an entity endpoint before offering anything.
     identity:
       stable_keys: ["mac"]
       display: "friendly_name"
@@ -350,10 +384,12 @@ device:
   local_access:
     status: native
     summary: >
-      Local by construction. ESPHome nodes speak only to whoever is on the
-      network with them — the web server is served from the board and the
-      native API is a direct socket. There is no vendor account, no broker and
-      nothing to shut down.
+      Local by construction, and note that this says something different from
+      `integration: identify_only` above: control is entirely possible here —
+      the web server is served from the board and the native API is a direct
+      socket, with no vendor account, no broker and nothing to shut down. What
+      is missing is a consumer that enumerates a node's entities at runtime,
+      not a way in.
     covers:
       - "Enumerate every entity the node exposes and its current state"
       - "Drive any entity the firmware exposes as controllable"

@@ -52,9 +52,11 @@ changed it:
 | 2026.1.0 – 2026.7 | name first, object_id still accepted | legacy `id` + new `name_id` |
 | ≥ 2026.8 | entity name, percent-encoded — `/cover/Door` | `cover/Door` |
 
-The spec states the name form (current ratgdo firmware needs ESPHome ≥ 2026.4).
-A client supporting older boards reads the identifier out of `/events` instead
-of deriving it; a wrong form answers 404, so falling back is safe. See
+Each command in the spec states the name form as `path` and the legacy form as
+`path_fallback` (entities likewise carry `state_topic` / `state_topic_fallback`),
+so an older board stays drivable from the file: send `path`, and on a **404** —
+never on a timeout — send the fallback. A client that would rather not probe
+reads the identifier out of `/events` instead. See
 [ESPHome Node (generic)](esphome-device.md) for the platform-wide rules.
 
 **Native API (TCP :6053, protobuf)** — always present, HA-grade, efficient;
