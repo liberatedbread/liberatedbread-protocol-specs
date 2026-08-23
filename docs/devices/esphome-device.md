@@ -64,7 +64,11 @@ ESPHome publishes a rich TXT set on `_esphomelib._tcp`:
 | `api_provisioning=zero-psk` | A key may be provisioned over a zero-PSK Noise connection |
 
 A node built without the native API publishes `_http._tcp` instead, carrying
-`version`/`mac`/`config_hash`.
+`version`/`mac`/`config_hash`. Two build shapes land there: one with
+`web_server:` (port 80 answers) and one with **neither** `api:` nor
+`web_server:`, which ESPHome still advertises so `.local` resolution works at
+all — and on that one nothing is listening on 80. A match on that service means
+"an ESPHome node is at this address", not "there is an HTTP surface here".
 
 ## The two local APIs
 
