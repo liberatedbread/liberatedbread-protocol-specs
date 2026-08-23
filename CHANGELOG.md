@@ -674,11 +674,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **ESPHome addressing and cover-position corrections on `ratgdo`.** Two facts
   the spec had wrong, both from ESPHome's own source. (1) Entity addressing
-  changed generation: `<= 2025.12` matches the slugified `object_id` and emits
-  `id: "cover-door"`; `2026.1.0`-`2026.7` match the entity NAME with an
-  object_id fallback and add `name_id`; `>= 2026.8` dropped the fallback, so
-  URLs are the percent-encoded name (`/cover/Door`, `/lock/Lock%20remotes`) and
-  `id` carries `cover/Door`. Paths and `state_topic`s move to the name form
+  changed generation, and in two steps a release apart: `<= 2025.12` matches
+  the slugified `object_id` and emits `id: "cover-door"`; `2026.1.0`-`2026.6`
+  match the entity NAME with an object_id fallback and add `name_id` (from
+  2026.1.3); `2026.7` drops the URL fallback, so URLs are the percent-encoded
+  name (`/cover/Door`, `/lock/Lock%20remotes`) while `id` is still legacy; and
+  `>= 2026.8` moves `id` itself to `cover/Door` and stops sending `name_id`.
+  2026.7 is the release that punishes deriving a URL from `id`. Paths and `state_topic`s move to the name form
   current ratgdo firmware requires, with the legacy form documented and the
   rule for picking one at runtime (read the identifier out of `/events`; a
   wrong form is a 404, never a silent no-op). (2) `set?position=` takes

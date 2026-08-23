@@ -741,9 +741,10 @@ correct for one half of the fleet and a 404 for the other, and there is nowhere
 to put the second address.
 
 **Evidence.** ESPHome addressed entities by slugified `object_id` up to 2025.12
-(`/cover/door/open`), accepted both forms through 2026.7, and from 2026.8
-accepts only the percent-encoded entity name (`/cover/Door/open`). ratgdo boards
-in service today span the whole range. Whichever form the spec stated alone, it
+(`/cover/door/open`), accepted both forms from 2026.1.0 through 2026.6, and from
+2026.7 accepts only the percent-encoded entity name (`/cover/Door/open`). (The
+JSON identifier moved one release later, at 2026.8 — a separate boundary.)
+ratgdo boards in service today span the whole range. Whichever form the spec stated alone, it
 broke working hardware — and prose saying "older firmware uses the other one"
 reaches no consumer, because consumers execute the bindings.
 

@@ -92,13 +92,18 @@ device:
       * ESPHome <= 2025.12: the URL segment is the entity's slugified
         object_id, and the JSON `id` field is `<domain>-<object_id>`
         (`/cover/door`, `{"id":"cover-door"}`).
-      * ESPHome 2026.1.0 through 2026.7: URLs match the entity NAME first and
+      * ESPHome 2026.1.0 through 2026.6: URLs match the entity NAME first and
         fall back to object_id with a deprecation warning — both forms work.
         2026.1.3+ also publishes the new-form identifier in a `name_id` field
         alongside the legacy `id`.
-      * ESPHome >= 2026.8: the object_id fallback is gone. URLs are the entity
-        NAME, percent-encoded (`/cover/Door`, `/lock/Lock%20remotes/lock`), and
-        the JSON `id` field carries `<domain>/<name>`.
+      * ESPHome >= 2026.7: the object_id fallback is gone from URL matching.
+        URLs are the entity NAME, percent-encoded (`/cover/Door`,
+        `/lock/Lock%20remotes/lock`).
+      * ESPHome >= 2026.8: the JSON identifier catches up — `id` itself carries
+        `<domain>/<name>` and `name_id` is no longer sent. Note this is a
+        SECOND, later boundary: on 2026.7 the URL is already name-only while
+        `id` is still the legacy `<domain>-<object_id>`, so a client that
+        derives the URL from `id` breaks on exactly that release.
     The `path` of every command below is the NAME form, which is what current
     ratgdo firmware needs (its base config requires ESPHome >= 2026.4), and
     each carries the legacy object_id form as `path_fallback` so a board that
@@ -111,8 +116,9 @@ device:
     must be gated on the 404 rather than on a timeout.
 
     ENTITY NAMES (object_id in brackets, for the legacy form): cover `Door`
-    [door] (states open/closed/opening/closing/stopped; open/close/stop/toggle/
-    set); light `Light` [light]; lock `Lock remotes` [lock_remotes]
+    [door] (JSON `state` is OPEN or CLOSED only — travel shows up in
+    `current_operation` as OPENING/CLOSING/IDLE; actions open/close/stop/
+    toggle/set); light `Light` [light]; lock `Lock remotes` [lock_remotes]
     (lock/unlock); read-only binary_sensors `Obstruction`, `Motion`, `Motor`,
     `Button`; sensors `Openings`, `Paired Devices` [paired_devices];
     text_sensor `Firmware Version` [firmware_version]; buttons `Restart`,
@@ -259,7 +265,7 @@ http_endpoints:
   - method: "GET"
     path: "/cover/Door"
     name: "Door State"
-    description: "JSON state of the garage door cover: state OPEN/CLOSED, current_operation OPENING/CLOSING/IDLE, value and position as floats 0.0..1.0. Legacy path /cover/door."
+    description: "JSON state of the garage door cover: `state` OPEN or CLOSED (any position but fully closed reads OPEN), `current_operation` OPENING/CLOSING/IDLE, `value` a float 0.0..1.0. `position` is present only when the cover supports position — Security+ 2.0 — so its absence is the Sec+ 1.0 case, not an error. Legacy path /cover/door."
   - method: "POST"
     path: "/cover/Door/open"
     name: "Open Door"
@@ -292,7 +298,7 @@ http_endpoints:
   - method: "GET"
     path: "/events"
     name: "State Event Stream (SSE)"
-    description: "text/event-stream; emits 'state' events carrying the same per-entity JSON as the REST GETs — the push channel for door/obstruction/motion changes without polling. Also 'ping' and 'log' events. Every entity's current state is sent on connect, which is also how a client learns which addressing form this firmware uses (an `id` containing '/' is the name form; 2026.1.3-2026.7 firmware carries the new form in `name_id` beside a legacy `id`)."
+    description: "text/event-stream; emits 'state' events carrying the same per-entity JSON as the REST GETs — the push channel for door/obstruction/motion changes without polling. Also 'ping' and 'log' events. Every entity's current state is sent on connect, which is also how a client learns which addressing form this firmware uses (an `id` containing '/' is the name form; 2026.1.3-2026.7 firmware carries the new form in `name_id` beside a legacy `id`, and on 2026.7 the URL is name-only while `id` is still legacy — read `name_id` first)."
 
 commands:
   # One invocation each, so an entity's role map can name one. `http_endpoints`
@@ -396,7 +402,7 @@ entities:
       set_cover_position: "door_set_position"
     state_topic: "/cover/Door"
     state_topic_fallback: "/cover/door"
-    notes: "Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). States open/closed/opening/closing/stopped."
+    notes: "Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). JSON `state` is OPEN or CLOSED; travel is reported separately in `current_operation` (OPENING/CLOSING/IDLE)."
   - platform: "light"
     name: "Garage Light"
     commands:

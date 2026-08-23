@@ -114,8 +114,13 @@ device:
       api_provisioning=zero-psk  no key is set and one may be provisioned over
                       a zero-PSK Noise connection
       package_import_url   present on dashboard-importable builds
-    A node with web_server but no native API publishes `_http._tcp` instead,
-    carrying version/mac/config_hash.
+    A node with NO native API publishes `_http._tcp` instead, carrying
+    version/mac/config_hash. Two different builds land there: one with
+    web_server (port 80 answers), and one with neither api nor web_server,
+    which ESPHome still advertises so that .local resolution works at all —
+    on that one nothing is listening on 80. So this service says "an ESPHome
+    node lives at this address", not "there is an HTTP surface here": probe
+    before offering one.
 
     THE TWO LOCAL APIS. Both are direct device<->client; there is no cloud and
     no broker anywhere in ESPHome.
@@ -165,13 +170,17 @@ device:
       * ESPHome <= 2025.12: the URL segment is the entity's slugified object_id
         and the JSON `id` field is `<domain>-<object_id>` — /sensor/outside_temp,
         {"id":"sensor-outside_temp"}.
-      * 2026.1.0 .. 2026.7: URLs match the entity NAME first and fall back to
+      * 2026.1.0 .. 2026.6: URLs match the entity NAME first and fall back to
         object_id with a deprecation warning, so both work. From 2026.1.3 the
         state JSON also carries `name_id` with the new-format identifier beside
         the legacy `id`.
-      * >= 2026.8: the object_id fallback is gone. URLs are the entity NAME,
-        percent-encoded — /sensor/Outside%20Temp — and `id` itself carries
-        `<domain>/<entity_name>`; `name_id` is no longer sent.
+      * 2026.7: the object_id fallback is gone from URL matching — URLs are the
+        entity NAME, percent-encoded (/sensor/Outside%20Temp) — but the JSON
+        `id` is STILL the legacy `<domain>-<object_id>`, with the new form in
+        `name_id`. The two boundaries are one release apart, and this is the
+        release that punishes a client for deriving a URL from `id`.
+      * >= 2026.8: the JSON catches up. `id` itself carries
+        `<domain>/<entity_name>` and `name_id` is no longer sent.
       The robust client reads the identifier out of the /events payload rather
       than deriving it: prefer `name_id`, else `id`, and treat an identifier
       containing '/' as the name form (split on the first '/' for the domain)
@@ -258,12 +267,15 @@ device:
             display:
               source: "name"
         notes: >
-          For API-less builds (web_server only), which publish no
-          _esphomelib._tcp service at all. Weaker than that method: _http._tcp
-          is every web server on the link, and this one leans entirely on the
-          TXT set, so a node that fails the config_hash condition is simply not
-          matched here — not claimed by default. Confirm by fetching the node's
-          root page or an entity endpoint before offering anything.
+          For API-less builds, which publish no _esphomelib._tcp service at
+          all. Weaker than that method in two ways. First, _http._tcp is every
+          web server on the link, and this one leans entirely on the TXT set,
+          so a node failing the config_hash condition is simply not matched
+          here — not claimed by default. Second, the port is a convention, not
+          a promise: ESPHome publishes this service for a build with NEITHER
+          api nor web_server too (so that .local resolution works), and there
+          nothing answers on 80. Treat a match as "an ESPHome node is at this
+          address" and confirm with an actual request before offering anything.
     identity:
       stable_keys: ["mac"]
       display: "friendly_name"
@@ -417,8 +429,13 @@ http_endpoints:
       Current state of one entity as JSON. Every domain returns `id` and a
       human-readable `state`; most add a typed `value` (a float for sensor, a
       bool for binary_sensor/switch/fan, 0.0..1.0 for cover position, the
-      chosen string for select). Add `?detail=all` for the entity's `name`, its
-      sub-device `device` when it has one, and a select's `option` list.
+      chosen string for select). `state` is a LABEL, not the full picture — a
+      cover reads OPEN or CLOSED whatever it is doing, and its travel is in the
+      separate `current_operation` (OPENING/CLOSING/IDLE). Fields a device
+      cannot report are simply absent rather than null: a cover with no
+      position support sends no `position` key, a light without colour no
+      `color`. Add `?detail=all` for the entity's `name`, its sub-device
+      `device` when it has one, and a select's `option` list.
   - method: "GET"
     path: "/{domain}/{device}/{entity}"
     name: "Sub-Device Entity State"

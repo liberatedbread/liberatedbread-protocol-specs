@@ -97,8 +97,14 @@ product name, the board, or the icon.
 | Firmware | URL segment | State `id` |
 |---|---|---|
 | ESPHome ≤ 2025.12 | slugified `object_id` (`/sensor/outside_temp`) | `sensor-outside_temp` |
-| 2026.1.0 – 2026.7 | name first, `object_id` still accepted (deprecated) | legacy `id` + new `name_id` |
-| ≥ 2026.8 | entity **name**, percent-encoded (`/sensor/Outside%20Temp`) | `sensor/Outside Temp` |
+| 2026.1.0 – 2026.6 | name first, `object_id` still accepted (deprecated) | legacy `id` (+ `name_id` from 2026.1.3) |
+| 2026.7 | **name only** (`/sensor/Outside%20Temp`) | still legacy `id` + `name_id` |
+| ≥ 2026.8 | name only | `sensor/Outside Temp`, no `name_id` |
+
+The two boundaries are **one release apart**, which is the trap: on 2026.7 the
+URL is already name-only while `id` still carries the legacy form, so a client
+that derives its URL from `id` breaks on exactly that release. Read `name_id`
+first.
 
 The robust client does not derive the identifier: read `name_id` if present,
 else `id`, from the `/events` payload and send back the form the node handed

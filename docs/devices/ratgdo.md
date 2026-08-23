@@ -49,8 +49,9 @@ changed it:
 | Firmware | Path | State `id` |
 |---|---|---|
 | ESPHome ≤ 2025.12 | slugified object_id — `/cover/door` | `cover-door` |
-| 2026.1.0 – 2026.7 | name first, object_id still accepted | legacy `id` + new `name_id` |
-| ≥ 2026.8 | entity name, percent-encoded — `/cover/Door` | `cover/Door` |
+| 2026.1.0 – 2026.6 | name first, object_id still accepted | legacy `id` (+ `name_id` from 2026.1.3) |
+| 2026.7 | name only — `/cover/Door` | still legacy `id` + `name_id` |
+| ≥ 2026.8 | name only — `/cover/Door` | `cover/Door`, no `name_id` |
 
 Each command in the spec states the name form as `path` and the legacy form as
 `path_fallback` (entities likewise carry `state_topic` / `state_topic_fallback`),

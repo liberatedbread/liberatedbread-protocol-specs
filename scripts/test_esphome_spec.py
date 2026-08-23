@@ -222,7 +222,7 @@ def test_ratgdo_keeps_a_path_for_older_firmware(ratgdo):
     """The name form is current; the object_id form is what is on the wall.
 
     ESPHome moved from addressing entities by slugified object_id to addressing
-    them by name, and dropped the old form entirely in 2026.8. A spec that
+    them by name, and dropped the old form entirely in 2026.7. A spec that
     states only one of the two is wrong for half the boards in service — so
     every command that names a path carries the legacy one as `path_fallback`,
     and every entity's `state_topic` carries `state_topic_fallback`. Dropping
