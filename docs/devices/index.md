@@ -86,6 +86,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Android Wireless-ADB Device](android-adb-wireless.md) | mDNS / DNS-SD | Identify-only (untested) | None needed | Various (Android 11+) |
 | [Chamberlain Garage Opener (Security+)](chamberlain-garage-opener-secplus.md) | UART | Complete (needs bridge) | ratgdo/Konnected bridge | Chamberlain |
 | [ratgdo Garage-Door Controller](ratgdo.md) | WiFi (ESPHome) | Complete (untested) | Flash + wire to opener | ratgdo / Konnected |
+| [ESPHome Node (generic)](esphome-device.md) | WiFi (ESPHome REST/SSE + native API) | Complete (untested) | Owner-flashed; captive portal / Improv (medium) | Various (ESPHome open firmware) |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
 | [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Pairing (medium) | Generic / ScanTool / Vgate |
@@ -121,6 +122,12 @@ spec's `device.setup` block; the patterns are explained in
 | [MXW01 Cat Printer](cat-printer-mxw01.md) | BLE | Spec Available | None needed | Generic (MXW01 family) |
 | [Xiaomi Mi Scale S400](xiaomi-mi-scale-s400.md) | BLE (MiBeacon, encrypted) | Spec Available | Cloud bindkey extraction (medium) | Xiaomi / Yunmai |
 | [Veryfit 2.0 Fitness Bands](veryfit-2-fitness-band.md) | BLE | Spec Available | None needed | ID107 / Veryfit OEM |
+| [Govee H6001 Smart Bulb](govee-h6001-bulb.md) | BLE | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee H5080 Smart Plug](govee-h5080-plug.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed (button-gated BLE auth key) | Govee (Shenzhen Intellirocks) |
+| [Govee H5075 Thermometer/Hygrometer](govee-h5075-thermo.md) | BLE | Complete | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee H6101/H6104 TV Backlight](govee-h6101-backlight.md) | BLE | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee RGB Lights (classic)](govee-rgb-light.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee RGBIC / DreamColor Lights](govee-rgbic-light.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
 
 ## Not everything here was liberated
 

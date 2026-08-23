@@ -70,6 +70,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   data to narrow it a method there would claim every web server on the
   link. Only the `KnOS/` SERVER header remains prose, because the schema
   has no SSDP-reply matcher slot yet.
+- **`commands[].path_fallback` and `entities[].state_topic_fallback`**
+  ([P15](docs/contributing/spec-evolution.md#p15)): a second address for the
+  same invocation or reading, for a family whose firmware generations name
+  entities differently — the HTTP siblings of `fallback_characteristic` and of
+  `state_mapping`'s `<role>_fallback`. Try `path`, and fall back only on an
+  unambiguous 404, never a timeout and never a blind second send; a door that
+  opens twice because the first request was slow is worse than the 404 the key
+  exists to survive. `ratgdo` carries the legacy ESPHome object_id paths this
+  way, so boards on firmware older than 2026.1 stay drivable from the file
+  rather than only from its prose.
+
+- **ESPHome is a platform, not a garage door.** `_esphomelib._tcp` is the
+  service type of the ESPHome *firmware*, and `ratgdo` was the only spec
+  claiming it — so a consumer resolving a service type to a spec labelled every
+  ESPHome node on the LAN a garage-door opener, complete with `/cover/door`
+  controls for entities those nodes do not have. Three changes fix the class of
+  bug, not just this instance ([P14](docs/contributing/spec-evolution.md#p14)):
+
+  - **Schema**: `$defs/mdns_txt_match` plus `identification.mdns_txt_match` and
+    `discovery.methods[].mdns.txt_match` — ANDed conditions on TXT records
+    (`exact`/`prefix`/`contains`/`regex`/`present`/`absent`) that narrow a
+    platform service type to one product — and
+    `discovery.methods[].mdns.platform_fallback`, which marks the one spec per
+    service type that is *meant* to catch everything no matcher claimed.
+    Additive: a consumer reading only `mdns_service_type` is unchanged.
+  - **`esphome-device`** (new spec): the ESPHome platform itself, as the
+    fallback. It deliberately declares no `entities` — it cannot know what a
+    node has — and instead documents how to ask: `GET /events` emits one
+    `state` event per entity on connect (the enumeration path; there is no
+    list-entities URL), the REST grammar `/<domain>/<entity>[/<action>]` with
+    the sub-device forms, the native API's framing (`0x00` plaintext, `0x01`
+    Noise `NNpsk0_25519_ChaChaPoly_SHA256`, prologue `NoiseAPIInit`), the full
+    mDNS TXT set a node publishes, and ESPHome's `web_server`/`captive_portal`
+    provisioning and factory-reset paths.
+  The catch-all flag sits on the `_esphomelib._tcp` method only: the spec's
+  auxiliary `_http._tcp` method (for API-less builds, matched on ESPHome's
+  `config_hash` TXT key) is narrowed and nothing else, because being the
+  fallback for a service type ESPHome does not own would rebuild the same bug
+  with printers in it. `esphome-device` is `integration: identify_only` rather
+  than `supported`, which is what the field actually asks: with no static
+  entities and an optional HTTP surface, what a consumer does today is name the
+  node and hand the user to its web UI. It flips to `supported`, unchanged
+  otherwise, once a consumer implements runtime enumeration.
+
+  - **`ratgdo`**: now matches `project_name` prefix `ratgdo.` in both blocks
+    (every published board config sets `ratgdo.<board>`), so it claims its own
+    hardware and nothing else. Konnected's blaQ ships its own build whose
+    project_name has not been observed here, and is no longer claimed by
+    implication.
 
 - Stateful **Power** `switch` entities on seven TV specs, landing the spec
   half of [Spec Evolution P13](docs/contributing/spec-evolution.md#p13):
@@ -684,6 +733,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   field.
 
 ### Fixed
+
+- **ESPHome addressing and cover-position corrections on `ratgdo`.** Two facts
+  the spec had wrong, both from ESPHome's own source. (1) Entity addressing
+  changed generation, and in two steps a release apart: `<= 2025.12` matches
+  the slugified `object_id` and emits `id: "cover-door"`; `2026.1.0`-`2026.6`
+  match the entity NAME with an object_id fallback and add `name_id` (from
+  2026.1.3); `2026.7` drops the URL fallback, so URLs are the percent-encoded
+  name (`/cover/Door`, `/lock/Lock%20remotes`) while `id` is still legacy; and
+  `>= 2026.8` moves `id` itself to `cover/Door` and stops sending `name_id`.
+  2026.7 is the release that punishes deriving a URL from `id`. Paths and `state_topic`s move to the name form
+  current ratgdo firmware requires, with the legacy form documented and the
+  rule for picking one at runtime (read the identifier out of `/events`; a
+  wrong form is a 404, never a silent no-op). (2) `set?position=` takes
+  ESPHome's cover scale `0.0`-`1.0`, not a percentage — the old `0..100`
+  `uint8` meant every "half open" request drove the door fully open. Also:
+  the legacy `api: password:` was removed in ESPHome 2026.1.0, and
+  `api_encryption` vs `api_encryption_supported` distinguish "PSK set, Noise
+  required" from "Noise-capable, still accepts plaintext".
 
 - `tplink-kasa-smart-plug` stops offering the energy meter on plugs that do not
   have one. The four emeter sensors were unscoped, so a consumer drew Voltage /
