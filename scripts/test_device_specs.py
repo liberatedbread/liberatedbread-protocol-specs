@@ -1672,3 +1672,26 @@ def test_a_testing_claim_names_its_evidence(specs):
         and not (spec["device"]["testing"].get("notes") or "").strip()
     ]
     assert not bare, f"verified without notes saying what was driven: {bare}"
+
+
+def test_an_endpoint_hedged_in_prose_is_hedged_in_its_status(specs):
+    """Prose saying "placeholder" is invisible to the client that would call it.
+
+    An endpoint with no `status` is, by the schema's own rule, active and
+    usable. Six specs described a `GET /` as a placeholder for a surface that
+    is not HTTP at all and left the field off, which said the exact opposite of
+    what the description said. An explicit status is required either way --
+    `placeholder` when nothing there is a control, `unverified` when the
+    endpoint may well exist and it is the method or payload that is a guess
+    (frigidaire's case, and a different meaning of the same word).
+    """
+    unmarked = [
+        f"{device_id} {endpoint.get('method')} {endpoint.get('path')}"
+        for device_id, spec in specs.items()
+        for endpoint in spec.get("http_endpoints") or []
+        if "placeholder" in (endpoint.get("description") or "").lower()
+        and not endpoint.get("status")
+    ]
+    assert not unmarked, (
+        f"endpoints hedged in prose but not in `status`: {unmarked}"
+    )
