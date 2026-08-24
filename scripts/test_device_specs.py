@@ -1635,3 +1635,40 @@ def test_a_bare_service_type_is_rejected_by_the_schema(closed_world_spec):
     assert list(validator.iter_errors(spec)), (
         "schema accepted a bare DNS-SD service type"
     )
+
+
+def test_every_device_states_whether_it_was_tested(specs):
+    """Absent reads as 'nobody looked', which is not what these two meant.
+
+    smartdawn documented a live 2026-08-08 session against curtain hardware
+    in its own prose and still indexed as untested; airthings documented two
+    HCI captures and did the same. The block is the only place a consumer
+    reads the verdict, so silence there erases the work.
+    """
+    missing = [
+        device_id
+        for device_id, spec in specs.items()
+        if "testing" not in spec["device"] and not is_reference(spec)
+    ]
+    assert not missing, f"specs with no device.testing block: {missing}"
+
+
+def test_reference_specs_do_not_claim_hardware_testing(specs):
+    """There is no hardware to drive; the block would be meaningless."""
+    claiming = [
+        device_id
+        for device_id, spec in specs.items()
+        if is_reference(spec) and "testing" in spec["device"]
+    ]
+    assert not claiming, f"reference specs carrying device.testing: {claiming}"
+
+
+def test_a_testing_claim_names_its_evidence(specs):
+    """A status with no notes is a label a reviewer cannot check."""
+    bare = [
+        device_id
+        for device_id, spec in specs.items()
+        if (spec["device"].get("testing") or {}).get("status") == "verified"
+        and not (spec["device"]["testing"].get("notes") or "").strip()
+    ]
+    assert not bare, f"verified without notes saying what was driven: {bare}"
