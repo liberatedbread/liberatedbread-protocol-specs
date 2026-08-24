@@ -1348,3 +1348,33 @@ def test_bespoke_blocks_live_under_protocol_details(specs):
     assert not stray, (
         f"undeclared top-level keys (move under protocol_details): {stray}"
     )
+
+
+@pytest.mark.parametrize("value", ["ble_gatt", "ble", "tcp-json", "upnp", "mdns"])
+def test_retired_transport_spellings_are_rejected(closed_world_spec, value):
+    """One wire, one spelling — the drift these values came from was silent.
+
+    `mdns` is in the list because it is not a transport at all: it is how a
+    device was found, and a spec that documents only discovery says so in
+    `device.discovery` and leaves this field out.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["transport"] = value
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired transport spelling {value!r}"
+    )
+
+
+def test_every_declared_transport_is_in_the_enum(specs):
+    """Catalogue side, so a failure names the spec rather than the value."""
+    allowed = set(
+        _schema()["properties"]["device"]["properties"]["transport"]["enum"]
+    )
+    wrong = {
+        device_id: spec["device"]["transport"]
+        for device_id, spec in specs.items()
+        if spec["device"].get("transport")
+        and spec["device"]["transport"] not in allowed
+    }
+    assert not wrong, f"transports outside the enum: {wrong}"
