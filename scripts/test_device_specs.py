@@ -1550,3 +1550,88 @@ def test_reference_specs_state_coverage_rather_than_a_model(specs):
         and (spec["device"].get("model") or spec["device"].get("variants"))
     ]
     assert not wrong, f"reference specs claiming a model/variants: {wrong}"
+
+
+# --------------------------------------------------------------------------
+# DNS-SD service types.
+#
+# The schema pins the form on the two keys it can reach. This sweeps every
+# service type anywhere in a spec -- including inside `evidence` and
+# `protocol_details`, which are open objects -- because the bare forms that
+# started the drift were all in transcriptions of a live probe, and a reader
+# comparing a probe record against a discovery axis has to see the same string.
+# --------------------------------------------------------------------------
+
+SERVICE_TYPE_KEYS = {"mdns_service_type", "service_type"}
+DNS_SD_TYPE = re.compile(r"^_[A-Za-z0-9_-]+\._(tcp|udp)\.local\.$")
+# wemo and viera write UPnP service URNs into a key of the same name.
+UPNP_URN = re.compile(r"^urn:")
+
+
+def every_service_type(spec):
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in SERVICE_TYPE_KEYS:
+                    for item in value if isinstance(value, list) else [value]:
+                        if isinstance(item, str):
+                            yield f"{path}.{key}", item
+                yield from walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                yield from walk(value, f"{path}[{i}]")
+
+    yield from walk(spec, "")
+
+
+def test_dns_sd_service_types_are_fully_qualified(specs):
+    """`_hap._tcp` and `_hap._tcp.local.` are one service and two strings.
+
+    String equality against the wrong one never fires, and a discovery axis
+    that never fires is indistinguishable from a device that is not there.
+    """
+    wrong = [
+        f"{device_id}{path} = {value!r}"
+        for device_id, spec in specs.items()
+        for path, value in every_service_type(spec)
+        if value.startswith("_") and not DNS_SD_TYPE.match(value)
+    ]
+    assert not wrong, (
+        "DNS-SD service types must end `._tcp.local.` / `._udp.local.`:\n  "
+        + "\n  ".join(wrong)
+    )
+
+
+def test_a_discovery_axis_matches_the_identification_it_claims(specs):
+    """A spec's mdns identification must be one of its own discovery types.
+
+    Two places state the same fact and only one of them is what a matcher
+    reads first; letting them disagree is how a spec stops meaning what it
+    says without anything going red.
+    """
+    mismatched = {}
+    for device_id, spec in specs.items():
+        declared = spec["device"].get("identification", {}).get("mdns_service_type")
+        if not declared:
+            continue
+        methods = spec["device"].get("discovery", {}).get("methods") or []
+        offered = {
+            m["mdns"]["service_type"]
+            for m in methods
+            if m.get("type") == "mdns" and "service_type" in (m.get("mdns") or {})
+        }
+        if offered and declared not in offered:
+            mismatched[device_id] = (declared, sorted(offered))
+    assert not mismatched, (
+        f"identification.mdns_service_type not among the discovery methods: {mismatched}"
+    )
+
+
+def test_a_bare_service_type_is_rejected_by_the_schema(closed_world_spec):
+    """The pattern, not just the sweep: it must hold for specs not written yet."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["identification"]["mdns_service_type"] = "_hue._tcp"
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted a bare DNS-SD service type"
+    )
