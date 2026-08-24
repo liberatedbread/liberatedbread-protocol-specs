@@ -1734,3 +1734,47 @@ def test_stated_absence_gives_a_reason(closed_world_spec):
     assert list(validator.iter_errors(spec)), (
         "schema accepted discovery.none with no real reason"
     )
+
+
+@pytest.mark.parametrize("retired", ["protocol", "identification"])
+def test_the_retired_top_level_lock_shapes_are_rejected(closed_world_spec, retired):
+    """A top-level `protocol:` collided with `device.protocol`, an enum.
+
+    `identification:` was worse: it looked like the matcher block and was not
+    one, so kwikset and nuki carried their whole matching story in a key no
+    consumer reads and had no `device.identification` at all.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec[retired] = {"framing": "x"}
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired top-level `{retired}:` block"
+    )
+
+
+def test_every_ble_spec_can_be_matched_by_something(specs):
+    """A BLE spec with no matcher in `device.identification` is undiscoverable.
+
+    Not a style rule: `device.identification` is the block a scanner reads, and
+    a BLE spec that leaves it empty describes a device the app can never bind a
+    scan result to, however complete the rest of the file is.
+    """
+    axes = ("local_name_prefix", "local_name_prefixes", "local_names",
+            "service_uuids", "manufacturer_data", "mac_prefixes")
+    unmatched = [
+        device_id
+        for device_id, spec in specs.items()
+        if spec["device"].get("protocol") == "ble"
+        and not any(
+            (spec["device"].get("identification") or {}).get(axis) for axis in axes
+        )
+        # A spec may argue that no signal distinguishes this device from
+        # anything else -- fardriver does, and does it well. That argument
+        # belongs in `discovery.none`, where a checker can see it, not in a
+        # comment.
+        and not (spec["device"].get("discovery") or {}).get("none")
+    ]
+    assert not unmatched, (
+        "BLE specs with neither an identification axis nor a stated reason "
+        f"there is none: {unmatched}"
+    )
