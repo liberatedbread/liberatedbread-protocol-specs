@@ -1847,6 +1847,15 @@ def test_an_mqtt_command_declares_at_most_one_payload(specs):
         )
 
 
+# A renderer fills `{name}` where name is parameter-shaped and leaves every
+# other brace alone — that is what lets a JSON payload be written as a `body`
+# template. The guard below looks for the same shape, anywhere in the template
+# rather than only as the whole of it: `body: "KEY_{foo}"` with no `foo`
+# parameter would publish the brace literally, and a device ignores a key it
+# has never heard of without saying so.
+_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
+
+
 def test_every_mqtt_payload_placeholder_is_a_declared_parameter(specs):
     for spec_name, command_name, command in _mqtt_commands(specs):
         declared = set((command.get("parameters") or {}).keys())
@@ -1857,10 +1866,10 @@ def test_every_mqtt_payload_placeholder_is_a_declared_parameter(specs):
             if isinstance(value, str)
         ]
         for template in templates:
-            for placeholder in re.findall(r"^\{([^{}]+)\}$", template):
-                assert placeholder in declared, (
+            for name in _PLACEHOLDER.findall(template):
+                assert name in declared, (
                     f"{spec_name}: mqtt command {command_name!r} sends "
-                    f"{{{placeholder}}} but does not declare it as a parameter"
+                    f"{{{name}}} but does not declare it as a parameter"
                 )
 
 
