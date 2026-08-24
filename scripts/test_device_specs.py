@@ -690,6 +690,61 @@ ENTITY_KEY_VOCABULARY = frozenset(
 )
 
 
+def _ble_name_matchers(spec):
+    """Every `discovery.methods[].ble.local_name` matcher in one spec."""
+    for method in (spec.get("device", {}).get("discovery", {}) or {}).get("methods") or []:
+        if method.get("type") != "ble_scan":
+            continue
+        matcher = (method.get("ble") or {}).get("local_name")
+        if isinstance(matcher, dict):
+            yield matcher
+
+
+def test_ble_name_matchers_state_exactly_one_needle_form(specs):
+    """A `local_name` matcher gives `value` or `values`, never neither.
+
+    A matcher with no needle matches nothing — and these matchers are load-
+    bearing in both directions: the OBD adapters are FOUND by one, and the
+    skimmer heads-up is WITHHELD from a configured module by one. Either way
+    the failure is silent, which is why it is worth a test rather than a
+    reviewer's attention.
+    """
+    for device_id, spec in specs.items():
+        for matcher in _ble_name_matchers(spec):
+            has_value = isinstance(matcher.get("value"), str) and matcher["value"] != ""
+            values = matcher.get("values")
+            has_values = isinstance(values, list) and any(
+                isinstance(v, str) and v for v in values
+            )
+            assert has_value or has_values, (
+                f"{device_id}: a local_name matcher states no needle "
+                f"({matcher!r}) — it can never match anything"
+            )
+
+
+def test_ble_name_matcher_regexes_compile(specs):
+    """A `match: regex` needle is a regular expression a consumer can run.
+
+    An uncompilable pattern is the same silent nothing as a missing needle,
+    one layer down: the consumer's cache stores the failure and the matcher
+    never fires again.
+    """
+    for device_id, spec in specs.items():
+        for matcher in _ble_name_matchers(spec):
+            if matcher.get("match") != "regex":
+                continue
+            needles = [matcher["value"]] if matcher.get("value") else []
+            needles += [v for v in (matcher.get("values") or []) if v]
+            for needle in needles:
+                try:
+                    re.compile(needle)
+                except re.error as error:
+                    raise AssertionError(
+                        f"{device_id}: local_name regex {needle!r} does not "
+                        f"compile: {error}"
+                    ) from error
+
+
 def test_entity_keys_come_from_the_documented_vocabulary(specs):
     """Every `entities[].key` is a token a consumer's curated layouts know.
 
