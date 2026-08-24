@@ -1378,3 +1378,73 @@ def test_every_declared_transport_is_in_the_enum(specs):
         and spec["device"]["transport"] not in allowed
     }
     assert not wrong, f"transports outside the enum: {wrong}"
+
+
+# --------------------------------------------------------------------------
+# Unit spelling.
+#
+# `unit` is prose to a validator and data to a consumer: `unit_values` maps a
+# device's own unit setting onto these same strings, so two spellings of one
+# quantity is a comparison that silently fails. The schema prescribes the bare
+# symbol; these tests are what makes that prescription hold.
+# --------------------------------------------------------------------------
+
+RETIRED_UNITS = {
+    "°C": "C",
+    "°F": "F",
+    "percent": "%",
+    "%RH": "%",
+    "minutes": "min",
+    "seconds": "s",
+    "° before TDC": "°",
+    "° BTDC": "°",
+}
+
+
+def every_unit(spec):
+    """Yield (path, value) for every `unit:` anywhere in a spec."""
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "unit" and isinstance(value, str):
+                    yield f"{path}.unit", value
+                yield from walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                yield from walk(value, f"{path}[{i}]")
+
+    yield from walk(spec, "")
+
+
+def test_units_use_the_canonical_spelling(specs):
+    """One quantity, one spelling — including inside protocol_details."""
+    wrong = [
+        f"{device_id}{path} = {value!r} (use {RETIRED_UNITS[value]!r})"
+        for device_id, spec in specs.items()
+        for path, value in every_unit(spec)
+        if value in RETIRED_UNITS
+    ]
+    assert not wrong, "retired unit spellings:\n  " + "\n  ".join(wrong)
+
+
+def test_no_unit_is_empty(specs):
+    """A dimensionless value omits the key; `unit: ""` reads as an oversight."""
+    empty = [
+        f"{device_id}{path}"
+        for device_id, spec in specs.items()
+        for path, value in every_unit(spec)
+        if not value.strip()
+    ]
+    assert not empty, f"empty unit values (omit the key instead): {empty}"
+
+
+def test_no_unit_names_two_quantities(specs):
+    """`unit: "V, %"` cannot be read by anything; the prose has to carry it."""
+    compound = [
+        f"{device_id}{path} = {value!r}"
+        for device_id, spec in specs.items()
+        for path, value in every_unit(spec)
+        if "," in value
+    ]
+    assert not compound, f"compound units (describe the pair in prose): {compound}"
