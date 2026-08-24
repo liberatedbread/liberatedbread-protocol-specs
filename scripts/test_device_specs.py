@@ -1479,3 +1479,74 @@ def test_provenance_is_spelled_evidence_everywhere(specs):
         if {"sources", "source"} & set(spec)
     }
     assert not stray, f"provenance outside `evidence`: {stray}"
+
+
+# --------------------------------------------------------------------------
+# Model vocabulary.
+#
+# Six keys once listed the products a spec covers. Two remain, and they answer
+# a question with an answer: one product (`device.model`) or several
+# (`device.variants`).
+# --------------------------------------------------------------------------
+
+RETIRED_MODEL_KEYS = [
+    ("variants", [{"model": "X"}]),
+    ("model_variants", [{"model": "X"}]),
+    ("hardware_variants", [{"name": "X"}]),
+    ("firmware_variants", {"variants": []}),
+    ("device_families", [{"model": "X"}]),
+]
+
+
+@pytest.mark.parametrize("key,value", RETIRED_MODEL_KEYS)
+def test_retired_top_level_model_keys_are_rejected(closed_world_spec, key, value):
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec[key] = value
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired top-level key {key!r}"
+    )
+
+
+def test_device_models_is_rejected(closed_world_spec):
+    """A bare name list says less than `variants` and matches nothing."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["models"] = ["A", "B"]
+    assert list(validator.iter_errors(spec)), "schema accepted device.models"
+
+
+def test_a_spec_does_not_claim_both_a_model_and_variants(specs):
+    """`model` means one product. With `variants` present it is a duplicate.
+
+    Both divoom and gerbing had a `model` that simply repeated one of their
+    own variants, which reads as a claim that that one is primary.
+    """
+    both = [
+        device_id
+        for device_id, spec in specs.items()
+        if spec["device"].get("model") and spec["device"].get("variants")
+    ]
+    assert not both, f"specs carrying both device.model and device.variants: {both}"
+
+
+def test_every_variant_names_a_model(specs):
+    """`entities[].variants` refers to these strings, so they must exist."""
+    bad = [
+        f"{device_id}[{i}]"
+        for device_id, spec in specs.items()
+        for i, variant in enumerate(spec["device"].get("variants") or [])
+        if not str(variant.get("model", "")).strip()
+    ]
+    assert not bad, f"variants with no model: {bad}"
+
+
+def test_reference_specs_state_coverage_rather_than_a_model(specs):
+    """A standard is not a product; what a reader needs is which part it covers."""
+    wrong = [
+        device_id
+        for device_id, spec in specs.items()
+        if is_reference(spec)
+        and (spec["device"].get("model") or spec["device"].get("variants"))
+    ]
+    assert not wrong, f"reference specs claiming a model/variants: {wrong}"
