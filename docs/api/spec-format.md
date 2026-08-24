@@ -44,16 +44,37 @@ A spec must have `device` plus at least one transport block such as `services`,
 14229 UDS services, ISO 15765-2 framing) documents a published standard that
 other specs cite instead of restating, so it carries protocol tables rather than
 an access surface of its own and is exempt from the transport requirement.
-Everything else is optional, and the schema is deliberately
-permissive — unknown keys are allowed so device-specific detail can travel
-alongside the standard fields. Consumers parse the subset they understand.
+Everything else is optional, but the **top level and `device` are closed**:
+every key written there must be one the schema declares. Bespoke,
+device-specific detail — a vendor's own framing, opcode table or session dance
+— goes under the top-level `protocol_details:` namespace, which accepts
+anything:
 
-Permissiveness has two deliberate exceptions, both places where an unknown key
-is not bespoke detail but a standard field spelled wrong, and where nothing
-downstream can tell the difference:
+```yaml
+protocol_details:
+  ecp2:                      # bespoke; nothing binds to it
+    description: "Roku's WebSocket layer over the ECP port."
+```
 
-- a top-level `references:` is rejected — reference links go in `helpful_urls`
-  (see below);
+Closing the top level is what makes the rest of it mean something. While it was
+open, a validator could not tell a bespoke block from a standard field spelled
+wrong or nested one level too deep — and both had happened at scale, silently:
+`local_access`, `features`, `protocol_handler` and `payload_formats` were
+written inside `device:` on seventeen specs, where no consumer looks, so five
+printers' `image_upload` capability was simply absent from the app. Neither
+class of mistake raised a single validation error. The price is that a new
+first-class key needs a schema change; that is deliberate, because a
+first-class key is a contract.
+
+Deeper objects — inside a service, an endpoint, an entity — remain open, so a
+spec can still annotate freely where it is describing rather than declaring.
+Consumers parse the subset they understand.
+
+Two keys are rejected by name rather than by the closure, because the error
+message matters more than the rejection:
+
+- a top-level `references:` — reference links go in `helpful_urls` (see below),
+  and "additional properties are not allowed" would not say so;
 - a command's `payload:` accepts only `key` and `value_type` — a raw byte
   sequence is `value` (fixed) or `template` (parameterized), never
   `payload.bytes`.

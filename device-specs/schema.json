@@ -2,9 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://opengreeniot.pigscanfly.ca/device-spec.schema.json",
   "title": "OpenGreenIoT Device Spec",
-  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). Permissive by design: unknown keys are allowed so bespoke, device-specific metadata (e.g. protobuf/state_machine blocks) can travel alongside the standard fields. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
+  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). CLOSED at the top level and at `device`: every key a spec writes there must be declared here, and bespoke per-device material goes under `protocol_details`. Deeper objects remain open for now, so a spec can still annotate a service or an endpoint freely. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
   "type": "object",
   "required": ["device"],
+  "$comment": "Closing the top level is the difference between a schema that validates and a schema that reviews. Open-world validation could not tell a bespoke block from a standard field spelled wrong or nested one level too deep, and both had happened at scale: roughly seventy undeclared top-level keys, plus `local_access`, `features`, `protocol_handler` and `payload_formats` written inside `device:` on seventeen specs, where the app never looked and so the image-upload capability of five printers simply did not exist. Neither class of mistake produced a single validation error. `additionalProperties: false` here converts both into one. The cost is that a genuinely new kind of block needs a schema change to be admitted -- which is the point: a new first-class key is a contract, and contracts should be reviewed.",
+  "additionalProperties": false,
   "allOf": [
     {
       "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own. `camera` counts (a live feed is an access surface), and an `integration: identify_only` device counts when it carries a `discovery` block — for it the access surface IS 'find it and hand the user to its admin page', which is the whole point of an identify-only entry.",
@@ -442,6 +444,7 @@
   "properties": {
     "device": {
       "type": "object",
+      "additionalProperties": false,
       "$comment": "`category` is required rather than optional because an absent category is not a neutral omission at the consumer: the mobile app has nothing to draw beside the device but a generic radio icon, which is also what it draws for a device whose protocol nobody ever worked out. A spec author always knows what kind of thing they documented, so stating it costs one line and omitting it is paid for by every user of the app.",
       "required": [
         "name",
@@ -1479,6 +1482,19 @@
               }
             }
           }
+        },
+        "transport": {
+          "type": "string",
+          "description": "The concrete wire protocol a consumer speaks to this device, one level below `protocol`. `protocol: wifi` says the device is on the LAN; `transport` says whether reaching it means HTTP, a UDP datagram, SOAP, MQTT or a raw socket -- which is what decides whether an implementer needs a JSON client or a packet builder."
+        },
+        "model": {
+          "type": "string",
+          "$comment": "A single model identifier, where the spec covers exactly one product. Where it covers several, use `device.variants` -- that is the form `entities[].variants` can scope against."
+        },
+        "models": {
+          "type": "array",
+          "items": { "type": "string" },
+          "$comment": "Legacy spelling of `device.variants` as a bare name list. Declared pending migration; do not adopt it for anything new."
         }
       }
     },
@@ -1495,7 +1511,7 @@
     },
     "references": {
       "description": "RESERVED, and always invalid. Reference links go in `helpful_urls`; video links go in `helpful_videos`.",
-      "$comment": "Alias trap, and the one place this schema closes a door on purpose. Unknown top-level keys are allowed everywhere else so bespoke per-device blocks can travel alongside the standard fields, and a consumer ignoring a key it does not know is the intended outcome. `references` is the exception because it is not a bespoke block, it is a misspelling of a field that already exists: eighteen specs collected their teardowns, protocol write-ups and working implementations under `references:` and every consumer dropped the lot -- the index generator reads `helpful_urls`, so the links were in the file, out of the artifact, and nothing anywhere said so. Permissiveness cannot distinguish 'a key we do not understand' from 'a key we do understand, spelled wrong'; naming the wrong spelling is what makes the difference legible. Scoped to the top level deliberately: a `references:` nested inside a bespoke block (devolo's `zwave:` cites OpenZWave and openHAB database entries there) is prose citation, not a link list, and stays legal.",
+      "$comment": "Alias trap. The top level is closed now, so an undeclared key is rejected on its own; this entry survives because the message matters. `references` is not a bespoke block, it is a misspelling of a field that already exists, and 'additional properties are not allowed' does not say so: eighteen specs collected their teardowns, protocol write-ups and working implementations under `references:` and every consumer dropped the lot -- the index generator reads `helpful_urls`, so the links were in the file, out of the artifact, and nothing anywhere said so. Permissiveness cannot distinguish 'a key we do not understand' from 'a key we do understand, spelled wrong'; naming the wrong spelling is what makes the difference legible. Scoped to the top level deliberately: a `references:` nested inside a bespoke block (devolo's `zwave:` cites OpenZWave and openHAB database entries there) is prose citation, not a link list, and stays legal.",
       "not": {
         "$comment": "the key `references` is not read by anything -- rename it to `helpful_urls` (or `helpful_videos` for video links) and give each entry a `title` and a `url`"
       }
@@ -3091,6 +3107,77 @@
           }
         }
       }
+    },
+    "protocol_details": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Namespace for protocol facts this schema deliberately does not model: the bespoke, single-spec blocks carrying a vendor's own framing, opcode tables, session dance or message catalogue. Roku's ECP2 WebSocket layer, WLED's realtime streaming channels, Tuya's DP catalogue and admore's protobuf schema all live here. Nothing inside is a declared contract -- read it as documentation for a human implementer, not as a field to bind to. Anything a consumer should actually execute belongs in a first-class block (`services`, `http_endpoints`, `commands`, `entities`, ...), and a shape that starts recurring across specs is the signal to promote it and give it a schema of its own.",
+      "$comment": "The escape hatch that lets the top level close. The bespoke material is often the whole reverse-engineering result and must keep its place in the file; namespacing it is what makes every UNnamespaced key mean something."
+    },
+    "evidence": {
+      "type": "object",
+      "description": "How the facts in this spec were established -- what was read, what was captured, what was replayed against hardware, and what remains inference. Distinct from `helpful_urls`, which points a reader at further reading: this says what THIS document rests on, so a later reader can tell a byte-accurate transcription from a plausible reconstruction."
+    },
+    "sources": {
+      "type": "array",
+      "description": "Provenance entries, one per artifact examined.",
+      "$comment": "Legacy spelling of `evidence`, kept valid only until the catalogue is migrated onto the one key. Do not add new uses."
+    },
+    "source": {
+      "type": "object",
+      "description": "Provenance for a spec transcribed from a single published document -- the standards references name the standard and its revision here.",
+      "$comment": "Legacy spelling of `evidence`, kept valid only until the catalogue is migrated onto the one key. Do not add new uses."
+    },
+    "soap_common": {
+      "type": "object",
+      "description": "The SOAP envelope and response shape shared by every command in this spec, for a device whose wire format is not the textbook one. `request_format.template` carries `{action}`, `{serviceType}` and `{arguments}` placeholders; `response_format.parse_rule` says how to read a reply.",
+      "$comment": "Vendor-named, and first-class rather than bespoke, because a consumer BINDS to it: the mobile SOAP client reads `soap_common.request_format.template` and falls back to a generic envelope when it is missing, so this block is a contract and not documentation. That is the line between a declared key and `protocol_details`. Generalising the name (a `soap:` transport block alongside `http_endpoints`) is worth doing the next time a second SOAP device arrives."
+    },
+    "lifx_lan_protocol": {
+      "type": "object",
+      "description": "The LIFX LAN protocol facts this spec needs beyond its commands: message-type numbers, the multizone message set, and `zone_count` for a strip.",
+      "$comment": "Vendor-named, and first-class rather than bespoke, for the same reason as `soap_common`: a consumer binds to it. The mobile LIFX path reads `zone_count` to size a strip's zone controls and silently falls back to a single zone without it, so burying this block in `protocol_details` would cost multizone control with no error anywhere."
+    },
+    "remaining_unknowns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What this spec still does not know, stated plainly. A reverse-engineering document that lists its own gaps is worth more than one that reads complete, because the next person can pick up exactly where the last one stopped -- and because a silent gap is indistinguishable from a fact nobody thought to write down."
+    },
+    "ble": {
+      "type": "object",
+      "$comment": "Off-house-style BLE block used by the smart-lock family and a few BLE sensors, which describe connection, bonding and GATT layout here instead of under `services:` and `device.identification`. Declared so those specs validate while they are restructured; do not adopt it for anything new."
+    },
+    "advertising": {
+      "type": "object",
+      "$comment": "Off-house-style advertisement description, the companion of the legacy top-level `ble:` block. Its content belongs in `device.identification` (and `device.discovery` for payload layout). Declared pending that migration; do not adopt it for anything new."
+    },
+    "protocol": {
+      "type": "object",
+      "$comment": "Off-house-style framing/opcode block, the companion of the legacy top-level `ble:` block, and confusingly named: `device.protocol` is the transport enum and this is not it. Declared pending migration onto `services:`/`commands:`; do not adopt it for anything new."
+    },
+    "identification": {
+      "type": "object",
+      "$comment": "Off-house-style identification block. The schema's identification block is `device.identification`; this top-level spelling is the legacy lock shape. Declared pending migration; do not adopt it for anything new."
+    },
+    "variants": {
+      "type": "array",
+      "$comment": "Legacy spelling of `device.variants`. Declared pending migration; do not adopt it for anything new."
+    },
+    "model_variants": {
+      "type": "array",
+      "$comment": "Legacy spelling of `device.variants`. Declared pending migration; do not adopt it for anything new."
+    },
+    "hardware_variants": {
+      "type": "array",
+      "$comment": "Legacy spelling of `device.variants`. Declared pending migration; do not adopt it for anything new."
+    },
+    "firmware_variants": {
+      "type": "object",
+      "$comment": "Legacy spelling of `device.variants` for a family that differs by firmware line rather than by model. Declared pending migration; do not adopt it for anything new."
+    },
+    "device_families": {
+      "type": "array",
+      "$comment": "Legacy spelling of `device.variants`. Declared pending migration; do not adopt it for anything new."
     }
   }
 }

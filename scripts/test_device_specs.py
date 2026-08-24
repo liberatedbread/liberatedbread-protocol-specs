@@ -1262,3 +1262,89 @@ def test_unestablished_reset_cannot_hold_a_verified_procedure(candidate_reset_sp
     assert list(validator.iter_errors(spec)), (
         "schema accepted a verified procedure under an unestablished reset"
     )
+
+
+# --------------------------------------------------------------------------
+# The closed top level.
+#
+# schema.json rejects any undeclared key at the root and under `device:`. Same
+# mutation approach as above: a guard nothing currently violates is a guard
+# that can be deleted without a single test going red.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def closed_world_spec() -> dict:
+    """A plain, valid LAN spec to mutate against the closure rules."""
+    return load(DEVICES_DIR / "hue-bridge.yaml")
+
+
+def test_closed_world_spec_is_valid_to_begin_with(closed_world_spec):
+    validator = Draft202012Validator(_schema())
+    assert not list(validator.iter_errors(closed_world_spec))
+
+
+def test_an_undeclared_top_level_key_is_rejected(closed_world_spec):
+    """A bespoke block belongs under `protocol_details`, not at the root."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["hue_lan_protocol"] = {"notes": "bespoke"}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted an undeclared top-level key"
+    )
+
+
+def test_an_undeclared_device_key_is_rejected(closed_world_spec):
+    """The case this closure exists for: a standard field spelled wrong."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["transprot"] = "http"
+    assert list(validator.iter_errors(spec)), "schema accepted a typo'd device key"
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("local_access", {"status": "native"}),
+        ("features", [{"type": "image_upload"}]),
+        ("protocol_handler", "hue"),
+        ("payload_formats", {"state": {"description": "x"}}),
+    ],
+)
+def test_top_level_blocks_cannot_hide_under_device(closed_world_spec, key, value):
+    """These four are read at the top level and nowhere else.
+
+    Seventeen specs wrote them one level down and no consumer ever saw them --
+    five printers' image_upload capability among the casualties. Nesting them
+    is a validation error now rather than a silent loss.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec.pop(key, None)
+    spec["device"][key] = value
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted {key} nested under device:"
+    )
+
+
+def test_protocol_details_accepts_anything_it_is_given(closed_world_spec):
+    """The escape hatch has to actually escape, or specs route around it."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["protocol_details"] = {
+        "hue_lan_protocol": {"nested": {"deeply": ["arbitrary", 1, True]}}
+    }
+    assert not list(validator.iter_errors(spec))
+
+
+def test_bespoke_blocks_live_under_protocol_details(specs):
+    """Catalogue side of the same rule, named so a failure explains itself."""
+    declared = set(_schema()["properties"])
+    stray = {
+        device_id: sorted(set(spec) - declared)
+        for device_id, spec in specs.items()
+        if set(spec) - declared
+    }
+    assert not stray, (
+        f"undeclared top-level keys (move under protocol_details): {stray}"
+    )

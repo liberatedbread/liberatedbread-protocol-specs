@@ -148,125 +148,128 @@ device:
         into the oven itself, hence not_applicable rather than a transit
         protection grade.
 
-protocols:
-  devicenet_socketio:
-    description: >
-      "DeviceNet" — the realtime bus over which the app and the oven
-      actually talk. Both sides are outbound clients of the vendor server;
-      there is no direct app<->oven link. The oven connects with profile
-      'oven' (its on-device daemon is named devicenetd, per oven-side event
-      topics), the app with profile 'mobile'; 'web' and 'server' profiles
-      also exist.
-    transport: "socket.io / Engine.IO v4 over HTTPS"
-    endpoint: "https://devicenet.brava.com/devicenet/socket.io/"
-    qa_endpoint: "https://qa-devicenet.brava.com"
-    handshake: >
-      GET /devicenet/socket.io/?EIO=4&transport=polling returns the Engine.IO
-      open packet with sid, websocket upgrade, pingInterval 25000,
-      pingTimeout 5000 (verified live 2026-08-18). Application handshake
-      inside socket.io: connect -> hello -> auth; the client treats an
-      HTTP-style code == 200 response as ready and retries with backoff on
-      failure.
-    hello_payload:
-      fields: ["agent", "features", "profile", "protocolVersion", "version"]
-      protocol_version: "1.0.0"
-      profiles: ["oven", "mobile", "web", "server"]
-    message_envelope: >
-      Every published message carries {id, sentAt, sequence,
-      sentAtDeviceEpoch} and is ack-tracked: the sender publishes and waits
-      on an 'ack' channel; acknowledgements carry {code, topic, requestId}.
-    message_codes:
-      - code: "HI"
-        meaning: "hello / session open"
-      - code: "BRAVA-TOKEN"
-        meaning: "auth; payload carries the account token from /auth/mobile"
-      - code: "SUB"
-        meaning: "subscribe to topics"
-      - code: "UNSUB"
-        meaning: "unsubscribe"
-      - code: "PUB"
-        meaning: "publish a message to a topic"
-      - code: "TRACK"
-        meaning: "tracking message"
-      - code: "ACK"
-        meaning: "acknowledge; {code, topic, requestId}"
-      - code: "ERR"
-        meaning: "application-level error"
-    topics:
-      "<aid>": "actorId — the oven's identity on the bus (format/provenance unknown; serial-derived vs cloud-assigned UUID is an open question)"
-      "<env>": "environment prefix: production / qa / local"
-      map:
-        "status.request.<aid>": "app -> oven: request full status"
-        "telemetry.request.<aid>": "app -> oven: request telemetry stream"
-        "telemetry.data.<mode>.<rate>.<aid>": "oven -> app: telemetry frames; mode 'full', rate 'oncepersecond' observed in the bundle"
-        "camera.request.<aid>": "app -> oven: request camera feed; TransferMode chunked or framed, chunks reassembled with frameNumber/chunks"
-        "camera.data.<aid>": "oven -> app: camera frame data"
-        "remotecontrol.<aid>": "app -> oven: ALL control commands"
-        "<env>.event.oven.devicenetd.cook_started.<aid>": "oven event"
-        "<env>.event.oven.devicenetd.cook_completed.<aid>": "oven event"
-        "<env>.event.oven.devicenetd.error_occurred.<aid>": "oven event"
-        "<env>.event.oven.coreui.cook_almost_complete.<aid>": "oven UI event (coreui = the oven's on-screen UI process)"
-        "<env>.event.backend.auth.actors_linked.<aid>": "backend event: oven linked to account"
-        "<env>.event.backend.auth.actors_unlinked.<aid>": "backend event: oven unlinked"
-        "<env>.event.backend.prefs.preference_updated.<aid>": "backend prefs sync"
-        "<env>.event.cms.publisher.custom_cook_updated.<aid>": "content sync"
-    remote_control:
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  protocols:
+    devicenet_socketio:
       description: >
-        All cook control is a publish to remotecontrol.<aid> with an
-        {action, ...} payload. Actions: start, stop, pause, step, reset,
-        acknowledgeStatus, enqueue, none. Safety interlock: remote commands
-        only ENQUEUE a cook — a human must press the oven's physical start
-        button to actually begin heating.
-      enqueue_variants:
-        "enqueueCook": "{recipeV2Id, variant_parameter_id, variant_option_id}"
-        "enqueueCustomCook": "{customCookId}"
-        "enqueueCombo": "{comboId, userSelections, loadCook}"
-        "enqueuePreset": "{presetId, userSelections, loadCook}"
-        "enqueueRecipeV3": "{recipeV3Id, userSelections, loadCook}"
-        "enqueueManualMode": "{manualMode, loadCook}"
-        "enqueueMultiStep": "{multiStepId, loadCook}"
-        "enqueueCustomCookV3": "{v3CustomCookId, userSelections, loadCook}"
-      notes: >
-        *AllOvens variants broadcast to every oven on the account. Cook types
-        seen in the bundle: reheat, bake, sear, fry, dehydrate, warm,
-        touchup_toast, touchup_sear, touchup_doneness, multi_step, unknown.
-    unknowns:
-      - "Exact JSON schemas of telemetry frames, status responses and camera chunks (frame codec, resolution, fps)"
-      - "actorId format and the account-linking handshake"
-      - "Whether the camera feed also flows through a separate AWS API Gateway relay (cookvideo-prod, us-east-2) distinct from camera.data.*"
-      - "Oven-side TLS posture (certificate pinning or not) — decides the DNS-redirect rescue"
-  rest_api:
-    description: >
-      Account, recipe, content and push-registration REST API. All paths
-      below were recovered from the bundle's string table against the prod
-      host; QA equivalents live on qa-*.brava.com hosts.
-    base: "https://api-94063.brava.com"
-    paths:
-      - "/auth/mobile"
-      - "/account/otp/"
-      - "/account/auto_login/"
-      - "/token"
-      - "/api/ , /api/profile/"
-      - "/config/ , /credential"
-      - "/recipes/ , /recipe/ , /recipev3/"
-      - "/custom_cooks/ , /v2/custom_cook/ , /v3/custom_cook/"
-      - "/v3/home/ , /v3/profile/ , /v3/profile-prefs/ , /v3/top_chef/"
-      - "/cooking/cooklog[s]/ , /cooking/combo/ , /cooking/preset/ , /cooking/favorite_cooks/ , /cooking/metrics/"
-      - "/notifier/api/link_device/ , /notifier/api/unlink_device/ (push-token registration)"
-      - "/files/ , /support/ticket/ , /products/marketplace"
-      - "/publisher (recipe/content publication), /shop"
-    content_hosts:
-      - "images.bravacontent.com"
-      - "assets-cdn.brava.com"
-      - "ugc-prod.bravacontent.com"
-  local:
-    description: >
-      NONE. No mDNS/Bonjour advertisement, no SoftAP mode, no RFC1918
-      listener and no direct HTTP-to-oven code exist in the app; the FCC
-      grant lists Wi-Fi client radios only and no Bluetooth. The oven is an
-      outbound cloud client, full stop. Any future local control starts from
-      hardware access (serial/eMMC dump of the oven's Linux system) or from
-      DNS-redirecting the cloud hostnames.
+        "DeviceNet" — the realtime bus over which the app and the oven
+        actually talk. Both sides are outbound clients of the vendor server;
+        there is no direct app<->oven link. The oven connects with profile
+        'oven' (its on-device daemon is named devicenetd, per oven-side event
+        topics), the app with profile 'mobile'; 'web' and 'server' profiles
+        also exist.
+      transport: "socket.io / Engine.IO v4 over HTTPS"
+      endpoint: "https://devicenet.brava.com/devicenet/socket.io/"
+      qa_endpoint: "https://qa-devicenet.brava.com"
+      handshake: >
+        GET /devicenet/socket.io/?EIO=4&transport=polling returns the Engine.IO
+        open packet with sid, websocket upgrade, pingInterval 25000,
+        pingTimeout 5000 (verified live 2026-08-18). Application handshake
+        inside socket.io: connect -> hello -> auth; the client treats an
+        HTTP-style code == 200 response as ready and retries with backoff on
+        failure.
+      hello_payload:
+        fields: ["agent", "features", "profile", "protocolVersion", "version"]
+        protocol_version: "1.0.0"
+        profiles: ["oven", "mobile", "web", "server"]
+      message_envelope: >
+        Every published message carries {id, sentAt, sequence,
+        sentAtDeviceEpoch} and is ack-tracked: the sender publishes and waits
+        on an 'ack' channel; acknowledgements carry {code, topic, requestId}.
+      message_codes:
+        - code: "HI"
+          meaning: "hello / session open"
+        - code: "BRAVA-TOKEN"
+          meaning: "auth; payload carries the account token from /auth/mobile"
+        - code: "SUB"
+          meaning: "subscribe to topics"
+        - code: "UNSUB"
+          meaning: "unsubscribe"
+        - code: "PUB"
+          meaning: "publish a message to a topic"
+        - code: "TRACK"
+          meaning: "tracking message"
+        - code: "ACK"
+          meaning: "acknowledge; {code, topic, requestId}"
+        - code: "ERR"
+          meaning: "application-level error"
+      topics:
+        "<aid>": "actorId — the oven's identity on the bus (format/provenance unknown; serial-derived vs cloud-assigned UUID is an open question)"
+        "<env>": "environment prefix: production / qa / local"
+        map:
+          "status.request.<aid>": "app -> oven: request full status"
+          "telemetry.request.<aid>": "app -> oven: request telemetry stream"
+          "telemetry.data.<mode>.<rate>.<aid>": "oven -> app: telemetry frames; mode 'full', rate 'oncepersecond' observed in the bundle"
+          "camera.request.<aid>": "app -> oven: request camera feed; TransferMode chunked or framed, chunks reassembled with frameNumber/chunks"
+          "camera.data.<aid>": "oven -> app: camera frame data"
+          "remotecontrol.<aid>": "app -> oven: ALL control commands"
+          "<env>.event.oven.devicenetd.cook_started.<aid>": "oven event"
+          "<env>.event.oven.devicenetd.cook_completed.<aid>": "oven event"
+          "<env>.event.oven.devicenetd.error_occurred.<aid>": "oven event"
+          "<env>.event.oven.coreui.cook_almost_complete.<aid>": "oven UI event (coreui = the oven's on-screen UI process)"
+          "<env>.event.backend.auth.actors_linked.<aid>": "backend event: oven linked to account"
+          "<env>.event.backend.auth.actors_unlinked.<aid>": "backend event: oven unlinked"
+          "<env>.event.backend.prefs.preference_updated.<aid>": "backend prefs sync"
+          "<env>.event.cms.publisher.custom_cook_updated.<aid>": "content sync"
+      remote_control:
+        description: >
+          All cook control is a publish to remotecontrol.<aid> with an
+          {action, ...} payload. Actions: start, stop, pause, step, reset,
+          acknowledgeStatus, enqueue, none. Safety interlock: remote commands
+          only ENQUEUE a cook — a human must press the oven's physical start
+          button to actually begin heating.
+        enqueue_variants:
+          "enqueueCook": "{recipeV2Id, variant_parameter_id, variant_option_id}"
+          "enqueueCustomCook": "{customCookId}"
+          "enqueueCombo": "{comboId, userSelections, loadCook}"
+          "enqueuePreset": "{presetId, userSelections, loadCook}"
+          "enqueueRecipeV3": "{recipeV3Id, userSelections, loadCook}"
+          "enqueueManualMode": "{manualMode, loadCook}"
+          "enqueueMultiStep": "{multiStepId, loadCook}"
+          "enqueueCustomCookV3": "{v3CustomCookId, userSelections, loadCook}"
+        notes: >
+          *AllOvens variants broadcast to every oven on the account. Cook types
+          seen in the bundle: reheat, bake, sear, fry, dehydrate, warm,
+          touchup_toast, touchup_sear, touchup_doneness, multi_step, unknown.
+      unknowns:
+        - "Exact JSON schemas of telemetry frames, status responses and camera chunks (frame codec, resolution, fps)"
+        - "actorId format and the account-linking handshake"
+        - "Whether the camera feed also flows through a separate AWS API Gateway relay (cookvideo-prod, us-east-2) distinct from camera.data.*"
+        - "Oven-side TLS posture (certificate pinning or not) — decides the DNS-redirect rescue"
+    rest_api:
+      description: >
+        Account, recipe, content and push-registration REST API. All paths
+        below were recovered from the bundle's string table against the prod
+        host; QA equivalents live on qa-*.brava.com hosts.
+      base: "https://api-94063.brava.com"
+      paths:
+        - "/auth/mobile"
+        - "/account/otp/"
+        - "/account/auto_login/"
+        - "/token"
+        - "/api/ , /api/profile/"
+        - "/config/ , /credential"
+        - "/recipes/ , /recipe/ , /recipev3/"
+        - "/custom_cooks/ , /v2/custom_cook/ , /v3/custom_cook/"
+        - "/v3/home/ , /v3/profile/ , /v3/profile-prefs/ , /v3/top_chef/"
+        - "/cooking/cooklog[s]/ , /cooking/combo/ , /cooking/preset/ , /cooking/favorite_cooks/ , /cooking/metrics/"
+        - "/notifier/api/link_device/ , /notifier/api/unlink_device/ (push-token registration)"
+        - "/files/ , /support/ticket/ , /products/marketplace"
+        - "/publisher (recipe/content publication), /shop"
+      content_hosts:
+        - "images.bravacontent.com"
+        - "assets-cdn.brava.com"
+        - "ugc-prod.bravacontent.com"
+    local:
+      description: >
+        NONE. No mDNS/Bonjour advertisement, no SoftAP mode, no RFC1918
+        listener and no direct HTTP-to-oven code exist in the app; the FCC
+        grant lists Wi-Fi client radios only and no Bluetooth. The oven is an
+        outbound cloud client, full stop. Any future local control starts from
+        hardware access (serial/eMMC dump of the oven's Linux system) or from
+        DNS-redirecting the cloud hostnames.
 
 cloud:
   required: true
