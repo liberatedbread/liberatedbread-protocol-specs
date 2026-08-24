@@ -1778,3 +1778,24 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
         "BLE specs with neither an identification axis nor a stated reason "
         f"there is none: {unmatched}"
     )
+
+
+def test_gaps_md_states_the_real_spec_count(specs):
+    """A hand-written count drifts, silently, and then it is just wrong.
+
+    GAPS.md claimed 92/92 while the catalogue was validating 137. The number is
+    the one thing in that file a machine can check, so it should be checked.
+    """
+    devices = len(SPEC_PATHS)
+    examples = len(
+        list((REPO_ROOT / "device-specs" / "examples").glob("*.yaml"))
+    )
+    total = devices + examples
+    text = (REPO_ROOT / "GAPS.md").read_text(encoding="utf-8")
+    expected = (
+        f"## Validation: {total}/{total} passing "
+        f"({devices} device specs + {examples} example)"
+    )
+    assert expected in text, (
+        f"GAPS.md validation line is stale; it should read:\n  {expected}"
+    )
