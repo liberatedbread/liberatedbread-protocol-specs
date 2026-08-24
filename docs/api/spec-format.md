@@ -21,7 +21,7 @@ device:              # identity, discovery, and one-time setup
   manufacturer: ...
   manufacturer_status: ...   # abandoned | shutdown | unsupported | active
   openness: ...              # was this protocol published, or did we recover it?
-  protocol: ...              # ble | wifi | zigbee | zwave | obd2 | uart | can
+  protocol: ...              # ble | wifi | lan | zigbee | zwave | obd2 | uart | can
   category: ...              # what KIND of thing it is — closed vocabulary
   type: ...                  # what the thing IS — free text
   identification: ...        # how to recognise it while scanning
