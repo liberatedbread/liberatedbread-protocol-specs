@@ -110,6 +110,37 @@ rejected by the schema rather than ignored: it reads like a spec field, it is
 not one, and a spec that used it kept its links in the file and out of every
 generated artifact with nothing to say so.
 
+### Where the facts came from
+
+`helpful_urls` points a reader onward. `evidence` says what *this document*
+rests on, so a later reader can tell a byte-accurate transcription from a
+plausible reconstruction — and knows which claim to re-check first when a
+device stops behaving.
+
+```yaml
+evidence:
+  app_static_analysis: >
+    Prose: what was read, and what it established.
+  open_questions: >
+    Prose: what is still inference.
+  artifacts:                        # the itemised half
+    - type: "static_analysis"
+      artifact: "com.example.app v1.2.3 (versionCode 1203)"
+      sha256: "…"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: "What this build established, negative findings included."
+```
+
+Every section but `artifacts` is free-form: name it for what it was
+(`live_lan_probe`, `documentation_review`, `app_static_analysis`) and write
+prose. `artifacts` is a list and each entry needs a `type`. Record the digest
+of an artifact, never the artifact — see the clean-room rules.
+
+Provenance is spelled `evidence` and nothing else. `sources:` and `source:`
+were two other spellings of the same idea and are rejected now, for the reason
+`references` is: three shapes meant nothing could ask a spec where its facts
+came from without already knowing which one its author had reached for.
+
 ### Three things that sound alike
 
 Keeping these apart is the single most useful thing to know when reading a spec:

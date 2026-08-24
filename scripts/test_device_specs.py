@@ -1448,3 +1448,34 @@ def test_no_unit_names_two_quantities(specs):
         if "," in value
     ]
     assert not compound, f"compound units (describe the pair in prose): {compound}"
+
+
+@pytest.mark.parametrize("retired", ["sources", "source"])
+def test_the_retired_provenance_spellings_are_rejected(closed_world_spec, retired):
+    """Three keys meant provenance; only `evidence` does now."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec[retired] = [{"type": "static_analysis"}]
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired provenance key {retired!r}"
+    )
+
+
+def test_an_artifact_says_what_kind_of_artifact_it_is(closed_world_spec):
+    """A digest with no `type` cannot be weighed against anything."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["evidence"] = {"artifacts": [{"sha256": "0" * 64}]}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted an evidence artifact with no type"
+    )
+
+
+def test_provenance_is_spelled_evidence_everywhere(specs):
+    """Catalogue side, naming the spec rather than the key."""
+    stray = {
+        device_id: sorted({"sources", "source"} & set(spec))
+        for device_id, spec in specs.items()
+        if {"sources", "source"} & set(spec)
+    }
+    assert not stray, f"provenance outside `evidence`: {stray}"
