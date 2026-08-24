@@ -1695,3 +1695,42 @@ def test_an_endpoint_hedged_in_prose_is_hedged_in_its_status(specs):
     assert not unmarked, (
         f"endpoints hedged in prose but not in `status`: {unmarked}"
     )
+
+
+# --------------------------------------------------------------------------
+# Discovery: absent, stated-absent, or answered.
+# --------------------------------------------------------------------------
+
+
+def test_a_discovery_block_answers_its_own_question(closed_world_spec):
+    """`identity` and `static_ip_required` without `methods` says nothing.
+
+    Two specs carried exactly that -- a discovery block describing how to
+    IDENTIFY a device it never said how to FIND.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["discovery"] = {"static_ip_required": False}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted a discovery block with neither methods nor none"
+    )
+
+
+def test_discovery_cannot_be_both_absent_and_present(closed_world_spec):
+    """`none` is the escape, not an annotation to hang beside real methods."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["discovery"]["none"] = "x" * 40
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted discovery with both methods and none"
+    )
+
+
+def test_stated_absence_gives_a_reason(closed_world_spec):
+    """Bare 'none' repeats what an omitted block already said."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["discovery"] = {"none": "no"}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted discovery.none with no real reason"
+    )
