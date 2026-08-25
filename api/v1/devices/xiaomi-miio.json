@@ -1,0 +1,160 @@
+{
+  "commands": {
+    "get_properties": {
+      "body": "{\"id\":1,\"method\":\"get_prop\",\"params\":[\"power\"]}",
+      "description": "Read device properties (per-device JSON-RPC method, e.g. get_prop / get_properties).",
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "handshake": {
+      "body": "21 31 00 20 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF",
+      "description": "Send the Hello packet to learn the device id/stamp (and, on some devices, the token).",
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "set_power": {
+      "body": "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\"]}",
+      "description": "Set power (example legacy method; MIoT devices use set_properties with siid/piid).",
+      "transport": "udp",
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "other",
+    "discovery": {
+      "identity": {
+        "display": "model",
+        "stable_keys": [
+          "device_id",
+          "mac"
+        ]
+      },
+      "methods": [
+        {
+          "mdns": {
+            "identity_mapping": {
+              "display": {
+                "source": "txt:model"
+              },
+              "stable_keys": [
+                {
+                  "key": "mac",
+                  "source": "txt:mac"
+                }
+              ]
+            },
+            "port": 54321,
+            "service_type": "_miio._udp.local."
+          },
+          "notes": "Some miIO devices advertise mDNS with device-type info; all answer the UDP 54321 Hello handshake (which may reveal the token). See miio_protocol.\n",
+          "type": "mdns"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 54321
+    },
+    "manufacturer": "Xiaomi (and ecosystem OEMs — Roborock, Dreame, Viomi, etc.)",
+    "manufacturer_status": "active",
+    "name": "Xiaomi miIO / MiHome Devices (transport)",
+    "notes": "miIO is the local UDP transport spoken by a huge range of Xiaomi/Mijia ecosystem devices — robot vacuums, air purifiers, plugs, lights, gateways. Documenting the TRANSPORT lets every miIO device be reached locally; the per-device commands are JSON-RPC payloads carried inside it. No cloud is needed once the per-device token is known — but obtaining that token usually requires a one-time cloud step.\nTRANSPORT: encrypted binary over UDP port 54321. 32-byte header: magic 0x2131 (16b); packet length incl. header (16b); Unknown1 (32b, 0x00000000 normal / 0xFFFFFFFF in Hello); Device ID (32b, 0xFFFFFFFF in Hello); Stamp (32b, incrementing); then a 128-bit field = MD5 checksum OR the device token; then optional encrypted payload.\nHANDSHAKE (\"Hello\"): client sends a fixed 32-byte packet (magic 0x2131, length 0x0020, all remaining fields 0xFF); the device replies with a 32-byte packet carrying its 128-bit token in the checksum field.\nENCRYPTION: AES-128-CBC + PKCS#7. Key = MD5(Token); IV = MD5(Key + Token). The MD5 checksum field covers the whole packet with the checksum field zeroed; Stamp is a transaction counter. Payloads are JSON-RPC commands.\nDISCOVERY: two ways — by handshake (works on all miIO devices, may expose the token, but gives no device-type info) and by mDNS (returns device-type info but not on all devices). `miiocli discover` auto-detects on the LAN.\n",
+    "openness": {
+      "license": "GPL-3.0",
+      "notes": "Not officially published; the transport was reverse-engineered and is fully documented by the community. python-miio is the reference client. Modern devices layer MIoT (miot-spec) over the same transport.\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/rytilahti/python-miio",
+      "status": "undocumented",
+      "upstream_docs": [
+        {
+          "covers": "The 32-byte header, handshake, AES-128-CBC key/IV derivation and checksum.",
+          "title": "OpenMiHome — miIO binary protocol",
+          "url": "https://github.com/OpenMiHome/mihome-binary-protocol/blob/master/doc/PROTOCOL.md"
+        }
+      ]
+    },
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "low",
+      "credentials": {
+        "issued_to_client": [
+          "The 128-bit token (from handshake or cloud extraction)"
+        ],
+        "notes": "The token is the whole security model: anyone on the LAN with the token can control the device. A token of all 0s or all fs is a placeholder; a token with other characters is likely valid.\n",
+        "stored_on_device": [
+          "Wi-Fi credentials",
+          "Per-device 128-bit token"
+        ],
+        "wifi_passphrase_protection": "unknown"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "effect": "Per-device reset (usually a button hold) returns the device to onboarding and may rotate the token. Gestures vary by product and are not transcribed here.\n"
+      },
+      "methods": [
+        {
+          "cloud": {
+            "local_alternative": "Yes — once the per-device token is known, all control is local over UDP 54321. The cloud is touched only to obtain the token (and some devices leak it via the local handshake, needing no cloud at all).\n"
+          },
+          "description": "Onboard onto Wi-Fi with Mi Home, then obtain the per-device token (from the Hello handshake if it exposes it, else `miiocli cloud list` against a Xiaomi account). Control is local UDP 54321 thereafter.\n",
+          "steps": [
+            {
+              "action": "Onboard the device onto Wi-Fi with the Mi Home app.",
+              "actor": "user"
+            },
+            {
+              "action": "Obtain the per-device token (local handshake or `miiocli cloud list`).",
+              "actor": "client"
+            },
+            {
+              "action": "Control locally over UDP 54321 with the token.",
+              "actor": "client"
+            }
+          ],
+          "type": "cloud_account",
+          "verified": false
+        }
+      ],
+      "notes": "A device is onboarded onto Wi-Fi via the Mi Home app. Local control then needs the per-device 128-bit token: it can sometimes be read from the Hello handshake, but usually it is extracted once from the Xiaomi cloud (`miiocli cloud list`, needs the micloud package + Xiaomi account). After that, control is local.\n",
+      "rejoin": {
+        "in_place_supported": false,
+        "notes": "Wi-Fi re-provisioning is via Mi Home; a reset may rotate the token, requiring re-extraction.\n",
+        "requires_factory_reset": true
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "Not driven against hardware by this project. The 32-byte header, the handshake, AES-128-CBC key/IV derivation and the UDP port are from OpenMiHome/mihome-binary-protocol; discovery and token extraction from python-miio.\n",
+      "status": "untested"
+    },
+    "transport": "udp"
+  },
+  "helpful_urls": [
+    {
+      "description": "The miIO binary transport: header, handshake, AES-128-CBC key/IV, checksum.",
+      "title": "OpenMiHome/mihome-binary-protocol",
+      "url": "https://github.com/OpenMiHome/mihome-binary-protocol/blob/master/doc/PROTOCOL.md"
+    },
+    {
+      "description": "GPL-3.0 reference client; discovery, token handling, per-device command modules and generic MIoT.",
+      "title": "rytilahti/python-miio",
+      "url": "https://github.com/rytilahti/python-miio"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "Placeholder only. Control is AES-encrypted JSON-RPC over UDP port 54321 (see miio_protocol), not HTTP.\n",
+      "method": "GET",
+      "name": "Local API Placeholder",
+      "path": "/"
+    }
+  ],
+  "miio_protocol": {
+    "handshake": "Client Hello = fixed 32 bytes (magic 0x2131, length 0x0020, rest 0xFF); device replies with its token in the checksum field.",
+    "header": "32 bytes: magic 0x2131 (16b), length incl. header (16b), Unknown1 (32b), Device ID (32b), Stamp (32b), then 128-bit MD5-checksum-or-token.\n",
+    "key_derivation": "Key = MD5(Token); IV = MD5(Key + Token).",
+    "payload": "JSON-RPC, e.g. {\"id\":1,\"method\":\"get_prop\",\"params\":[...]} (per-device method set).",
+    "transport": "UDP, port 54321, AES-128-CBC (PKCS#7) payloads"
+  }
+}

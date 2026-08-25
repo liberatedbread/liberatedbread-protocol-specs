@@ -1,0 +1,143 @@
+{
+  "device": {
+    "category": "energy",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "value": "BT-TH-"
+            }
+          },
+          "notes": "Renogy BT modules advertise a name beginning \"BT-TH-\". A client needs the module's MAC, an alias and the Modbus device_id to talk to it.\n",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefix": "BT-TH-"
+    },
+    "manufacturer": "Renogy (Rover/Wanderer/Adventurer controllers; SRNE / Rich Solar rebadges)",
+    "manufacturer_status": "active",
+    "name": "Renogy BT-1 / BT-2 Solar Charge Controllers",
+    "notes": "Renogy's BT-1 (RS232 bridge) and BT-2 (RS485 bridge) modules plug into a Renogy charge controller / battery / inverter and expose it over BLE. Control is Modbus RTU frames tunneled over GATT — no cloud, no account. Reads (and, for some devices, writes) work locally; only one BLE client at a time (the Renogy app vs a third-party client).\nGATT: write characteristic 0000ffd1-0000-1000-8000-00805f9b34fb; notify characteristic 0000fff1-0000-1000-8000-00805f9b34fb.\nFRAMING: standard Modbus RTU. Example read request (Rover): bytes [255, 3, 1, 0, 0, 34, 209, 241] = device address 255, function 0x03, start register 0x0100, 34 words, CRC16. Standalone devices answer at Modbus address 255; in multi-device \"hub\" mode, controllers are 96-97, batteries 48-50, the inverter broadcast is 32.\nROVER/WANDERER REGISTERS (from RoverClient):\n  reg 12  x8 words  model / function string\n  reg 26  x1        device (Modbus) address\n  reg 256 (0x0100) x34 words  MAIN TELEMETRY: battery %, voltage, current,\n          temperature; controller temperature; load status/voltage/current/\n          power; PV voltage/current/power; daily + total generation/\n          consumption; charging status (mppt/boost/floating)\n  reg 57348 (0xE004) x1  battery type (open/sealed/gel/lithium/custom)\n",
+    "openness": {
+      "license": "GPL-3.0",
+      "notes": "No official protocol publication; cyrils/renogy-bt documents the GATT + Modbus usage and multiple implementations (incl. an ESPHome port) agree for the Rover class. Battery/inverter register layouts vary by model.\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/cyrils/renogy-bt",
+      "status": "undocumented"
+    },
+    "protocol": "ble",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No pairing/auth documented. Reads are open; writes change controller configuration and should be treated as advanced.\n",
+        "stored_on_device": [
+          "Controller configuration (battery type, limits) via Modbus registers"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "effect": "No documented BLE factory reset for the module; controller settings are changed via Modbus writes to the config registers, not a single reset.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false
+          },
+          "description": "Connect to the \"BT-TH-\" module, subscribe to the notify characteristic (0xFFF1), and write Modbus RTU read requests to the write characteristic (0xFFD1). Read register 0x0100 (34 words) for the main telemetry block.\n",
+          "steps": [
+            {
+              "action": "Plug the BT-1/BT-2 module into the controller's comms port.",
+              "actor": "user"
+            },
+            {
+              "action": "Connect over BLE, subscribe to 0xFFF1, write a Modbus read of 0x0100 to 0xFFD1.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision beyond plugging the BT module into the controller's RJ12/RJ45 port. Connect over BLE and issue Modbus reads. Only one BLE client can be connected at a time.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "No network membership; a new BLE client connects independently (one at a time).",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "notes": "Not driven against hardware by this project. GATT UUIDs, the Modbus-over- BLE framing and the Rover register block are from cyrils/renogy-bt.\n",
+      "status": "untested"
+    }
+  },
+  "entities": [
+    {
+      "device_class": "voltage",
+      "name": "Battery Voltage",
+      "notes": "From register block 0x0100.",
+      "platform": "sensor",
+      "unit": "V"
+    },
+    {
+      "device_class": "power",
+      "name": "PV Power",
+      "notes": "From register block 0x0100.",
+      "platform": "sensor",
+      "unit": "W"
+    },
+    {
+      "device_class": "battery",
+      "name": "Battery State of Charge",
+      "notes": "From register block 0x0100.",
+      "platform": "sensor",
+      "unit": "%"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "GPL-3.0 reference client: GATT UUIDs, Modbus-over-BLE framing, Rover register map, MQTT/HTTP republish.",
+      "title": "cyrils/renogy-bt",
+      "url": "https://github.com/cyrils/renogy-bt"
+    }
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "name": "Write (Modbus request)",
+          "notes": "Modbus RTU read/write requests written here (e.g. read 0x0100 x34).",
+          "properties": [
+            "write"
+          ],
+          "uuid": "0000ffd1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Notify (Modbus response)",
+          "notes": "Modbus RTU responses arrive here.",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "0000fff1-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Renogy BT module service",
+      "notes": "Write Modbus RTU requests to 0xFFD1; responses arrive on the notify characteristic 0xFFF1. Frames are standard Modbus RTU with CRC16.\n",
+      "uuid": "0000ffd0-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

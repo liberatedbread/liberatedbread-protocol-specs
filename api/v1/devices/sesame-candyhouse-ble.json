@@ -1,0 +1,202 @@
+{
+  "device": {
+    "category": "lock",
+    "discovery": {
+      "identity": {
+        "display": "device_uuid",
+        "stable_keys": [
+          "device_uuid"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "manufacturer_data": {
+              "company_id": 1370,
+              "description": "CANDY HOUSE (0x055A); model code + device UUID in the manufacturer data."
+            },
+            "service_uuids": [
+              "0000fd81-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "notes": "Match the 0xFD81 service and company id 0x055A; the 16-byte device UUID in the manufacturer data is the stable identity.\n",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "manufacturer_data": {
+        "company_id": 1370,
+        "company_id_hex": "0x055A",
+        "description": "CANDY HOUSE. Manufacturer data carries a model code (bytes 8-9: 0 Sesame 3, 4 Sesame 4, 5 Sesame 5, 17 Sesame Bot 2), a status byte and the 16-byte device UUID. The advertisement also carries the 0xFD81 service UUID.\n"
+      },
+      "service_uuids": [
+        "0000fd81-0000-1000-8000-00805f9b34fb"
+      ]
+    },
+    "manufacturer": "CANDY HOUSE",
+    "manufacturer_status": "active",
+    "name": "SESAME Smart Locks (SESAME 3/4/5/5 PRO, Bot 2, bike 2)",
+    "notes": "SESAME locks by CANDY HOUSE are unusually developer-friendly: the vendor PUBLISHES the full SesameOS3 BLE protocol and ships open-source SDKs (the vendor app runs on the same SDK). Full local BLE lock/unlock/history works with no vendor cloud once the per-device secret is held; the cloud/AWS-IoT is only for remote access.\nADVERTISEMENT: service 0xFD81; a 31-byte packet with manufacturer data under company id 0x055A (1370) carrying a product model code (0 = Sesame 3, 4 = Sesame 4, 5 = Sesame 5, 17 = Sesame Bot 2), a status byte and the 16-byte device UUID, plus the complete-16-bit-service-UUID field (03 03 81 FD).\nGATT: write (commands) 16860002-a5ae-9856-b6d3-dbb4c676993e; notify (responses/publishes) 16860003-a5ae-9856-b6d3-dbb4c676993e. Transport is 20-byte segments; the first header byte bit0 is a start flag and the upper bits are the type: 0x01 plaintext-start, 0x02 plaintext-end, 0x03 plaintext-single, 0x04 ciphertext-end, 0x05 ciphertext-single. Message op types: 0x07 Response, 0x08 Publish.\nITEM/COMMAND CODES: 1 Registration, 2 Login, 4 History, 5 Version, 8 Time-update, 14 Initialization, 80 Mech-settings, 81 Mech-status, 82 Lock, 83 Unlock, 104 Reset.\nCRYPTO: key agreement is SECP256R1 ECDH between app and device at Registration; the first 16 bytes of the shared secret become the symmetric device_secret. A 16-byte session token = AES-CMAC(device_secret, random_code) where random_code is a 4-byte value the device publishes at init. Payloads are AES-CCM with a 13-byte IV = counter(8) + nonce(1) + random_code(4) and a 4-byte auth tag. Login enforces a ±3 s time-sync before encrypted traffic.\n",
+    "openness": {
+      "notes": "Officially published and independently re-implemented (libsesame3bt-core). Nothing was reverse-engineered; upstream is authoritative.\n",
+      "reverse_engineered": false,
+      "source_code": "https://github.com/CANDY-HOUSE/API_document",
+      "status": "open_by_design",
+      "upstream_docs": [
+        {
+          "covers": "The advertisement layout, GATT UUIDs, segment framing, item codes and the ECDH/AES-CCM crypto.",
+          "title": "CANDY HOUSE — SesameOS3 Bluetooth protocol",
+          "url": "https://github.com/CANDY-HOUSE/API_document/blob/master/SesameOS3/bluetooth.md"
+        },
+        {
+          "covers": "The overall SesameOS3 SDK and API surface.",
+          "title": "CANDY HOUSE developer docs",
+          "url": "https://docs.candyhouse.co/"
+        }
+      ]
+    },
+    "protocol": "ble",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [
+          "device_secret (first 16 bytes of the ECDH shared secret)"
+        ],
+        "notes": "Per-device ECDH secret + AES-CCM with a timestamp check resists trivial replay. No Wi-Fi on the lock (a separate Wi-Fi module / hub provides remote access). No public advisory surfaced.\n",
+        "stored_on_device": [
+          "Per-device secret (from ECDH at Registration)"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": true,
+        "confidence": "medium",
+        "effect": "Item code 104 (Reset) returns the lock to unregistered state, clearing the device_secret and settings. A physical reset button also exists on the hardware.\n",
+        "procedures": [
+          {
+            "basis": "Documented in the SesameOS3 protocol (item code 104); not replayed by this project.",
+            "name": "Reset command (item 104)",
+            "steps": [
+              {
+                "action": "Send the Reset command (item 104) over an authenticated session, or use the hardware reset button.",
+                "actor": "client",
+                "expect": "The lock returns to unregistered state."
+              }
+            ],
+            "verified": false
+          }
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": true
+          },
+          "description": "Register (ECDH) to obtain the device_secret, then Login (establish the AES-CMAC session token, sync time within ±3 s) and send Lock (82) / Unlock (83) as AES-CCM ciphertext segments on the write characteristic. The Registration/ECDH step is a genuine pairing/provisioning flow, not plain connect-and-go.\n",
+          "steps": [
+            {
+              "action": "Register: perform SECP256R1 ECDH with the lock to derive the device_secret (or load it from the printed QR on SESAME 5).",
+              "actor": "user"
+            },
+            {
+              "action": "Login: derive the session token AES-CMAC(device_secret, random_code); sync the clock within ±3 s.",
+              "actor": "client"
+            },
+            {
+              "action": "Send Lock (82) / Unlock (83) as AES-CCM segments to 16860002; read responses on 16860003.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_provisioning",
+          "verified": false
+        }
+      ],
+      "notes": "Registration is an in-app ECDH pairing that mints the per-device device_secret (for SESAME 5-class hardware the secret can also come from the printed QR). After that, local control needs only the device_secret and a ±3 s time sync. Confidence high: officially documented and independently implemented.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "No network membership; a client with the device_secret re-connects independently.",
+        "requires_factory_reset": false
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "Not driven against hardware by this project. The service/characteristic UUIDs, segment framing, item codes and the ECDH/AES-CCM crypto are from CANDY HOUSE's own SesameOS3 documentation, corroborated by the independent libsesame3bt-core ESP32 implementation.\n",
+      "status": "untested"
+    }
+  },
+  "entities": [
+    {
+      "command_characteristic": "16860002-a5ae-9856-b6d3-dbb4c676993e",
+      "commands": {
+        "turn_off": "unlock",
+        "turn_on": "lock"
+      },
+      "icon": "mdi:lock",
+      "name": "Lock",
+      "notes": "on = locked (item 82), off = unlocked (item 83).",
+      "platform": "switch"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "The official published protocol: advertisement, GATT UUIDs, segment framing, item codes, ECDH/AES-CCM crypto.",
+      "title": "CANDY HOUSE — SesameOS3 Bluetooth protocol",
+      "url": "https://github.com/CANDY-HOUSE/API_document/blob/master/SesameOS3/bluetooth.md"
+    },
+    {
+      "description": "Independent ESP32 implementation — confirms the Tx/Rx chars, CMAC session token and lock/unlock primitives.",
+      "title": "homy-newfs8/libsesame3bt-core",
+      "url": "https://github.com/homy-newfs8/libsesame3bt-core"
+    },
+    {
+      "description": "The overall SesameOS3 SDK / API documentation.",
+      "title": "CANDY HOUSE developer docs",
+      "url": "https://docs.candyhouse.co/"
+    }
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "lock": {
+              "description": "Lock the device (item code 82), as an AES-CCM ciphertext segment.",
+              "encoding": "bytes",
+              "value": [
+                82
+              ],
+              "verification": "reported"
+            },
+            "unlock": {
+              "description": "Unlock the device (item code 83), as an AES-CCM ciphertext segment.",
+              "encoding": "bytes",
+              "value": [
+                83
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "Command write",
+          "notes": "Segmented commands (0x01/0x02/0x03 plaintext, 0x04/0x05 ciphertext). Item 82 Lock, 83 Unlock, 4 History, 104 Reset.\n",
+          "properties": [
+            "write"
+          ],
+          "uuid": "16860002-a5ae-9856-b6d3-dbb4c676993e"
+        },
+        {
+          "name": "Response / publish notify",
+          "notes": "Op type 0x07 Response, 0x08 Publish; mechanical status (item 81) is published here.",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "16860003-a5ae-9856-b6d3-dbb4c676993e"
+        }
+      ],
+      "name": "SESAME service (0xFD81)",
+      "notes": "Commands are AES-CCM ciphertext written as 20-byte segments to 16860002-...; responses/publishes arrive on 16860003-.... See the item codes and crypto in device.notes.\n",
+      "uuid": "0000fd81-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

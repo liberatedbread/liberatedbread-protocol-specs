@@ -1,0 +1,206 @@
+{
+  "device": {
+    "category": "energy",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "service_uuids": [
+              "0000ff00-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "notes": "Match the 0xFF00 service. Local names vary widely by pack vendor; the service UUID plus a valid 0xDD/0x77 reply to a 0x03 read is the real discriminator.\n",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "service_uuids": [
+        "0000ff00-0000-1000-8000-00805f9b34fb"
+      ]
+    },
+    "manufacturer": "Shenzhen Jiabaida (JBD) — many LiFePO4 pack rebrands (Overkill Solar, LIONTRON, ECO-WORTHY, ...)",
+    "manufacturer_status": "active",
+    "name": "JBD / Xiaoxiang Smart BMS",
+    "notes": "JBD (a.k.a. Xiaoxiang) smart battery-management systems ship inside a huge number of LiFePO4/Li-ion packs under many brands. The same frames run over a plug-in BLE module or a UART (9600 8N1). No cloud; read telemetry and, in factory (EEPROM) mode, write protection settings and toggle the charge/ discharge FETs and balancer.\nGATT: service 0000ff00-0000-1000-8000-00805f9b34fb; notify (RX) 0000ff01-...; write (TX) 0000ff02-....\nFRAME: start 0xDD, then payload, a 2-byte checksum, end 0x77. Checksum = 0x10000 - sum(payload bytes). Command byte 0xA5 = read, 0x5A = write. A read request is [0xDD, 0xA5, register, length, data..., checksum-hi, checksum-lo, 0x77]; a response is [0xDD, register, status (0x00 OK / 0x80 error), length, data..., checksum, 0x77].\nKEY REGISTERS:\n  0x03 basic info — pack voltage (u16, 10 mV), current (s16, 10 mA, negative\n       = discharge), remaining + design capacity (10 mAh), cycle count,\n       protection/error flags, software version, SOC %, FET status bits\n       (charge/discharge), cell count, NTC count + temps (0.1 K)\n  0x04 per-cell voltages (u16 @ 1 mV)\n  0x05 device name string\nEEPROM config needs factory mode: write 0x56 0x78 to register 0x00; exit via register 0x01. Control registers: 0xE1 MOSFET control (bit0 disable charge FET, bit1 disable discharge FET), 0xE2 balancer control.\nNewer firmware may add an authentication exchange (frames starting FF AA ... 77) and a 6-byte password (since firmware 0x16).\n",
+    "openness": {
+      "license": "Apache-2.0",
+      "notes": "Not officially published; the register map was reverse-engineered by the community and multiple implementations agree. The newer-firmware auth handshake internals are the least-settled part.\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/syssi/esphome-jbd-bms",
+      "status": "undocumented",
+      "upstream_docs": [
+        {
+          "covers": "The full register map, 0xDD/0x77 framing, checksum, and EEPROM config registers.",
+          "title": "bms-tools — JBD register map",
+          "url": "https://gitlab.com/bms-tools/bms-tools/-/blob/master/JBD_REGISTER_MAP.md"
+        }
+      ]
+    },
+    "protocol": "ble",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No pairing on older firmware; newer firmware may require an authentication exchange and/or a password before writes. Reads are unauthenticated. SAFETY: writing FET-control or protection registers on a live pack is dangerous — treat writes as advanced.\n",
+        "stored_on_device": [
+          "Protection/config parameters (EEPROM)",
+          "Optional 6-byte password (firmware 0x16+)"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "effect": "No documented BLE 'factory reset' beyond EEPROM config writes in factory mode (0x56 0x78 to register 0x00). Clearing/reconfiguring protection parameters is done through those registers, not a single reset.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false
+          },
+          "description": "Connect, subscribe to notify char 0xFF01, write commands to 0xFF02. Read 0x03 for basic info and 0x04 for per-cell voltages.\n",
+          "steps": [
+            {
+              "action": "Connect and subscribe to the notify characteristic (0xFF01).",
+              "actor": "client"
+            },
+            {
+              "action": "Write a 0x03 read to 0xFF02 to get basic info; parse the 0xDD..77 response.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision: connect over BLE, subscribe to the notify characteristic, and write 0xDD-framed read/write commands. Confidence high: the register map is exhaustive and several implementations agree.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "No network membership; a new BLE client connects independently.",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "notes": "Not driven against hardware by this project. The GATT service/char UUIDs, the 0xDD/0x77 framing, command bytes and register map are from the bms-tools register map and syssi/esphome-jbd-bms / kolins-cz.\n",
+      "status": "untested"
+    }
+  },
+  "entities": [
+    {
+      "device_class": "voltage",
+      "name": "Pack Voltage",
+      "notes": "From register 0x03 (u16, 10 mV).",
+      "platform": "sensor",
+      "unit": "V"
+    },
+    {
+      "device_class": "current",
+      "name": "Pack Current",
+      "notes": "From register 0x03 (s16, 10 mA; negative = discharge).",
+      "platform": "sensor",
+      "unit": "A"
+    },
+    {
+      "device_class": "battery",
+      "name": "State of Charge",
+      "notes": "From register 0x03 (SOC %).",
+      "platform": "sensor",
+      "unit": "%"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "The authoritative register map, framing and checksum.",
+      "title": "bms-tools — JBD register map",
+      "url": "https://gitlab.com/bms-tools/bms-tools/-/blob/master/JBD_REGISTER_MAP.md"
+    },
+    {
+      "description": "Apache-2.0 ESPHome component (BLE + UART).",
+      "title": "syssi/esphome-jbd-bms",
+      "url": "https://github.com/syssi/esphome-jbd-bms"
+    },
+    {
+      "description": "ESP32 BLE client; source of the 0xFF00/0xFF01/0xFF02 UUIDs.",
+      "title": "kolins-cz/Smart-BMS-Bluetooth-ESP32",
+      "url": "https://github.com/kolins-cz/Smart-BMS-Bluetooth-ESP32"
+    }
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "name": "Notify (RX)",
+          "notes": "Responses arrive here: [0xDD, register, status, length, data..., checksum, 0x77].",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "0000ff01-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "commands": {
+            "read_basic_info": {
+              "description": "Read register 0x03 (pack voltage, current, SOC, FET status, temps, flags). Frame: DD A5 03 00 FF FD 77.",
+              "encoding": "bytes",
+              "value": [
+                221,
+                165,
+                3,
+                0,
+                255,
+                253,
+                119
+              ],
+              "verification": "reported"
+            },
+            "read_cell_voltages": {
+              "description": "Read register 0x04 (per-cell voltages, u16 @ 1 mV). Frame: DD A5 04 00 FF FC 77.",
+              "encoding": "bytes",
+              "value": [
+                221,
+                165,
+                4,
+                0,
+                255,
+                252,
+                119
+              ],
+              "verification": "reported"
+            },
+            "read_device_name": {
+              "description": "Read register 0x05 (device name string). Frame: DD A5 05 00 FF FB 77.",
+              "encoding": "bytes",
+              "value": [
+                221,
+                165,
+                5,
+                0,
+                255,
+                251,
+                119
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "Write (TX)",
+          "notes": "Read/write commands written here.",
+          "properties": [
+            "write"
+          ],
+          "uuid": "0000ff02-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "JBD BMS service",
+      "notes": "Notify (RX) on 0xFF01, write (TX) on 0xFF02. All frames are 0xDD ... checksum 0x77; checksum = 0x10000 - sum(payload).\n",
+      "uuid": "0000ff00-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

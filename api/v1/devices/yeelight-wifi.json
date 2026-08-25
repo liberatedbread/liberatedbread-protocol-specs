@@ -1,0 +1,252 @@
+{
+  "commands": {
+    "get_state": {
+      "body": "{\"id\":1,\"method\":\"get_prop\",\"params\":[\"power\",\"bright\",\"ct\",\"rgb\",\"hue\",\"sat\",\"color_mode\"]}",
+      "description": "Read properties (power, bright, ct, rgb, hue, sat, color_mode).",
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
+    "set_brightness": {
+      "body": "{\"id\":1,\"method\":\"set_bright\",\"params\":[{level},\"smooth\",500]}",
+      "description": "Set brightness 1-100.",
+      "parameters": {
+        "level": {
+          "description": "Brightness percent.",
+          "max": 100,
+          "min": 1,
+          "type": "integer"
+        }
+      },
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
+    "set_color_temp": {
+      "body": "{\"id\":1,\"method\":\"set_ct_abx\",\"params\":[{kelvin},\"smooth\",500]}",
+      "description": "Set correlated color temperature 1700-6500 K.",
+      "parameters": {
+        "kelvin": {
+          "description": "Color temperature in Kelvin.",
+          "max": 6500,
+          "min": 1700,
+          "type": "integer"
+        }
+      },
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
+    "set_rgb": {
+      "body": "{\"id\":1,\"method\":\"set_rgb\",\"params\":[{rgb},\"smooth\",500]}",
+      "description": "Set RGB color (packed as R*65536 + G*256 + B).",
+      "parameters": {
+        "rgb": {
+          "description": "Packed RGB integer R*65536+G*256+B.",
+          "max": 16777215,
+          "min": 0,
+          "type": "integer"
+        }
+      },
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
+    "turn_off": {
+      "body": "{\"id\":1,\"method\":\"set_power\",\"params\":[\"off\",\"smooth\",500]}",
+      "description": "Turn the light off.",
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
+    "turn_on": {
+      "body": "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}",
+      "description": "Turn the light on (set_power on, smooth 500ms).",
+      "transport": "tcp-json",
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "light",
+    "discovery": {
+      "identity": {
+        "display": "name",
+        "stable_keys": [
+          "id"
+        ]
+      },
+      "methods": [
+        {
+          "notes": "Yeelight's simplified SSDP runs on 239.255.255.250:1982 (not 1900). The response headers carry id (stable), model (mono/color/stripe/ ceiling/bslamp), fw_ver, the supported-method list and current state.\n",
+          "ssdp": {
+            "match": {
+              "description": "Yeelight uses port 1982, not the standard SSDP 1900; a reply carries Location: yeelight://<ip>:55443.",
+              "rule": "ST wifi_bulb and a yeelight:// Location header."
+            },
+            "multicast_group": "239.255.255.250",
+            "multicast_port": 1982,
+            "request": {
+              "line_ending": "CRLF",
+              "mx": 1,
+              "template": "M-SEARCH * HTTP/1.1\r\nHOST: {multicast_group}:{multicast_port}\r\nMAN: \"ssdp:discover\"\r\nST: {search_target}\r\n\r\n",
+              "transport": "UDP multicast"
+            },
+            "response_mapping": {
+              "location": {
+                "action": "fetch_json",
+                "parse": {
+                  "device_identity": {
+                    "display": {
+                      "source": "header://name"
+                    },
+                    "stable_keys": [
+                      {
+                        "key": "id",
+                        "source": "header://id"
+                      }
+                    ],
+                    "variant": {
+                      "source": "header://model"
+                    }
+                  }
+                },
+                "url": "Location"
+              }
+            },
+            "search_targets": [
+              "wifi_bulb"
+            ]
+          },
+          "type": "ssdp"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 55443,
+      "ssdp_search_targets": [
+        "wifi_bulb"
+      ]
+    },
+    "manufacturer": "Qingdao Yeelink Information Technology (Xiaomi ecosystem)",
+    "manufacturer_status": "active",
+    "name": "Yeelight Wi-Fi Lights (bulbs, strips, ceiling, bedside)",
+    "notes": "Yeelight's Wi-Fi smart lights (bulbs, light strips, ceiling lights, bedside lamps) speak a vendor-documented local protocol on TCP port 55443: JSON messages terminated by CRLF, no authentication, up to 4 simultaneous TCP connections, quota ~60 commands/min per connection (144/min total). Local control is cloud-independent once enabled — but there is a one-time step: the \"LAN Control\" / developer-mode toggle must be switched on per device in the Yeelight app before port 55443 answers.\nDISCOVERY: a simplified SSDP on multicast 239.255.255.250 port 1982 (NOT 1900). Search with M-SEARCH, MAN \"ssdp:discover\", ST \"wifi_bulb\". The reply is HTTP/1.1 200 OK with Location: yeelight://<ip>:55443, an id, a model (mono/color/stripe/ceiling/bslamp), fw_ver, a space-separated `support` method list and current state. Devices also multicast NOTIFY ssdp:alive on join and periodically.\nCOMMAND: {\"id\":<int>,\"method\":<str>,\"params\":[...]}CRLF; the result echoes the id, e.g. {\"id\":1,\"result\":[\"ok\"]}. Methods include: get_prop, set_power (\"on\"/\"off\" + effect + mode), toggle, set_bright (1-100), set_ct_abx (1700-6500 K), set_rgb (RGB as one int R*65536+G*256+B), set_hsv (hue 0-359, sat 0-100), start_cf / stop_cf (color flow), set_scene, set_default (persist across power cycles), set_name, set_music (a connect-back TCP that lifts the rate limits). Debuggable with plain `telnet <ip> 55443`.\n",
+    "openness": {
+      "notes": "Yeelight published this third-party specification; the facts here are paraphrased from it and from python-yeelight. The first-time Wi-Fi provisioning uses Xiaomi's closed SmartConfig and is deliberately not covered by the spec.\n",
+      "reverse_engineered": false,
+      "status": "documented_api",
+      "upstream_docs": [
+        {
+          "covers": "The port-55443 JSON protocol, SSDP on 239.255.255.250:1982, and the method set.",
+          "title": "Yeelight WiFi Light Inter-Operation Specification",
+          "url": "https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf"
+        }
+      ]
+    },
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "low",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "Onboarding uses Xiaomi SmartConfig (not documented here), so passphrase protection during provisioning is unknown. Post-setup port-55443 control is unauthenticated on the LAN, gated only by the LAN Control toggle.\n",
+        "stored_on_device": [
+          "Wi-Fi credentials",
+          "LAN Control enabled flag"
+        ],
+        "wifi_passphrase_protection": "unknown"
+      },
+      "factory_reset": {
+        "applicable": true,
+        "confidence": "low",
+        "effect": "Clears Wi-Fi credentials and returns the light to onboarding. Done by a power-cycle sequence (typically toggle on/off ~5 times); the exact count is model-specific and not transcribed here.\n",
+        "procedures": [
+          {
+            "basis": "Yeelight documents a repeated on/off power-cycle to reset; not replayed here.",
+            "name": "Power-cycle reset",
+            "steps": [
+              {
+                "action": "Toggle the light on/off the documented number of times until it flashes to confirm reset.",
+                "actor": "user",
+                "expect": "The light re-enters Wi-Fi onboarding."
+              }
+            ],
+            "verified": false
+          }
+        ]
+      },
+      "methods": [
+        {
+          "description": "Onboard the light onto Wi-Fi with the Yeelight app (Xiaomi SmartConfig), then enable the app's \"LAN Control\" toggle for the device. Port 55443 answers only after that toggle is on.\n",
+          "steps": [
+            {
+              "action": "Add the light in the Yeelight app and complete Wi-Fi onboarding.",
+              "actor": "user"
+            },
+            {
+              "action": "Enable 'LAN Control' (developer mode) for the device in the app.",
+              "actor": "user",
+              "expect": "The light answers a get_prop on TCP 55443 and appears in SSDP (port 1982)."
+            }
+          ],
+          "type": "smartconfig",
+          "verified": false
+        }
+      ],
+      "notes": "First-time Wi-Fi onboarding uses Xiaomi's closed SmartConfig via the Yeelight app (deliberately not in the vendor spec). Crucially, the \"LAN Control\" developer toggle must be enabled per device in the app before port 55443 answers — a one-time, cloud-adjacent step, after which control is fully local.\n",
+      "rejoin": {
+        "in_place_supported": false,
+        "notes": "No documented in-place Wi-Fi rewrite over the LAN protocol; a network change is a reprovision through the app (and re-enabling LAN Control).\n",
+        "requires_factory_reset": true
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "Not driven against hardware by this project. Facts are paraphrased from Yeelight's own Inter-Operation Specification and cross-checked against python-yeelight.\n",
+      "status": "untested"
+    },
+    "transport": "tcp"
+  },
+  "entities": [
+    {
+      "commands": {
+        "set_brightness": "set_brightness",
+        "turn_off": "turn_off",
+        "turn_on": "turn_on"
+      },
+      "features": [
+        "brightness",
+        "rgb",
+        "color_temp"
+      ],
+      "name": "Yeelight",
+      "platform": "light"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "The vendor-published local protocol: port 55443 JSON, SSDP on 1982, method set.",
+      "title": "Yeelight WiFi Light Inter-Operation Specification (vendor PDF)",
+      "url": "https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf"
+    },
+    {
+      "description": "Reference Python client; documents music mode and the method set.",
+      "title": "python-yeelight",
+      "url": "https://gitlab.com/stavros/python-yeelight"
+    },
+    {
+      "description": "HA core integration over this LAN protocol (requires LAN Control enabled).",
+      "title": "Home Assistant Yeelight integration",
+      "url": "https://www.home-assistant.io/integrations/yeelight/"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "Placeholder only. Control is JSON over a raw TCP socket on port 55443 (see yeelight_lan_protocol), not HTTP.\n",
+      "method": "GET",
+      "name": "Local API Placeholder",
+      "path": "/"
+    }
+  ],
+  "yeelight_lan_protocol": {
+    "authentication": "none (LAN Control toggle must be enabled in the app)",
+    "limits": "up to 4 concurrent connections; ~60 commands/min per connection, 144/min total (music mode lifts this)",
+    "message": "{\"id\":<int>,\"method\":<str>,\"params\":[...]}CRLF ; result echoes the id",
+    "transport": "TCP, port 55443, JSON messages terminated by CRLF"
+  }
+}

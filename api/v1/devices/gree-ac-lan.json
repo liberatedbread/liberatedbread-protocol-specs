@@ -1,0 +1,205 @@
+{
+  "commands": {
+    "get_status": {
+      "body": "{\"cols\":[\"Pow\",\"Mod\",\"SetTem\",\"WdSpd\",\"TemUn\"],\"mac\":\"{mac}\",\"t\":\"status\"}",
+      "description": "Read status by parameter names.",
+      "parameters": {
+        "mac": {
+          "description": "Target device MAC.",
+          "type": "string"
+        }
+      },
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "power_off": {
+      "body": "{\"opt\":[\"Pow\"],\"p\":[0],\"t\":\"cmd\"}",
+      "description": "Set power off (opt Pow, p 0).",
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "power_on": {
+      "body": "{\"opt\":[\"Pow\"],\"p\":[1],\"t\":\"cmd\"}",
+      "description": "Set power on (opt Pow, p 1).",
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "set_mode": {
+      "body": "{\"opt\":[\"Mod\"],\"p\":[{mode}],\"t\":\"cmd\"}",
+      "description": "Set mode (opt Mod): 0 auto, 1 cool, 2 dry, 3 fan, 4 heat.",
+      "parameters": {
+        "mode": {
+          "description": "0 auto, 1 cool, 2 dry, 3 fan, 4 heat.",
+          "max": 4,
+          "min": 0,
+          "type": "integer"
+        }
+      },
+      "transport": "udp",
+      "verification": "reported"
+    },
+    "set_temperature": {
+      "body": "{\"opt\":[\"TemUn\",\"SetTem\"],\"p\":[0,{temp}],\"t\":\"cmd\"}",
+      "description": "Set target temperature (opt SetTem).",
+      "parameters": {
+        "temp": {
+          "description": "Target temperature (Celsius when TemUn is 0).",
+          "max": 30,
+          "min": 16,
+          "type": "integer"
+        }
+      },
+      "transport": "udp",
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "climate",
+    "discovery": {
+      "identity": {
+        "display": "name",
+        "stable_keys": [
+          "mac"
+        ]
+      },
+      "methods": [
+        {
+          "mdns": {
+            "identity_mapping": {
+              "display": {
+                "source": "udp:7000#name"
+              },
+              "stable_keys": [
+                {
+                  "key": "mac",
+                  "source": "udp:7000#mac"
+                }
+              ]
+            },
+            "port": 7000,
+            "service_type": "_http._tcp.local."
+          },
+          "notes": "Real discovery: broadcast plaintext {\"t\":\"scan\"} to UDP 7000; each AC answers with its MAC and an encrypted metadata pack. See gree_lan_protocol.\n",
+          "type": "mdns"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 7000
+    },
+    "manufacturer": "Gree Electric Appliances (many OEM rebrands: Cooper & Hunter, etc.)",
+    "manufacturer_status": "active",
+    "name": "Gree Smart Air Conditioner (LAN)",
+    "notes": "Gree Wi-Fi air conditioners (and the many OEM rebrands) are controllable entirely on the LAN over a UDP/JSON protocol on port 7000 — no cloud, no account at any point. Gree is a very large manufacturer (active); the risk here is firmware churn, not abandonment: newer firmware moved from AES-ECB to AES-GCM (\"encryption_version 2\"), which older clients must handle.\nTRANSPORT: UDP unicast + broadcast, port 7000. The JSON envelope carries fields t, i, uid, cid, tcid and pack; the pack is AES-128-ECB (PKCS-7), Base64-encoded. Two keys: a generic key shared by all devices (used for scan/bind) and a per-device key returned during binding.\nFLOW:\n  1. Discover: broadcast plaintext {\"t\":\"scan\"} to UDP 7000; each device\n     answers with its MAC and an encrypted metadata pack.\n  2. Bind: send a pack {\"mac\":\"<MAC>\",\"t\":\"bind\",\"uid\":0} (generic key); the\n     device replies {\"t\":\"bindok\",\"mac\":\"<MAC>\",\"key\":\"<per-device key>\"}.\n  3. Status: pack {\"cols\":[\"Pow\",\"Mod\",\"SetTem\",\"WdSpd\"],\"mac\":\"<MAC>\",\n     \"t\":\"status\"} → values by parameter name (Pow, Mod, SetTem, TemUn, ...).\n  4. Control: pack {\"opt\":[\"TemUn\",\"SetTem\"],\"p\":[0,27],\"t\":\"cmd\"}.\n\nNewer firmware: some devices require encryption_version 2 (AES-GCM); a client should try AES-ECB first and fall back to GCM.\n",
+    "openness": {
+      "license": "GPL-3.0",
+      "notes": "No official English protocol publication; tomikaa87/gree-remote documents it end-to-end and cmroche/greeclimate independently implements it (including the GCM firmware variant).\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/tomikaa87/gree-remote",
+      "status": "undocumented"
+    },
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "low",
+      "credentials": {
+        "issued_to_client": [
+          "Per-device AES key (from the bind exchange)"
+        ],
+        "notes": "Wi-Fi onboarding is app-mediated (not documented here). Control packs are AES-encrypted, but the generic key used for scan/bind is shared across all Gree devices, so binding is possible by anyone on the LAN.\n",
+        "stored_on_device": [
+          "Wi-Fi credentials",
+          "Per-device AES key (returned at bind)"
+        ],
+        "wifi_passphrase_protection": "unknown"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "effect": "Returns the Wi-Fi module to onboarding (typically a remote-control key combination on the AC). The exact gesture varies by model and is not transcribed here.\n"
+      },
+      "methods": [
+        {
+          "description": "Join the AC's setup AP and hand it the home Wi-Fi credentials via the Gree onboarding flow; then discover it on the LAN (UDP 7000 scan) and bind to obtain the per-device key.\n",
+          "steps": [
+            {
+              "action": "Onboard the AC onto Wi-Fi (Gree+ app / its setup AP).",
+              "actor": "user"
+            },
+            {
+              "action": "Broadcast {\"t\":\"scan\"} on UDP 7000 and bind to get the per-device key.",
+              "actor": "client",
+              "expect": "A bindok reply carrying the per-device AES key."
+            }
+          ],
+          "type": "softap_http",
+          "verified": false
+        }
+      ],
+      "notes": "A factory-fresh AC hosts its own AP for Wi-Fi onboarding via the Gree+ app; local control needs no cloud. After the unit is on the LAN, the client performs the UDP bind (generic key → per-device key) once and reuses the per-device key. Wi-Fi onboarding wire steps are not documented here.\n",
+      "rejoin": {
+        "in_place_supported": false,
+        "notes": "Wi-Fi re-provisioning is done through the module's onboarding, not the control protocol.\n",
+        "requires_factory_reset": true
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "Not driven against hardware by this project. The UDP-7000 transport, the AES-ECB/Base64 pack scheme, the scan/bind exchange and the parameter names are from tomikaa87/gree-remote; the AES-GCM firmware split is from cmroche/greeclimate.\n",
+      "status": "untested"
+    },
+    "transport": "udp"
+  },
+  "entities": [
+    {
+      "max_temp": 30,
+      "min_temp": 16,
+      "name": "Air Conditioner",
+      "notes": "Mode/setpoint/fan via the gree_lan_protocol parameters (Pow, Mod, SetTem, WdSpd).",
+      "platform": "climate",
+      "temp_step": 1
+    }
+  ],
+  "gree_lan_protocol": {
+    "crypto": "pack field = AES-128-ECB (PKCS-7), Base64-encoded; newer firmware uses AES-GCM (encryption_version 2)",
+    "envelope_fields": [
+      "t",
+      "i",
+      "uid",
+      "cid",
+      "tcid",
+      "pack"
+    ],
+    "keys": "generic key (shared, used for scan/bind) + per-device key (returned at bind)",
+    "parameters": {
+      "Lig": "display light",
+      "Mod": "mode 0 auto / 1 cool / 2 dry / 3 fan / 4 heat",
+      "Pow": "power 0/1",
+      "SetTem": "target temperature",
+      "SwhSlp": "sleep mode",
+      "TemUn": "temperature unit 0 C / 1 F",
+      "WdSpd": "fan speed"
+    },
+    "transport": "UDP unicast + broadcast, port 7000"
+  },
+  "helpful_urls": [
+    {
+      "description": "GPL-3.0 — full protocol write-up (UDP 7000, AES pack, scan/bind, parameters) and reference clients.",
+      "title": "tomikaa87/gree-remote",
+      "url": "https://github.com/tomikaa87/gree-remote"
+    },
+    {
+      "description": "Python client with AES-GCM (encryption_version 2) support for newer firmware.",
+      "title": "cmroche/greeclimate",
+      "url": "https://github.com/cmroche/greeclimate"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "Placeholder only. Control is AES-encrypted JSON over UDP port 7000 (see gree_lan_protocol), not HTTP.\n",
+      "method": "GET",
+      "name": "Local API Placeholder",
+      "path": "/"
+    }
+  ]
+}

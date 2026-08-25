@@ -1,0 +1,219 @@
+{
+  "commands": {
+    "set_brightness": {
+      "body": "{\"mode\":\"enabled\",\"value\":{level}}",
+      "description": "Set brightness 0-100.",
+      "method": "POST",
+      "parameters": {
+        "level": {
+          "description": "Brightness percent.",
+          "max": 100,
+          "min": 0,
+          "type": "integer"
+        }
+      },
+      "path": "/xled/v1/led/out/brightness",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "turn_off": {
+      "body": "{\"mode\":\"off\"}",
+      "description": "Set mode off.",
+      "method": "POST",
+      "path": "/xled/v1/led/mode",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "turn_on": {
+      "body": "{\"mode\":\"movie\"}",
+      "description": "Set mode to a lit state (e.g. movie/effect).",
+      "method": "POST",
+      "path": "/xled/v1/led/mode",
+      "transport": "http",
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "light",
+    "discovery": {
+      "identity": {
+        "display": "device_name",
+        "stable_keys": [
+          "mac"
+        ]
+      },
+      "methods": [
+        {
+          "mdns": {
+            "identity_mapping": {
+              "display": {
+                "source": "http:/xled/v1/gestalt#device_name"
+              },
+              "stable_keys": [
+                {
+                  "key": "mac",
+                  "source": "http:/xled/v1/gestalt#mac"
+                }
+              ]
+            },
+            "port": 80,
+            "service_type": "_http._tcp.local."
+          },
+          "notes": "Real discovery: UDP-broadcast to port 5555 a 1-byte 0x01 + ASCII \"discover\"; the reply carries the IP (reversed byte order), \"OK\" and the device id (\"Twinkly_\" + 6 uppercase hex from the MAC). Confirm with GET /xled/v1/gestalt.\n",
+          "type": "mdns"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 80,
+      "ssid_prefix": "Twinkly_"
+    },
+    "manufacturer": "Ledworks Srl (Twinkly)",
+    "manufacturer_status": "active",
+    "name": "Twinkly Smart Lights (string / curtain / matrix)",
+    "notes": "Twinkly are app-controlled decorative RGB/RGBW string, curtain and matrix lights. Control is a private-but-reverse-engineered local HTTP REST API on port 80 with a short-lived token, plus a UDP realtime channel on port 7777 for per-pixel streaming. No cloud is required for local control. Twinkly promised a public API that never shipped; xled documents the private one.\nAUTH: POST /xled/v1/login with a random 32-byte base64 challenge returns a base64 authentication_token (8 bytes), a challenge-response and an expiry (typ. 14400s). The client must then POST /xled/v1/verify. The token goes in the X-Auth-Token header; a new login invalidates the previous token. The challenge-response is derived RC4-style from a key = device MAC XOR the 16-byte constant \"evenmoresecret!!\", then SHA1.\nUNAUTHENTICATED reads: GET /xled/v1/gestalt (device details), /status, /fw/version.\nCONTROL (token required): GET/POST /xled/v1/led/mode (off/color/demo/effect/ movie/playlist/rt), /led/color, /led/effects + /effects/current, /led/out/brightness (0-100), /led/out/saturation. Movies: POST /led/movie/full, /led/movies/current, /movies, /playlist. Layout: GET/POST /led/layout/full. All JSON replies carry an app code (1000 = ok); HTTP 401 on auth failure.\nREALTIME: UDP 7777, three header versions — v1 (Gen I) 0x01 + 8-byte token + LED count; v2 (Gen II fw <= 2.4.6) 0x02 + token; v3 (fw >= 2.4.14) 0x03 + token + fragment number (frames fragmented up to 900 bytes).\n",
+    "openness": {
+      "license": "MIT",
+      "notes": "The API is private but was reverse-engineered by the xled project; xled-docs is a complete unofficial specification. Newest firmware generations may differ — feature-detect.\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/scrool/xled",
+      "status": "undocumented",
+      "upstream_docs": [
+        {
+          "covers": "The /xled/v1 endpoints, the login/verify token flow and the mode/color/movie endpoints.",
+          "title": "xled-docs — REST API",
+          "url": "https://xled-docs.readthedocs.io/en/latest/rest_api.html"
+        },
+        {
+          "covers": "The challenge-response derivation, UDP 5555 discovery and the UDP 7777 realtime header versions.",
+          "title": "xled-docs — protocol details",
+          "url": "https://xled-docs.readthedocs.io/en/latest/protocol_details.html"
+        }
+      ]
+    },
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "low",
+      "credentials": {
+        "issued_to_client": [
+          "Short-lived auth token (from /xled/v1/login + /verify, ~14400s)"
+        ],
+        "notes": "Provisioning passes the home SSID/passphrase to /xled/v1/network/status over plain HTTP on the device AP. Control requires the per-session token, but that token is obtainable by any client that can reach port 80 and knows the device MAC (used in the challenge-response derivation).\n",
+        "stored_on_device": [
+          "Wi-Fi credentials"
+        ],
+        "wifi_passphrase_protection": "plaintext"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "effect": "Returns the device to its AP/onboarding state. The reset gesture is not documented in the sources used here.\n"
+      },
+      "methods": [
+        {
+          "description": "Join the device AP (\"Twinkly_XXXXXX\") and use the REST network endpoints (/xled/v1/network/scan, /network/status) to hand it the home Wi-Fi credentials; it reboots onto the LAN.\n",
+          "softap": {
+            "ssid_prefix": "Twinkly_"
+          },
+          "steps": [
+            {
+              "action": "Power a new/reset device and join its 'Twinkly_XXXXXX' AP.",
+              "actor": "user"
+            },
+            {
+              "action": "GET /xled/v1/network/scan then POST /xled/v1/network/status with the home SSID/passphrase.",
+              "actor": "client",
+              "expect": "The device reboots and joins the home Wi-Fi."
+            }
+          ],
+          "type": "softap_http",
+          "verified": false
+        }
+      ],
+      "notes": "A factory-fresh device hosts its own AP (\"Twinkly_XXXXXX\"); the Twinkly app joins it to Wi-Fi. The same REST API can drive Wi-Fi onboarding: GET /xled/v1/network/scan, /network/scan_results, GET/POST /network/status. Not replayed here — low.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Wi-Fi can be rewritten through the /xled/v1/network endpoints while the device is reachable.\n",
+        "requires_factory_reset": false
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "Not driven against hardware by this project. Endpoints, the login/verify token flow and the realtime UDP header versions are from xled-docs and the xled client (tested there on TW105S-EU and Twinkly 210 RGB+W).\n",
+      "status": "untested"
+    },
+    "transport": "http"
+  },
+  "entities": [
+    {
+      "commands": {
+        "set_brightness": "set_brightness",
+        "turn_off": "turn_off",
+        "turn_on": "turn_on"
+      },
+      "features": [
+        "brightness",
+        "effect"
+      ],
+      "name": "Twinkly",
+      "platform": "light"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "MIT reference client for the Twinkly private API.",
+      "title": "scrool/xled",
+      "url": "https://github.com/scrool/xled"
+    },
+    {
+      "description": "Endpoint-by-endpoint REST + UDP realtime protocol documentation.",
+      "title": "xled-docs — unofficial API documentation",
+      "url": "https://xled-docs.readthedocs.io/"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "Unauthenticated. Device id, product code, MAC, LED count, firmware — confirms a device is Twinkly.",
+      "method": "GET",
+      "name": "Device details",
+      "path": "/xled/v1/gestalt"
+    },
+    {
+      "description": "Body {\"challenge\":\"<base64 32 bytes>\"}. Returns authentication_token, challenge-response and authentication_token_expires_in. Must be followed by /xled/v1/verify.\n",
+      "method": "POST",
+      "name": "Login (get token)",
+      "path": "/xled/v1/login",
+      "request_body": {
+        "content_type": "application/json"
+      }
+    },
+    {
+      "description": "Body {\"challenge-response\":\"...\"}; completes the token handshake.",
+      "method": "POST",
+      "name": "Verify token",
+      "path": "/xled/v1/verify",
+      "request_body": {
+        "content_type": "application/json"
+      }
+    },
+    {
+      "description": "Body {\"mode\":\"off|color|effect|movie|playlist|rt\"}. Requires X-Auth-Token.",
+      "method": "POST",
+      "name": "Set LED mode",
+      "path": "/xled/v1/led/mode",
+      "request_body": {
+        "content_type": "application/json"
+      }
+    },
+    {
+      "description": "Body {\"mode\":\"enabled\",\"value\":0-100}. Requires X-Auth-Token.",
+      "method": "POST",
+      "name": "Set brightness",
+      "path": "/xled/v1/led/out/brightness",
+      "request_body": {
+        "content_type": "application/json"
+      }
+    }
+  ]
+}
