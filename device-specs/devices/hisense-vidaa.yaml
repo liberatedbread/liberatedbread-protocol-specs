@@ -285,171 +285,174 @@ evidence:
     - "Whether the broker really isolates one client's topics from another is unconfirmed — the one isolation experiment predates the discovery that wildcard subscriptions work, and has not been repeated."
     - "changechannel exists but takes an opaque channel_param string read from livetv state; there is no documented way to tune to channel N without first learning that string from the TV."
 
-# Everything needed to build a session byte for byte, in the role ecp_common
-# plays for Roku. The whole control surface is MQTT publish/subscribe; for
-# `commands` entries below, `path` IS the topic (MQTT has no path; the
-# command schema's path key is the closest fit) and `example_body` is the
-# exact payload.
-remoteapp_common:
-  transport: "MQTT v3.1.1"
-  broker:
-    host: "<tv-ip>, from discovery"
-    port: 36669
-    server_software: "mosquitto 1.4.2 reported on 2019-era firmware (Krazy998)"
-    keepalive_seconds: 20
-    keepalive_notes: >
-      These TVs vanish from the network in standby without closing the
-      session, so keepalive is what bounds how long a dead session looks
-      alive: paho gives up at roughly 1.5x. The old 60s default meant ~90s
-      before a powered-off TV was noticed.
-    port_36668_note: >
-      No source documents a listener on 36668. Older models run the SAME
-      broker on 36669 with no TLS and the static login (newAM's --no-ssl
-      flag exists for exactly those sets). If a scan shows 36668 open on
-      some set, its role is unestablished — capture it before writing it
-      down.
-  tls:
-    generations:
-      - name: "plain"
-        description: "No TLS at all. Oldest sets (e.g. H43A6250UK)."
-      - name: "tls_selfsigned"
-        description: "TLS with a self-signed server certificate; clients must disable verification (encryption on, validate off)."
-      - name: "mtls"
-        description: "Mutual TLS: the client must present the app-bundled certificate CN=VidaaAppAndroidV01 (issuer CN=RemoteCA) or the RemoteNow-era rcm pair — see device.setup.credentials.notes for the provisioning gap. Server certificate issued by the same private RemoteCA root; CN is 'RemoteCA', so hostname checks always fail and verification stays off even in careful clients."
-  authentication:
-    generations:
-      - name: "static"
-        applies: "Pre-dynamic firmware (pyvidaa: transport_protocol below 3000)"
-        client_id: "Arbitrary; convention is the client's own MAC with $normal appended (newAM), or a plain name like 'HomeAssistant'. Reusing a client id drops the older session, so do not share ids between integrations."
-        username: "hisenseservice"
-        password: "multimqttservice"
-      - name: "legacy_dynamic"
-        applies: "VIDAA-app-era firmware before the modern tweak (pyvidaa: 3000 <= transport_protocol < 3290; e.g. the 2023 A6K/55U8KQ captures)"
-        algorithm: >
-          All MD5 hex digests uppercase. Let PATTERN =
-          "38D65DC30F45109A369A86FCE866A85B", uuid = the client's chosen
-          MAC-shaped identifier (colon-separated, any case as minted), ts =
-          current unix time in seconds, and crosssum(ts) = sum of the
-          decimal digits of ts. Then:
-          client_id = uuid + "$his$" + md5(PATTERN + "$" + uuid)[:6] +
-          "_vidaacommon_001"; username = "his$" + ts; password =
-          md5(ts + "$" + md5("his" + (crosssum(ts) % 10) +
-          "h*i&s%e!r^v0i1c9")[:6]).
-        validity: >
-          The TV checks the timestamp in the username, so a generated
-          login works only for roughly +/-4 hours. Passwords carry no
-          TV-specific material — one capture worked on a second TV
-          (issue #14), which is a security note as much as an
-          implementation one.
-      - name: "modern_dynamic"
-        applies: "Current VIDAA firmware (pyvidaa: transport_protocol >= 3290); requires the mtls generation above"
-        algorithm: >
-          Identical to legacy_dynamic with two changes: the password suffix
-          is "h!i@s#$v%i^d&a*a" instead of "h*i&s%e!r^v0i1c9", and the
-          username's timestamp is obfuscated — username = "his$" + (ts XOR
-          0x569814772b03a968). pyvidaa reproduces all three values
-          byte-for-byte against the app on a live set (2026-08-04); its
-          worked example: uuid 56:b8:88:4e:f7:19, ts 1766974704 →
-          client_id 56:b8:88:4e:f7:19$his$256DBF_vidaacommon_001,
-          username his$6239759786168176024, password
-          C3BA44782E18ABF4892AC44D79A622D2.
-        notes: >
-          The uuid is minted by the CLIENT, not read from hardware — the
-          app generates a fresh MAC-shaped value on every reinstall, and
-          the client id carries both the uuid and md5(PATTERN$uuid)[:6],
-          so the check is self-consistent. Any stable, self-consistent
-          identifier is believed acceptable (pyvidaa: inferred, not
-          verified). The app opens a second connection with operation
-          "vidaavoice" instead of "vidaacommon"; one connection suffices
-          for control. A _002 client-id suffix exists in the binary but
-          only _001 has been observed on the wire.
-    after_pairing: >
-      Once paired, modern firmware issues tokens: the accesstoken becomes
-      the MQTT password (same client_id and username) until it expires
-      (accesstoken_duration_day, observed 2-30 days), after which the
-      client reconnects once with the OLD credential algorithm to publish
-      {"refreshtoken": "<saved>"} to
-      /remoteapp/tv/platform_service/{client_id}/data/gettoken and reads a
-      fresh pair from
-      /remoteapp/mobile/{client_id}/platform_service/data/tokenissuance.
-      The refresh token itself lasts refreshtoken_duration_day (observed
-      30-365) — miss that window and the client must re-pair with a PIN.
-  pairing:
-    static_generation:
-      - "Connect with the static login; subscribe to /remoteapp/mobile/{client_id}/ui_service/data/authenticationcode."
-      - "Publish anything to /remoteapp/tv/ui_service/{client_id}/actions/gettvstate — the request doubles as the pairing trigger; the TV shows a 4-digit PIN."
-      - "User reads the PIN; client publishes {\"authNum\": \"XXXX\"} to /remoteapp/tv/ui_service/{client_id}/actions/authenticationcode."
-      - "Reply {\"result\": 1} on the authenticationcode data topic means the client id (its uuid) is now authorized. Any other result is a refusal; the PIN dialog times out in about 60 seconds."
-    modern_generation:
-      - "Connect over mTLS with dynamic credentials; subscribe to the client's data topics (or /remoteapp/# — see topic_format.wildcards)."
-      - "Publish {\"app_version\": 2, \"connect_result\": 0, \"device_type\": \"Mobile App\"} to /remoteapp/tv/ui_service/{client_id}/actions/vidaa_app_connect."
-      - "TV either pushes an empty message on /remoteapp/mobile/{client_id}/ui_service/data/authentication (PIN now on screen) or answers vidaa_app_connect with {\"connect_result\": 1} — already authorized, no PIN needed."
-      - "User reads the 4-digit PIN; client publishes {\"authNum\": \"XXXX\"} to actions/authenticationcode; {\"result\": 1, \"info\": \"\"} confirms."
-      - "Publish {\"refreshtoken\": \"\"} to /remoteapp/tv/platform_service/{client_id}/data/gettoken and read accesstoken/refreshtoken (+ durations and issue times) from platform_service/data/tokenissuance. Store them — they replace the password from now on (see authentication.after_pairing)."
-      - "Publish anything to actions/authenticationcodeclose to dismiss the dialog."
-    user_visible: >
-      The PIN appears as an on-screen dialog without the user touching the
-      TV; the user's only job is reading four digits into the client
-      within the ~60s timeout. TVs may cap the number of paired clients —
-      old pairings are removable in the TV's settings.
-  topic_format:
-    publish: "/remoteapp/tv/{service}/{client_id}/actions/{action} (token refresh uses .../platform_service/{client_id}/data/gettoken instead of actions/)"
-    subscribe_client: "/remoteapp/mobile/{client_id}/{service}/data/{datatype} — replies addressed to this client"
-    subscribe_broadcast: "/remoteapp/mobile/broadcast/{service}/... — state all clients share; /remoteapp/mobile/broadcast/ui_service/state is RETAINED, so a fresh subscriber learns the current statetype immediately"
-    wildcards: >
-      Long believed denied by the broker; a 2026-08-04 live probe found
-      /remoteapp/# granted and delivering (the earlier SUBACK-0x80 claim
-      was a broken calibration). Treat specific subscriptions as the
-      contract and wildcards as a debugging convenience — the belief has
-      flipped once already.
-    payloads: >
-      Payloads are plain JSON, or a bare string where the vocabulary says
-      so: sendkey takes the key name itself ("KEY_POWER"), changevolume
-      takes the bare decimal level ("50"), and several query actions take
-      an empty payload (publish a zero-length message or a single "0" —
-      both are in circulation).
-  state_vocabulary:
-    statetype:
-      fake_sleep_0: "standby (match this exactly — fake_sleep_1 is WAKING, followed by remote_launcher)"
-      fake_sleep_1: "waking"
-      remote_launcher: "home screen"
-      remote_setting: "a settings menu is open"
-      sourceswitch: "external input; carries sourceid, sourcename, displayname, is_signal"
-      livetv: "watching a tuner channel; carries channel_name, channel_num, channel_param, sourceid — and EPG fields (progname, starttime, endtime) on older firmware; NO sourcename/displayname"
-    notes: >
-      On the pyvidaa-probed firmware gettvstate is never answered — state
-      arrives only as unsolicited broadcast on
-      /remoteapp/mobile/broadcast/ui_service/state — while the 2019
-      documentation shows gettvstate producing exactly that state object.
-      A client must therefore treat the broadcast topic as the state
-      channel and gettvstate as, at best, a poke. Volume changes broadcast
-      on /remoteapp/mobile/broadcast/platform_service/actions/volumechange.
-  key_vocabulary:
-    power: ["KEY_POWER"]
-    navigation: ["KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_OK", "KEY_OK_LONG_PRESS", "KEY_RETURNS", "KEY_MENU", "KEY_HOME", "KEY_EXIT"]
-    volume: ["KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE", "KEY_MUTE_LONG_PRESS", "KEY_VOICEUP", "KEY_VOICEDOWN"]
-    playback: ["KEY_PLAY", "KEY_PAUSE", "KEY_STOP", "KEY_FORWARDS", "KEY_BACK"]
-    digits: ["KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9", "KEY_CHANNELDOT"]
-    channel: ["KEY_CHANNELUP", "KEY_CHANNELDOWN"]
-    color: ["KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE"]
-    pointer: ["KEY_LEFTMOUSEKEYS", "KEY_UDDLEFTMOUSEKEYS", "KEY_UDULEFTMOUSEKEYS", "KEY_ZOOMIN", "KEY_ZOOMOUT"]
-    misc: ["KEY_SUBTITLE", "KEY_INFO"]
-    notes: >
-      Wire spellings are the VIDAA APK's: back is KEY_RETURNS and rewind is
-      KEY_BACK, the two most surprising names in the table. KEY_POWER is a
-      toggle — there is no separate power-on key, and no network power-on
-      at all (broker is down in standby): power-on is Wake-on-LAN to the
-      TV's MAC, Ethernet far more reliably than WiFi.
-  transport_gap: >
-    The reference app speaks HTTP (GET/POST, empty body) and SOAP today.
-    This device needs an MQTT client with: TLS and client-certificate
-    support, per-connection dynamic credential generation (the MD5/XOR
-    algorithm above), the pairing flow with user-supplied PIN, token
-    storage and scheduled refresh, and JSON-over-MQTT command payloads.
-    None of that maps onto either supported transport, so the `commands`
-    below declare transport: "mqtt" — schema-legal but not yet executable
-    by the reference app. They are written as invocations so that an MQTT
-    transport, once added, can run them unchanged.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build a session byte for byte, in the role ecp_common
+  # plays for Roku. The whole control surface is MQTT publish/subscribe; for
+  # `commands` entries below, `path` IS the topic (MQTT has no path; the
+  # command schema's path key is the closest fit) and `example_body` is the
+  # exact payload.
+  remoteapp_common:
+    transport: "MQTT v3.1.1"
+    broker:
+      host: "<tv-ip>, from discovery"
+      port: 36669
+      server_software: "mosquitto 1.4.2 reported on 2019-era firmware (Krazy998)"
+      keepalive_seconds: 20
+      keepalive_notes: >
+        These TVs vanish from the network in standby without closing the
+        session, so keepalive is what bounds how long a dead session looks
+        alive: paho gives up at roughly 1.5x. The old 60s default meant ~90s
+        before a powered-off TV was noticed.
+      port_36668_note: >
+        No source documents a listener on 36668. Older models run the SAME
+        broker on 36669 with no TLS and the static login (newAM's --no-ssl
+        flag exists for exactly those sets). If a scan shows 36668 open on
+        some set, its role is unestablished — capture it before writing it
+        down.
+    tls:
+      generations:
+        - name: "plain"
+          description: "No TLS at all. Oldest sets (e.g. H43A6250UK)."
+        - name: "tls_selfsigned"
+          description: "TLS with a self-signed server certificate; clients must disable verification (encryption on, validate off)."
+        - name: "mtls"
+          description: "Mutual TLS: the client must present the app-bundled certificate CN=VidaaAppAndroidV01 (issuer CN=RemoteCA) or the RemoteNow-era rcm pair — see device.setup.credentials.notes for the provisioning gap. Server certificate issued by the same private RemoteCA root; CN is 'RemoteCA', so hostname checks always fail and verification stays off even in careful clients."
+    authentication:
+      generations:
+        - name: "static"
+          applies: "Pre-dynamic firmware (pyvidaa: transport_protocol below 3000)"
+          client_id: "Arbitrary; convention is the client's own MAC with $normal appended (newAM), or a plain name like 'HomeAssistant'. Reusing a client id drops the older session, so do not share ids between integrations."
+          username: "hisenseservice"
+          password: "multimqttservice"
+        - name: "legacy_dynamic"
+          applies: "VIDAA-app-era firmware before the modern tweak (pyvidaa: 3000 <= transport_protocol < 3290; e.g. the 2023 A6K/55U8KQ captures)"
+          algorithm: >
+            All MD5 hex digests uppercase. Let PATTERN =
+            "38D65DC30F45109A369A86FCE866A85B", uuid = the client's chosen
+            MAC-shaped identifier (colon-separated, any case as minted), ts =
+            current unix time in seconds, and crosssum(ts) = sum of the
+            decimal digits of ts. Then:
+            client_id = uuid + "$his$" + md5(PATTERN + "$" + uuid)[:6] +
+            "_vidaacommon_001"; username = "his$" + ts; password =
+            md5(ts + "$" + md5("his" + (crosssum(ts) % 10) +
+            "h*i&s%e!r^v0i1c9")[:6]).
+          validity: >
+            The TV checks the timestamp in the username, so a generated
+            login works only for roughly +/-4 hours. Passwords carry no
+            TV-specific material — one capture worked on a second TV
+            (issue #14), which is a security note as much as an
+            implementation one.
+        - name: "modern_dynamic"
+          applies: "Current VIDAA firmware (pyvidaa: transport_protocol >= 3290); requires the mtls generation above"
+          algorithm: >
+            Identical to legacy_dynamic with two changes: the password suffix
+            is "h!i@s#$v%i^d&a*a" instead of "h*i&s%e!r^v0i1c9", and the
+            username's timestamp is obfuscated — username = "his$" + (ts XOR
+            0x569814772b03a968). pyvidaa reproduces all three values
+            byte-for-byte against the app on a live set (2026-08-04); its
+            worked example: uuid 56:b8:88:4e:f7:19, ts 1766974704 →
+            client_id 56:b8:88:4e:f7:19$his$256DBF_vidaacommon_001,
+            username his$6239759786168176024, password
+            C3BA44782E18ABF4892AC44D79A622D2.
+          notes: >
+            The uuid is minted by the CLIENT, not read from hardware — the
+            app generates a fresh MAC-shaped value on every reinstall, and
+            the client id carries both the uuid and md5(PATTERN$uuid)[:6],
+            so the check is self-consistent. Any stable, self-consistent
+            identifier is believed acceptable (pyvidaa: inferred, not
+            verified). The app opens a second connection with operation
+            "vidaavoice" instead of "vidaacommon"; one connection suffices
+            for control. A _002 client-id suffix exists in the binary but
+            only _001 has been observed on the wire.
+      after_pairing: >
+        Once paired, modern firmware issues tokens: the accesstoken becomes
+        the MQTT password (same client_id and username) until it expires
+        (accesstoken_duration_day, observed 2-30 days), after which the
+        client reconnects once with the OLD credential algorithm to publish
+        {"refreshtoken": "<saved>"} to
+        /remoteapp/tv/platform_service/{client_id}/data/gettoken and reads a
+        fresh pair from
+        /remoteapp/mobile/{client_id}/platform_service/data/tokenissuance.
+        The refresh token itself lasts refreshtoken_duration_day (observed
+        30-365) — miss that window and the client must re-pair with a PIN.
+    pairing:
+      static_generation:
+        - "Connect with the static login; subscribe to /remoteapp/mobile/{client_id}/ui_service/data/authenticationcode."
+        - "Publish anything to /remoteapp/tv/ui_service/{client_id}/actions/gettvstate — the request doubles as the pairing trigger; the TV shows a 4-digit PIN."
+        - "User reads the PIN; client publishes {\"authNum\": \"XXXX\"} to /remoteapp/tv/ui_service/{client_id}/actions/authenticationcode."
+        - "Reply {\"result\": 1} on the authenticationcode data topic means the client id (its uuid) is now authorized. Any other result is a refusal; the PIN dialog times out in about 60 seconds."
+      modern_generation:
+        - "Connect over mTLS with dynamic credentials; subscribe to the client's data topics (or /remoteapp/# — see topic_format.wildcards)."
+        - "Publish {\"app_version\": 2, \"connect_result\": 0, \"device_type\": \"Mobile App\"} to /remoteapp/tv/ui_service/{client_id}/actions/vidaa_app_connect."
+        - "TV either pushes an empty message on /remoteapp/mobile/{client_id}/ui_service/data/authentication (PIN now on screen) or answers vidaa_app_connect with {\"connect_result\": 1} — already authorized, no PIN needed."
+        - "User reads the 4-digit PIN; client publishes {\"authNum\": \"XXXX\"} to actions/authenticationcode; {\"result\": 1, \"info\": \"\"} confirms."
+        - "Publish {\"refreshtoken\": \"\"} to /remoteapp/tv/platform_service/{client_id}/data/gettoken and read accesstoken/refreshtoken (+ durations and issue times) from platform_service/data/tokenissuance. Store them — they replace the password from now on (see authentication.after_pairing)."
+        - "Publish anything to actions/authenticationcodeclose to dismiss the dialog."
+      user_visible: >
+        The PIN appears as an on-screen dialog without the user touching the
+        TV; the user's only job is reading four digits into the client
+        within the ~60s timeout. TVs may cap the number of paired clients —
+        old pairings are removable in the TV's settings.
+    topic_format:
+      publish: "/remoteapp/tv/{service}/{client_id}/actions/{action} (token refresh uses .../platform_service/{client_id}/data/gettoken instead of actions/)"
+      subscribe_client: "/remoteapp/mobile/{client_id}/{service}/data/{datatype} — replies addressed to this client"
+      subscribe_broadcast: "/remoteapp/mobile/broadcast/{service}/... — state all clients share; /remoteapp/mobile/broadcast/ui_service/state is RETAINED, so a fresh subscriber learns the current statetype immediately"
+      wildcards: >
+        Long believed denied by the broker; a 2026-08-04 live probe found
+        /remoteapp/# granted and delivering (the earlier SUBACK-0x80 claim
+        was a broken calibration). Treat specific subscriptions as the
+        contract and wildcards as a debugging convenience — the belief has
+        flipped once already.
+      payloads: >
+        Payloads are plain JSON, or a bare string where the vocabulary says
+        so: sendkey takes the key name itself ("KEY_POWER"), changevolume
+        takes the bare decimal level ("50"), and several query actions take
+        an empty payload (publish a zero-length message or a single "0" —
+        both are in circulation).
+    state_vocabulary:
+      statetype:
+        fake_sleep_0: "standby (match this exactly — fake_sleep_1 is WAKING, followed by remote_launcher)"
+        fake_sleep_1: "waking"
+        remote_launcher: "home screen"
+        remote_setting: "a settings menu is open"
+        sourceswitch: "external input; carries sourceid, sourcename, displayname, is_signal"
+        livetv: "watching a tuner channel; carries channel_name, channel_num, channel_param, sourceid — and EPG fields (progname, starttime, endtime) on older firmware; NO sourcename/displayname"
+      notes: >
+        On the pyvidaa-probed firmware gettvstate is never answered — state
+        arrives only as unsolicited broadcast on
+        /remoteapp/mobile/broadcast/ui_service/state — while the 2019
+        documentation shows gettvstate producing exactly that state object.
+        A client must therefore treat the broadcast topic as the state
+        channel and gettvstate as, at best, a poke. Volume changes broadcast
+        on /remoteapp/mobile/broadcast/platform_service/actions/volumechange.
+    key_vocabulary:
+      power: ["KEY_POWER"]
+      navigation: ["KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_OK", "KEY_OK_LONG_PRESS", "KEY_RETURNS", "KEY_MENU", "KEY_HOME", "KEY_EXIT"]
+      volume: ["KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE", "KEY_MUTE_LONG_PRESS", "KEY_VOICEUP", "KEY_VOICEDOWN"]
+      playback: ["KEY_PLAY", "KEY_PAUSE", "KEY_STOP", "KEY_FORWARDS", "KEY_BACK"]
+      digits: ["KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9", "KEY_CHANNELDOT"]
+      channel: ["KEY_CHANNELUP", "KEY_CHANNELDOWN"]
+      color: ["KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE"]
+      pointer: ["KEY_LEFTMOUSEKEYS", "KEY_UDDLEFTMOUSEKEYS", "KEY_UDULEFTMOUSEKEYS", "KEY_ZOOMIN", "KEY_ZOOMOUT"]
+      misc: ["KEY_SUBTITLE", "KEY_INFO"]
+      notes: >
+        Wire spellings are the VIDAA APK's: back is KEY_RETURNS and rewind is
+        KEY_BACK, the two most surprising names in the table. KEY_POWER is a
+        toggle — there is no separate power-on key, and no network power-on
+        at all (broker is down in standby): power-on is Wake-on-LAN to the
+        TV's MAC, Ethernet far more reliably than WiFi.
+    transport_gap: >
+      The reference app speaks HTTP (GET/POST, empty body) and SOAP today.
+      This device needs an MQTT client with: TLS and client-certificate
+      support, per-connection dynamic credential generation (the MD5/XOR
+      algorithm above), the pairing flow with user-supplied PIN, token
+      storage and scheduled refresh, and JSON-over-MQTT command payloads.
+      None of that maps onto either supported transport, so the `commands`
+      below declare transport: "mqtt" — schema-legal but not yet executable
+      by the reference app. They are written as invocations so that an MQTT
+      transport, once added, can run them unchanged.
 
 http_endpoints:
   - method: "GET"
@@ -658,6 +661,13 @@ mqtt_topics:
 # pyvidaa/Krazy998/newAM and exercised daily by their users, but this
 # project has no Hisense hardware and has replayed none of it.
 commands:
+  # Every command below is addressed to /remoteapp/tv/<service>/<client_id>/
+  # actions/<action>, so every one declares `client_id` — the session identity
+  # this client connected under, stored with the pairing token rather than
+  # chosen per command. remoteapp_common.client_id above is where it comes
+  # from and what it may contain; the repetition here is what makes each
+  # command renderable on its own, which is the contract a consumer reads.
+  #
   # -- Power. Toggle only; power-ON from standby is Wake-on-LAN, not MQTT. --
   press_power:
     description: "Power toggle (standby<->on). The broker is down while the TV is off, so this only ever turns a TV OFF over MQTT — power on is WoL."
@@ -665,7 +675,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_POWER"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_POWER"
     verification: "reported"
 
   # -- Navigation.
@@ -675,7 +690,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_UP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_UP"
     verification: "reported"
   press_down:
     description: "D-pad down."
@@ -683,7 +703,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_DOWN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_DOWN"
     verification: "reported"
   press_left:
     description: "D-pad left."
@@ -691,7 +716,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_LEFT"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_LEFT"
     verification: "reported"
   press_right:
     description: "D-pad right."
@@ -699,7 +729,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_RIGHT"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_RIGHT"
     verification: "reported"
   press_ok:
     description: "OK — select the focused item."
@@ -707,7 +742,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_OK"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_OK"
     verification: "reported"
   press_back:
     description: "Back one screen. The wire spelling is KEY_RETURNS."
@@ -715,7 +755,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_RETURNS"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_RETURNS"
     verification: "reported"
   press_home:
     description: "Home screen."
@@ -723,7 +768,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_HOME"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_HOME"
     verification: "reported"
   press_menu:
     description: "Menu."
@@ -731,7 +781,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_MENU"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_MENU"
     verification: "reported"
   press_exit:
     description: "Exit the current app/menu."
@@ -739,7 +794,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_EXIT"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_EXIT"
     verification: "reported"
 
   # -- Volume (step keys; absolute set is set_volume below).
@@ -749,7 +809,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_VOLUMEUP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_VOLUMEUP"
     verification: "reported"
   press_volume_down:
     description: "Volume down one step."
@@ -757,7 +822,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_VOLUMEDOWN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_VOLUMEDOWN"
     verification: "reported"
   press_mute:
     description: "Mute toggle."
@@ -765,7 +835,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_MUTE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_MUTE"
     verification: "reported"
 
   # -- Live TV.
@@ -775,7 +850,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_CHANNELUP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_CHANNELUP"
     verification: "reported"
   press_channel_down:
     description: "Previous tuner channel."
@@ -783,7 +863,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_CHANNELDOWN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_CHANNELDOWN"
     verification: "reported"
 
   # -- Playback transport.
@@ -793,7 +878,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_PLAY"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_PLAY"
     verification: "reported"
   press_pause:
     description: "Pause."
@@ -801,7 +891,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_PAUSE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_PAUSE"
     verification: "reported"
   press_stop:
     description: "Stop."
@@ -809,7 +904,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_STOP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_STOP"
     verification: "reported"
   press_fast_forward:
     description: "Fast-forward. The wire spelling is KEY_FORWARDS."
@@ -817,7 +917,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_FORWARDS"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_FORWARDS"
     verification: "reported"
   press_rewind:
     description: "Rewind. The wire spelling is KEY_BACK — NOT KEY_REWIND; do not confuse it with KEY_RETURNS (the Back button)."
@@ -825,7 +930,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_BACK"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_BACK"
     verification: "reported"
 
   # -- Digits.
@@ -835,7 +945,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_0"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_0"
     verification: "reported"
   press_1:
     description: "Digit 1."
@@ -843,7 +958,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_1"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_1"
     verification: "reported"
   press_2:
     description: "Digit 2."
@@ -851,7 +971,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_2"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_2"
     verification: "reported"
   press_3:
     description: "Digit 3."
@@ -859,7 +984,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_3"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_3"
     verification: "reported"
   press_4:
     description: "Digit 4."
@@ -867,7 +997,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_4"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_4"
     verification: "reported"
   press_5:
     description: "Digit 5."
@@ -875,7 +1010,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_5"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_5"
     verification: "reported"
   press_6:
     description: "Digit 6."
@@ -883,7 +1023,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_6"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_6"
     verification: "reported"
   press_7:
     description: "Digit 7."
@@ -891,7 +1036,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_7"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_7"
     verification: "reported"
   press_8:
     description: "Digit 8."
@@ -899,7 +1049,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_8"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_8"
     verification: "reported"
   press_9:
     description: "Digit 9."
@@ -907,7 +1062,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_9"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_9"
     verification: "reported"
 
   # -- Colour buttons and misc.
@@ -917,7 +1077,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_RED"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_RED"
     verification: "reported"
   press_green:
     description: "Green colour button."
@@ -925,7 +1090,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_GREEN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_GREEN"
     verification: "reported"
   press_yellow:
     description: "Yellow colour button."
@@ -933,7 +1103,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_YELLOW"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_YELLOW"
     verification: "reported"
   press_blue:
     description: "Blue colour button."
@@ -941,7 +1116,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_BLUE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_BLUE"
     verification: "reported"
   press_subtitle:
     description: "Subtitle toggle."
@@ -949,7 +1129,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_SUBTITLE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_SUBTITLE"
     verification: "reported"
   press_info:
     description: "Info."
@@ -957,7 +1142,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_INFO"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_INFO"
     verification: "reported"
 
   # -- Parameterised commands.
@@ -968,12 +1158,17 @@ commands:
     action: "changevolume"
     path: "/remoteapp/tv/platform_service/{client_id}/actions/changevolume"
     parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
       volume:
         type: "integer"
         required: true
         min: 0
         max: 100
         description: "Absolute volume level; rendered into the payload as the bare decimal string."
+    body: "{volume}"
     example_body: "50"
     verification: "reported"
   set_source:
@@ -982,7 +1177,13 @@ commands:
     service: "ui_service"
     action: "changesource"
     path: "/remoteapp/tv/ui_service/{client_id}/actions/changesource"
+    arguments:
+      sourceid: "{sourceid}"
     parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
       sourceid:
         type: "string"
         required: true
@@ -1006,6 +1207,10 @@ commands:
       urlType: 37
       storeType: 0
     parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
       name:
         type: "string"
         required: true
@@ -1031,6 +1236,7 @@ entities:
   # not an asleep one.
   - platform: "switch"
     name: "Power"
+    key: "power"
     icon: "mdi:power"
     commands:
       toggle: "press_power"
@@ -1047,75 +1253,90 @@ entities:
     notes: "The raw remote key, distinct from the Power switch above: it promises a keypress, not a direction. Toggle. Turning the TV ON from standby is Wake-on-LAN, not this button — the broker is down while off."
   - platform: "button"
     name: "Up"
+    key: "up"
     icon: "mdi:chevron-up"
     commands:
       press: "press_up"
   - platform: "button"
     name: "Left"
+    key: "left"
     icon: "mdi:chevron-left"
     commands:
       press: "press_left"
   - platform: "button"
     name: "OK"
+    key: "ok"
     commands:
       press: "press_ok"
   - platform: "button"
     name: "Right"
+    key: "right"
     icon: "mdi:chevron-right"
     commands:
       press: "press_right"
   - platform: "button"
     name: "Down"
+    key: "down"
     icon: "mdi:chevron-down"
     commands:
       press: "press_down"
   - platform: "button"
     name: "Back"
+    key: "back"
     icon: "mdi:arrow-u-left-top"
     commands:
       press: "press_back"
   - platform: "button"
     name: "Home"
+    key: "home"
     icon: "mdi:home"
     commands:
       press: "press_home"
   - platform: "button"
     name: "Menu"
+    key: "menu"
     icon: "mdi:menu"
     commands:
       press: "press_menu"
   - platform: "button"
     name: "Exit"
+    key: "exit"
     icon: "mdi:exit-to-app"
     commands:
       press: "press_exit"
   - platform: "button"
     name: "Volume Up"
+    key: "volume_up"
     icon: "mdi:volume-plus"
     commands:
       press: "press_volume_up"
   - platform: "button"
     name: "Mute"
+    key: "mute"
     icon: "mdi:volume-mute"
     commands:
       press: "press_mute"
   - platform: "button"
     name: "Volume Down"
+    key: "volume_down"
     icon: "mdi:volume-minus"
     commands:
       press: "press_volume_down"
   - platform: "button"
     name: "Channel Up"
+    key: "channel_up"
     icon: "mdi:chevron-double-up"
     commands:
       press: "press_channel_up"
   - platform: "button"
     name: "Channel Down"
+    key: "channel_down"
     icon: "mdi:chevron-double-down"
     commands:
       press: "press_channel_down"
   - platform: "button"
     name: "Rewind"
+    key: "rewind"
     icon: "mdi:rewind"
     commands:
       press: "press_rewind"
@@ -1136,6 +1357,7 @@ entities:
       press: "press_stop"
   - platform: "button"
     name: "Fast Forward"
+    key: "fast_forward"
     icon: "mdi:fast-forward"
     commands:
       press: "press_fast_forward"
@@ -1202,6 +1424,7 @@ entities:
       press: "press_subtitle"
   - platform: "button"
     name: "Info"
+    key: "info"
     icon: "mdi:information"
     commands:
       press: "press_info"

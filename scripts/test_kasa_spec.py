@@ -34,7 +34,7 @@ def spec() -> dict:
 
 @pytest.fixture(scope="module")
 def protocol(spec) -> dict:
-    return spec["tplink_smarthome_protocol"]
+    return spec["protocol_details"]["tplink_smarthome_protocol"]
 
 
 @pytest.fixture(scope="module")
@@ -396,35 +396,70 @@ def test_both_reply_shapes_decode_through_one_reader(sensors):
 
 
 def test_variants_are_identifiable_from_a_sysinfo_reply(variants, commands):
-    """Every variant declares a model_prefix, and get_sysinfo declares the
-    `model` field a consumer matches it against — a variant table nothing in
-    the protocol can be matched to is decoration."""
+    """Every variant can be matched to the protocol — a variant table nothing
+    in the protocol can be matched to is decoration.
+
+    Two matching schemes coexist. A plug variant is a literal model number,
+    so its model_prefix must prefix its own `model` and get_sysinfo must
+    declare the `model` (and `feature`) fields the prefix is compared
+    against. A smartbulb-class variant is a FAMILY ("Smart Bulb",
+    "Light Strip") identified by reply shape instead — its `state_probe`
+    must name the declared get_sysinfo poll and at least one discriminating
+    key, and no two probes may state identical conditions, or the variants
+    they identify are indistinguishable.
+    """
     assert variants, "the spec covers more than one model; they must be listed"
     returned = {r["name"] for r in commands["get_sysinfo"]["returns"]}
     assert "model" in returned and "feature" in returned
+    probes = []
     for variant in variants:
-        prefix = variant["identification"]["model_prefix"]
-        assert variant["model"].startswith(prefix)
-        # A region suffix must not defeat the match — this is a prefix test.
-        assert f"{prefix}(US)".startswith(prefix)
+        ident = variant["identification"]
+        probe = ident.get("state_probe")
+        if probe is not None:
+            assert probe["command"] in commands, (
+                f"{variant['model']}: state_probe names an undeclared command"
+            )
+            assert probe.get("keys_present") or probe.get("keys_absent"), (
+                f"{variant['model']}: a probe with no conditions matches "
+                "everything"
+            )
+            conditions = (
+                frozenset(probe.get("keys_present") or []),
+                frozenset(probe.get("keys_absent") or []),
+            )
+            assert conditions not in probes, (
+                f"{variant['model']}: another variant states the identical "
+                "probe conditions"
+            )
+            probes.append(conditions)
+        else:
+            prefix = ident["model_prefix"]
+            assert variant["model"].startswith(prefix)
+            # A region suffix must not defeat the match — this is a prefix
+            # test.
+            assert f"{prefix}(US)".startswith(prefix)
 
 
-def test_the_emeter_sensors_are_scoped_to_metering_models(sensors, variants):
-    """The four meter sensors name the models that actually have the meter,
-    and those names resolve to declared variants.
+def test_the_emeter_sensors_are_scoped_to_the_metering_family(sensors, variants):
+    """The four meter sensors scope to the shape-identified "Metering Plug"
+    family, whose state_probe reads the device's own capability list
+    (get_sysinfo `feature` carries "ENE" exactly when the emeter module is
+    present) — the test the model table's comment recommends over model
+    prefixes, and one a consumer can evaluate from the poll it already makes.
 
     Unscoped, a consumer draws four permanently-unavailable tiles on an
     HS100 — get_emeter on a plug with no metering hardware answers an error,
-    not a reading.
+    not a reading. Scoped to bare model numbers, no consumer that has not
+    implemented model-prefix matching can ever draw them at all.
     """
-    declared = {v["model"] for v in variants}
-    metering = {"HS110", "KP115"}
-    assert metering <= declared
+    by_model = {v["model"]: v for v in variants}
+    probe = by_model["Metering Plug"]["identification"]["state_probe"]
+    assert probe["command"] == "get_sysinfo"
+    assert probe["keys_present"] == ["relay_state"]
+    assert probe["value_contains"] == {"feature": "ENE"}
     for sensor in sensors:
-        scope = sensor.get("variants")
-        assert scope, f"{sensor['name']}: an emeter sensor must name its models"
-        assert set(scope) == metering, (
-            f"{sensor['name']}: scoped to {scope}, expected the metering models"
+        assert sensor.get("variants") == ["Metering Plug"], (
+            f"{sensor['name']}: an emeter sensor scopes to the metering family"
         )
 
 
@@ -439,8 +474,28 @@ def test_every_entity_variant_names_a_declared_variant(entities, variants):
             )
 
 
-def test_the_switch_is_not_variant_scoped(entities):
-    """The relay is on every covered model, so the switch must NOT carry a
-    variants list — scoping it would hide the one control every plug has."""
-    switch = next(e for e in entities if e["platform"] == "switch")
-    assert "variants" not in switch
+def test_the_switch_is_scoped_to_the_probe_identified_plug_family(entities, spec):
+    """The relay switch used to be unscoped because every covered model had
+    one — no longer true since the spec grew the smartbulb-class variants,
+    whose devices ignore set_relay_state. The switch now scopes to the
+    shape-identified "Smart Plug" family (and the instanced Outlets to
+    "Power Strip"), both of which must carry a state_probe: probe-scoped
+    entities stay drawable before a consumer's first poll, so this scoping
+    never costs a plug its control — it only stops a bulb wearing a dead
+    switch."""
+    by_name = {e["name"]: e for e in entities}
+    assert by_name["Outlet"]["variants"] == ["Smart Plug"]
+    assert by_name["Outlets"]["variants"] == ["Power Strip"]
+    probes = {
+        v["model"]: v.get("identification", {}).get("state_probe")
+        for v in spec["device"]["variants"]
+    }
+    assert probes["Smart Plug"] == {
+        "command": "get_sysinfo",
+        "keys_present": ["relay_state"],
+        "keys_absent": ["children"],
+    }
+    assert probes["Power Strip"] == {
+        "command": "get_sysinfo",
+        "keys_present": ["children"],
+    }

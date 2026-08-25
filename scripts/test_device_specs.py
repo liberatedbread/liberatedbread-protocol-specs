@@ -666,6 +666,136 @@ def test_entity_names_are_unique_per_variant(specs):
                     )
 
 
+# The semantic-key vocabulary `entities[].key` draws from. A pattern plus this
+# list rather than a schema enum, on the `category` precedent: an enum would
+# make every vocabulary addition a schema change that hard-fails strict
+# parsers, while this list keeps growth additive and typo-checked. Grouped by
+# the surface that consumes them; a key is added here the release before a
+# spec first uses it.
+ENTITY_KEY_VOCABULARY = frozenset(
+    {
+        # Remote-shaped surfaces (TVs, streaming boxes).
+        "power", "power_on", "power_off",
+        "back", "home", "up", "down", "left", "right", "ok",
+        "replay", "options", "exit", "menu", "info",
+        "rewind", "play_pause", "fast_forward",
+        "volume_up", "volume_down", "mute",
+        "channel_up", "channel_down",
+        "search", "find_remote", "keyboard",
+        "input_hdmi1", "input_hdmi2", "input_hdmi3", "input_hdmi4",
+        "input_av", "input_tuner",
+        # Treadmill / fitness cards.
+        "start", "pause", "stop", "speed",
+    }
+)
+
+
+def _ble_name_matchers(spec):
+    """Every `discovery.methods[].ble.local_name` matcher in one spec."""
+    for method in (spec.get("device", {}).get("discovery", {}) or {}).get("methods") or []:
+        if method.get("type") != "ble_scan":
+            continue
+        matcher = (method.get("ble") or {}).get("local_name")
+        if isinstance(matcher, dict):
+            yield matcher
+
+
+def test_ble_name_matchers_state_exactly_one_needle_form(specs):
+    """A `local_name` matcher gives `value` or `values`, never neither.
+
+    A matcher with no needle matches nothing — and these matchers are load-
+    bearing in both directions: the OBD adapters are FOUND by one, and the
+    skimmer heads-up is WITHHELD from a configured module by one. Either way
+    the failure is silent, which is why it is worth a test rather than a
+    reviewer's attention.
+    """
+    for device_id, spec in specs.items():
+        for matcher in _ble_name_matchers(spec):
+            has_value = isinstance(matcher.get("value"), str) and matcher["value"] != ""
+            values = matcher.get("values")
+            has_values = isinstance(values, list) and any(
+                isinstance(v, str) and v for v in values
+            )
+            assert has_value or has_values, (
+                f"{device_id}: a local_name matcher states no needle "
+                f"({matcher!r}) — it can never match anything"
+            )
+
+
+def test_ble_name_matcher_regexes_compile(specs):
+    """A `match: regex` needle is a regular expression a consumer can run.
+
+    An uncompilable pattern is the same silent nothing as a missing needle,
+    one layer down: the consumer's cache stores the failure and the matcher
+    never fires again.
+    """
+    for device_id, spec in specs.items():
+        for matcher in _ble_name_matchers(spec):
+            if matcher.get("match") != "regex":
+                continue
+            needles = [matcher["value"]] if matcher.get("value") else []
+            needles += [v for v in (matcher.get("values") or []) if v]
+            for needle in needles:
+                try:
+                    re.compile(needle)
+                except re.error as error:
+                    raise AssertionError(
+                        f"{device_id}: local_name regex {needle!r} does not "
+                        f"compile: {error}"
+                    ) from error
+
+
+def test_entity_keys_come_from_the_documented_vocabulary(specs):
+    """Every `entities[].key` is a token a consumer's curated layouts know.
+
+    The key exists so a remote card can place OK in the middle of a D-pad and
+    a treadmill card can find Stop without matching display names. An
+    unrecognised token would simply never be consumed -- a typo'd
+    `volume_upp` silently demotes the control to the leftover pile, which is
+    exactly the failure the key was added to end.
+    """
+    for device_id, spec in specs.items():
+        for entity in spec.get("entities") or []:
+            key = entity.get("key")
+            if key is None:
+                continue
+            assert key in ENTITY_KEY_VOCABULARY, (
+                f"{device_id}: entity {entity.get('name')!r} declares key "
+                f"{key!r}, which is not in the documented vocabulary. Reuse "
+                "an existing token if one fits; otherwise add it to "
+                "ENTITY_KEY_VOCABULARY (and the schema description) in the "
+                "same change."
+            )
+
+
+def test_entity_keys_are_unique_per_variant(specs):
+    """A key names a layout slot, so two co-present entities must not share
+    one -- the same disjointness rule names carry, for the same reason: a
+    consumer resolving `take('ok')` cannot tell two claimants apart. A name
+    may repeat across variant-disjoint entities and so may a key.
+    """
+    for device_id, spec in specs.items():
+        by_key: dict[str, list[frozenset]] = {}
+        for entity in spec.get("entities") or []:
+            key = entity.get("key")
+            if key is None:
+                continue
+            by_key.setdefault(key, []).append(frozenset(entity.get("variants") or []))
+        for key, variant_sets in by_key.items():
+            if len(variant_sets) < 2:
+                continue
+            for i in range(len(variant_sets)):
+                for j in range(i + 1, len(variant_sets)):
+                    left, right = variant_sets[i], variant_sets[j]
+                    assert left and right and not (left & right), (
+                        f"{device_id}: {len(variant_sets)} entities declare "
+                        f"key {key!r} and at least two of them can be present "
+                        "on the same device. A layout slot has room for one "
+                        "control; drop the key from all but one, or scope "
+                        "each to its models with `variants`."
+                    )
+
+
 def test_format_field_keys_are_declared_in_the_schema(specs):
     """Same rule for the `format:` fields a client decodes bytes with.
 
@@ -1132,3 +1262,735 @@ def test_unestablished_reset_cannot_hold_a_verified_procedure(candidate_reset_sp
     assert list(validator.iter_errors(spec)), (
         "schema accepted a verified procedure under an unestablished reset"
     )
+
+
+# --------------------------------------------------------------------------
+# The closed top level.
+#
+# schema.json rejects any undeclared key at the root and under `device:`. Same
+# mutation approach as above: a guard nothing currently violates is a guard
+# that can be deleted without a single test going red.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def closed_world_spec() -> dict:
+    """A plain, valid LAN spec to mutate against the closure rules."""
+    return load(DEVICES_DIR / "hue-bridge.yaml")
+
+
+def test_closed_world_spec_is_valid_to_begin_with(closed_world_spec):
+    validator = Draft202012Validator(_schema())
+    assert not list(validator.iter_errors(closed_world_spec))
+
+
+def test_an_undeclared_top_level_key_is_rejected(closed_world_spec):
+    """A bespoke block belongs under `protocol_details`, not at the root."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["hue_lan_protocol"] = {"notes": "bespoke"}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted an undeclared top-level key"
+    )
+
+
+def test_an_undeclared_device_key_is_rejected(closed_world_spec):
+    """The case this closure exists for: a standard field spelled wrong."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["transprot"] = "http"
+    assert list(validator.iter_errors(spec)), "schema accepted a typo'd device key"
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("local_access", {"status": "native"}),
+        ("features", [{"type": "image_upload"}]),
+        ("protocol_handler", "hue"),
+        ("payload_formats", {"state": {"description": "x"}}),
+    ],
+)
+def test_top_level_blocks_cannot_hide_under_device(closed_world_spec, key, value):
+    """These four are read at the top level and nowhere else.
+
+    Seventeen specs wrote them one level down and no consumer ever saw them --
+    five printers' image_upload capability among the casualties. Nesting them
+    is a validation error now rather than a silent loss.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec.pop(key, None)
+    spec["device"][key] = value
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted {key} nested under device:"
+    )
+
+
+def test_protocol_details_accepts_anything_it_is_given(closed_world_spec):
+    """The escape hatch has to actually escape, or specs route around it."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["protocol_details"] = {
+        "hue_lan_protocol": {"nested": {"deeply": ["arbitrary", 1, True]}}
+    }
+    assert not list(validator.iter_errors(spec))
+
+
+def test_bespoke_blocks_live_under_protocol_details(specs):
+    """Catalogue side of the same rule, named so a failure explains itself."""
+    declared = set(_schema()["properties"])
+    stray = {
+        device_id: sorted(set(spec) - declared)
+        for device_id, spec in specs.items()
+        if set(spec) - declared
+    }
+    assert not stray, (
+        f"undeclared top-level keys (move under protocol_details): {stray}"
+    )
+
+
+@pytest.mark.parametrize("value", ["ble_gatt", "ble", "tcp-json", "upnp", "mdns"])
+def test_retired_transport_spellings_are_rejected(closed_world_spec, value):
+    """One wire, one spelling — the drift these values came from was silent.
+
+    `mdns` is in the list because it is not a transport at all: it is how a
+    device was found, and a spec that documents only discovery says so in
+    `device.discovery` and leaves this field out.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["transport"] = value
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired transport spelling {value!r}"
+    )
+
+
+def test_every_declared_transport_is_in_the_enum(specs):
+    """Catalogue side, so a failure names the spec rather than the value."""
+    allowed = set(
+        _schema()["properties"]["device"]["properties"]["transport"]["enum"]
+    )
+    wrong = {
+        device_id: spec["device"]["transport"]
+        for device_id, spec in specs.items()
+        if spec["device"].get("transport")
+        and spec["device"]["transport"] not in allowed
+    }
+    assert not wrong, f"transports outside the enum: {wrong}"
+
+
+# --------------------------------------------------------------------------
+# Unit spelling.
+#
+# `unit` is prose to a validator and data to a consumer: `unit_values` maps a
+# device's own unit setting onto these same strings, so two spellings of one
+# quantity is a comparison that silently fails. The schema prescribes the bare
+# symbol; these tests are what makes that prescription hold.
+# --------------------------------------------------------------------------
+
+RETIRED_UNITS = {
+    "°C": "C",
+    "°F": "F",
+    "percent": "%",
+    "%RH": "%",
+    "minutes": "min",
+    "seconds": "s",
+    "° before TDC": "°",
+    "° BTDC": "°",
+}
+
+
+def every_unit(spec):
+    """Yield (path, value) for every `unit:` anywhere in a spec."""
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "unit" and isinstance(value, str):
+                    yield f"{path}.unit", value
+                yield from walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                yield from walk(value, f"{path}[{i}]")
+
+    yield from walk(spec, "")
+
+
+def test_units_use_the_canonical_spelling(specs):
+    """One quantity, one spelling — including inside protocol_details."""
+    wrong = [
+        f"{device_id}{path} = {value!r} (use {RETIRED_UNITS[value]!r})"
+        for device_id, spec in specs.items()
+        for path, value in every_unit(spec)
+        if value in RETIRED_UNITS
+    ]
+    assert not wrong, "retired unit spellings:\n  " + "\n  ".join(wrong)
+
+
+def test_no_unit_is_empty(specs):
+    """A dimensionless value omits the key; `unit: ""` reads as an oversight."""
+    empty = [
+        f"{device_id}{path}"
+        for device_id, spec in specs.items()
+        for path, value in every_unit(spec)
+        if not value.strip()
+    ]
+    assert not empty, f"empty unit values (omit the key instead): {empty}"
+
+
+def test_no_unit_names_two_quantities(specs):
+    """`unit: "V, %"` cannot be read by anything; the prose has to carry it."""
+    compound = [
+        f"{device_id}{path} = {value!r}"
+        for device_id, spec in specs.items()
+        for path, value in every_unit(spec)
+        if "," in value
+    ]
+    assert not compound, f"compound units (describe the pair in prose): {compound}"
+
+
+@pytest.mark.parametrize("retired", ["sources", "source"])
+def test_the_retired_provenance_spellings_are_rejected(closed_world_spec, retired):
+    """Three keys meant provenance; only `evidence` does now."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec[retired] = [{"type": "static_analysis"}]
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired provenance key {retired!r}"
+    )
+
+
+def test_an_artifact_says_what_kind_of_artifact_it_is(closed_world_spec):
+    """A digest with no `type` cannot be weighed against anything."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["evidence"] = {"artifacts": [{"sha256": "0" * 64}]}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted an evidence artifact with no type"
+    )
+
+
+def test_provenance_is_spelled_evidence_everywhere(specs):
+    """Catalogue side, naming the spec rather than the key."""
+    stray = {
+        device_id: sorted({"sources", "source"} & set(spec))
+        for device_id, spec in specs.items()
+        if {"sources", "source"} & set(spec)
+    }
+    assert not stray, f"provenance outside `evidence`: {stray}"
+
+
+# --------------------------------------------------------------------------
+# Model vocabulary.
+#
+# Six keys once listed the products a spec covers. Two remain, and they answer
+# a question with an answer: one product (`device.model`) or several
+# (`device.variants`).
+# --------------------------------------------------------------------------
+
+RETIRED_MODEL_KEYS = [
+    ("variants", [{"model": "X"}]),
+    ("model_variants", [{"model": "X"}]),
+    ("hardware_variants", [{"name": "X"}]),
+    ("firmware_variants", {"variants": []}),
+    ("device_families", [{"model": "X"}]),
+]
+
+
+@pytest.mark.parametrize("key,value", RETIRED_MODEL_KEYS)
+def test_retired_top_level_model_keys_are_rejected(closed_world_spec, key, value):
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec[key] = value
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired top-level key {key!r}"
+    )
+
+
+def test_device_models_is_rejected(closed_world_spec):
+    """A bare name list says less than `variants` and matches nothing."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["models"] = ["A", "B"]
+    assert list(validator.iter_errors(spec)), "schema accepted device.models"
+
+
+def test_a_spec_does_not_claim_both_a_model_and_variants(specs):
+    """`model` means one product. With `variants` present it is a duplicate.
+
+    Both divoom and gerbing had a `model` that simply repeated one of their
+    own variants, which reads as a claim that that one is primary.
+    """
+    both = [
+        device_id
+        for device_id, spec in specs.items()
+        if spec["device"].get("model") and spec["device"].get("variants")
+    ]
+    assert not both, f"specs carrying both device.model and device.variants: {both}"
+
+
+def test_every_variant_names_a_model(specs):
+    """`entities[].variants` refers to these strings, so they must exist."""
+    bad = [
+        f"{device_id}[{i}]"
+        for device_id, spec in specs.items()
+        for i, variant in enumerate(spec["device"].get("variants") or [])
+        if not str(variant.get("model", "")).strip()
+    ]
+    assert not bad, f"variants with no model: {bad}"
+
+
+def test_reference_specs_state_coverage_rather_than_a_model(specs):
+    """A standard is not a product; what a reader needs is which part it covers."""
+    wrong = [
+        device_id
+        for device_id, spec in specs.items()
+        if is_reference(spec)
+        and (spec["device"].get("model") or spec["device"].get("variants"))
+    ]
+    assert not wrong, f"reference specs claiming a model/variants: {wrong}"
+
+
+# --------------------------------------------------------------------------
+# DNS-SD service types.
+#
+# The schema pins the form on the two keys it can reach. This sweeps every
+# service type anywhere in a spec -- including inside `evidence` and
+# `protocol_details`, which are open objects -- because the bare forms that
+# started the drift were all in transcriptions of a live probe, and a reader
+# comparing a probe record against a discovery axis has to see the same string.
+# --------------------------------------------------------------------------
+
+SERVICE_TYPE_KEYS = {"mdns_service_type", "service_type"}
+DNS_SD_TYPE = re.compile(r"^_[A-Za-z0-9_-]+\._(tcp|udp)\.local\.$")
+# wemo and viera write UPnP service URNs into a key of the same name.
+UPNP_URN = re.compile(r"^urn:")
+
+
+def every_service_type(spec):
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in SERVICE_TYPE_KEYS:
+                    for item in value if isinstance(value, list) else [value]:
+                        if isinstance(item, str):
+                            yield f"{path}.{key}", item
+                yield from walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                yield from walk(value, f"{path}[{i}]")
+
+    yield from walk(spec, "")
+
+
+def test_dns_sd_service_types_are_fully_qualified(specs):
+    """`_hap._tcp` and `_hap._tcp.local.` are one service and two strings.
+
+    String equality against the wrong one never fires, and a discovery axis
+    that never fires is indistinguishable from a device that is not there.
+    """
+    wrong = [
+        f"{device_id}{path} = {value!r}"
+        for device_id, spec in specs.items()
+        for path, value in every_service_type(spec)
+        if value.startswith("_") and not DNS_SD_TYPE.match(value)
+    ]
+    assert not wrong, (
+        "DNS-SD service types must end `._tcp.local.` / `._udp.local.`:\n  "
+        + "\n  ".join(wrong)
+    )
+
+
+def test_a_discovery_axis_matches_the_identification_it_claims(specs):
+    """A spec's mdns identification must be one of its own discovery types.
+
+    Two places state the same fact and only one of them is what a matcher
+    reads first; letting them disagree is how a spec stops meaning what it
+    says without anything going red.
+    """
+    mismatched = {}
+    for device_id, spec in specs.items():
+        declared = spec["device"].get("identification", {}).get("mdns_service_type")
+        if not declared:
+            continue
+        methods = spec["device"].get("discovery", {}).get("methods") or []
+        offered = {
+            m["mdns"]["service_type"]
+            for m in methods
+            if m.get("type") == "mdns" and "service_type" in (m.get("mdns") or {})
+        }
+        if offered and declared not in offered:
+            mismatched[device_id] = (declared, sorted(offered))
+    assert not mismatched, (
+        f"identification.mdns_service_type not among the discovery methods: {mismatched}"
+    )
+
+
+def test_a_bare_service_type_is_rejected_by_the_schema(closed_world_spec):
+    """The pattern, not just the sweep: it must hold for specs not written yet."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["identification"]["mdns_service_type"] = "_hue._tcp"
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted a bare DNS-SD service type"
+    )
+
+
+def test_every_device_states_whether_it_was_tested(specs):
+    """Absent reads as 'nobody looked', which is not what these two meant.
+
+    smartdawn documented a live 2026-08-08 session against curtain hardware
+    in its own prose and still indexed as untested; airthings documented two
+    HCI captures and did the same. The block is the only place a consumer
+    reads the verdict, so silence there erases the work.
+    """
+    missing = [
+        device_id
+        for device_id, spec in specs.items()
+        if "testing" not in spec["device"] and not is_reference(spec)
+    ]
+    assert not missing, f"specs with no device.testing block: {missing}"
+
+
+def test_reference_specs_do_not_claim_hardware_testing(specs):
+    """There is no hardware to drive; the block would be meaningless."""
+    claiming = [
+        device_id
+        for device_id, spec in specs.items()
+        if is_reference(spec) and "testing" in spec["device"]
+    ]
+    assert not claiming, f"reference specs carrying device.testing: {claiming}"
+
+
+def test_a_testing_claim_names_its_evidence(specs):
+    """A status with no notes is a label a reviewer cannot check."""
+    bare = [
+        device_id
+        for device_id, spec in specs.items()
+        if (spec["device"].get("testing") or {}).get("status") == "verified"
+        and not (spec["device"]["testing"].get("notes") or "").strip()
+    ]
+    assert not bare, f"verified without notes saying what was driven: {bare}"
+
+
+def test_an_endpoint_hedged_in_prose_is_hedged_in_its_status(specs):
+    """Prose saying "placeholder" is invisible to the client that would call it.
+
+    An endpoint with no `status` is, by the schema's own rule, active and
+    usable. Six specs described a `GET /` as a placeholder for a surface that
+    is not HTTP at all and left the field off, which said the exact opposite of
+    what the description said. An explicit status is required either way --
+    `placeholder` when nothing there is a control, `unverified` when the
+    endpoint may well exist and it is the method or payload that is a guess
+    (frigidaire's case, and a different meaning of the same word).
+    """
+    unmarked = [
+        f"{device_id} {endpoint.get('method')} {endpoint.get('path')}"
+        for device_id, spec in specs.items()
+        for endpoint in spec.get("http_endpoints") or []
+        if "placeholder" in (endpoint.get("description") or "").lower()
+        and not endpoint.get("status")
+    ]
+    assert not unmarked, (
+        f"endpoints hedged in prose but not in `status`: {unmarked}"
+    )
+
+
+# --------------------------------------------------------------------------
+# Discovery: absent, stated-absent, or answered.
+# --------------------------------------------------------------------------
+
+
+def test_a_discovery_block_answers_its_own_question(closed_world_spec):
+    """`identity` and `static_ip_required` without `methods` says nothing.
+
+    Two specs carried exactly that -- a discovery block describing how to
+    IDENTIFY a device it never said how to FIND.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["discovery"] = {"static_ip_required": False}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted a discovery block with neither methods nor none"
+    )
+
+
+def test_discovery_cannot_be_both_absent_and_present(closed_world_spec):
+    """`none` is the escape, not an annotation to hang beside real methods."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["discovery"]["none"] = "x" * 40
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted discovery with both methods and none"
+    )
+
+
+def test_stated_absence_gives_a_reason(closed_world_spec):
+    """Bare 'none' repeats what an omitted block already said."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["discovery"] = {"none": "no"}
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted discovery.none with no real reason"
+    )
+
+
+@pytest.mark.parametrize("retired", ["protocol", "identification"])
+def test_the_retired_top_level_lock_shapes_are_rejected(closed_world_spec, retired):
+    """A top-level `protocol:` collided with `device.protocol`, an enum.
+
+    `identification:` was worse: it looked like the matcher block and was not
+    one, so kwikset and nuki carried their whole matching story in a key no
+    consumer reads and had no `device.identification` at all.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec[retired] = {"framing": "x"}
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted the retired top-level `{retired}:` block"
+    )
+
+
+def test_every_ble_spec_can_be_matched_by_something(specs):
+    """A BLE spec with no matcher in `device.identification` is undiscoverable.
+
+    Not a style rule: `device.identification` is the block a scanner reads, and
+    a BLE spec that leaves it empty describes a device the app can never bind a
+    scan result to, however complete the rest of the file is.
+    """
+    axes = ("local_name_prefix", "local_name_prefixes", "local_names",
+            "service_uuids", "manufacturer_data", "mac_prefixes")
+    unmatched = [
+        device_id
+        for device_id, spec in specs.items()
+        if spec["device"].get("protocol") == "ble"
+        and not any(
+            (spec["device"].get("identification") or {}).get(axis) for axis in axes
+        )
+        # A spec may argue that no signal distinguishes this device from
+        # anything else -- fardriver does, and does it well. That argument
+        # belongs in `discovery.none`, where a checker can see it, not in a
+        # comment.
+        and not (spec["device"].get("discovery") or {}).get("none")
+    ]
+    assert not unmatched, (
+        "BLE specs with neither an identification axis nor a stated reason "
+        f"there is none: {unmatched}"
+    )
+
+
+def test_gaps_md_states_the_real_spec_count(specs):
+    """A hand-written count drifts, silently, and then it is just wrong.
+
+    GAPS.md claimed 92/92 while the catalogue was validating 137. The number is
+    the one thing in that file a machine can check, so it should be checked.
+    """
+    devices = len(SPEC_PATHS)
+    examples = len(
+        list((REPO_ROOT / "device-specs" / "examples").glob("*.yaml"))
+    )
+    total = devices + examples
+    text = (REPO_ROOT / "GAPS.md").read_text(encoding="utf-8")
+    expected = (
+        f"## Validation: {total}/{total} passing "
+        f"({devices} device specs + {examples} example)"
+    )
+    assert expected in text, (
+        f"GAPS.md validation line is stale; it should read:\n  {expected}"
+    )
+
+
+# ── MQTT commands are renderable on their own ───────────────────────────────
+# A consumer publishes to `path` with `body` or `arguments` as the payload and
+# nothing else. Everything the topic and payload need must therefore be
+# declared ON the command: prose one level up does not reach the renderer, and
+# the failures it causes are silent — a publish to a topic still containing a
+# literal `{client_id}` succeeds at the socket and does nothing at the device.
+
+
+def _mqtt_commands(specs: dict[str, dict]):
+    """Every `transport: mqtt` command in the catalogue, as (spec, name, cmd)."""
+    for name, spec in specs.items():
+        for command_name, command in (spec.get("commands") or {}).items():
+            if command.get("transport") == "mqtt":
+                yield name, command_name, command
+
+
+def test_an_mqtt_command_names_the_topic_it_publishes_to(specs):
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        assert command.get("path"), (
+            f"{spec_name}: mqtt command {command_name!r} declares no `path` — "
+            "the topic IS the address, and without one there is nothing to send"
+        )
+
+
+def test_every_mqtt_topic_placeholder_is_a_declared_parameter(specs):
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        declared = set((command.get("parameters") or {}).keys())
+        for placeholder in re.findall(r"\{([^{}]+)\}", command.get("path", "")):
+            assert placeholder in declared, (
+                f"{spec_name}: mqtt command {command_name!r} addresses "
+                f"{{{placeholder}}} but does not declare it as a parameter, so "
+                "a renderer has no value to fill it with and would publish the "
+                "brace literally"
+            )
+
+
+def test_an_mqtt_command_declares_at_most_one_payload(specs):
+    # `body` is a literal payload template, `arguments` builds a JSON object.
+    # Both is two answers to one question; a renderer cannot merge them.
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        assert not (command.get("body") and command.get("arguments")), (
+            f"{spec_name}: mqtt command {command_name!r} declares both `body` "
+            "and `arguments`; an MQTT message has one payload"
+        )
+
+
+# A renderer fills `{name}` where name is parameter-shaped and leaves every
+# other brace alone — that is what lets a JSON payload be written as a `body`
+# template. The guard below looks for the same shape, anywhere in the template
+# rather than only as the whole of it: `body: "KEY_{foo}"` with no `foo`
+# parameter would publish the brace literally, and a device ignores a key it
+# has never heard of without saying so.
+_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
+
+
+def test_every_mqtt_payload_placeholder_is_a_declared_parameter(specs):
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        declared = set((command.get("parameters") or {}).keys())
+        templates = [command.get("body") or ""]
+        templates += [
+            value
+            for value in (command.get("arguments") or {}).values()
+            if isinstance(value, str)
+        ]
+        for template in templates:
+            for name in _PLACEHOLDER.findall(template):
+                assert name in declared, (
+                    f"{spec_name}: mqtt command {command_name!r} sends "
+                    f"{{{name}}} but does not declare it as a parameter"
+                )
+
+
+def test_an_mqtt_examples_body_agrees_with_what_the_command_renders(specs):
+    """`example_body` is what a consumer diffs against when a device says no.
+
+    Checked only where the payload is fully determined — a command with no
+    parameters to fill. Where placeholders exist the example is a worked case
+    by design and cannot equal the template.
+    """
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        example = command.get("example_body")
+        body = command.get("body")
+        if example is None or body is None:
+            continue
+        if "{" in body:
+            continue
+        assert str(example) == str(body), (
+            f"{spec_name}: mqtt command {command_name!r} would send {body!r} "
+            f"but its example says {example!r}"
+        )
+
+
+# ── The WebSocket access surface ────────────────────────────────────────────
+# A consumer opens `websocket.connect`, is authorised by `websocket.pairing`,
+# and turns each command into a frame with the channel the command names. Every
+# cross-reference between those three has to hold, because a renderer resolving
+# a name that is not there has nothing to fall back on.
+
+
+def _websocket_specs(specs: dict[str, dict]):
+    for name, spec in specs.items():
+        if "websocket" in spec:
+            yield name, spec, spec["websocket"]
+
+
+def test_exactly_one_websocket_channel_is_the_default(specs):
+    for spec_name, _, ws in _websocket_specs(specs):
+        defaults = [c for c in ws["channels"] if c.get("default")]
+        assert len(defaults) == 1, (
+            f"{spec_name}: {len(defaults)} channels claim `default` — a command "
+            "that names none has to have exactly one place to go"
+        )
+
+
+def test_every_command_channel_names_a_declared_channel(specs):
+    for spec_name, spec, ws in _websocket_specs(specs):
+        declared = {c["name"] for c in ws["channels"]}
+        for command_name, command in (spec.get("commands") or {}).items():
+            channel = command.get("channel")
+            if channel is None:
+                continue
+            assert channel in declared, (
+                f"{spec_name}: command {command_name!r} rides channel "
+                f"{channel!r}, which `websocket.channels` does not declare "
+                f"(has {sorted(declared)})"
+            )
+
+
+def test_a_runtime_channel_names_the_command_that_finds_it(specs):
+    # A second socket the device hands out at runtime is only reachable if the
+    # request that returns its address is itself a declared command.
+    for spec_name, spec, ws in _websocket_specs(specs):
+        commands = spec.get("commands") or {}
+        for channel in ws["channels"]:
+            obtained_by = channel.get("obtained_by")
+            if obtained_by is None:
+                continue
+            assert obtained_by in commands, (
+                f"{spec_name}: channel {channel['name']!r} is obtained by "
+                f"{obtained_by!r}, which is not a declared command"
+            )
+            assert channel.get("address_path"), (
+                f"{spec_name}: channel {channel['name']!r} says which command "
+                "returns its address but not where in the reply to look"
+            )
+
+
+def test_a_channel_carries_the_frame_its_encoding_needs(specs):
+    for spec_name, _, ws in _websocket_specs(specs):
+        for channel in ws["channels"]:
+            if channel["encoding"] == "json":
+                assert channel.get("frame"), (
+                    f"{spec_name}: json channel {channel['name']!r} declares no "
+                    "`frame`, so there is nothing to build"
+                )
+            else:
+                assert channel.get("frame_template"), (
+                    f"{spec_name}: text channel {channel['name']!r} declares no "
+                    "`frame_template`, so there is nothing to fill"
+                )
+
+
+def test_websocket_pairing_says_what_it_issues_and_where(specs):
+    # A pairing flow that does not name its credential cannot be stored, and
+    # one that does not say where the device puts it cannot be read back.
+    for spec_name, _, ws in _websocket_specs(specs):
+        pairing = ws.get("pairing")
+        if pairing is None:
+            continue
+        assert pairing.get("credential_name"), (
+            f"{spec_name}: websocket.pairing issues something but does not name "
+            "it, so a client has no key to store it under"
+        )
+        assert pairing.get("issued_at"), (
+            f"{spec_name}: websocket.pairing does not say where in the device's "
+            "reply the issued secret appears"
+        )
+        if pairing["mode"] == "register_frame":
+            assert pairing.get("register_frame"), (
+                f"{spec_name}: pairing mode is register_frame but no frame is "
+                "declared to send"
+            )
+
+
+def test_a_websocket_spec_declares_the_transport_its_commands_ride(specs):
+    # The block describes a surface; `device.transport` is what makes the
+    # commands route to it. A spec with one and not the other is half-migrated.
+    for spec_name, spec, _ in _websocket_specs(specs):
+        transport = spec["device"].get("transport")
+        assert transport == "websocket", (
+            f"{spec_name}: declares a `websocket` block but "
+            f"device.transport is {transport!r}"
+        )

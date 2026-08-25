@@ -26,10 +26,14 @@ device:
       firmware) still answer plaintext 9999, so the KP125M-era port closure
       is not universal. Not exercised: any state-changing write
       (system.set_relay_state and friends) — the switch controls real
-      lighting and nobody authorized a toggle.
+      lighting and nobody authorized a toggle. The Smart Bulb / Light Strip
+      variant state_probes and the two variant-scoped light entities'
+      bindings are likewise unexercised against hardware (the strip's
+      commands themselves were verified on a KL430; the probe and the
+      entity state paths were not).
   protocol: "wifi"
   category: "switch"
-  transport: "tcp-json"
+  transport: "tcp"  # JSON documents on a raw socket
   notes: >
     The Kasa-era TP-Link smart plugs — HS100 and HS110 (HS110 adds energy
     monitoring), plus the same-protocol HS103/HS105 and KP105/KP115 (KP115
@@ -96,9 +100,26 @@ device:
     # No mdns/ssdp: Kasa devices announce over neither. Discovery is a UDP
     # broadcast of the XOR-encoded get_sysinfo to 255.255.255.255:9999; every
     # Kasa-protocol device on the segment answers with its full sysinfo. The
-    # datagram bytes and reply shape are documented in
-    # tplink_smarthome_protocol.discovery below, because the schema's
-    # structured discovery.methods vocabulary has no udp_broadcast type yet.
+    # cipher, its test vectors and the reply shape stay in
+    # protocol_details.tplink_smarthome_protocol; what is here is the part a
+    # consumer executes.
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 9999
+          broadcast_address: "255.255.255.255"
+          # `{"system":{"get_sysinfo":null}}` under the 0xAB XOR autokey, with
+          # NO length prefix -- the prefix is TCP-only framing. Same vector the
+          # cipher test asserts against.
+          probe_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+          passive_ok: false
+          response_format: "json_xor"
+          identity_mapping:
+            stable_keys:
+              - source: "json:system.get_sysinfo.deviceId"
+              - source: "json:system.get_sysinfo.mac"
+            display:
+              source: "json:system.get_sysinfo.alias"
     identity:
       stable_keys: ["deviceId", "mac"]
       display: "alias"
@@ -186,15 +207,17 @@ device:
         only transport protection during provisioning. Post-setup control is
         unauthenticated: anything that can reach port 9999 can drive the plug.
 
-  # The models this one spec covers. They differ in exactly one thing that
-  # changes the control surface: whether the plug has metering hardware. The
-  # transport, cipher, framing and relay commands are identical across all of
-  # them, which is why they share a spec — but the four emeter sensors exist
-  # only on the metering models, and a consumer that draws them on an HS100
-  # draws four tiles that are permanently unavailable, because get_emeter on a
-  # plug with no meter answers with an error rather than a reading. The
-  # sensors carry `variants:` naming the models below that actually have the
-  # hardware.
+  # The models this one spec covers. The plug models differ in exactly one
+  # thing that changes the control surface: whether the plug has metering
+  # hardware. The transport, cipher, framing and relay commands are identical
+  # across all of them, which is why they share a spec — but the four emeter
+  # sensors exist only on the metering models, and a consumer that draws them
+  # on an HS100 draws four tiles that are permanently unavailable, because
+  # get_emeter on a plug with no meter answers with an error rather than a
+  # reading. The sensors carry `variants:` naming the models below that
+  # actually have the hardware. The two smartbulb-class variants at the end
+  # (Smart Bulb, Light Strip) speak the same wire protocol through different
+  # service calls; their light entities are variant-scoped the same way.
   #
   # Matching a device to a variant: get_sysinfo's `model` carries a region
   # suffix ("HS110(US)", "KP115(US)"), so compare it against `model_prefix` as
@@ -245,70 +268,146 @@ device:
         the plain SI float family; the milli-unit fallback is HS110 hw v1
         only. Vendor-documented capability, not replayed against hardware by
         this project.
+    # The smartbulb-class devices that answer the same protocol. Their
+    # variant identity is best read from the reply SHAPE (state_probe), not a
+    # model table: a bulb's get_sysinfo carries `light_state` where a plug
+    # carries `relay_state`, and a strip additionally reports `length` (its
+    # LED count) — the exact discriminator the light-command comments in
+    # `commands` below document. The model_prefix is the coarse pre-poll
+    # hint: bulbs are the KL1xx family (KL110/KL130), strips KL4xx
+    # (KL400/KL430).
+    - model: "Smart Bulb"
+      identification:
+        model_prefix: "KL1"
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["light_state"]
+          keys_absent: ["length"]
+      notes: >
+        Kasa smart bulbs (KL110/KL130 …): same transport/cipher/framing, but
+        switching and dimming go through the lightingservice's
+        transition_light_state (light_on / light_off / set_brightness), and
+        state lives in get_sysinfo.light_state. `keys_absent: length` is
+        what separates a bulb from a light strip, which a bulb call is
+        silently ignored by.
+    - model: "Light Strip"
+      identification:
+        model_prefix: "KL4"
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["light_state", "length"]
+      notes: >
+        Kasa light strips (KL400/KL430): smartbulb-class, but driven through
+        smartlife.iot.lightStrip.set_light_state (strip_on / strip_off /
+        strip_brightness) — the bulb's lightingservice call is silently
+        ignored. `length` (LED count) in get_sysinfo is the field that marks
+        a strip; the strip commands were verified on a KL430.
+    # The two FAMILY variants the switch entities scope to, shape-identified
+    # like the smartbulb pair so one poll decides what the device is. They sit
+    # beside the per-model plug variants rather than replacing them: the model
+    # table scopes the emeter sensors (a per-model hardware fact), these scope
+    # the control surface (a per-family protocol fact).
+    - model: "Smart Plug"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["relay_state"]
+          keys_absent: ["children"]
+      notes: >
+        The single-outlet relay family (every HS1xx/KP1xx above): a top-level
+        relay_state and no children array. The plain Outlet switch applies
+        here and nowhere else — a bulb ignores set_relay_state and a strip
+        switches per child.
+    - model: "Power Strip"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["children"]
+      notes: >
+        The multi-outlet family (HS300, KP200, KP303, EP40): outlets arrive
+        as a `children` array, each switched by scoping the write with
+        context.child_ids. The instanced Outlets entity applies here; the
+        plain Outlet switch has no top-level relay_state to read on these.
+    - model: "Metering Plug"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["relay_state"]
+          value_contains:
+            feature: "ENE"
+      notes: >
+        The energy-metering members of the plug family (HS110, KP115 …),
+        identified the way the model table's own comment recommends: the
+        device's `feature` capability list carries "ENE" exactly when it has
+        the emeter module. The four emeter sensors scope here, so a plug
+        without a meter never draws four tiles that never fill.
 
 protocol_handler: "tplink_smarthome"
 
-# The TP-Link Kasa local protocol, byte for byte — the role soap_common plays
-# for Wemo and ecp_common for Roku. Everything a consumer needs to build a
-# request and read a reply without hardware is here; the `commands` block below
-# names the invocations entities bind, and their `body` is the JSON documented
-# here.
-tplink_smarthome_protocol:
-  transport: "TCP (control) / UDP (discovery), JSON payloads"
-  port: 9999
-  authentication: "none"
-  cipher:
-    name: "XOR autokey"
-    description: >
-      Byte-wise XOR with a running key. To ENCRYPT: start key = 0xAB (171);
-      for each plaintext byte p, emit c = key XOR p, then set key = c. To
-      DECRYPT: start key = 0xAB; for each ciphertext byte c, emit p = key XOR
-      c, then set key = c. The key is thus the previous CIPHERTEXT byte after
-      the first. This is obfuscation, not security — it has no secret.
-    initial_key: 0xAB
-    test_vectors:
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # The TP-Link Kasa local protocol, byte for byte — the role soap_common plays
+  # for Wemo and ecp_common for Roku. Everything a consumer needs to build a
+  # request and read a reply without hardware is here; the `commands` block below
+  # names the invocations entities bind, and their `body` is the JSON documented
+  # here.
+  tplink_smarthome_protocol:
+    transport: "TCP (control) / UDP (discovery), JSON payloads"
+    port: 9999
+    authentication: "none"
+    cipher:
+      name: "XOR autokey"
       description: >
-        Reproducible with the algorithm above and nothing else; asserted by
-        scripts/test_kasa_spec.py. Bytes are hex. The tiny inputs pin the
-        cipher direction; the get_sysinfo vector is the canonical discovery
-        datagram softScheck and python-kasa both publish.
-      cases:
-        - plaintext_hex: "000000"
-          cipher_hex: "ababab"
-        - plaintext_hex: "010203"
-          cipher_hex: "aaa8ab"
-        - plaintext_utf8: '{"system":{"get_sysinfo":null}}'
-          cipher_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
-  framing:
-    tcp: >
-      Each message on the TCP stream is a 4-byte big-endian length prefix (the
-      count of encrypted payload bytes, NOT including the prefix) followed by
-      the XOR-encrypted JSON. The reply uses the same framing.
-    udp: >
-      Discovery and its replies are a single datagram of the XOR-encrypted
-      JSON with NO length prefix.
-  discovery:
-    method: "udp_broadcast"
-    destination: "255.255.255.255:9999"
-    request_json: '{"system":{"get_sysinfo":null}}'
-    request_datagram_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
-    response: >
-      Each Kasa-protocol device answers with a unicast datagram carrying the
-      full get_sysinfo object (see the get_sysinfo command's returns): alias,
-      model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable
-      identity; alias is the user-facing name.
-  command_tree:
-    system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
-    system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
-    emeter.get_realtime: "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware."
-    netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
-  multi_outlet_note: >
-    Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
-    get_sysinfo and address each outlet by wrapping a command in
-    {"context":{"child_ids":["<deviceId>0N"]}}. Handled here now: the instanced
-    "Outlets" switch enumerates the children, and relay_on_child /
-    relay_off_child scope the write. A single-relay plug reports no `children`,
-    so the plain "Outlet" switch covers it.
+        Byte-wise XOR with a running key. To ENCRYPT: start key = 0xAB (171);
+        for each plaintext byte p, emit c = key XOR p, then set key = c. To
+        DECRYPT: start key = 0xAB; for each ciphertext byte c, emit p = key XOR
+        c, then set key = c. The key is thus the previous CIPHERTEXT byte after
+        the first. This is obfuscation, not security — it has no secret.
+      initial_key: 0xAB
+      test_vectors:
+        description: >
+          Reproducible with the algorithm above and nothing else; asserted by
+          scripts/test_kasa_spec.py. Bytes are hex. The tiny inputs pin the
+          cipher direction; the get_sysinfo vector is the canonical discovery
+          datagram softScheck and python-kasa both publish.
+        cases:
+          - plaintext_hex: "000000"
+            cipher_hex: "ababab"
+          - plaintext_hex: "010203"
+            cipher_hex: "aaa8ab"
+          - plaintext_utf8: '{"system":{"get_sysinfo":null}}'
+            cipher_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+    framing:
+      tcp: >
+        Each message on the TCP stream is a 4-byte big-endian length prefix (the
+        count of encrypted payload bytes, NOT including the prefix) followed by
+        the XOR-encrypted JSON. The reply uses the same framing.
+      udp: >
+        Discovery and its replies are a single datagram of the XOR-encrypted
+        JSON with NO length prefix.
+    discovery:
+      method: "udp_broadcast"
+      destination: "255.255.255.255:9999"
+      request_json: '{"system":{"get_sysinfo":null}}'
+      request_datagram_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+      response: >
+        Each Kasa-protocol device answers with a unicast datagram carrying the
+        full get_sysinfo object (see the get_sysinfo command's returns): alias,
+        model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable
+        identity; alias is the user-facing name.
+    command_tree:
+      system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
+      system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
+      emeter.get_realtime: "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware."
+      netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
+    multi_outlet_note: >
+      Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
+      get_sysinfo and address each outlet by wrapping a command in
+      {"context":{"child_ids":["<deviceId>0N"]}}. Handled here now: the instanced
+      "Outlets" switch enumerates the children, and relay_on_child /
+      relay_off_child scope the write. A single-relay plug reports no `children`,
+      so the plain "Outlet" switch covers it.
 
 # A stub access surface so the schema's "document at least one access surface"
 # rule is satisfied; control is the tcp-json protocol above, not REST. The
@@ -329,6 +428,7 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "Local API Placeholder"
+    status: "placeholder"
     description: >
       Placeholder only. There is no HTTP surface: control is JSON over a raw
       TCP socket on port 9999 (see tplink_smarthome_protocol), not REST.
@@ -533,6 +633,12 @@ entities:
     name: "Outlet"
     device_class: "outlet"
     icon: "mdi:power-socket"
+    # Scoped to the shape-identified plug family: on a bulb this switch's
+    # write is ignored and its state key absent, and on a power strip the
+    # per-child Outlets entity below is the real surface. A consumer that
+    # cannot evaluate the state_probe yet (before its first poll) draws
+    # probe-scoped entities optimistically and settles on the reply.
+    variants: ["Smart Plug"]
     state_command: "get_sysinfo"
     state_mapping:
       value: "relay_state"
@@ -553,6 +659,7 @@ entities:
     name: "Outlets"
     device_class: "outlet"
     icon: "mdi:power-socket"
+    variants: ["Power Strip"]
     instances:
       keyed_by: "id"
       children_path: "system.get_sysinfo.children"
@@ -595,7 +702,7 @@ entities:
     name: "Voltage"
     device_class: "voltage"
     unit: "V"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.voltage"
@@ -610,7 +717,7 @@ entities:
     name: "Current"
     device_class: "current"
     unit: "A"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.current"
@@ -624,7 +731,7 @@ entities:
     name: "Power"
     device_class: "power"
     unit: "W"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.power"
@@ -638,7 +745,7 @@ entities:
     name: "Total Consumption"
     device_class: "energy"
     unit: "kWh"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.total"
@@ -648,6 +755,48 @@ entities:
     notes: >
       Metering models only. `total` (kWh) on current firmware; HS110 hw v1
       sends `total_wh` (watt-hours) instead.
+
+  # The smartbulb-class light surfaces, scoped to the variants whose
+  # state_probe identifies them (a bulb's get_sysinfo has light_state and no
+  # length; a strip has both). Two entities rather than one because the two
+  # families dim through DIFFERENT service calls and a strip silently ignores
+  # the bulb's — binding both to one entity would make half the fleet a
+  # silent no-op. State for both lives in get_sysinfo.light_state
+  # {on_off 0/1, brightness 1-100}, read with the same bare-key convention
+  # the Outlet's relay_state uses (paths relative to the flattened sysinfo
+  # object).
+  - platform: "light"
+    name: "Bulb"
+    variants: ["Smart Bulb"]
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "light_state.on_off"
+      on_when: "nonzero"
+      brightness: "light_state.brightness"
+    commands:
+      turn_on: "light_on"
+      turn_off: "light_off"
+      set_brightness: "set_brightness"
+    notes: >
+      Kasa smart bulb (KL1xx): lightingservice.transition_light_state does
+      the switching and dimming. Brightness is 1-100, the same range
+      get_sysinfo.light_state.brightness reports.
+  - platform: "light"
+    name: "Light Strip"
+    variants: ["Light Strip"]
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "light_state.on_off"
+      on_when: "nonzero"
+      brightness: "light_state.brightness"
+    commands:
+      turn_on: "strip_on"
+      turn_off: "strip_off"
+      set_brightness: "strip_brightness"
+    notes: >
+      Kasa light strip (KL4xx): smartlife.iot.lightStrip.set_light_state
+      does the switching and dimming (verified on a KL430); the bulb-class
+      call is silently ignored on a strip. Brightness is 1-100.
 
 helpful_urls:
   - title: "softScheck — Reverse Engineering the TP-Link HS110 (2016)"
