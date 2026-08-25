@@ -67,6 +67,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Samsung Tizen TVs](samsung-tizen-tv.md) | WiFi | Spec Available | On-TV allow prompt (high) | Samsung |
 | [Sony Bravia TVs](sony-bravia.md) | WiFi | Spec Available | PSK or on-TV PIN (medium) | Sony |
 | [Vizio SmartCast TVs](vizio-smartcast.md) | WiFi | Spec Available | On-TV PIN pairing (medium) | Vizio |
+| [Denon AVR-S720W](denon-avr-s720w.md) | WiFi (HTTP `/goform/` + ASCII on 23 + UPnP) | Spec Available | On-receiver menu / Ethernet (medium) | Denon |
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
