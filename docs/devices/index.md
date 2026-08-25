@@ -52,6 +52,7 @@ spec's `device.setup` block; the patterns are explained in
 | [EmazingLights Spectra Gloves](emazinglights-spectra.md) | BLE (hub → 2.4 GHz gloves) | Spec Available | Hub pairing mode (medium) | EmazingLights (app delisted) |
 | [Ignis Pixel Flow Props](ignis-pixel.md) | BLE (+ nRF24 prop sync) | Spec Available | None needed | Ignis Pixel |
 | [Astral Hoops Atomic V AF](astral-hoops.md) | BLE | Spec Available | None needed | Astral Hoops |
+| [Pix Backpack / Pix Mini](pix-backpack.md) | BLE | Spec Available | None needed | Pix Inc. (defunct) |
 | [MoTool Slacker](motool-slacker.md) | BLE | In Progress | None needed | MoTool |
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | None needed | AdMore Lighting Inc. |
 | [ProGlow Motorcycle LED](proglow-motorcycle-led.md) | BLE | Spec Available | None needed | ProGlow |
