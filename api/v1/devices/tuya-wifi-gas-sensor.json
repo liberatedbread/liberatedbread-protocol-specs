@@ -24,6 +24,20 @@
     "vendor_service": "Tuya cloud (Smart Life / Tuya Smart platform)"
   },
   "commands": {
+    "audible_alarm_off": {
+      "body": "{\"dps\":{\"12\":false}}",
+      "command": "0x07",
+      "description": "Disable the buzzer (DP 12 = false). SAFETY: silences the primary local alert.",
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
+    "audible_alarm_on": {
+      "body": "{\"dps\":{\"12\":true}}",
+      "command": "0x07",
+      "description": "Enable the buzzer (DP 12 = true). SAFETY: the buzzer is the primary local alert.",
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
     "dp_query": {
       "body": "{\"gwId\":\"<device_id>\",\"devId\":\"<device_id>\",\"uid\":\"\",\"t\":\"<unix_ts>\"}",
       "command": "0x0a (DP_QUERY; 0x10 DP_QUERY_NEW on 3.3+/3.4)",
@@ -51,6 +65,43 @@
       "transport": "tcp-json",
       "verification": "reported"
     },
+    "set_alarm_duration": {
+      "body": "{\"dps\":{\"3\":{duration}}}",
+      "command": "0x07",
+      "description": "Set how long the alarm sounds (DP 3, seconds).",
+      "parameters": {
+        "duration": {
+          "description": "Alarm duration in seconds, 0-180 (the number entity's range).",
+          "max": 180,
+          "min": 0,
+          "required": true,
+          "type": "integer"
+        }
+      },
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
+    "set_alarm_melody": {
+      "body": "{\"dps\":{\"8\":\"{melody}\"}}",
+      "command": "0x07",
+      "description": "Pick the alarm melody (DP 8, enum). RQ400A: five melodies.",
+      "parameters": {
+        "melody": {
+          "description": "Melody index as the STRING the enum DP carries on the wire — \"0\"..\"4\", matching the select entity's option keys.\n",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "required": true,
+          "type": "string"
+        }
+      },
+      "transport": "tcp-json",
+      "verification": "reported"
+    },
     "set_dp": {
       "body": "{\"devId\":\"<device_id>\",\"uid\":\"\",\"t\":\"<unix_ts>\",\"dps\":{\"<dp>\":<value>}}",
       "command": "0x07 (CONTROL; 0x13 CONTROL_NEW on 3.3+)",
@@ -69,6 +120,29 @@
           "productKey"
         ]
       },
+      "methods": [
+        {
+          "type": "udp_broadcast",
+          "udp_broadcast": {
+            "identity_mapping": {
+              "display": {
+                "source": "json:ip"
+              },
+              "stable_keys": [
+                {
+                  "source": "json:gwId"
+                },
+                {
+                  "source": "json:productKey"
+                }
+              ]
+            },
+            "passive_ok": true,
+            "port": 6666,
+            "response_format": "json_aes"
+          }
+        }
+      ],
       "notes": "Tuya LAN discovery is UDP broadcast on ports 6666 and 6667; each device emits/answers framed datagrams (0x000055aa header … 0x0000aa55 trailer) whose payload carries the device id, product key and protocol version (3.1/3.3/3.4). On 3.3/3.4 devices the discovery payload is AES-encrypted with a well-known SDK-embedded key documented in tinytuya/tuyapi rather than reproduced here. Confirmed present in the Smart Life app: constants 6666/6667/6668 and the broadcast-monitor service (6666/6667 discovery, 6668 TCP control).\n",
       "static_ip_required": false
     },
@@ -189,7 +263,7 @@
       "notes": "No hardware has been exercised by this project. Every fact below is derived from clean-room static analysis of the Smart Life app (see `sources`) cross-checked against public community documentation (ESPHome device page for the DY-RQ400A, make-all/tuya-local issue #2434 and device configs, tinytuya/tuyapi). Field-level confidence is marked per block; the DP table and LAN framing are well corroborated in the community, but the exact DP set on any given clone is not guaranteed — protocol version (3.3 vs 3.4), module (WB2S/CB2S/WB3S) and DP layout vary per productId and must be discovered per unit (see tuya_lan_protocol.discovery and the notes on the DPS table).\n",
       "status": "untested"
     },
-    "transport": "tuya-lan",
+    "transport": "tcp",
     "variants": [
       {
         "identification": {
@@ -213,115 +287,6 @@
         "notes": "Combustible-gas + CO combo unit, protocol version 3.4 (session-key handshake required), category rqbj. Adds the CO DPs (6, 20) and reports gas_sensor_value in ppm (scale 1) rather than the RQ400A's 0–100 trip-percent scale. DP model from the tuya-local cloud dump (issue #2434).\n"
       }
     ]
-  },
-  "dps": {
-    "table": [
-      {
-        "access": "ro",
-        "code": "self_check_result (cloud code varies per product)",
-        "description": "Result of the most recent MCU self-test.",
-        "dp": 1,
-        "type": "enum",
-        "values": [
-          "checking",
-          "check_success",
-          "check_failure",
-          "others"
-        ]
-      },
-      {
-        "access": "ro",
-        "code": "gas_sensor_state",
-        "description": "THE safety datapoint: combustible-gas alarm status. Latched by the MCU at the fixed 7±3 %LEL trip point until the level falls below half of trip; not clearable over Wi-Fi.\n",
-        "dp": 2,
-        "type": "enum",
-        "values": [
-          "alarm",
-          "normal"
-        ]
-      },
-      {
-        "access": "rw",
-        "code": "alarm_time",
-        "description": "Alarm duration.",
-        "dp": 3,
-        "max": 180,
-        "min": 0,
-        "type": "value",
-        "unit": "s"
-      },
-      {
-        "access": "ro",
-        "code": "gas_sensor_value",
-        "description": "Gas level reading. Scale is variant-dependent: on the DY-RQ400A a 0–100 scale ≈ percent of the trip point; on the C2 combo, ppm (scale 1). Check the unit before interpreting.\n",
-        "dp": 5,
-        "max": 1000,
-        "min": 0,
-        "type": "value"
-      },
-      {
-        "access": "ro",
-        "code": "co_state",
-        "description": "CO alarm status (combo units only, e.g. C2).",
-        "dp": 6,
-        "type": "enum",
-        "values": [
-          "alarm",
-          "normal"
-        ]
-      },
-      {
-        "access": "rw",
-        "code": "alarm_melody (cloud code varies per product)",
-        "description": "Buzzer melody (RQ400A: 5 melodies).",
-        "dp": 8,
-        "type": "enum",
-        "values": [
-          "0",
-          "1",
-          "2",
-          "3",
-          "4"
-        ]
-      },
-      {
-        "access": "rw",
-        "code": "self_check (cloud code varies per product)",
-        "description": "Trigger an MCU self-test; result lands in DP 1.",
-        "dp": 9,
-        "type": "bool"
-      },
-      {
-        "access": "ro",
-        "code": "preheat (cloud code varies per product)",
-        "description": "Sensor warm-up in progress (readings invalid while true).",
-        "dp": 10,
-        "type": "bool"
-      },
-      {
-        "access": "rw",
-        "code": "alarm_switch",
-        "description": "Enable/disable the audible buzzer. SAFETY: disabling removes the primary local alert — surface this prominently in any UI.\n",
-        "dp": 12,
-        "type": "bool"
-      },
-      {
-        "access": "rw",
-        "code": "muffling",
-        "description": "Silence the currently active alarm once; auto-resets.",
-        "dp": 14,
-        "type": "bool"
-      },
-      {
-        "access": "ro",
-        "code": "co_value",
-        "description": "CO reading (combo units only, e.g. C2).",
-        "dp": 20,
-        "type": "value",
-        "unit": "ppm"
-      }
-    ],
-    "verification": "reported"
   },
   "entities": [
     {
@@ -373,8 +338,8 @@
     },
     {
       "commands": {
-        "turn_off": "set_dp dps.12=false",
-        "turn_on": "set_dp dps.12=true"
+        "turn_off": "audible_alarm_off",
+        "turn_on": "audible_alarm_on"
       },
       "icon": "mdi:volume-high",
       "name": "Audible Alarm",
@@ -404,7 +369,7 @@
     },
     {
       "commands": {
-        "set_value": "set_dp dps.3=<value>"
+        "set_value": "set_alarm_duration"
       },
       "max": 180,
       "min": 0,
@@ -417,7 +382,7 @@
     },
     {
       "commands": {
-        "select_option": "set_dp dps.8=<value>"
+        "select_option": "set_alarm_melody"
       },
       "icon": "mdi:music",
       "name": "Alarm Melody",
@@ -453,6 +418,49 @@
       "state_field": "dps.1"
     }
   ],
+  "evidence": {
+    "artifacts": [
+      {
+        "artifact": "Smart Life 7.9.0 (com.tuya.smartlife, versionCode 832, Huawei AppGallery build)",
+        "confidence": "high (for the generic LAN/SDK facts); the rqbj DP model is community-sourced, not from the app",
+        "confirms": [
+          "Tuya LAN constants 6666/6667 (UDP discovery) and 6668 (TCP control), plus the broadcast-monitor service (com.thingclips.sdk.hardware.dbppbbp / GwBroadcastMonitorService).",
+          "AES-128-ECB local-key crypto code paths and DPS dispatch ({\"dps\": {...}}) in the generic device stack.",
+          "EZ-mode SmartLink provisioning via native libThingSmartLink (ThingEZConfig); AP-mode and BLE-assisted pairing also SDK-supported.",
+          "No gas-sensor-specific code: the device UI is a cloud-delivered RN panel bundle; zero hits for the rqbj category name or gas DP codes anywhere in the app.",
+          "No tuya*.com endpoints as plaintext anywhere in the app (region endpoints delivered at runtime); OTA is fully cloud-brokered behind per-product auth-gated URLs — no static firmware URL recoverable."
+        ],
+        "description": "Static analysis of the Smart Life Android app (2026-08-18).",
+        "obtained_via": "Huawei AppGallery, 2026-08-18",
+        "sha256": "8feefdc4e35f2a4718bd615cc73af064cbd3e8044014435890f82468e47acb43",
+        "type": "static_analysis"
+      },
+      {
+        "name": "ESPHome device page — Tuya DY-RQ400A combustible gas alarm",
+        "type": "public_research",
+        "url": "https://devices.esphome.io/devices/tuya-dy-rq400a-combustible-gas-alarm/",
+        "used_for": "Canonical-unit hardware (WB2S + RJM8L151F6P6, UART 9600 8N1), 12-DP map, fixed 7±3 %LEL threshold and latch behavior, UART flashing procedure."
+      },
+      {
+        "name": "make-all/tuya-local issue #2434 + device configs",
+        "type": "public_research",
+        "url": "https://github.com/make-all/tuya-local/issues/2434",
+        "used_for": "C2 combo-variant DP model (CO DPs, ppm scaling, protocol 3.4); rqbj DP codes corroboration."
+      },
+      {
+        "name": "tinytuya / tuyapi / housetuya",
+        "type": "public_research",
+        "url": "https://github.com/jasonacox/tinytuya",
+        "used_for": "LAN framing, command codes, AES-128-ECB local-key crypto, 3.4 session-key handshake, discovery mechanics, local-key extraction workflow."
+      },
+      {
+        "name": "FCC 2ANDL-WB2S filing",
+        "type": "public_research",
+        "url": "https://fccid.io/2ANDL-WB2S",
+        "used_for": "Module-level radio certification identity."
+      }
+    ]
+  },
   "helpful_urls": [
     {
       "description": "Teardown of the canonical rqbj unit: WB2S + RunJet MCU, UART flashing procedure with pin photos, and a complete ESPHome config mapping all 12 DPs.\n",
@@ -499,94 +507,164 @@
     "notes": "The Tuya LAN protocol (UDP 6666/6667 discovery, TCP 6668 control) is native local access once the local key is known — no bridge hardware required. Home Assistant paths: localtuya (HACS) or make-all/tuya-local, which ships ready-made configs for this family (rq400a_gasalarm, digma_disenseg1_gassensor, boundless_pa210w_gasalarm). Firmware replacement (LibreTiny/ESPHome, OpenBeken) is the no-Tuya-at-all path and additionally survives Tuya cloud death with zero local-key step.\n",
     "status": "native"
   },
-  "protocol_handler": "tuya_lan",
-  "sources": [
-    {
-      "artifact": "Smart Life 7.9.0 (com.tuya.smartlife, versionCode 832, Huawei AppGallery build)",
-      "confidence": "high (for the generic LAN/SDK facts); the rqbj DP model is community-sourced, not from the app",
-      "confirms": [
-        "Tuya LAN constants 6666/6667 (UDP discovery) and 6668 (TCP control), plus the broadcast-monitor service (com.thingclips.sdk.hardware.dbppbbp / GwBroadcastMonitorService).",
-        "AES-128-ECB local-key crypto code paths and DPS dispatch ({\"dps\": {...}}) in the generic device stack.",
-        "EZ-mode SmartLink provisioning via native libThingSmartLink (ThingEZConfig); AP-mode and BLE-assisted pairing also SDK-supported.",
-        "No gas-sensor-specific code: the device UI is a cloud-delivered RN panel bundle; zero hits for the rqbj category name or gas DP codes anywhere in the app.",
-        "No tuya*.com endpoints as plaintext anywhere in the app (region endpoints delivered at runtime); OTA is fully cloud-brokered behind per-product auth-gated URLs — no static firmware URL recoverable."
+  "protocol_details": {
+    "dps": {
+      "table": [
+        {
+          "access": "ro",
+          "code": "self_check_result (cloud code varies per product)",
+          "description": "Result of the most recent MCU self-test.",
+          "dp": 1,
+          "type": "enum",
+          "values": [
+            "checking",
+            "check_success",
+            "check_failure",
+            "others"
+          ]
+        },
+        {
+          "access": "ro",
+          "code": "gas_sensor_state",
+          "description": "THE safety datapoint: combustible-gas alarm status. Latched by the MCU at the fixed 7±3 %LEL trip point until the level falls below half of trip; not clearable over Wi-Fi.\n",
+          "dp": 2,
+          "type": "enum",
+          "values": [
+            "alarm",
+            "normal"
+          ]
+        },
+        {
+          "access": "rw",
+          "code": "alarm_time",
+          "description": "Alarm duration.",
+          "dp": 3,
+          "max": 180,
+          "min": 0,
+          "type": "value",
+          "unit": "s"
+        },
+        {
+          "access": "ro",
+          "code": "gas_sensor_value",
+          "description": "Gas level reading. Scale is variant-dependent: on the DY-RQ400A a 0–100 scale ≈ percent of the trip point; on the C2 combo, ppm (scale 1). Check the unit before interpreting.\n",
+          "dp": 5,
+          "max": 1000,
+          "min": 0,
+          "type": "value"
+        },
+        {
+          "access": "ro",
+          "code": "co_state",
+          "description": "CO alarm status (combo units only, e.g. C2).",
+          "dp": 6,
+          "type": "enum",
+          "values": [
+            "alarm",
+            "normal"
+          ]
+        },
+        {
+          "access": "rw",
+          "code": "alarm_melody (cloud code varies per product)",
+          "description": "Buzzer melody (RQ400A: 5 melodies).",
+          "dp": 8,
+          "type": "enum",
+          "values": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        {
+          "access": "rw",
+          "code": "self_check (cloud code varies per product)",
+          "description": "Trigger an MCU self-test; result lands in DP 1.",
+          "dp": 9,
+          "type": "bool"
+        },
+        {
+          "access": "ro",
+          "code": "preheat (cloud code varies per product)",
+          "description": "Sensor warm-up in progress (readings invalid while true).",
+          "dp": 10,
+          "type": "bool"
+        },
+        {
+          "access": "rw",
+          "code": "alarm_switch",
+          "description": "Enable/disable the audible buzzer. SAFETY: disabling removes the primary local alert — surface this prominently in any UI.\n",
+          "dp": 12,
+          "type": "bool"
+        },
+        {
+          "access": "rw",
+          "code": "muffling",
+          "description": "Silence the currently active alarm once; auto-resets.",
+          "dp": 14,
+          "type": "bool"
+        },
+        {
+          "access": "ro",
+          "code": "co_value",
+          "description": "CO reading (combo units only, e.g. C2).",
+          "dp": 20,
+          "type": "value",
+          "unit": "ppm"
+        }
       ],
-      "description": "Static analysis of the Smart Life Android app (2026-08-18).",
-      "obtained_via": "Huawei AppGallery, 2026-08-18",
-      "sha256": "8feefdc4e35f2a4718bd615cc73af064cbd3e8044014435890f82468e47acb43",
-      "type": "static_analysis"
+      "verification": "reported"
     },
-    {
-      "name": "ESPHome device page — Tuya DY-RQ400A combustible gas alarm",
-      "type": "public_research",
-      "url": "https://devices.esphome.io/devices/tuya-dy-rq400a-combustible-gas-alarm/",
-      "used_for": "Canonical-unit hardware (WB2S + RJM8L151F6P6, UART 9600 8N1), 12-DP map, fixed 7±3 %LEL threshold and latch behavior, UART flashing procedure."
+    "tuya_lan_protocol": {
+      "authentication": "per-device 16-char local key (issued at pairing; AES key)",
+      "commands": {
+        "0x03": "SESS_KEY_NEG_START (3.4 session-key handshake)",
+        "0x04": "SESS_KEY_NEG_RESP",
+        "0x05": "SESS_KEY_NEG_FINISH",
+        "0x07": "CONTROL — set one or more DPs: {\"dps\": {\"<dp>\": <value>}}",
+        "0x08": "STATUS — DP state report/push from the device",
+        "0x09": "HEART_BEAT — keep-alive (device answers with the same command)",
+        "0x0a": "DP_QUERY — request current DP values (3.1/3.3)",
+        "0x0d": "UDP_NEW — discovery broadcast payload",
+        "0x0e": "AP_CONFIG — provisioning-time config (AP mode)",
+        "0x10": "DP_QUERY_NEW (3.3+/3.4)",
+        "0x12": "UPDATEDPS — push of changed DPs",
+        "0x13": "CONTROL_NEW (3.3+ control)"
+      },
+      "data_model": "State is a DPS (datapoint) map, pushed and queried as JSON {\"dps\": {\"1\": ..., \"2\": ...}} keyed by numeric DP id as a string. The DP semantics for the rqbj family are in the `dps` table below. DP ids and even their meaning vary per productId — always cross-check a new unit with a DP dump (tinytuya scan) before trusting the table.\n",
+      "discovery": {
+        "method": "udp_broadcast",
+        "ports": [
+          6666,
+          6667
+        ],
+        "response": "Datagrams carry the device id (stable identity), product key (match against device.variants) and protocol version (\"3.1\"/\"3.3\"/\"3.4\") — the version determines which command set and crypto path to use.\n"
+      },
+      "encryption": {
+        "cipher": "AES-128-ECB, PKCS#7 padding",
+        "key": "the per-device local key (16 chars, used directly as the AES-128 key)",
+        "notes": "Protocol 3.1/3.3 encrypt the payload with the local key directly. Protocol 3.4 (e.g. the C2 combo variant) prepends a session-key handshake (commands 0x03/0x04/0x05) that negotiates a per-session key derived from the local key plus exchanged nonces — see tinytuya for the exact exchange. The discovery broadcast payload on 3.3/3.4 is encrypted with a well-known SDK-embedded key documented in tinytuya/tuyapi (not reproduced here).\n"
+      },
+      "framing": {
+        "layout": "Every message: 4-byte header 0x000055aa, 4-byte sequence number, 4-byte command, 4-byte payload length, payload, 4-byte integrity, 4-byte trailer 0x0000aa55. On 3.1 the integrity field is CRC32 of everything from sequence through payload; 3.3 messages additionally prefix the encrypted payload with a 12-byte version marker (\"3.3\" + padding) and 3.3/3.4 replace the CRC32 with HMAC-SHA256 truncated to 32 bytes. Same framing on TCP 6668 and the UDP discovery datagrams.\n"
+      },
+      "ports": {
+        "control_tcp": 6668,
+        "discovery_udp": [
+          6666,
+          6667
+        ]
+      },
+      "transport": "TCP (control) / UDP (discovery), AES-encrypted JSON payloads",
+      "verification": "reported"
     },
-    {
-      "name": "make-all/tuya-local issue #2434 + device configs",
-      "type": "public_research",
-      "url": "https://github.com/make-all/tuya-local/issues/2434",
-      "used_for": "C2 combo-variant DP model (CO DPs, ppm scaling, protocol 3.4); rqbj DP codes corroboration."
-    },
-    {
-      "name": "tinytuya / tuyapi / housetuya",
-      "type": "public_research",
-      "url": "https://github.com/jasonacox/tinytuya",
-      "used_for": "LAN framing, command codes, AES-128-ECB local-key crypto, 3.4 session-key handshake, discovery mechanics, local-key extraction workflow."
-    },
-    {
-      "name": "FCC 2ANDL-WB2S filing",
-      "type": "public_research",
-      "url": "https://fccid.io/2ANDL-WB2S",
-      "used_for": "Module-level radio certification identity."
+    "tuyamcu_uart": {
+      "link": "UART, 9600 8N1 (DY-RQ400A; other clones may use 115200)",
+      "role": "The sensor MCU owns the gas element, buzzer, LEDs and the 433MHz receiver; the Wi-Fi module polls/reports DPs and relays configuration. Gas detection and the local alarm work with the Wi-Fi side dead.\n",
+      "verification": "reported"
     }
-  ],
-  "tuya_lan_protocol": {
-    "authentication": "per-device 16-char local key (issued at pairing; AES key)",
-    "commands": {
-      "0x03": "SESS_KEY_NEG_START (3.4 session-key handshake)",
-      "0x04": "SESS_KEY_NEG_RESP",
-      "0x05": "SESS_KEY_NEG_FINISH",
-      "0x07": "CONTROL — set one or more DPs: {\"dps\": {\"<dp>\": <value>}}",
-      "0x08": "STATUS — DP state report/push from the device",
-      "0x09": "HEART_BEAT — keep-alive (device answers with the same command)",
-      "0x0a": "DP_QUERY — request current DP values (3.1/3.3)",
-      "0x0d": "UDP_NEW — discovery broadcast payload",
-      "0x0e": "AP_CONFIG — provisioning-time config (AP mode)",
-      "0x10": "DP_QUERY_NEW (3.3+/3.4)",
-      "0x12": "UPDATEDPS — push of changed DPs",
-      "0x13": "CONTROL_NEW (3.3+ control)"
-    },
-    "data_model": "State is a DPS (datapoint) map, pushed and queried as JSON {\"dps\": {\"1\": ..., \"2\": ...}} keyed by numeric DP id as a string. The DP semantics for the rqbj family are in the `dps` table below. DP ids and even their meaning vary per productId — always cross-check a new unit with a DP dump (tinytuya scan) before trusting the table.\n",
-    "discovery": {
-      "method": "udp_broadcast",
-      "ports": [
-        6666,
-        6667
-      ],
-      "response": "Datagrams carry the device id (stable identity), product key (match against device.variants) and protocol version (\"3.1\"/\"3.3\"/\"3.4\") — the version determines which command set and crypto path to use.\n"
-    },
-    "encryption": {
-      "cipher": "AES-128-ECB, PKCS#7 padding",
-      "key": "the per-device local key (16 chars, used directly as the AES-128 key)",
-      "notes": "Protocol 3.1/3.3 encrypt the payload with the local key directly. Protocol 3.4 (e.g. the C2 combo variant) prepends a session-key handshake (commands 0x03/0x04/0x05) that negotiates a per-session key derived from the local key plus exchanged nonces — see tinytuya for the exact exchange. The discovery broadcast payload on 3.3/3.4 is encrypted with a well-known SDK-embedded key documented in tinytuya/tuyapi (not reproduced here).\n"
-    },
-    "framing": {
-      "layout": "Every message: 4-byte header 0x000055aa, 4-byte sequence number, 4-byte command, 4-byte payload length, payload, 4-byte integrity, 4-byte trailer 0x0000aa55. On 3.1 the integrity field is CRC32 of everything from sequence through payload; 3.3 messages additionally prefix the encrypted payload with a 12-byte version marker (\"3.3\" + padding) and 3.3/3.4 replace the CRC32 with HMAC-SHA256 truncated to 32 bytes. Same framing on TCP 6668 and the UDP discovery datagrams.\n"
-    },
-    "ports": {
-      "control_tcp": 6668,
-      "discovery_udp": [
-        6666,
-        6667
-      ]
-    },
-    "transport": "TCP (control) / UDP (discovery), AES-encrypted JSON payloads",
-    "verification": "reported"
   },
-  "tuyamcu_uart": {
-    "link": "UART, 9600 8N1 (DY-RQ400A; other clones may use 115200)",
-    "role": "The sensor MCU owns the gas element, buzzer, LEDs and the 433MHz receiver; the Wi-Fi module polls/reports DPs and relays configuration. Gas detection and the local alarm work with the Wi-Fi side dead.\n",
-    "verification": "reported"
-  }
+  "protocol_handler": "tuya_lan"
 }

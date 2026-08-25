@@ -204,6 +204,31 @@
           "mac"
         ]
       },
+      "methods": [
+        {
+          "type": "udp_broadcast",
+          "udp_broadcast": {
+            "broadcast_address": "255.255.255.255",
+            "identity_mapping": {
+              "display": {
+                "source": "json:system.get_sysinfo.alias"
+              },
+              "stable_keys": [
+                {
+                  "source": "json:system.get_sysinfo.deviceId"
+                },
+                {
+                  "source": "json:system.get_sysinfo.mac"
+                }
+              ]
+            },
+            "passive_ok": false,
+            "port": 9999,
+            "probe_hex": "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb",
+            "response_format": "json_xor"
+          }
+        }
+      ],
       "static_ip_required": false
     },
     "identification": {
@@ -324,10 +349,10 @@
     },
     "testing": {
       "detail": "minimally-verified",
-      "notes": "Read path verified live 2026-08-14 against a real HS210 3-way switch (\"Bonus Lights\", mac 00:31:92:AA:BB:CC), driving the protocol exactly as documented in kasa_protocol below. UDP discovery: the XOR-autokey get_sysinfo broadcast to 255.255.255.255:9999 (no length prefix) drew unauthenticated replies from EIGHT Kasa devices on the LAN across five model families — KP200, HS210, HS300, KL430, EP40 — each decoding to a valid sysinfo with model/alias/sw_ver. TCP control channel: a get_sysinfo to port 9999 with the documented 4-byte big-endian length prefix + XOR-autokey body returned the full sysinfo (model HS210(US), dev_name \"Smart Wi-Fi 3-Way Light Switch\", relay_state 0, rssi -59) with no authentication — confirming the length framing, the 0xAB running-key cipher (encrypt and decrypt directions) and the no-auth property together. These KP200/EP40/KL430 builds (2024-2025 firmware) still answer plaintext 9999, so the KP125M-era port closure is not universal. Not exercised: any state-changing write (system.set_relay_state and friends) — the switch controls real lighting and nobody authorized a toggle.\n",
+      "notes": "Read path verified live 2026-08-14 against a real HS210 3-way switch (\"Bonus Lights\", mac 00:31:92:AA:BB:CC), driving the protocol exactly as documented in kasa_protocol below. UDP discovery: the XOR-autokey get_sysinfo broadcast to 255.255.255.255:9999 (no length prefix) drew unauthenticated replies from EIGHT Kasa devices on the LAN across five model families — KP200, HS210, HS300, KL430, EP40 — each decoding to a valid sysinfo with model/alias/sw_ver. TCP control channel: a get_sysinfo to port 9999 with the documented 4-byte big-endian length prefix + XOR-autokey body returned the full sysinfo (model HS210(US), dev_name \"Smart Wi-Fi 3-Way Light Switch\", relay_state 0, rssi -59) with no authentication — confirming the length framing, the 0xAB running-key cipher (encrypt and decrypt directions) and the no-auth property together. These KP200/EP40/KL430 builds (2024-2025 firmware) still answer plaintext 9999, so the KP125M-era port closure is not universal. Not exercised: any state-changing write (system.set_relay_state and friends) — the switch controls real lighting and nobody authorized a toggle. The Smart Bulb / Light Strip variant state_probes and the two variant-scoped light entities' bindings are likewise unexercised against hardware (the strip's commands themselves were verified on a KL430; the probe and the entity state paths were not).\n",
       "status": "verified"
     },
-    "transport": "tcp-json",
+    "transport": "tcp",
     "variants": [
       {
         "identification": {
@@ -370,6 +395,78 @@
         },
         "model": "KP115",
         "notes": "Slim plug WITH energy monitoring — the KP-generation counterpart of the HS110, and the other model the emeter sensors apply to. Reports the plain SI float family; the milli-unit fallback is HS110 hw v1 only. Vendor-documented capability, not replayed against hardware by this project.\n"
+      },
+      {
+        "identification": {
+          "model_prefix": "KL1",
+          "state_probe": {
+            "command": "get_sysinfo",
+            "keys_absent": [
+              "length"
+            ],
+            "keys_present": [
+              "light_state"
+            ]
+          }
+        },
+        "model": "Smart Bulb",
+        "notes": "Kasa smart bulbs (KL110/KL130 …): same transport/cipher/framing, but switching and dimming go through the lightingservice's transition_light_state (light_on / light_off / set_brightness), and state lives in get_sysinfo.light_state. `keys_absent: length` is what separates a bulb from a light strip, which a bulb call is silently ignored by.\n"
+      },
+      {
+        "identification": {
+          "model_prefix": "KL4",
+          "state_probe": {
+            "command": "get_sysinfo",
+            "keys_present": [
+              "light_state",
+              "length"
+            ]
+          }
+        },
+        "model": "Light Strip",
+        "notes": "Kasa light strips (KL400/KL430): smartbulb-class, but driven through smartlife.iot.lightStrip.set_light_state (strip_on / strip_off / strip_brightness) — the bulb's lightingservice call is silently ignored. `length` (LED count) in get_sysinfo is the field that marks a strip; the strip commands were verified on a KL430.\n"
+      },
+      {
+        "identification": {
+          "state_probe": {
+            "command": "get_sysinfo",
+            "keys_absent": [
+              "children"
+            ],
+            "keys_present": [
+              "relay_state"
+            ]
+          }
+        },
+        "model": "Smart Plug",
+        "notes": "The single-outlet relay family (every HS1xx/KP1xx above): a top-level relay_state and no children array. The plain Outlet switch applies here and nowhere else — a bulb ignores set_relay_state and a strip switches per child.\n"
+      },
+      {
+        "identification": {
+          "state_probe": {
+            "command": "get_sysinfo",
+            "keys_present": [
+              "children"
+            ]
+          }
+        },
+        "model": "Power Strip",
+        "notes": "The multi-outlet family (HS300, KP200, KP303, EP40): outlets arrive as a `children` array, each switched by scoping the write with context.child_ids. The instanced Outlets entity applies here; the plain Outlet switch has no top-level relay_state to read on these.\n"
+      },
+      {
+        "identification": {
+          "state_probe": {
+            "command": "get_sysinfo",
+            "keys_present": [
+              "relay_state"
+            ],
+            "value_contains": {
+              "feature": "ENE"
+            }
+          }
+        },
+        "model": "Metering Plug",
+        "notes": "The energy-metering members of the plug family (HS110, KP115 …), identified the way the model table's own comment recommends: the device's `feature` capability list carries \"ENE\" exactly when it has the emeter module. The four emeter sensors scope here, so a plug without a meter never draws four tiles that never fill.\n"
       }
     ]
   },
@@ -387,7 +484,10 @@
       "state_mapping": {
         "on_when": "nonzero",
         "value": "relay_state"
-      }
+      },
+      "variants": [
+        "Smart Plug"
+      ]
     },
     {
       "commands": {
@@ -408,7 +508,10 @@
       "state_mapping": {
         "is_on": "state",
         "on_when": "nonzero"
-      }
+      },
+      "variants": [
+        "Power Strip"
+      ]
     },
     {
       "device_class": "voltage",
@@ -425,8 +528,7 @@
       },
       "unit": "V",
       "variants": [
-        "HS110",
-        "KP115"
+        "Metering Plug"
       ]
     },
     {
@@ -444,8 +546,7 @@
       },
       "unit": "A",
       "variants": [
-        "HS110",
-        "KP115"
+        "Metering Plug"
       ]
     },
     {
@@ -463,8 +564,7 @@
       },
       "unit": "W",
       "variants": [
-        "HS110",
-        "KP115"
+        "Metering Plug"
       ]
     },
     {
@@ -482,8 +582,45 @@
       },
       "unit": "kWh",
       "variants": [
-        "HS110",
-        "KP115"
+        "Metering Plug"
+      ]
+    },
+    {
+      "commands": {
+        "set_brightness": "set_brightness",
+        "turn_off": "light_off",
+        "turn_on": "light_on"
+      },
+      "name": "Bulb",
+      "notes": "Kasa smart bulb (KL1xx): lightingservice.transition_light_state does the switching and dimming. Brightness is 1-100, the same range get_sysinfo.light_state.brightness reports.\n",
+      "platform": "light",
+      "state_command": "get_sysinfo",
+      "state_mapping": {
+        "brightness": "light_state.brightness",
+        "is_on": "light_state.on_off",
+        "on_when": "nonzero"
+      },
+      "variants": [
+        "Smart Bulb"
+      ]
+    },
+    {
+      "commands": {
+        "set_brightness": "strip_brightness",
+        "turn_off": "strip_off",
+        "turn_on": "strip_on"
+      },
+      "name": "Light Strip",
+      "notes": "Kasa light strip (KL4xx): smartlife.iot.lightStrip.set_light_state does the switching and dimming (verified on a KL430); the bulb-class call is silently ignored on a strip. Brightness is 1-100.\n",
+      "platform": "light",
+      "state_command": "get_sysinfo",
+      "state_mapping": {
+        "brightness": "light_state.brightness",
+        "is_on": "light_state.on_off",
+        "on_when": "nonzero"
+      },
+      "variants": [
+        "Light Strip"
       ]
     }
   ],
@@ -527,53 +664,56 @@
       "description": "Placeholder only. There is no HTTP surface: control is JSON over a raw TCP socket on port 9999 (see tplink_smarthome_protocol), not REST.\n",
       "method": "GET",
       "name": "Local API Placeholder",
-      "path": "/"
+      "path": "/",
+      "status": "placeholder"
     }
   ],
-  "protocol_handler": "tplink_smarthome",
-  "tplink_smarthome_protocol": {
-    "authentication": "none",
-    "cipher": {
-      "description": "Byte-wise XOR with a running key. To ENCRYPT: start key = 0xAB (171); for each plaintext byte p, emit c = key XOR p, then set key = c. To DECRYPT: start key = 0xAB; for each ciphertext byte c, emit p = key XOR c, then set key = c. The key is thus the previous CIPHERTEXT byte after the first. This is obfuscation, not security — it has no secret.\n",
-      "initial_key": 171,
-      "name": "XOR autokey",
-      "test_vectors": {
-        "cases": [
-          {
-            "cipher_hex": "ababab",
-            "plaintext_hex": "000000"
-          },
-          {
-            "cipher_hex": "aaa8ab",
-            "plaintext_hex": "010203"
-          },
-          {
-            "cipher_hex": "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb",
-            "plaintext_utf8": "{\"system\":{\"get_sysinfo\":null}}"
-          }
-        ],
-        "description": "Reproducible with the algorithm above and nothing else; asserted by scripts/test_kasa_spec.py. Bytes are hex. The tiny inputs pin the cipher direction; the get_sysinfo vector is the canonical discovery datagram softScheck and python-kasa both publish.\n"
-      }
-    },
-    "command_tree": {
-      "emeter.get_realtime": "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware.",
-      "netif.set_stainfo": "Provisioning: join the plug to a Wi-Fi network (see device.setup).",
-      "system.get_sysinfo": "Device info + current relay_state. The state poll and the discovery probe.",
-      "system.set_relay_state": "Set the outlet relay: {state: 1} on, {state: 0} off."
-    },
-    "discovery": {
-      "destination": "255.255.255.255:9999",
-      "method": "udp_broadcast",
-      "request_datagram_hex": "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb",
-      "request_json": "{\"system\":{\"get_sysinfo\":null}}",
-      "response": "Each Kasa-protocol device answers with a unicast datagram carrying the full get_sysinfo object (see the get_sysinfo command's returns): alias, model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable identity; alias is the user-facing name.\n"
-    },
-    "framing": {
-      "tcp": "Each message on the TCP stream is a 4-byte big-endian length prefix (the count of encrypted payload bytes, NOT including the prefix) followed by the XOR-encrypted JSON. The reply uses the same framing.\n",
-      "udp": "Discovery and its replies are a single datagram of the XOR-encrypted JSON with NO length prefix.\n"
-    },
-    "multi_outlet_note": "Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in get_sysinfo and address each outlet by wrapping a command in {\"context\":{\"child_ids\":[\"<deviceId>0N\"]}}. Handled here now: the instanced \"Outlets\" switch enumerates the children, and relay_on_child / relay_off_child scope the write. A single-relay plug reports no `children`, so the plain \"Outlet\" switch covers it.\n",
-    "port": 9999,
-    "transport": "TCP (control) / UDP (discovery), JSON payloads"
-  }
+  "protocol_details": {
+    "tplink_smarthome_protocol": {
+      "authentication": "none",
+      "cipher": {
+        "description": "Byte-wise XOR with a running key. To ENCRYPT: start key = 0xAB (171); for each plaintext byte p, emit c = key XOR p, then set key = c. To DECRYPT: start key = 0xAB; for each ciphertext byte c, emit p = key XOR c, then set key = c. The key is thus the previous CIPHERTEXT byte after the first. This is obfuscation, not security — it has no secret.\n",
+        "initial_key": 171,
+        "name": "XOR autokey",
+        "test_vectors": {
+          "cases": [
+            {
+              "cipher_hex": "ababab",
+              "plaintext_hex": "000000"
+            },
+            {
+              "cipher_hex": "aaa8ab",
+              "plaintext_hex": "010203"
+            },
+            {
+              "cipher_hex": "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb",
+              "plaintext_utf8": "{\"system\":{\"get_sysinfo\":null}}"
+            }
+          ],
+          "description": "Reproducible with the algorithm above and nothing else; asserted by scripts/test_kasa_spec.py. Bytes are hex. The tiny inputs pin the cipher direction; the get_sysinfo vector is the canonical discovery datagram softScheck and python-kasa both publish.\n"
+        }
+      },
+      "command_tree": {
+        "emeter.get_realtime": "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware.",
+        "netif.set_stainfo": "Provisioning: join the plug to a Wi-Fi network (see device.setup).",
+        "system.get_sysinfo": "Device info + current relay_state. The state poll and the discovery probe.",
+        "system.set_relay_state": "Set the outlet relay: {state: 1} on, {state: 0} off."
+      },
+      "discovery": {
+        "destination": "255.255.255.255:9999",
+        "method": "udp_broadcast",
+        "request_datagram_hex": "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb",
+        "request_json": "{\"system\":{\"get_sysinfo\":null}}",
+        "response": "Each Kasa-protocol device answers with a unicast datagram carrying the full get_sysinfo object (see the get_sysinfo command's returns): alias, model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable identity; alias is the user-facing name.\n"
+      },
+      "framing": {
+        "tcp": "Each message on the TCP stream is a 4-byte big-endian length prefix (the count of encrypted payload bytes, NOT including the prefix) followed by the XOR-encrypted JSON. The reply uses the same framing.\n",
+        "udp": "Discovery and its replies are a single datagram of the XOR-encrypted JSON with NO length prefix.\n"
+      },
+      "multi_outlet_note": "Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in get_sysinfo and address each outlet by wrapping a command in {\"context\":{\"child_ids\":[\"<deviceId>0N\"]}}. Handled here now: the instanced \"Outlets\" switch enumerates the children, and relay_on_child / relay_off_child scope the write. A single-relay plug reports no `children`, so the plain \"Outlet\" switch covers it.\n",
+      "port": 9999,
+      "transport": "TCP (control) / UDP (discovery), JSON payloads"
+    }
+  },
+  "protocol_handler": "tplink_smarthome"
 }

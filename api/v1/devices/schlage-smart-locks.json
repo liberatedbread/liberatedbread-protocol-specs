@@ -86,12 +86,6 @@
     },
     "manufacturer": "Schlage (Allegion)",
     "manufacturer_status": "active",
-    "models": [
-      "Sense (BE479)",
-      "Encode (BE489)",
-      "Encode Plus (BE499)",
-      "Encode Lever"
-    ],
     "name": "Schlage Smart Locks (Sense / Encode family)",
     "notes": "Schlage's residential smart locks all speak the same proprietary BLE protocol — a uWeave-derived GATT profile carrying CBOR \"Privet\" RPC inside an AES-128-EAX session channel, paired via SPAKE2/P-224 against the lock's printed programming code. Once paired, every owner function works locally over BLE with no cloud: lock/unlock, state (battery/door/alarm), settings, access-code CRUD, history logs, time sync, firmware OTA, factory reset.\nThe WiFi radios on the Encode family have NO local-network API: runtime WiFi traffic is a cloud relay (REST + MQTT-over-WebSocket against *.allegion.yonomi.cloud). The Encode Plus's HomeKit `_hap._udp` mDNS record is Apple's protocol, mutually exclusive with Schlage-mode pairing. Schlage Connect (BE468/BE469) is a different, Z-Wave S2 product and is out of scope here.\nSECURITY MODEL: the trust root is the lock's physical programming code (printed inside the lock, on the back of the keypad assembly / in the manual). Whoever has it plus BLE range can pair and gain full control. After pairing, the client holds two bearer macaroons (SAT/CAT); a dumped client database plus BLE range also grants control without the code. Per-session keys are properly ephemeral (fresh randoms + HKDF per session); the pairing-phase cipher uses fixed 1-byte nonces, which only matters against an eavesdropper present during the ~30 s pairing window.\nVERIFICATION: protocol facts marked `confirmed` were read directly out of the vendor app and agree with the Go reimplementation; they have not been replayed against hardware by us. See header comment.\n",
     "openness": {
@@ -257,6 +251,26 @@
     ]
   },
   "evidence": {
+    "artifacts": [
+      {
+        "artifact": "com.allegion.leopard 3.6.0 and 6.1.0",
+        "description": "Static analysis of the Schlage Home Android app in two releases — an older one with unobfuscated protocol code, and the current, packed one. The bundled GATT profile resources (uWeave and firmware-update UUIDs) are byte-identical between them. The older release supplied the session layer (fragmentation, HKDF salt, EAX nonce), the pairing phases, the SPAKE2/P-224 constants, the access-code CBOR structures and the legacy WiFi commissioning crypto; the current release re-confirms every pairing constant in its unobfuscated Weave/GCD security code, and is the source of the TLS-pinning configuration (yonomi.cloud, Amazon Root CA 1-4).\n",
+        "notes": "sha256 of the 6.1.0 release: 0e87604de5e12f650badea5539ea0765f4b7ea5e29206db02b9cb1404631abdd",
+        "obtained_via": "third-party APK mirror, 2026-08",
+        "sha256": "73ad73952f585fb6fcc4d5f31a503c65903a1714077afc62781c6e6b1248219c",
+        "type": "static_analysis"
+      },
+      {
+        "description": "Independent Go reimplementation of the full BLE stack; agrees with the app-derived facts on every constant checked.",
+        "type": "public_implementation",
+        "url": "https://github.com/huguesb/schlage-uweave"
+      },
+      {
+        "description": "Python client for the Schlage cloud API (not the BLE path); backs the Home Assistant schlage integration.",
+        "type": "public_implementation",
+        "url": "https://github.com/dknowles2/pyschlage"
+      }
+    ],
     "live_hardware": {
       "ble_observations": [
         "One lock was captured advertising exactly once at the start of the session: complete local name \"SCHLAGE\" followed by 8 uppercase hex digits (serial-looking suffix), Bluetooth address beginning B7:AC:C2 (recorded partially here on purpose — this is a security device), RSSI -74 dBm, and manufacturer data under Bluetooth company ID 315 (\"Allegion\" per registries/bluetooth-company-ids.tsv) whose payload embeds a MAC address. That address prefix is NOT a vendor OUI: the locally-administered bit is set, so this is a random-static address the lock may rotate (see follow_up) — which is why discovery.identity keys on the local name instead. Whether the MAC inside the manufacturer payload is the stable public address or a copy of the rotating one was not determined.\n",
@@ -345,21 +359,23 @@
     "status": "native",
     "summary": "Full local control over BLE as shipped — pair once with the printed programming code (SPAKE2), then all owner functions run over the encrypted uWeave GATT channel with no cloud dependency.\n"
   },
-  "protocol": {
-    "encryption": {
-      "algorithm": "aes-128-eax",
-      "key_derivation": "handshake",
-      "notes": "AES-128-EAX (96-bit truncated tag, no AAD). Session nonce = nonceBase(16) || senderID(1) || counter(3, big-endian); client→lock senderID 0x01, lock→client 0x03; counters start at 1 per session. Session keys per connection: IKM = 0x02 || clientRandom(12) || serverRandom(12) || satTag(16); HKDF-SHA256 extract with the fixed 32-byte salt 008A393622041F5F0FC75D97DAEE6E81CBBB2BC74F9CCC91E75E77A5 6B4A4B05, expand(info=\"session key\", 32) → [0:16] AES key, [16:32] nonce base. The one-shot PAIRING phase instead uses AES-EAX under K[0:16] (SPAKE2 shared key) with fixed 1-byte nonces (0x00 client→lock, 0x01 lock→client) — no replay protection there beyond the encrypted timestamp.\n"
-    },
-    "framing": {
-      "byte_order": "big_endian",
-      "notes": "uWeave fragmentation: no MTU negotiation (ATT MTU 23). Every GATT write/indication = 1 header byte + ≤19 payload bytes. Header: bits 6-4 = packet counter (mod 8), bit 3 = FIRST, bit 2 = LAST (0xC = single packet, 0x0 = continuation), bit 7 set = control packet with the command in the low nibble (0 = connection request, 1 = connection confirm). Max reassembled block 1024 bytes. Whole CBOR messages are encrypted first, then fragmented; on receive, reassemble then decrypt.\n"
-    },
-    "message_format": {
-      "description": "CBOR \"Privet\" RPC. Request {1:apiId, 2:requestTypeId, 16:{trait, property, data}}; success at key 17 (frequently nested 17→17); error map at key 3 with code at 3→4. apiIds 2/3 pairing, 5 auth, 6 state, 8 trait/property RPC, 24/25 access-control claim. Traits 1 LockData, 3 History/DeviceMgmt, 4 AccessCodes, 5 LockConfig, 6 WiFi. See the per-command table on the TxData characteristic.\n"
-    },
-    "pairing": {
-      "description": "SPAKE2 over P-224 (Google GCD/Weave construction). Password = the lock's printed programming code: passwordHash = BigInteger(SHA256(UTF-8 code)[0:28]). Client commitment T = x*G + passwordHash*KM, serialized as 56-byte affine x||y (no prefix byte). Shared key K = x*(S - passwordHash*KN). Blinding points (P-224, hex): KM = (4D48C8EA8D23392E07E851FA6AA82048094E051372499C6FBA62A74B, 6C185CABD52E2E8A9E2D21B0EC4EE141211FE29D64EA4D04463AE833); KN = (0B1CFC6A407CDCB15DC1704CD13EDAAB8FDEFF8CFBFB50D2C81DE2C2, 3E14F62996080907B56DD282071AA7A121C39934BC30DA5BCBC6A3CC). Curve is NIST secp224r1 (p = FFFFFFFF...FF000000000000000000000001, generator B70E0CBD.../BD376388...). On success the lock issues CAT + SAT macaroons (CBOR bstr(array of caveat bstrs + 16-byte truncated HMAC-SHA256 tag)). Constants confirmed in BOTH app releases: the unobfuscated Weave/GCD security code in the current release matches the obfuscated protocol code of the older one on every constant above (app-confirmed ×2, not hardware-tested).\n"
+  "protocol_details": {
+    "command_protocol": {
+      "encryption": {
+        "algorithm": "aes-128-eax",
+        "key_derivation": "handshake",
+        "notes": "AES-128-EAX (96-bit truncated tag, no AAD). Session nonce = nonceBase(16) || senderID(1) || counter(3, big-endian); client→lock senderID 0x01, lock→client 0x03; counters start at 1 per session. Session keys per connection: IKM = 0x02 || clientRandom(12) || serverRandom(12) || satTag(16); HKDF-SHA256 extract with the fixed 32-byte salt 008A393622041F5F0FC75D97DAEE6E81CBBB2BC74F9CCC91E75E77A5 6B4A4B05, expand(info=\"session key\", 32) → [0:16] AES key, [16:32] nonce base. The one-shot PAIRING phase instead uses AES-EAX under K[0:16] (SPAKE2 shared key) with fixed 1-byte nonces (0x00 client→lock, 0x01 lock→client) — no replay protection there beyond the encrypted timestamp.\n"
+      },
+      "framing": {
+        "byte_order": "big_endian",
+        "notes": "uWeave fragmentation: no MTU negotiation (ATT MTU 23). Every GATT write/indication = 1 header byte + ≤19 payload bytes. Header: bits 6-4 = packet counter (mod 8), bit 3 = FIRST, bit 2 = LAST (0xC = single packet, 0x0 = continuation), bit 7 set = control packet with the command in the low nibble (0 = connection request, 1 = connection confirm). Max reassembled block 1024 bytes. Whole CBOR messages are encrypted first, then fragmented; on receive, reassemble then decrypt.\n"
+      },
+      "message_format": {
+        "description": "CBOR \"Privet\" RPC. Request {1:apiId, 2:requestTypeId, 16:{trait, property, data}}; success at key 17 (frequently nested 17→17); error map at key 3 with code at 3→4. apiIds 2/3 pairing, 5 auth, 6 state, 8 trait/property RPC, 24/25 access-control claim. Traits 1 LockData, 3 History/DeviceMgmt, 4 AccessCodes, 5 LockConfig, 6 WiFi. See the per-command table on the TxData characteristic.\n"
+      },
+      "pairing": {
+        "description": "SPAKE2 over P-224 (Google GCD/Weave construction). Password = the lock's printed programming code: passwordHash = BigInteger(SHA256(UTF-8 code)[0:28]). Client commitment T = x*G + passwordHash*KM, serialized as 56-byte affine x||y (no prefix byte). Shared key K = x*(S - passwordHash*KN). Blinding points (P-224, hex): KM = (4D48C8EA8D23392E07E851FA6AA82048094E051372499C6FBA62A74B, 6C185CABD52E2E8A9E2D21B0EC4EE141211FE29D64EA4D04463AE833); KN = (0B1CFC6A407CDCB15DC1704CD13EDAAB8FDEFF8CFBFB50D2C81DE2C2, 3E14F62996080907B56DD282071AA7A121C39934BC30DA5BCBC6A3CC). Curve is NIST secp224r1 (p = FFFFFFFF...FF000000000000000000000001, generator B70E0CBD.../BD376388...). On success the lock issues CAT + SAT macaroons (CBOR bstr(array of caveat bstrs + 16-byte truncated HMAC-SHA256 tag)). Constants confirmed in BOTH app releases: the unobfuscated Weave/GCD security code in the current release matches the obfuscated protocol code of the older one on every constant above (app-confirmed ×2, not hardware-tested).\n"
+      }
     }
   },
   "services": [
@@ -524,26 +540,6 @@
       "name": "Firmware Update (DataTransfer)",
       "notes": "Data plane for firmware OTA; also the UUID the lock ADVERTISES in Schlage/unified mode (see identification). From res/raw/firmware_gatt_profile.json.\n",
       "uuid": "1f6b43aa-94de-4ba9-981c-da38823117bd"
-    }
-  ],
-  "sources": [
-    {
-      "artifact": "com.allegion.leopard 3.6.0 and 6.1.0",
-      "description": "Static analysis of the Schlage Home Android app in two releases — an older one with unobfuscated protocol code, and the current, packed one. The bundled GATT profile resources (uWeave and firmware-update UUIDs) are byte-identical between them. The older release supplied the session layer (fragmentation, HKDF salt, EAX nonce), the pairing phases, the SPAKE2/P-224 constants, the access-code CBOR structures and the legacy WiFi commissioning crypto; the current release re-confirms every pairing constant in its unobfuscated Weave/GCD security code, and is the source of the TLS-pinning configuration (yonomi.cloud, Amazon Root CA 1-4).\n",
-      "notes": "sha256 of the 6.1.0 release: 0e87604de5e12f650badea5539ea0765f4b7ea5e29206db02b9cb1404631abdd",
-      "obtained_via": "third-party APK mirror, 2026-08",
-      "sha256": "73ad73952f585fb6fcc4d5f31a503c65903a1714077afc62781c6e6b1248219c",
-      "type": "static_analysis"
-    },
-    {
-      "description": "Independent Go reimplementation of the full BLE stack; agrees with the app-derived facts on every constant checked.",
-      "type": "public_implementation",
-      "url": "https://github.com/huguesb/schlage-uweave"
-    },
-    {
-      "description": "Python client for the Schlage cloud API (not the BLE path); backs the Home Assistant schlage integration.",
-      "type": "public_implementation",
-      "url": "https://github.com/dknowles2/pyschlage"
     }
   ]
 }

@@ -25,10 +25,12 @@
       "notes": "The position argument rides the query string (`/cover/Door/set?position=0.5`), which is how ESPHome's web_server takes it. The board answers 409 if the cover does not support position at all, which is the Security+ 1.0 case.\n",
       "parameters": {
         "position": {
-          "description": "Target position on ESPHome's cover scale: 0.0 fully closed, 1.0 fully open. NOT a percentage — a UI with a 0-100 slider divides by 100 before sending. The device clamps out-of-range values, so sending 50 for \"half open\" drives the door fully open instead.\n",
+          "description": "Target position on ESPHome's cover scale: 0.0 fully closed, 1.0 fully open — `min`/`max` bound the RAW wire value. NOT a percentage on the wire, so `scale: 100` states the decoded terms: a UI's 0-100% slider value divides by 100 to encode (raw = value / scale). The device clamps out-of-range values, so sending a raw 50 for \"half open\" drives the door fully open instead.\n",
           "max": 1,
           "min": 0,
-          "type": "float"
+          "scale": 100,
+          "type": "float",
+          "unit": "%"
         }
       },
       "path": "/cover/Door/set",
@@ -157,15 +159,6 @@
       ]
     },
     "integration": "supported",
-    "local_access": {
-      "covers": [
-        "Open / close / stop / toggle the door",
-        "Garage light on/off; remote lock-out",
-        "Door position/state, obstruction, motion, motor, wall-button status"
-      ],
-      "status": "native",
-      "summary": "Fully local control (ESPHome web server REST/SSE on :80 and native protobuf API on :6053) with no cloud and no broker. This is the network-facing counterpart to the Security+ wired protocol.\n"
-    },
     "manufacturer": "ratgdo (open hardware) / Konnected (blaQ)",
     "manufacturer_status": "active",
     "name": "ratgdo Garage-Door Controller (ESPHome)",
@@ -241,8 +234,13 @@
       },
       "device_class": "garage",
       "name": "Garage Door",
-      "notes": "Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). JSON `state` is OPEN or CLOSED; travel is reported separately in `current_operation` (OPENING/CLOSING/IDLE).",
+      "notes": "Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). JSON `state` is OPEN or CLOSED; travel is reported separately in `current_operation` (OPENING/CLOSING/IDLE). The state_mapping paths are the reply fields the JSON-shape example in device.notes shows; `position` (0.0..1.0) is absent on Security+ 1.0 covers, which do not support position.\n",
       "platform": "cover",
+      "state_mapping": {
+        "current_operation": "current_operation",
+        "position": "position",
+        "state": "state"
+      },
       "state_topic": "/cover/Door",
       "state_topic_fallback": "/cover/door"
     },
@@ -252,7 +250,12 @@
         "turn_on": "light_turn_on"
       },
       "name": "Garage Light",
+      "notes": "The light reply's `state` field is the string \"ON\" or \"OFF\" (the same state-string convention the binary_sensor example in device.notes shows), per the ESPHome Web Server API doc — reported, not yet read from hardware.\n",
       "platform": "light",
+      "state_mapping": {
+        "is_on": "state",
+        "on_value": "ON"
+      },
       "state_topic": "/light/Light",
       "state_topic_fallback": "/light/light"
     },
@@ -262,15 +265,23 @@
         "turn_on": "lock_remotes"
       },
       "name": "Lock Remotes",
-      "notes": "ESPHome exposes this in the `lock` domain (entity name 'Lock remotes', lock/unlock); modelled here as a switch (on = remotes locked out) because this schema's entity vocabulary has no lock platform. On = the opener ignores its RF remotes.\n",
+      "notes": "ESPHome exposes this in the `lock` domain (entity name 'Lock remotes', lock/unlock); modelled here as a switch (on = remotes locked out) because this schema's entity vocabulary has no lock platform. On = the opener ignores its RF remotes. The lock reply's `state` field carries the lock-domain state string, LOCKED or UNLOCKED, per the ESPHome Web Server API doc — reported, not yet read from hardware.\n",
       "platform": "switch",
+      "state_mapping": {
+        "is_on": "state",
+        "on_value": "LOCKED"
+      },
       "state_topic": "/lock/Lock%20remotes",
       "state_topic_fallback": "/lock/lock_remotes"
     },
     {
       "device_class": "problem",
       "name": "Obstruction",
+      "notes": "The reply's `value` field is JSON true/false (the shape example in device.notes: {\"value\":true,\"state\":\"ON\"}), so it needs no on_when/on_value — the value IS the on/off.\n",
       "platform": "binary_sensor",
+      "state_mapping": {
+        "value": "value"
+      },
       "state_topic": "/binary_sensor/Obstruction",
       "state_topic_fallback": "/binary_sensor/obstruction"
     },
@@ -278,13 +289,19 @@
       "device_class": "motion",
       "name": "Motion",
       "platform": "binary_sensor",
+      "state_mapping": {
+        "value": "value"
+      },
       "state_topic": "/binary_sensor/Motion",
       "state_topic_fallback": "/binary_sensor/motion"
     },
     {
       "name": "Openings",
-      "notes": "Cumulative door-open counter (entity name 'Openings').",
+      "notes": "Cumulative door-open counter (entity name 'Openings'); the reply's numeric `value` field carries the count.",
       "platform": "sensor",
+      "state_mapping": {
+        "value": "value"
+      },
       "state_topic": "/sensor/Openings",
       "state_topic_fallback": "/sensor/openings"
     }
@@ -370,5 +387,14 @@
       "name": "State Event Stream (SSE)",
       "path": "/events"
     }
-  ]
+  ],
+  "local_access": {
+    "covers": [
+      "Open / close / stop / toggle the door",
+      "Garage light on/off; remote lock-out",
+      "Door position/state, obstruction, motion, motor, wall-button status"
+    ],
+    "status": "native",
+    "summary": "Fully local control (ESPHome web server REST/SSE on :80 and native protobuf API on :6053) with no cloud and no broker. This is the network-facing counterpart to the Security+ wired protocol.\n"
+  }
 }

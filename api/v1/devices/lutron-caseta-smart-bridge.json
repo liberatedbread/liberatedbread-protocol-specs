@@ -152,33 +152,22 @@
       "notes": "Probed live 2026-08-14 against the real bridge (same unit as the 2026-07-16 evidence; firmware has since moved 08.25.17f000 -> 08.28.11f000 per the _lutron._tcp CODEVER TXT). All four documented mDNS services re-observed (_leap 8081, _lap 8083, _lutron 22 with MACADDR/CODEVER/SYSTYPE=SmartBridge TXT, _hap 4548). The certificate-auth model was exercised to its gate: a TLS handshake on 8081 (LEAP) reaches the bridge's CertificateRequest (RSA/ECDSA client cert types listed) and is aborted by the bridge with a bad-certificate alert when no client certificate is presented; 8083 (LAP) behaves the same. Cross-check: the LEAP server certificate CN is SmartBridgeB894D9AABBCC — the MACADDR from the _lutron TXT record — and the LAP server cert chains to \"Caseta Local Access Protocol Cert Authority\". Halted at the physical pairing button (nobody home): CSR signing and authenticated LEAP commands remain unexercised by us.\n",
       "status": "verified"
     },
-    "transport": "tls-json"
+    "transport": "tls"
   },
   "entities": [
     {
-      "commands": {
-        "set_brightness": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level 0-100",
-        "turn_off": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level=0",
-        "turn_on": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level=100"
-      },
       "name": "Caseta Dimmer",
+      "notes": "Unbound (identify_only): a dimmer is driven by a LEAP CreateRequest to /zone/{id}/commandprocessor with CommandType GoToDimmedLevel and DimmedLevelParameter {Level: 0-100} — Level 100 for on, 0 for off, the value in between for brightness. Documented for a future LEAP client; no declared command exists to bind.\n",
       "platform": "light"
     },
     {
-      "commands": {
-        "turn_off": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel, SwitchedLevelParameter SwitchedLevel=Off",
-        "turn_on": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel, SwitchedLevelParameter SwitchedLevel=On"
-      },
       "name": "Caseta Switch",
+      "notes": "Unbound (identify_only): a switch is driven by a LEAP CreateRequest to /zone/{id}/commandprocessor with CommandType GoToSwitchedLevel and SwitchedLevelParameter {SwitchedLevel: On|Off}.\n",
       "platform": "switch"
     },
     {
-      "commands": {
-        "close_cover": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel",
-        "open_cover": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel",
-        "set_cover_position": "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel (tilt uses GoToTilt)"
-      },
       "name": "Lutron Shade",
+      "notes": "Unbound (identify_only): a shade is driven by a LEAP CreateRequest to /zone/{id}/commandprocessor with CommandType GoToShadeLevel (open = level 100, closed = 0, position in between); tilt uses GoToTilt, and Raise/Lower/Stop exist for jog control.\n",
       "platform": "cover"
     }
   ],
@@ -192,21 +181,21 @@
       "mdns_services": [
         {
           "port": 8081,
-          "service_type": "_leap._tcp"
+          "service_type": "_leap._tcp.local."
         },
         {
           "port": 8083,
-          "service_type": "_lap._tcp"
+          "service_type": "_lap._tcp.local."
         },
         {
           "MACADDR": "b8:94:d9:aa:bb:cc",
           "SYSTYPE": "SmartBridge",
           "port": 22,
-          "service_type": "_lutron._tcp"
+          "service_type": "_lutron._tcp.local."
         },
         {
           "port": 4548,
-          "service_type": "_hap._tcp"
+          "service_type": "_hap._tcp.local."
         }
       ]
     }
@@ -218,31 +207,25 @@
       "url": "https://www.home-assistant.io/integrations/lutron_caseta/"
     }
   ],
-  "http_endpoints": [
-    {
-      "description": "Placeholder for the LEAP TLS JSON/WebSocket service on port 8081; control uses LEAP messages rather than plain unauthenticated REST.",
-      "method": "GET",
-      "name": "LEAP Service Root",
-      "path": "/"
+  "protocol_details": {
+    "leap_protocol": {
+      "authentication": "certificate-based local pairing",
+      "deprecated_services": {
+        "lap": {
+          "port": 8083,
+          "service_type": "_lap._tcp.local."
+        }
+      },
+      "homekit": {
+        "port": 4548,
+        "service_type": "_hap._tcp.local."
+      },
+      "lap_pairing": {
+        "notes": "Port 8083 speaks the same LEAP JSON envelope (not HTTP) and stays reachable without a client certificate while the rear button is held. Pairing is: Execute /pair with Body.CommandType=CSR and Parameters={CSR (PEM), DisplayName, DeviceUID, Role (Admin or Installer)}; a 200 reply carries Body.SigningResult.Certificate (the signed client cert) and Body.SigningResult.RootCertificate (the bridge CA to pin). Supporting exchanges: Read /certificate/root (fetch bridge root cert), Read /system/macaddress (stable identity), Execute /pair CommandType=Wipe (revoke certs; optional Filter.Subject.Organization), Subscribe /system/status/crosssign (cloud cross-sign progress). Responses carry an HTTP-style Header.StatusCode (\"200 OK\", \"204 No Content\", \"401 Unauthorized\").\n"
+      },
+      "message_envelope": "Every LEAP frame is one JSON object: {\"CommuniqueType\": \"...\", \"Header\": {\"Url\": \"...\", \"ClientTag\": \"...\"}, \"Body\": {...}}. CommuniqueTypes seen in the app: CreateRequest/Response, ReadRequest/Response, UpdateRequest/Response, DeleteRequest/Response, SubscribeRequest/Response, UnsubscribeRequest/Response, MetadataRequest/ Response, ExceptionResponse. Liveness check: ReadRequest to /server/1/status/ping. Subscriptions accept a ?where= filter, e.g. /zone/status/expanded?where=Level!:0 to list only zones that are on.\n",
+      "port": 8081,
+      "transport": "TLS JSON/WebSocket"
     }
-  ],
-  "leap_protocol": {
-    "authentication": "certificate-based local pairing",
-    "deprecated_services": {
-      "lap": {
-        "port": 8083,
-        "service_type": "_lap._tcp.local."
-      }
-    },
-    "homekit": {
-      "port": 4548,
-      "service_type": "_hap._tcp.local."
-    },
-    "lap_pairing": {
-      "notes": "Port 8083 speaks the same LEAP JSON envelope (not HTTP) and stays reachable without a client certificate while the rear button is held. Pairing is: Execute /pair with Body.CommandType=CSR and Parameters={CSR (PEM), DisplayName, DeviceUID, Role (Admin or Installer)}; a 200 reply carries Body.SigningResult.Certificate (the signed client cert) and Body.SigningResult.RootCertificate (the bridge CA to pin). Supporting exchanges: Read /certificate/root (fetch bridge root cert), Read /system/macaddress (stable identity), Execute /pair CommandType=Wipe (revoke certs; optional Filter.Subject.Organization), Subscribe /system/status/crosssign (cloud cross-sign progress). Responses carry an HTTP-style Header.StatusCode (\"200 OK\", \"204 No Content\", \"401 Unauthorized\").\n"
-    },
-    "message_envelope": "Every LEAP frame is one JSON object: {\"CommuniqueType\": \"...\", \"Header\": {\"Url\": \"...\", \"ClientTag\": \"...\"}, \"Body\": {...}}. CommuniqueTypes seen in the app: CreateRequest/Response, ReadRequest/Response, UpdateRequest/Response, DeleteRequest/Response, SubscribeRequest/Response, UnsubscribeRequest/Response, MetadataRequest/ Response, ExceptionResponse. Liveness check: ReadRequest to /server/1/status/ping. Subscriptions accept a ?where= filter, e.g. /zone/status/expanded?where=Level!:0 to list only zones that are on.\n",
-    "port": 8081,
-    "transport": "TLS JSON/WebSocket"
   }
 }

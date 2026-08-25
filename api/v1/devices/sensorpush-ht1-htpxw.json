@@ -20,39 +20,6 @@
       }
     ]
   },
-  "data_format": {
-    "battery": {
-      "byte_offset": 0,
-      "description": "Battery voltage",
-      "encoding": "u16le",
-      "scale": 0.001,
-      "size": 2,
-      "unit": "V"
-    },
-    "bulk_sample": {
-      "description": "Each sample is 4 bytes. Bulk data: [4-byte u32le timestamp] + [N × 4-byte sample records].\nAll 4 bytes of each sample record are packed payload (encoded temp/humidity fields).\nStop token: 0xFFFFFFFF marks end of valid data.\nNote: the \"65 = standard reading type prefix\" in sensorpush-bleak is a hardcoded\ndummy byte that library prepends to select its HT.w (type 65) pack-params —\nit is NOT a per-record type byte on the wire.\nPacked-sample widths and encoding ranges per the app's shipped definitions\ntable (res/raw/definitions.json, app v4.5.9): each record packs one value per\ndimension as (min, max, step) scaled integers — HT1: 4 bytes/sample, gen-1 raw\nfields (no pack params); HTP.xw: 6 bytes — temperature (-40..140 °C, step\n0.0025), humidity (0..100 %RH, step 0.0025), pressure (30000..125000 Pa, step\n1); HT.w: 4 bytes — temperature (-40..125 °C, step 0.0025), humidity (0..100,\nstep 0.0025); TC.x: 2 bytes — thermocouple temperature (-200..1800 °C, step\n0.0625, minimum value = probe-disconnected null); Aqua: 1 byte — water present\n(0..1, step 1, timestamped sample mode).\n"
-    },
-    "humidity": {
-      "byte_offset": 0,
-      "description": "Signed 32-bit LE, hundredths of %RH (vendor doc)",
-      "encoding": "int32le",
-      "scale": 0.01,
-      "size": 4,
-      "unit": "%RH"
-    },
-    "revision": {
-      "encoding": "ascii",
-      "format": "{b[0]:03d}_{b[1]:03d}.{b[2]:03d}_{b[3]:03d}.{b[4]:03d}_{b[5]:03d}.{b[6]:03d}"
-    },
-    "temperature": {
-      "byte_offset": 0,
-      "description": "Signed 32-bit LE, hundredths of °C (vendor doc; signed matters below 0 °C)",
-      "encoding": "int32le",
-      "scale": 0.01,
-      "size": 4,
-      "unit": "°C"
-    }
-  },
   "device": {
     "category": "sensor",
     "identification": {
@@ -63,7 +30,6 @@
     },
     "manufacturer": "SensorPush",
     "manufacturer_status": "active",
-    "model": "HT1 (temperature + humidity), HTP.xw (temperature + humidity + barometric pressure)",
     "name": "SensorPush HT1 / HTP.xw",
     "notes": "Protocol documented via community reverse engineering and now openly by the vendor.\nPrimary source: SensorPush Bluetooth API documentation\n(https://www.sensorpush.com/bluetooth-api), which publishes the full 2nd-generation\nGATT table; corroborated by sensorpush-bleak (cryptomcgrath, 5★) and\nsensorpush-ble (Bluetooth-Devices).\nTwo hardware generations: HT1 (V1, thermometer + hygrometer) and HTP.xw (V2,\nthermometer + hygrometer + barometer). HT1 is the only model excluded from the\nvendor's open protocol documentation.\nTI CC2540/CC2541 BLE SoC. Uses OAD (Over-the-Air Download) firmware update service.\nTemperature/humidity accessed via write-then-read pattern: write 4-byte trigger, ~110ms delay, then read.\nValues are 4-byte signed int LE in hundredths (vendor doc: \"4 Byte Signed Int LE\";\na u16 cannot encode the -40 °C bottom of the HT1 range).\nHistory data retrieved in bulk notification chunks with 4-byte timestamp header.\nDevice reports battery voltage + raw temperature sensor in Battery Info characteristic.\nUses SensorPush BLE Advertisement Detection: name/address prefix check plus UUID slicing.\nThe Android app (v4.5.9, legacy package com.cousins_sears.beaconthermometer) ships a\ndefinitions table (res/raw/definitions.json) confirming the device-version IDs:\n1=HT1, 64=HTP.xw, 65=HT.w, 66=TC.x, 67=Aqua (binary water-leak sensor, 1-byte\ntimestamped samples). The app matches the primary service by UUID prefix\nef090000-11d6-42ba-93b8-9dd7ec090a* rather than an exact generation UUID.\nTwo app-side behaviours worth knowing: (1) a factory-recovery flow for sensors whose\nDeviceID reads as 0 or 0xFFFFFFFF (uninitialized/flash-error), which exposes a\nseparate initial-config service ee090000-11d6-42ba-93b8-9dd7ec090ab0 through which\nthe app rewrites the device identity; (2) an optional write-challenge/read-response\nsecurity exchange performed during app \"activation\" as an anti-counterfeit check\n(skipped on firmware that lacks it) — it is not required to read sensor data.\n",
     "protocol": "ble",
@@ -120,8 +86,28 @@
     "testing": {
       "status": "untested"
     },
-    "transport": "ble",
-    "type": "sensor-temperature-humidity"
+    "transport": "ble-gatt",
+    "type": "sensor-temperature-humidity",
+    "variants": [
+      {
+        "model": "HT1",
+        "notes": "Temperature and humidity. No barometer, so the pressure entity does not apply to this one.\n"
+      },
+      {
+        "model": "HTP.xw",
+        "notes": "Temperature, humidity and barometric pressure; the 'xw' units are the outdoor-rated enclosure.\n"
+      }
+    ]
+  },
+  "evidence": {
+    "community_libraries": [
+      "cryptomcgrath/sensorpush-bleak (5★)",
+      "Bluetooth-Devices/sensorpush-ble"
+    ],
+    "date_extracted": "2026-07-28",
+    "vendor_documentation": [
+      "SensorPush Bluetooth API (official 2nd-gen GATT table): https://www.sensorpush.com/bluetooth-api"
+    ]
   },
   "helpful_urls": [
     {
@@ -145,6 +131,41 @@
       "url": "https://github.com/cryptomcgrath/sensorpush-bleak"
     }
   ],
+  "protocol_details": {
+    "data_format": {
+      "battery": {
+        "byte_offset": 0,
+        "description": "Battery voltage",
+        "encoding": "u16le",
+        "scale": 0.001,
+        "size": 2,
+        "unit": "V"
+      },
+      "bulk_sample": {
+        "description": "Each sample is 4 bytes. Bulk data: [4-byte u32le timestamp] + [N × 4-byte sample records].\nAll 4 bytes of each sample record are packed payload (encoded temp/humidity fields).\nStop token: 0xFFFFFFFF marks end of valid data.\nNote: the \"65 = standard reading type prefix\" in sensorpush-bleak is a hardcoded\ndummy byte that library prepends to select its HT.w (type 65) pack-params —\nit is NOT a per-record type byte on the wire.\nPacked-sample widths and encoding ranges per the app's shipped definitions\ntable (res/raw/definitions.json, app v4.5.9): each record packs one value per\ndimension as (min, max, step) scaled integers — HT1: 4 bytes/sample, gen-1 raw\nfields (no pack params); HTP.xw: 6 bytes — temperature (-40..140 °C, step\n0.0025), humidity (0..100 %RH, step 0.0025), pressure (30000..125000 Pa, step\n1); HT.w: 4 bytes — temperature (-40..125 °C, step 0.0025), humidity (0..100,\nstep 0.0025); TC.x: 2 bytes — thermocouple temperature (-200..1800 °C, step\n0.0625, minimum value = probe-disconnected null); Aqua: 1 byte — water present\n(0..1, step 1, timestamped sample mode).\n"
+      },
+      "humidity": {
+        "byte_offset": 0,
+        "description": "Signed 32-bit LE, hundredths of %RH (vendor doc)",
+        "encoding": "int32le",
+        "scale": 0.01,
+        "size": 4,
+        "unit": "%"
+      },
+      "revision": {
+        "encoding": "ascii",
+        "format": "{b[0]:03d}_{b[1]:03d}.{b[2]:03d}_{b[3]:03d}.{b[4]:03d}_{b[5]:03d}.{b[6]:03d}"
+      },
+      "temperature": {
+        "byte_offset": 0,
+        "description": "Signed 32-bit LE, hundredths of °C (vendor doc; signed matters below 0 °C)",
+        "encoding": "int32le",
+        "scale": 0.01,
+        "size": 4,
+        "unit": "C"
+      }
+    }
+  },
   "services": [
     {
       "characteristics": [
@@ -370,15 +391,5 @@
       "name": "SensorPush Initial Config Service (recovery)",
       "uuid": "ee090000-11d6-42ba-93b8-9dd7ec090ab0"
     }
-  ],
-  "source": {
-    "community_libraries": [
-      "cryptomcgrath/sensorpush-bleak (5★)",
-      "Bluetooth-Devices/sensorpush-ble"
-    ],
-    "date_extracted": "2026-07-28",
-    "vendor_documentation": [
-      "SensorPush Bluetooth API (official 2nd-gen GATT table): https://www.sensorpush.com/bluetooth-api"
-    ]
-  }
+  ]
 }

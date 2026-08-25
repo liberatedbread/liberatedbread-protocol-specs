@@ -1,0 +1,350 @@
+{
+  "device": {
+    "category": "light",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "notes": "The app's scanner requires BOTH signals: advertised name prefix \"FS\" (exact, case-sensitive) AND advertised service UUID 0xFFF0. The full advertised name is unconfirmed (\"FS\" or e.g. \"FS-XXXX\") — needs a live scan. One phone can hold connections to many shoes at once; identity is per-shoe BLE address.\n",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "value": "FS"
+            },
+            "service_uuids": [
+              "0000fff0-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefix": "FS",
+      "service_uuids": [
+        "0000fff0-0000-1000-8000-00805f9b34fb"
+      ]
+    },
+    "manufacturer": "jtkj (app developer; shoe hardware OEM unknown)",
+    "manufacturer_status": "unsupported",
+    "name": "Aurora LED Shoes",
+    "notes": "BLE-controlled RGB light-up shoes driven by the \"Aurora LED Shoes\" app (com.jtkj.auroraled, v1.0.1 analyzed). The entire protocol is a handful of 1-4 byte opcode-first packets written to a single characteristic — no header, no length, no checksum, no encryption, no handshake, no pairing, no OTA, no vendor backend (the only non-analytics HTTP in the app is a connectivity probe). Local-only viability is total.\nGATT: service 0xFFF0, one characteristic 0xFFF1 used for BOTH write and notify. Writes are write-without-response (auto-split at MTU by the app's BLE wrapper). The app enables notifications ~500 ms after connect via the standard CCC descriptor 0x2902.\nDEVELOPER FAMILY: jtkj also ships CoolLED1248 (com.jtkj.led1248). The two apps share the same BLE wrapper library and command-building idiom, but the GATT profile and opcodes are DIFFERENT — CoolLED1248 is the 0xFFE5/0xFFE9 family; this device is 0xFFF0/0xFFF1 with its own opcode table. Do not assume cross-compatibility; each jtkj app needs its own RE pass.\nMULTI-SHOE BROADCAST: the app connects to several shoes at once and sends every command to all connected devices. A replacement client should keep one connection per shoe and broadcast writes; the shoes are independent peripherals, there is no grouping protocol.\nMUSIC/MIC MODE: all signal processing is on the phone — the app runs an FFT over mic input (35 bins, picks peaks per 11-bin third, maps to RGB) and streams `01 R G B` writes live. The shoe only displays the color it is handed, so any client-side color source works.\nSPEED SEMANTICS (MEDIUM confidence): the app computes the on-wire byte for `10 V` as (seekbar_max - (progress + 15)), i.e. LOWER byte value = FASTER animation (inverted slider). Persisted default is 120; a constant in the app hints the device treats speed in ~15 steps. The seekbar max lived in app resources that were not decompiled, so the exact valid on-wire range is not pinned down from code alone — treat 0-255 as the envelope and verify with a live capture.\nSTATE QUERY (MEDIUM confidence): writing `F0` is defined in the app as a device-state query; the device answers with a 3-byte notify frame `F0 FLAG SPEED` (FLAG 00/01 = power off/on, SPEED = current speed echo). The app only logs the response, and whether it actually sends the query in normal use is unconfirmed (possibly dead code). No handshake of any kind exists.\nCONFIDENCE: service/characteristic UUIDs, discovery filter (name prefix \"FS\" + advertised service 0xFFF0), and all command opcodes/framing are HIGH (read directly from the app's unobfuscated command-builder code). MEDIUM: exact speed range/direction, the visual meaning of the ten `07 ...` \"shining\" presets, whether `F0` is live code, and the full advertised name beyond the \"FS\" prefix — all flagged for live capture. The shoe's BLE module is unidentified (0xFFF0/0xFFF1 is the classic cheap BLE-UART-bridge profile); no firmware/OTA capability exists.\n",
+    "protocol": "ble",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "Anything within radio range can connect and issue commands. Physical proximity is the only access control — anyone nearby can change the shoes' colors.\n",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "confidence": "low",
+        "effect": "No credential or bond state exists on the device, so there is nothing to clear. Power-cycling the shoe drops the current connection, which is the actual remedy for the common failure mode: the shoe still being connected to another phone (only one central can hold the link).\n",
+        "procedures": [
+          {
+            "name": "Power cycle",
+            "steps": [
+              {
+                "action": "Power the shoe off (or remove its battery) for a few seconds, then power on.",
+                "actor": "user",
+                "expect": "Shoe advertises again and accepts a new connection."
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "advertised_name": "FS",
+            "pairing_required": false
+          },
+          "description": "Power the shoes on and scan for advertisements with name prefix \"FS\" and service 0xFFF0. Connect (no pairing/bonding), enable notifications on 0xFFF1 (the app waits ~500 ms after connect before enabling; not required for writes). Commands take effect immediately. To drive a pair, connect to both shoes and send every command to both connections.\n",
+          "steps": [
+            {
+              "action": "Power on the shoes and scan for name prefix 'FS' with service 0xFFF0.",
+              "actor": "client",
+              "request": {
+                "protocol": "ble_gatt"
+              }
+            },
+            {
+              "action": "Connect to each shoe, enable notifications on 0xFFF1 (CCC 0x2902).",
+              "actor": "client"
+            },
+            {
+              "action": "Write commands to 0xFFF1 (write-without-response); broadcast to all connected shoes.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "No provisioning. The shoe advertises as soon as it is powered on and accepts a connection from any central — no account, no pairing PIN, no credential exchange. Scan, connect, enable notify on 0xFFF1, write.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Nothing binds the shoe to a phone or account — switching controllers is just connecting from the new one. Make sure the old phone's app (or OS Bluetooth auto-reconnect) is not holding the link; the app caches previously-connected MACs and reconnects to them automatically.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "status": "untested"
+    },
+    "variants": []
+  },
+  "entities": [
+    {
+      "commands": {
+        "set_color": "set_color",
+        "set_effect": "mode_slow_color_change",
+        "turn_off": "set_power",
+        "turn_on": "set_power"
+      },
+      "features": [
+        "color",
+        "effect"
+      ],
+      "name": "Shoe LEDs",
+      "platform": "light",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor app (com.jtkj.auroraled, v1.0.1 analyzed). BLE-only, no account, no backend — the app is a pure BLE remote for the shoes.",
+      "title": "Aurora LED Shoes on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=com.jtkj.auroraled"
+    },
+    {
+      "description": "The Android BLE library the app's BLE layer is built on; explains the write-without-response + auto-split-at-MTU write behavior and the CCC notify-enable flow seen in this profile.",
+      "title": "FastBle (open-source BLE wrapper used by the vendor app)",
+      "url": "https://github.com/Jasonchenlijian/FastBle"
+    },
+    {
+      "description": "Same developer, same BLE wrapper, but a DIFFERENT GATT profile (0xFFE5/0xFFE9) and opcode set. Not interchangeable with this device.",
+      "title": "CoolLED1248 (sibling jtkj app — different profile)",
+      "url": "https://play.google.com/store/apps/details?id=com.jtkj.led1248"
+    }
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "mode_flash": {
+              "description": "Flash (strobe) mode. color_id: 00 blue, 01 green, 02 red, 03 cyan, 04 purple, 05 yellow, 06 white, 10 seven-color.\n",
+              "parameters": {
+                "color_id": {
+                  "allowed": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    16
+                  ],
+                  "labels": [
+                    "blue",
+                    "green",
+                    "red",
+                    "cyan",
+                    "purple",
+                    "yellow",
+                    "white",
+                    "seven-color"
+                  ],
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                7,
+                5,
+                "{color_id}"
+              ]
+            },
+            "mode_slow_color_change": {
+              "description": "Slow color-change mode. color_id selects the color(s) cycled: 00 blue, 01 green, 02 red, 03 cyan, 04 purple, 05 yellow, 06 white, 20 seven-color cycle, 30 red+green, 40 red+blue, 50 green+blue.\n",
+              "parameters": {
+                "color_id": {
+                  "allowed": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    32,
+                    48,
+                    64,
+                    80
+                  ],
+                  "labels": [
+                    "blue",
+                    "green",
+                    "red",
+                    "cyan",
+                    "purple",
+                    "yellow",
+                    "white",
+                    "seven-color cycle",
+                    "red+green",
+                    "red+blue",
+                    "green+blue"
+                  ],
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                7,
+                4,
+                "{color_id}"
+              ]
+            },
+            "music_color": {
+              "description": "Music/mic-reactive color: set the displayed RGB color live. The vendor app computes R,G,B from phone-mic FFT; the shoe just displays whatever it receives, so any client-side color source can drive this. Stream writes as colors change.\n",
+              "parameters": {
+                "blue": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "green": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "red": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                1,
+                "{red}",
+                "{green}",
+                "{blue}"
+              ]
+            },
+            "power_toggle": {
+              "description": "Toggle power (flip current on/off state).",
+              "value": [
+                4
+              ]
+            },
+            "set_color": {
+              "description": "Set solid (static) RGB color.",
+              "parameters": {
+                "blue": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "green": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "red": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                3,
+                "{red}",
+                "{green}",
+                "{blue}"
+              ]
+            },
+            "set_power": {
+              "description": "Set power explicitly: 0x01 = on, 0x00 = off.",
+              "parameters": {
+                "state": {
+                  "labels": [
+                    "off",
+                    "on"
+                  ],
+                  "max": 1,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                5,
+                "{state}"
+              ]
+            },
+            "set_speed": {
+              "description": "Set pattern/animation speed. LOWER byte value = FASTER (inverted slider in the app: on-wire = seekbar_max - (progress + 15)). App default is 120; device appears to treat speed in ~15 steps. Exact valid range unconfirmed — MEDIUM confidence, verify with live capture.\n",
+              "parameters": {
+                "speed": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                16,
+                "{speed}"
+              ]
+            },
+            "shining_preset": {
+              "description": "One of ten fixed \"shining\" effect presets exposed by the app. preset_id selects the exact byte string (see table below). The visual effect of each preset is UNKNOWN (MEDIUM confidence) — map by sending each and observing the shoe.\n",
+              "parameters": {
+                "b0": {
+                  "notes": "Always 0x07 for all ten presets.",
+                  "type": "uint8"
+                },
+                "b1": {
+                  "notes": "Preset bytes (b1 b2 [b3]; b0=0x07 always, b3 omitted for the 3-byte presets — send only the listed bytes): 06 01 00 · 01 08 · 01 13 · 03 01 00 · 09 00 · 09 01 · 0A 01 · 0A 02 · 01 01 · 02 00.\n",
+                  "type": "uint8"
+                },
+                "b2": {
+                  "type": "uint8"
+                },
+                "b3": {
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                "{b0}",
+                "{b1}",
+                "{b2}",
+                "{b3}"
+              ]
+            },
+            "state_query": {
+              "description": "Query device state. Device replies on notify with the 3-byte frame `F0 FLAG SPEED` (FLAG 00/01 = power off/on, SPEED = current speed byte). MEDIUM confidence: defined in the app but only logged, never acted on — possibly dead code; confirm the reply on live hardware.\n",
+              "value": [
+                240
+              ]
+            }
+          },
+          "name": "Control",
+          "notes": "Single characteristic for both directions. Commands are raw opcode-first packets of 1-4 bytes, one GATT write per command — no header, length, checksum or encryption. Writes are write-without-response. Notifications carry the 3-byte state frame `F0 FLAG SPEED` in reply to the state_query command (FLAG 00/01 = power off/on, SPEED = current speed byte). Confidence: HIGH for all opcodes except where noted (speed range and the shining-preset visuals are MEDIUM, pending live capture).\n",
+          "properties": [
+            "write",
+            "notify"
+          ],
+          "uuid": "0000fff1-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Aurora LED Shoe Control Service",
+      "uuid": "0000fff0-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

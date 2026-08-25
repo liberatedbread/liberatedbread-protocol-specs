@@ -1,62 +1,4 @@
 {
-  "bravia_common": {
-    "authentication": {
-      "description": "One of two credentials rides on EVERY request to /sony/*, once IP control is enabled on the TV. Which one is a per-client choice made at setup time (device.setup). A request with neither, on a TV with authentication enabled, answers 401 or 403.\n",
-      "pin_registration": {
-        "cookie_notes": "The TV's Set-Cookie spelling is not RFC-compliant (pybravia had to add a normalizer, its issue #1) — a strict cookie jar silently drops the credential and every later request fails auth. Parse the auth value out of the header string if your stack is strict.\n",
-        "description": "The no-shared-secret flow. Step 1: POST actRegister with HTTP Basic auth (username \"\", password \"0000\") — the TV answers 401/403 and displays a PIN on screen. Step 2: repeat the identical call with the displayed PIN as the Basic-auth password (username still \"\"). On success the TV answers 200 with Set-Cookie: auth=<token>; the client sends that cookie on every later request. The pybravia request body: {\"method\": \"actRegister\", \"params\": [{\"clientid\": <client-chosen stable id, conventionally \"<name>:<uuid>\", \"nickname\": <display name>, \"level\": \"private\"}, [{\"value\": \"yes\", \"function\": \"WOL\"}]], \"id\": 1, \"version\": \"1.0\"} — the WOL entry asks the TV to accept wake-on-LAN from this client. A clientid already registered makes the TV refuse to show a new PIN; deregister on the TV first (device.setup.credentials).\n",
-        "endpoint": "POST /sony/accessControl"
-      },
-      "psk": {
-        "description": "The string the user typed into the TV's IP control settings, sent as a plain header on every request — SOAP and REST alike. No handshake, no expiry.\n",
-        "header": "X-Auth-PSK: <pre-shared key>"
-      }
-    },
-    "base_url": "http://<ip>/sony/<service>",
-    "base_url_notes": "Port 80 on every documented model, but resolve per-service base URLs from dd.xml's X_ScalarWebAPI_ServiceList when available — the descriptor exists precisely because services may move ports. <ip> comes from SSDP.\n",
-    "dial": {
-      "description": "DIAL (Discovery and Launch) is the second-screen surface YouTube and Netflix use to pair a phone with the TV. Discovery is SSDP ST urn:dial-multiscreen-org:service:dial:1; the response's Application-URL header is the DIAL REST base, against which app launch/status requests are made per the DIAL 2.2.1 specification. On Bravia the same /DIAL tree hosts app icons (the official getApplicationList example returns http://<ip>/DIAL/icon/<uri>.png URLs). DIAL needs no PSK or cookie; it also exposes no power, key or volume control — it is a discovery plus app-launch channel, and this spec binds nothing to it.\n"
-    },
-    "ircc": {
-      "description": "The remote-control surface: one SOAP call per key press. POST http://<ip>/sony/IRCC with the headers below and an envelope whose only variable is the base64 IRCCCode. Success is a bare 200 with an empty (or empty-envelope) body; the TV gives no per-key feedback.\n",
-      "http": {
-        "headers": {
-          "Content-Type": "text/xml; charset=UTF-8",
-          "SOAPACTION": "\"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC\"  (literal double quotes, as Wemo)",
-          "X-Auth-PSK": "<pre-shared key, or omit when using the auth cookie>"
-        },
-        "method": "POST",
-        "url": "http://<ip>/sony/IRCC"
-      },
-      "quirks": {
-        "code_authority": "Codes are model-specific in detail. The TV's own getRemoteControllerInfo REST call returns its exact name->code list and is authoritative; Sony's published table (the one in `commands`) is the professional-display set, and community tables disagree with it on some keys (Left/Right and Prev are spelled differently in the widely-copied community list). A client that can query the TV should prefer the TV's list and treat `commands` as the fallback.\n",
-        "endpoint_case": "The path's case differs across models: /sony/IRCC on most, /sony/ircc on some — the wrong case answers 404. pybravia detects this by probing with an empty IRCCCode and swapping case on BraviaNotFound; copy that rather than shipping two configs.\n",
-        "idle_drop": "After roughly 13 minutes of inactivity some TVs silently ignore the first IRCC command — no error, just nothing happens. pybravia works around it by sending an empty-code request as a wake-up whenever the last IRCC call is more than 10 minutes old.\n"
-      },
-      "template": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\n<s:Body>\n<u:X_SendIRCC xmlns:u=\"urn:schemas-sony-com:service:IRCC:1\">\n<IRCCCode>{ircc_code}</IRCCCode>\n</u:X_SendIRCC>\n</s:Body>\n</s:Envelope>\n"
-    },
-    "power_on": {
-      "description": "Three documented ways to wake a Bravia, in the order pybravia tries them: a Wake-on-LAN magic packet (broadcast UDP port 9; requires the TV's Remote Start / WoL setting and the MAC from getSystemInformation), the REST call setPowerStatus {\"status\": true}, and the IRCC PowerOn code (AAAAAQAAAAEAAAAuAw==). All three presuppose network standby — a TV in deep standby or cut at the wall is beyond any network command, same caveat as every TV in this registry.\n"
-    },
-    "rest": {
-      "description": "Every REST service is one POST path carrying a JSON-RPC-flavoured document: {\"method\": \"<name>\", \"params\": [...], \"id\": <n>, \"version\": \"1.x\"}. params is ALWAYS an array — an empty array when the method takes nothing. A successful reply is {\"result\": [...], \"id\": <n>}; a failure is {\"error\": [<code>, \"<message>\"], \"id\": <n>} — and a TV in standby answers control calls with the error string \"not power-on\", which a client should read as \"off\", not \"broken\". Method versions and auth levels (none / generic / private) are per-method in Sony's reference; query a specific TV's actual surface with getSupportedApiInfo on /sony/guide, which is itself authLevel none.\n",
-      "example_request": {
-        "body": "POST /sony/system HTTP/1.1\nContent-Type: application/json\nX-Auth-PSK: <pre-shared key>\n\n{\"method\": \"getSystemInformation\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n",
-        "description": "getSystemInformation, as it goes on the wire."
-      },
-      "example_response": "{\"result\": [{\"product\": \"TV\", \"region\": \"XEU\", \"language\": \"eng\",\n\"model\": \"KD-55X8000G\", \"serial\": \"1234567\", \"macAddr\": \"aa:bb:cc:dd:ee:ff\",\n\"name\": \"Living Room\", \"generation\": \"5.2.0\", \"area\": \"ESP\",\n\"cid\": \"AA00...\"}], \"id\": 1}\n",
-      "services": {
-        "accessControl": "actRegister — PIN pairing; see authentication.pin_registration.",
-        "appControl": "getApplicationList, setActiveApp, terminateApps, getTextForm/setTextForm (on-screen keyboard).",
-        "audio": "getVolumeInformation, setAudioVolume (absolute 'N' or relative '+N'/'-N'), setAudioMute, sound settings.",
-        "avContent": "What is playing (getPlayingContentInfo), input inventory (getCurrentExternalInputsStatus), content/channel listing (getSchemeList/getSourceList/getContentCount/getContentList), input and channel switching (setPlayContent).",
-        "guide": "getSupportedApiInfo — the per-device API inventory; call it first.",
-        "system": "Identity (getSystemInformation), power (getPowerStatus/setPowerStatus), getRemoteControllerInfo, getWolMode/setWolMode, requestReboot, LED indicator.",
-        "video/videoScreen/cec/encryption/notification/recording/browser": "Present on various models; catalogued in Sony's reference. Out of scope for the controls this spec binds.\n"
-      }
-    },
-    "transport": "HTTP POST"
-  },
   "commands": {
     "press_audio": {
       "action": "X_SendIRCC",
@@ -838,6 +780,7 @@
         "turn_on": "press_power_on"
       },
       "icon": "mdi:power",
+      "key": "power",
       "name": "Power",
       "notes": "Discrete on/off are consumer-set IRCC codes; the toggle is the one key every set carries. Prefer turn_off for a bulk send — the toggle needs the state read first, and a set with network standby off simply won't answer it.\n",
       "platform": "switch",
@@ -859,6 +802,7 @@
         "press": "press_home"
       },
       "icon": "mdi:home",
+      "key": "home",
       "name": "Home",
       "platform": "button"
     },
@@ -867,6 +811,7 @@
         "press": "press_back"
       },
       "icon": "mdi:arrow-u-left-top",
+      "key": "back",
       "name": "Back",
       "platform": "button"
     },
@@ -875,6 +820,7 @@
         "press": "press_exit"
       },
       "icon": "mdi:exit-to-app",
+      "key": "exit",
       "name": "Exit",
       "platform": "button"
     },
@@ -883,6 +829,7 @@
         "press": "press_up"
       },
       "icon": "mdi:chevron-up",
+      "key": "up",
       "name": "Up",
       "platform": "button"
     },
@@ -891,6 +838,7 @@
         "press": "press_left"
       },
       "icon": "mdi:chevron-left",
+      "key": "left",
       "name": "Left",
       "notes": "Code disputed between Sony's pro table and community tables — see commands.press_left.",
       "platform": "button"
@@ -899,6 +847,7 @@
       "commands": {
         "press": "press_confirm"
       },
+      "key": "ok",
       "name": "OK",
       "platform": "button"
     },
@@ -907,6 +856,7 @@
         "press": "press_right"
       },
       "icon": "mdi:chevron-right",
+      "key": "right",
       "name": "Right",
       "notes": "Same code caveat as Left.",
       "platform": "button"
@@ -916,6 +866,7 @@
         "press": "press_down"
       },
       "icon": "mdi:chevron-down",
+      "key": "down",
       "name": "Down",
       "platform": "button"
     },
@@ -924,6 +875,7 @@
         "press": "press_options"
       },
       "icon": "mdi:dots-horizontal",
+      "key": "options",
       "name": "Options",
       "platform": "button"
     },
@@ -1034,6 +986,7 @@
         "press": "press_rewind"
       },
       "icon": "mdi:rewind",
+      "key": "rewind",
       "name": "Rewind",
       "platform": "button"
     },
@@ -1066,6 +1019,7 @@
         "press": "press_forward"
       },
       "icon": "mdi:fast-forward",
+      "key": "fast_forward",
       "name": "Fast Forward",
       "platform": "button"
     },
@@ -1090,6 +1044,7 @@
         "press": "press_volume_down"
       },
       "icon": "mdi:volume-minus",
+      "key": "volume_down",
       "name": "Volume Down",
       "platform": "button"
     },
@@ -1098,6 +1053,7 @@
         "press": "press_mute"
       },
       "icon": "mdi:volume-mute",
+      "key": "mute",
       "name": "Mute",
       "platform": "button"
     },
@@ -1106,6 +1062,7 @@
         "press": "press_volume_up"
       },
       "icon": "mdi:volume-plus",
+      "key": "volume_up",
       "name": "Volume Up",
       "platform": "button"
     },
@@ -1123,6 +1080,7 @@
         "press": "press_channel_up"
       },
       "icon": "mdi:chevron-double-up",
+      "key": "channel_up",
       "name": "Channel Up",
       "notes": "Meaningful on the tuner input.",
       "platform": "button"
@@ -1132,6 +1090,7 @@
         "press": "press_channel_down"
       },
       "icon": "mdi:chevron-double-down",
+      "key": "channel_down",
       "name": "Channel Down",
       "notes": "Meaningful on the tuner input.",
       "platform": "button"
@@ -1194,6 +1153,7 @@
         "press": "press_hdmi1"
       },
       "icon": "mdi:hdmi-port",
+      "key": "input_hdmi1",
       "name": "HDMI 1",
       "platform": "button"
     },
@@ -1202,6 +1162,7 @@
         "press": "press_hdmi2"
       },
       "icon": "mdi:hdmi-port",
+      "key": "input_hdmi2",
       "name": "HDMI 2",
       "platform": "button"
     },
@@ -1210,6 +1171,7 @@
         "press": "press_hdmi3"
       },
       "icon": "mdi:hdmi-port",
+      "key": "input_hdmi3",
       "name": "HDMI 3",
       "platform": "button"
     },
@@ -1218,6 +1180,7 @@
         "press": "press_hdmi4"
       },
       "icon": "mdi:hdmi-port",
+      "key": "input_hdmi4",
       "name": "HDMI 4",
       "platform": "button"
     },
@@ -1479,5 +1442,65 @@
         "example": "{\"method\": \"actRegister\", \"params\": [{\"clientid\": \"OpenGreenIoT:8f4a2c10-0000-4000-8000-000000000000\", \"nickname\": \"OpenGreenIoT Remote\", \"level\": \"private\"}, [{\"value\": \"yes\", \"function\": \"WOL\"}]], \"id\": 1, \"version\": \"1.0\"}\n"
       }
     }
-  ]
+  ],
+  "protocol_details": {
+    "bravia_common": {
+      "authentication": {
+        "description": "One of two credentials rides on EVERY request to /sony/*, once IP control is enabled on the TV. Which one is a per-client choice made at setup time (device.setup). A request with neither, on a TV with authentication enabled, answers 401 or 403.\n",
+        "pin_registration": {
+          "cookie_notes": "The TV's Set-Cookie spelling is not RFC-compliant (pybravia had to add a normalizer, its issue #1) — a strict cookie jar silently drops the credential and every later request fails auth. Parse the auth value out of the header string if your stack is strict.\n",
+          "description": "The no-shared-secret flow. Step 1: POST actRegister with HTTP Basic auth (username \"\", password \"0000\") — the TV answers 401/403 and displays a PIN on screen. Step 2: repeat the identical call with the displayed PIN as the Basic-auth password (username still \"\"). On success the TV answers 200 with Set-Cookie: auth=<token>; the client sends that cookie on every later request. The pybravia request body: {\"method\": \"actRegister\", \"params\": [{\"clientid\": <client-chosen stable id, conventionally \"<name>:<uuid>\", \"nickname\": <display name>, \"level\": \"private\"}, [{\"value\": \"yes\", \"function\": \"WOL\"}]], \"id\": 1, \"version\": \"1.0\"} — the WOL entry asks the TV to accept wake-on-LAN from this client. A clientid already registered makes the TV refuse to show a new PIN; deregister on the TV first (device.setup.credentials).\n",
+          "endpoint": "POST /sony/accessControl"
+        },
+        "psk": {
+          "description": "The string the user typed into the TV's IP control settings, sent as a plain header on every request — SOAP and REST alike. No handshake, no expiry.\n",
+          "header": "X-Auth-PSK: <pre-shared key>"
+        }
+      },
+      "base_url": "http://<ip>/sony/<service>",
+      "base_url_notes": "Port 80 on every documented model, but resolve per-service base URLs from dd.xml's X_ScalarWebAPI_ServiceList when available — the descriptor exists precisely because services may move ports. <ip> comes from SSDP.\n",
+      "dial": {
+        "description": "DIAL (Discovery and Launch) is the second-screen surface YouTube and Netflix use to pair a phone with the TV. Discovery is SSDP ST urn:dial-multiscreen-org:service:dial:1; the response's Application-URL header is the DIAL REST base, against which app launch/status requests are made per the DIAL 2.2.1 specification. On Bravia the same /DIAL tree hosts app icons (the official getApplicationList example returns http://<ip>/DIAL/icon/<uri>.png URLs). DIAL needs no PSK or cookie; it also exposes no power, key or volume control — it is a discovery plus app-launch channel, and this spec binds nothing to it.\n"
+      },
+      "ircc": {
+        "description": "The remote-control surface: one SOAP call per key press. POST http://<ip>/sony/IRCC with the headers below and an envelope whose only variable is the base64 IRCCCode. Success is a bare 200 with an empty (or empty-envelope) body; the TV gives no per-key feedback.\n",
+        "http": {
+          "headers": {
+            "Content-Type": "text/xml; charset=UTF-8",
+            "SOAPACTION": "\"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC\"  (literal double quotes, as Wemo)",
+            "X-Auth-PSK": "<pre-shared key, or omit when using the auth cookie>"
+          },
+          "method": "POST",
+          "url": "http://<ip>/sony/IRCC"
+        },
+        "quirks": {
+          "code_authority": "Codes are model-specific in detail. The TV's own getRemoteControllerInfo REST call returns its exact name->code list and is authoritative; Sony's published table (the one in `commands`) is the professional-display set, and community tables disagree with it on some keys (Left/Right and Prev are spelled differently in the widely-copied community list). A client that can query the TV should prefer the TV's list and treat `commands` as the fallback.\n",
+          "endpoint_case": "The path's case differs across models: /sony/IRCC on most, /sony/ircc on some — the wrong case answers 404. pybravia detects this by probing with an empty IRCCCode and swapping case on BraviaNotFound; copy that rather than shipping two configs.\n",
+          "idle_drop": "After roughly 13 minutes of inactivity some TVs silently ignore the first IRCC command — no error, just nothing happens. pybravia works around it by sending an empty-code request as a wake-up whenever the last IRCC call is more than 10 minutes old.\n"
+        },
+        "template": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\n<s:Body>\n<u:X_SendIRCC xmlns:u=\"urn:schemas-sony-com:service:IRCC:1\">\n<IRCCCode>{ircc_code}</IRCCCode>\n</u:X_SendIRCC>\n</s:Body>\n</s:Envelope>\n"
+      },
+      "power_on": {
+        "description": "Three documented ways to wake a Bravia, in the order pybravia tries them: a Wake-on-LAN magic packet (broadcast UDP port 9; requires the TV's Remote Start / WoL setting and the MAC from getSystemInformation), the REST call setPowerStatus {\"status\": true}, and the IRCC PowerOn code (AAAAAQAAAAEAAAAuAw==). All three presuppose network standby — a TV in deep standby or cut at the wall is beyond any network command, same caveat as every TV in this registry.\n"
+      },
+      "rest": {
+        "description": "Every REST service is one POST path carrying a JSON-RPC-flavoured document: {\"method\": \"<name>\", \"params\": [...], \"id\": <n>, \"version\": \"1.x\"}. params is ALWAYS an array — an empty array when the method takes nothing. A successful reply is {\"result\": [...], \"id\": <n>}; a failure is {\"error\": [<code>, \"<message>\"], \"id\": <n>} — and a TV in standby answers control calls with the error string \"not power-on\", which a client should read as \"off\", not \"broken\". Method versions and auth levels (none / generic / private) are per-method in Sony's reference; query a specific TV's actual surface with getSupportedApiInfo on /sony/guide, which is itself authLevel none.\n",
+        "example_request": {
+          "body": "POST /sony/system HTTP/1.1\nContent-Type: application/json\nX-Auth-PSK: <pre-shared key>\n\n{\"method\": \"getSystemInformation\", \"params\": [], \"id\": 1, \"version\": \"1.0\"}\n",
+          "description": "getSystemInformation, as it goes on the wire."
+        },
+        "example_response": "{\"result\": [{\"product\": \"TV\", \"region\": \"XEU\", \"language\": \"eng\",\n\"model\": \"KD-55X8000G\", \"serial\": \"1234567\", \"macAddr\": \"aa:bb:cc:dd:ee:ff\",\n\"name\": \"Living Room\", \"generation\": \"5.2.0\", \"area\": \"ESP\",\n\"cid\": \"AA00...\"}], \"id\": 1}\n",
+        "services": {
+          "accessControl": "actRegister — PIN pairing; see authentication.pin_registration.",
+          "appControl": "getApplicationList, setActiveApp, terminateApps, getTextForm/setTextForm (on-screen keyboard).",
+          "audio": "getVolumeInformation, setAudioVolume (absolute 'N' or relative '+N'/'-N'), setAudioMute, sound settings.",
+          "avContent": "What is playing (getPlayingContentInfo), input inventory (getCurrentExternalInputsStatus), content/channel listing (getSchemeList/getSourceList/getContentCount/getContentList), input and channel switching (setPlayContent).",
+          "guide": "getSupportedApiInfo — the per-device API inventory; call it first.",
+          "system": "Identity (getSystemInformation), power (getPowerStatus/setPowerStatus), getRemoteControllerInfo, getWolMode/setWolMode, requestReboot, LED indicator.",
+          "video/videoScreen/cec/encryption/notification/recording/browser": "Present on various models; catalogued in Sony's reference. Out of scope for the controls this spec binds.\n"
+        }
+      },
+      "transport": "HTTP POST"
+    }
+  }
 }

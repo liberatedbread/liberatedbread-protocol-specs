@@ -36,213 +36,6 @@
     "manufacturer_status": "active",
     "name": "Xiaomi Mijia LYWSD03MMC Thermometer/Hygrometer",
     "notes": "Compact BLE thermometer and hygrometer with E-ink display. Telink TLSR8251 SoC, CR2032 battery, 6-12 month battery life. $4-6. 6 hardware versions: B1.4, B1.5, B1.6, B1.7, B1.9, B2.0.\nSTOCK FIRMWARE: broadcasts Xiaomi MiBeacon format (service UUID 0xFE95) with encrypted payload. Requires Xiaomi cloud account and Mi Home app to decrypt. The encryption bindkey can be extracted from the Mi Home app for use with third-party integrations.\nCUSTOM FIRMWARE (recommended for local control): the pvvx/ATC_MiThermometer project provides OTA-flashable firmware (via web browser at https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html) that:\n  - Broadcasts unencrypted temperature/humidity/battery\n  - Supports 4 advertisement formats: ATC, Xiaomi, Custom, BTHome v2\n  - Has configurable advertising interval and TX power\n  - Provides GATT connection mode for configuration\n  - Supports encrypted beacons with PIN-code or bindkey\n  - Exposes standard Device Information (0x180A) and Battery (0x180F) services\n  - Supports BLE 5.0+ LE Long Range (Coded PHY S=8)\n\nUNENCRYPTED ATC (atc1441) ADVERTISEMENT FORMAT — Service Data UUID 0x181A:\n  bytes 0-5: MAC (big-endian)\n  bytes 6-7: temperature int16 BE, ×0.1 °C\n  byte 8: humidity %\n  byte 9: battery %\n  bytes 10-11: battery mV (uint16 BE)\n  byte 12: advertisement counter\n\nUNENCRYPTED PVVX CUSTOM ADVERTISEMENT FORMAT — same 0x181A UUID, 13-14 B:\n  bytes 0-5: MAC\n  bytes 6-7: temperature int16 LE, ×0.01 °C\n  bytes 8-9: humidity uint16 LE, ×0.01 %\n  bytes 10-11: battery mV (uint16)\n  byte 12: battery %\n  byte 13: advertisement counter\n  byte 14: trigger/status flags\n(custom_beacon.h adv_atc1441_t / adv_custom_t)\nENCRYPTED ATC/Custom BEACONS: AES-CCM with bindkey, nonce = MAC+header(5 bytes), auth data = 0x11, MAC len = 4. The decrypted plaintexts are the compact 3-byte (temp=(v/2)-40 °C, hum=v/2 %, battery bits 6-0 + trigger bit 7) and 6-byte (temp int16 LE 0.01 °C, humi uint16 LE 0.01 %, battery %, flags) layouts in payload_formats below — those two layouts do NOT appear on the air unencrypted.\nGATT CONNECTION (custom firmware): device advertises as \"ATC_XXXXXX\" (where XXXXXX are last 3 bytes of MAC). Standard services:\n  0x180A — Device Information (manufacturer, model, firmware version)\n  0x180F — Battery Service (battery level)\nConfiguration is done via proprietary characteristics on the ATC service. Set defaults command: write 0x56, disable Long Range: write 0xDD.\nALSO SUPPORTS: MHO-C401/C401N, MJWSD05MMC, Qingping CGG1-M/CGDK2, Tuya TH03/ZTH01/02/05 — all with same custom firmware and Telink SoC.\nCURRENT STATUS (verified 2026-07-31): custom firmware v5.8 defaults to the BTHome v2 advertisement format. The same hardware converts to Zigbee via pvvx/ZigbeeTLc (Z03MMC). Units sold since 2025-03 with PCB marks B1.5*/B1.6* use SPI LCD controllers and cheaper clone sensors, drawing more current with a low-contrast display — pvvx currently advises against buying LYWSD03MMC (ATC_MiThermometer issue #664).\nSTOCK FIRMWARE DISCOVERY: name \"LYWSD03MMC\", service UUID 0xFE95 (MiBeacon). Data is encrypted; decryption requires bindkey obtained from Xiaomi cloud or the Mi Home app.\nMI HOME APP EVIDENCE (static-analysis audit, 2026-08): the app contains NO device-specific code for this model — Mi Home device plugins are downloaded from Xiaomi's cloud at pairing time, and \"LYWSD03MMC\" is entirely absent from the app (code and bundled assets alike), so the app can only corroborate generic Xiaomi mechanisms, nothing model-specific. What it does confirm:\n  - MiBeacon service UUID 0xFE95 and the frame-control layout: bytes\n    0-1 are a little-endian frame-control field (bit 3 = payload\n    encrypted, plus capability/MAC/event/binding flag bits) and the\n    version sits in the high nibble of byte 1\n    (from its MiBeacon service-data parser).\n  - During provisioning the app pushes the cloud-issued bindkey to\n    the device via a miio RPC with method \"set_bind_key\" (params\n    carry bind_key plus Wi-Fi credentials)\n    (from its provisioning bind-key step).\n  - The bundled device catalog (assets/device_config/plugin_config_us-en)\n    lists MiOT model \"miaomiaoce.sensor_ht.t2\" (pd_id 1371, \"Mi\n    Temperature and Humidity Monitor 2\" — this device's retail name),\n    its Mi Home/MiOT identity; no plugin or logic for it ships in the\n    app itself.\nCONFIDENCE for the app-evidence block: MEDIUM — app-derived, not verified on hardware.\nCONFIDENCE: HIGH for custom firmware advertisement formats, service UUIDs, and GATT services — sourced from github.com/pvvx/ATC_MiThermometer and confirmed by Home Assistant Passive BLE Monitor, BTHome, and other integrations. Stock firmware MiBeacon format documented by Xiaomi but encrypted payload requires cloud-derived bindkey. Firmware is OTA-flashable and reversible.\n",
-    "payload_formats": {
-      "ATC_3byte": {
-        "description": "3-byte ATC layout. NOTE: this compact layout exists only as the AES-CCM PLAINTEXT of the ENCRYPTED ATC beacon (adv_atc_data_t in custom_beacon.h) — it never appears on the air unencrypted. The unencrypted on-air ATC format is ATC_atc1441 below.\n",
-        "example": "6c 64 63",
-        "fields": [
-          {
-            "description": "Temperature = (value / 2.0) - 40.0 °C.",
-            "index": 0,
-            "name": "temperature_raw"
-          },
-          {
-            "description": "Humidity = value / 2.0 %.",
-            "index": 1,
-            "name": "humidity_raw"
-          },
-          {
-            "description": "Bits 6-0 = battery %, bit 7 = trigger/status flag.",
-            "index": 2,
-            "name": "battery_and_flags"
-          }
-        ],
-        "parse_rules": [
-          "temp = (byte[0] / 2.0) - 40.0",
-          "humidity = byte[1] / 2.0",
-          "battery = byte[2] & 0x7F",
-          "trigger_flag = (byte[2] >> 7) & 1"
-        ]
-      },
-      "ATC_atc1441": {
-        "description": "Unencrypted on-air ATC advertisement (adv_atc1441_t in custom_beacon.h), Service Data 0x181A.\n",
-        "fields": [
-          {
-            "description": "Device MAC, 6 bytes, big-endian.",
-            "index": 0,
-            "name": "mac"
-          },
-          {
-            "description": "int16 big-endian, ×0.1 °C.",
-            "index": 6,
-            "name": "temperature"
-          },
-          {
-            "description": "uint8, percent.",
-            "index": 8,
-            "name": "humidity"
-          },
-          {
-            "description": "uint8, percent.",
-            "index": 9,
-            "name": "battery_percent"
-          },
-          {
-            "description": "uint16 big-endian, millivolts.",
-            "index": 10,
-            "name": "battery_mv"
-          },
-          {
-            "description": "Advertisement counter.",
-            "index": 12,
-            "name": "counter"
-          }
-        ],
-        "parse_rules": [
-          "temp = int16_be(bytes[6:8]) / 10.0",
-          "humidity = byte[8]",
-          "battery_percent = byte[9]",
-          "battery_mv = uint16_be(bytes[10:12])"
-        ]
-      },
-      "BTHome_v2": {
-        "description": "BTHome v2 advertisement, the pvvx firmware default since v5.8 and so the layout most units are actually broadcasting. Carried as Service Data under 0xFCD2, NOT 0x181A — 0x181A appears only in the connected GATT table on a BTHome-configured unit. Unlike the four layouts above this one is TLV, not fixed: byte 0 is the BTHome device-info byte (0x40 = v2, unencrypted) and the rest is a run of [object id][value] pairs in ascending id order. The indices below are the run this firmware emits; a general decoder should walk the ids rather than trust the offsets, because a field the device has nothing to report is simply absent. Hardware-verified 2026-08-22 on pvvx v5.8 (decoded 92 %, 23.81 °C, 59.93 % RH, matching the values read back over GATT in the same session).\n",
-        "example": "40 00 ?? 01 5c 02 4d 09 03 69 17",
-        "fields": [
-          {
-            "description": "BTHome device-info byte. 0x40 = BTHome v2, unencrypted, no trigger.",
-            "index": 0,
-            "name": "device_info"
-          },
-          {
-            "description": "Object id 0x00 = packet id.",
-            "index": 1,
-            "name": "packet_id_marker"
-          },
-          {
-            "description": "uint8 advertisement counter.",
-            "index": 2,
-            "name": "packet_id"
-          },
-          {
-            "description": "Object id 0x01 = battery.",
-            "index": 3,
-            "name": "battery_marker"
-          },
-          {
-            "description": "uint8, percent.",
-            "index": 4,
-            "name": "battery_percent",
-            "unit": "%"
-          },
-          {
-            "description": "Object id 0x02 = temperature.",
-            "index": 5,
-            "name": "temperature_marker"
-          },
-          {
-            "description": "int16 little-endian, x0.01 degrees C.",
-            "index": 6,
-            "name": "temperature",
-            "scale": 0.01,
-            "unit": "C"
-          },
-          {
-            "description": "Object id 0x03 = humidity.",
-            "index": 8,
-            "name": "humidity_marker"
-          },
-          {
-            "description": "uint16 little-endian, x0.01 %.",
-            "index": 9,
-            "name": "humidity",
-            "scale": 0.01,
-            "unit": "%"
-          }
-        ],
-        "parse_rules": [
-          "Reject the frame unless byte[0] == 0x40; any other value means a BTHome variant this table does not describe (encrypted, or a different version).",
-          "Walk from byte 1: read an object id, then its value, whose width the id fixes (0x00 packet id = 1 byte, 0x01 battery = 1 byte, 0x02 temperature = 2 bytes, 0x03 humidity = 2 bytes).",
-          "temp = int16_le(bytes[6:8]) / 100.0",
-          "humidity = uint16_le(bytes[9:11]) / 100.0",
-          "battery_percent = byte[4]",
-          "The example is the verified reading (battery 0x5c = 92 %, temp 0x094d = 23.81 C, humidity 0x1769 = 59.93 %) with the packet counter written ?? because it changes every advertisement."
-        ]
-      },
-      "Custom_unencrypted": {
-        "description": "Unencrypted on-air Custom (pvvx) advertisement (adv_custom_t in custom_beacon.h), Service Data 0x181A, 14 bytes.\n",
-        "fields": [
-          {
-            "description": "Device MAC, 6 bytes.",
-            "index": 0,
-            "name": "mac"
-          },
-          {
-            "description": "int16 LE, ×0.01 °C.",
-            "index": 6,
-            "name": "temperature"
-          },
-          {
-            "description": "uint16 LE, ×0.01 %.",
-            "index": 8,
-            "name": "humidity"
-          },
-          {
-            "description": "uint16, millivolts.",
-            "index": 10,
-            "name": "battery_mv"
-          },
-          {
-            "description": "uint8, percent.",
-            "index": 12,
-            "name": "battery_percent"
-          },
-          {
-            "description": "Advertisement counter; a flags byte follows on 15-byte frames.",
-            "index": 13,
-            "name": "counter"
-          }
-        ],
-        "parse_rules": [
-          "temp = int16_le(bytes[6:8]) / 100.0",
-          "humidity = uint16_le(bytes[8:10]) / 100.0",
-          "battery_mv = uint16_le(bytes[10:12])",
-          "battery_percent = byte[12]"
-        ]
-      },
-      "PVVX_6byte": {
-        "description": "6-byte Custom layout. NOTE: as with ATC_3byte, this is the AES-CCM PLAINTEXT of the ENCRYPTED Custom beacon (adv_cust_data_t in custom_beacon.h) — the unencrypted on-air Custom format is Custom_unencrypted below.\n",
-        "example": "ce 08 94 13 64 00",
-        "fields": [
-          {
-            "description": "Temperature in 0.01°C (int16 LE).",
-            "index": 0,
-            "name": "temperature"
-          },
-          {
-            "description": "Humidity in 0.01% (uint16 LE).",
-            "index": 2,
-            "name": "humidity"
-          },
-          {
-            "description": "Battery percentage.",
-            "index": 4,
-            "name": "battery"
-          },
-          {
-            "description": "Status/trigger flags.",
-            "index": 5,
-            "name": "flags"
-          }
-        ],
-        "parse_rules": [
-          "temp = int16_le(bytes[0:2]) / 100.0",
-          "humidity = uint16_le(bytes[2:4]) / 100.0",
-          "battery = byte[4]",
-          "flags = byte[5]"
-        ]
-      }
-    },
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -391,7 +184,7 @@
       "name": "Temperature",
       "platform": "sensor",
       "state_characteristic": "00002a6e-0000-1000-8000-00805f9b34fb",
-      "unit": "°C"
+      "unit": "C"
     },
     {
       "device_class": "humidity",
@@ -415,6 +208,213 @@
       "url": "https://www.home-assistant.io/integrations/xiaomi_ble/"
     }
   ],
+  "payload_formats": {
+    "ATC_3byte": {
+      "description": "3-byte ATC layout. NOTE: this compact layout exists only as the AES-CCM PLAINTEXT of the ENCRYPTED ATC beacon (adv_atc_data_t in custom_beacon.h) — it never appears on the air unencrypted. The unencrypted on-air ATC format is ATC_atc1441 below.\n",
+      "example": "6c 64 63",
+      "fields": [
+        {
+          "description": "Temperature = (value / 2.0) - 40.0 °C.",
+          "index": 0,
+          "name": "temperature_raw"
+        },
+        {
+          "description": "Humidity = value / 2.0 %.",
+          "index": 1,
+          "name": "humidity_raw"
+        },
+        {
+          "description": "Bits 6-0 = battery %, bit 7 = trigger/status flag.",
+          "index": 2,
+          "name": "battery_and_flags"
+        }
+      ],
+      "parse_rules": [
+        "temp = (byte[0] / 2.0) - 40.0",
+        "humidity = byte[1] / 2.0",
+        "battery = byte[2] & 0x7F",
+        "trigger_flag = (byte[2] >> 7) & 1"
+      ]
+    },
+    "ATC_atc1441": {
+      "description": "Unencrypted on-air ATC advertisement (adv_atc1441_t in custom_beacon.h), Service Data 0x181A.\n",
+      "fields": [
+        {
+          "description": "Device MAC, 6 bytes, big-endian.",
+          "index": 0,
+          "name": "mac"
+        },
+        {
+          "description": "int16 big-endian, ×0.1 °C.",
+          "index": 6,
+          "name": "temperature"
+        },
+        {
+          "description": "uint8, percent.",
+          "index": 8,
+          "name": "humidity"
+        },
+        {
+          "description": "uint8, percent.",
+          "index": 9,
+          "name": "battery_percent"
+        },
+        {
+          "description": "uint16 big-endian, millivolts.",
+          "index": 10,
+          "name": "battery_mv"
+        },
+        {
+          "description": "Advertisement counter.",
+          "index": 12,
+          "name": "counter"
+        }
+      ],
+      "parse_rules": [
+        "temp = int16_be(bytes[6:8]) / 10.0",
+        "humidity = byte[8]",
+        "battery_percent = byte[9]",
+        "battery_mv = uint16_be(bytes[10:12])"
+      ]
+    },
+    "BTHome_v2": {
+      "description": "BTHome v2 advertisement, the pvvx firmware default since v5.8 and so the layout most units are actually broadcasting. Carried as Service Data under 0xFCD2, NOT 0x181A — 0x181A appears only in the connected GATT table on a BTHome-configured unit. Unlike the four layouts above this one is TLV, not fixed: byte 0 is the BTHome device-info byte (0x40 = v2, unencrypted) and the rest is a run of [object id][value] pairs in ascending id order. The indices below are the run this firmware emits; a general decoder should walk the ids rather than trust the offsets, because a field the device has nothing to report is simply absent. Hardware-verified 2026-08-22 on pvvx v5.8 (decoded 92 %, 23.81 °C, 59.93 % RH, matching the values read back over GATT in the same session).\n",
+      "example": "40 00 ?? 01 5c 02 4d 09 03 69 17",
+      "fields": [
+        {
+          "description": "BTHome device-info byte. 0x40 = BTHome v2, unencrypted, no trigger.",
+          "index": 0,
+          "name": "device_info"
+        },
+        {
+          "description": "Object id 0x00 = packet id.",
+          "index": 1,
+          "name": "packet_id_marker"
+        },
+        {
+          "description": "uint8 advertisement counter.",
+          "index": 2,
+          "name": "packet_id"
+        },
+        {
+          "description": "Object id 0x01 = battery.",
+          "index": 3,
+          "name": "battery_marker"
+        },
+        {
+          "description": "uint8, percent.",
+          "index": 4,
+          "name": "battery_percent",
+          "unit": "%"
+        },
+        {
+          "description": "Object id 0x02 = temperature.",
+          "index": 5,
+          "name": "temperature_marker"
+        },
+        {
+          "description": "int16 little-endian, x0.01 degrees C.",
+          "index": 6,
+          "name": "temperature",
+          "scale": 0.01,
+          "unit": "C"
+        },
+        {
+          "description": "Object id 0x03 = humidity.",
+          "index": 8,
+          "name": "humidity_marker"
+        },
+        {
+          "description": "uint16 little-endian, x0.01 %.",
+          "index": 9,
+          "name": "humidity",
+          "scale": 0.01,
+          "unit": "%"
+        }
+      ],
+      "parse_rules": [
+        "Reject the frame unless byte[0] == 0x40; any other value means a BTHome variant this table does not describe (encrypted, or a different version).",
+        "Walk from byte 1: read an object id, then its value, whose width the id fixes (0x00 packet id = 1 byte, 0x01 battery = 1 byte, 0x02 temperature = 2 bytes, 0x03 humidity = 2 bytes).",
+        "temp = int16_le(bytes[6:8]) / 100.0",
+        "humidity = uint16_le(bytes[9:11]) / 100.0",
+        "battery_percent = byte[4]",
+        "The example is the verified reading (battery 0x5c = 92 %, temp 0x094d = 23.81 C, humidity 0x1769 = 59.93 %) with the packet counter written ?? because it changes every advertisement."
+      ]
+    },
+    "Custom_unencrypted": {
+      "description": "Unencrypted on-air Custom (pvvx) advertisement (adv_custom_t in custom_beacon.h), Service Data 0x181A, 14 bytes.\n",
+      "fields": [
+        {
+          "description": "Device MAC, 6 bytes.",
+          "index": 0,
+          "name": "mac"
+        },
+        {
+          "description": "int16 LE, ×0.01 °C.",
+          "index": 6,
+          "name": "temperature"
+        },
+        {
+          "description": "uint16 LE, ×0.01 %.",
+          "index": 8,
+          "name": "humidity"
+        },
+        {
+          "description": "uint16, millivolts.",
+          "index": 10,
+          "name": "battery_mv"
+        },
+        {
+          "description": "uint8, percent.",
+          "index": 12,
+          "name": "battery_percent"
+        },
+        {
+          "description": "Advertisement counter; a flags byte follows on 15-byte frames.",
+          "index": 13,
+          "name": "counter"
+        }
+      ],
+      "parse_rules": [
+        "temp = int16_le(bytes[6:8]) / 100.0",
+        "humidity = uint16_le(bytes[8:10]) / 100.0",
+        "battery_mv = uint16_le(bytes[10:12])",
+        "battery_percent = byte[12]"
+      ]
+    },
+    "PVVX_6byte": {
+      "description": "6-byte Custom layout. NOTE: as with ATC_3byte, this is the AES-CCM PLAINTEXT of the ENCRYPTED Custom beacon (adv_cust_data_t in custom_beacon.h) — the unencrypted on-air Custom format is Custom_unencrypted below.\n",
+      "example": "ce 08 94 13 64 00",
+      "fields": [
+        {
+          "description": "Temperature in 0.01°C (int16 LE).",
+          "index": 0,
+          "name": "temperature"
+        },
+        {
+          "description": "Humidity in 0.01% (uint16 LE).",
+          "index": 2,
+          "name": "humidity"
+        },
+        {
+          "description": "Battery percentage.",
+          "index": 4,
+          "name": "battery"
+        },
+        {
+          "description": "Status/trigger flags.",
+          "index": 5,
+          "name": "flags"
+        }
+      ],
+      "parse_rules": [
+        "temp = int16_le(bytes[0:2]) / 100.0",
+        "humidity = uint16_le(bytes[2:4]) / 100.0",
+        "battery = byte[4]",
+        "flags = byte[5]"
+      ]
+    }
+  },
   "services": [
     {
       "characteristics": [

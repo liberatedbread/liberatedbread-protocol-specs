@@ -1,0 +1,737 @@
+{
+  "device": {
+    "category": "light",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "service_uuids": [
+              "0000fff0-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "service_uuids": [
+        "0000fff0-0000-1000-8000-00805f9b34fb"
+      ]
+    },
+    "manufacturer": "Unbranded / various OEMs (fstart 'easylink' platform; duoCo StripX OEM customer: Shenzhen Shuanghongyuan)",
+    "manufacturer_status": "unsupported",
+    "name": "wl.smartled Addressable Pixel LED Strip (duoCo StripX / Lotus Lantern / Magic Lantern)",
+    "notes": "THREE APPS, ONE PROTOCOL. duoCo StripX (wl.smartled.duoco.rgb), Lotus Lantern (wl.smartled) and Magic Lantern (wl.smartled.rgb) are channel skins of one shared vendor codebase (the \"fstart\"/easylink LED platform, also reskinned as duoCo Strip, EasyLinkLED and others). They speak the same BLE protocol to the same controllers; the per-app differences are the advertised-name filter and a few variant commands, called out below. These are ADDRESSABLE-PIXEL strips (dream-color / \"symphony\" segments, 241 built-in effects, per-segment pixel count) — do not confuse them with the sibling PWM (single-color) ELK-BLEDOM protocol in elk-bledom-led-strip.yaml, which shares characteristic 0xFFF3 and the 7E…EF envelope but uses byte[1] as a sequence number and notifies state on 0xFFF4. The pixel platform documented here has NO notify characteristic: 0xFFF3 is write + read only, and state is pulled by reading 0xFFF3.\nFRAMING: every command is a fixed 9-byte frame written to 0xFFF3:\n  [0] 0x7E header\n  [1] per-command constant 0x04-0x08 (looks like a payload-length\n      field; the app treats it as a fixed per-command value — copy it\n      verbatim, do not compute it)\n  [2] opcode (0x01 brightness, 0x02 speed, 0x03 mode/EQ, 0x04\n      power/mic/channel-mask, 0x05 color/CCT, 0x21 pixel count,\n      0x31 scene, 0x76 countdown, 0x81 RGB pin order, 0x82 timer,\n      0x83 system time)\n  [3..6] payload, 0xFF = unused pad\n  [7] flag/type byte: 0x10 static color, 0x20 music-reactive color,\n      0x08 CCT/palette color, 0x01 scene, 0xFF on time frames,\n      0x00 most others. Appears to be a routing tag the firmware\n      switches on — keep the exact value per command.\n  [8] 0xEF trailer\nNo checksum, no crypto on GATT writes. Write type: default write with response; no MTU negotiation required (Lotus Lantern requests MTU 63 but the frames are 9 bytes). The app keeps two frame slots and flushes them with a 5 ms inter-frame gap on a 100 ms timer, so color + brightness pairs per UI gesture are normal; a replacement client should space back-to-back writes by >= 5 ms.\nCONNECT SEQUENCE: after GATT connect the app performs a READ of 0xFFF3 (\"connection state\" probe — any reply marks the device up; content is otherwise ignored) and then pushes a set_system_time frame so the on-device scheduler has a clock. Subscribe nothing: notifications are never enabled and the app's notification callback discards data. Group control is client-side only: the app holds up to 4 concurrent GATT connections (LRU) and writes the same frame to each.\nDISCOVERY / NAME GATING (the advertised complete name selects app features, so a replacement client should parse it too):\n  MELK-*   duoCo StripX / Magic Lantern filter. Suffixes: OC/OT =\n           built-in scene tab (group 8); name matching ^MELK-.+CT =\n           CCT model; ^MELK-.+W = dedicated white channel; OE/OB/TX =\n           no external mic (all others have one); DYDS = extra \"Big\n           Bang\" scene (code 156); TX = remote/transmitter unit.\n  ELK- / ELK~ / XSL- / \"LED LIGHT STRIP\"   Lotus Lantern's GATT filter\n           (ELK~ is a wavy-name second hardware revision; XSL- = \"new\n           strength\" models). Magic Lantern accepts only MELK-.\n  ELK_*    broadcast/mesh devices driven over BLE advertising instead\n           of GATT (see RELAY below).\n  ELK-*    encrypted-variant devices (see ENCRYPTED VARIANT below).\n  Name containing \"INTRO\" flips the power-on payload byte from 0x01\n           to 0xFF.\nA CLK- filter constant exists in the apps but is unused (likely a sibling clock product on the same firmware).\nTIMER READBACK: to query a timer, write a query frame 7E 08 82 FF FF FF mode weeks EF and then READ 0xFFF3. Valid replies: 7E 08 82 H M S mode weeks EF (weeks bit7 = timer enabled, low 7 bits = weekday mask; mode 0 = on-alarm, 1 = off-alarm) and 7E 07 83 … FF EF for the system-time readback. Replies arrive via readCharacteristic polling, never notifications.\nBROADCAST RELAY (connectionless): for ELK_* mesh devices the PHONE itself advertises non-connectable manufacturer-data frames, company id 0xBEE8. 25-byte payload: rolling counter, 0xB0 marker, random per-app-run 2-byte host id, the embedded 9-byte command frame (zeros for heartbeat), and a nibble-compressed list of up to 8 target 2-byte device ids. The payload is obfuscated with a single-byte XOR whose key derives from the frame counter (the app's fixed key table reduces to a constant XORed with the counter — obfuscation grade, not security). Device-side relay adverts are parsed symmetrically (mfr id 0xBEE8, 0xA0 marker, embedded command, target id). Heartbeat runs on an 80 ms scheduler, heartbeat every 12 ticks, command adverts repeated 10x.\nENCRYPTED VARIANT (ELK-* names): for devices whose advertised name contains \"ELK-*\", the apps wrap the 9-byte frame in a 21-byte AA…55-framed obfuscation layer (applied only for opcodes 0x01, 0x03, 0x04): 12 per-frame random bytes generate a keystream that masks the 9-byte plaintext, and the random bytes themselves are masked with a 16-byte preset key hardcoded in the app. Inbound status uses a 28-byte wrapper with a 6-byte 00 01 02 03 04 05 header, a counter byte, then payload. This is obfuscation-grade — the keystream derives entirely from the transmitted random — and the preset key is recoverable from the APK; it is deliberately not reproduced here. Whether responses from these devices also require the wrapper needs dynamic verification.\nEFFECT MODE TABLE (opcode 0x03 mode command, 241 entries incl. \"Auto Play\" = 0; groups 0-7 use the mode command, group 8 uses the scene opcode 0x31 and is hidden unless the name is MELK-OC/-OT):\n  group0 \"Basic\" (47): 0 Auto Play, 1 Magic Forward, 2 Magic Back,\n    193 7C Jump, 194 R-G-B Jump, 195 Y-C-P Jump, 196 7C Strobe,\n    197 R-G-B Strobe, 198 Y-C-P Strobe, 199 7C Gradual, 200-204\n    R-Y/R-P/G-C/G-Y/B-P Gradual, 205-211 Marquee R/G/B/Y/C/P/W,\n    77-82 Race (7C, 7C Back, RGB, RGB Back, YCP, YCP Back), 83-88\n    Wave (same 6), 181-186 Flush (same 6), 187-192 Flush Close/Open\n    (7C/RGB/YCP), 212 7-Color Energy\n  group1 \"Curtain\" (20): 57-58 7C Close/Open, 59-60 RGB, 61-62 YCP,\n    63-76 per-color Close/Open R,G,B,Y,C,P,W\n  group2 \"Trans\" (20): 3-8 Trans 7C/7CB/RGB/RGBB/YCP/YCPB, 9-22\n    6-Color-to-X (+Back) for X=R,G,B,C,Y,P,W\n  group3 \"Water\" (18): 39-56 Water fwd/back: 7C, RGB, YCP, R-G, G-B,\n    Y-B, Y-C, C-P, White\n  group4 \"Flow\" (24): 143-166 W-X-W and X-W-X Flow (+Back),\n    X=R,G,B,Y,C,P\n  group5 \"Tail\" (16): 23-38 Tail fwd/back: 7C, R,G,B,Y,C,P,White\n  group6 \"Run\" (34): 89/91/93/95/97/99/101/103/105/107 Running\n    R,G,B,Y,C,P,W,7C,RGB,YCP; 109/111 B-P-C-Y/B-G-C-Y; 113-127 X-Dot\n    in Y Running; 129-141 7-Color in X; 167-179 more dot variants\n  group7 \"RunBack\" (34): same set +1 (90..142, 168..180)\n  group8 \"Scenes\" (28, opcode 0x31): 1 Sunrise, 2 Sunset, 3 Birthday,\n    4 Candlelight, 5 Fireworks, 6 Party, 7 Datiny, 8 Starry sky,\n    9 Romantic, 10 Disco, 11 Rainbow, 12 Movie, 13 Christmas,\n    14 Flowing, 15 Sleeping, 16 Ocean, 17 Forest, 18 Reading,\n    19 Working, 20 Dazzle, 21 Gentle, 22 Wedding, 23 Snow, 24 Fire,\n    25 Lightning, 26 Valentine's Day, 27 Hallowmas, 28 Warnning\n    (plus 156 \"Big Bang\" on MELK-DYDS models)\n\nCHANNEL-SKIN DIFFERENCES found between app builds: Lotus Lantern adds a countdown command (opcode 0x76, timestamp = seconds-until x10 derived from a 2001-01-01 epoch), laser-lamp commands (mode 7E 05 03 m 08 FF FF FF EF, speed 7E 04 02 s 04 FF FF FF EF, on/off 7E 05 05 01 v FF FF 10 EF), the RGBW channel-mask command, the INTRO power special-case, and the ELK-* encrypted-device layer. Its dynamic-mode frame ORs the mode index with 0x80 (7E 05 03 (mode+0x80) 03 FF FF 00 EF) where duoCo StripX sends the bare index with byte[4]=0x06 — both opcode 0x03; treat the duoCo form as primary and the 0x80 variant as MEDIUM confidence needing capture. Lotus Lantern's CCT payload range reads 0-255 in code vs duoCo's 0-100 UI scale; firmware clamping unknown.\nNETWORK / OTA: BLE only — no Wi-Fi/UDP/TCP/SSDP/mDNS transport in any of the three apps, and NO OTA/DFU path anywhere (no firmware URLs, no update code). Network use is privacy-policy pages, a version-check JSON on www.elkble.com, an FAQ endpoint, and a device-telemetry upload (advertised name/MAC/RSSI/GATT table) to lotus.elkled.com:8082, gated by a server-side opt-in flag. A replacement client needs none of it.\nCONFIDENCE: HIGH for service/characteristic UUIDs, the 9-byte frame layout, no-checksum/no-crypto on GATT writes, the write+read/no-notify model, the connect probe + time-push sequence, the name filters and model-variant gating, the core opcode set (power 04, brightness 01, speed 02, mode 03, color 05, scene 0x31, pin order 0x81, pixel count 0x21, timer 0x82/0x83 with readback), the relay-advert format and the existence/structure of the ELK-* encryption layer — all read directly from the decompiled command builders in all three apps. MEDIUM for exact payload ranges the firmware accepts (brightness/speed 0-100 are UI-side clamps), byte[7] semantics, the 0x80-ORed Lotus mode frame, CCT range, countdown timestamp math, and whether ELK-* devices wrap responses — confirm via live HCI capture.\n",
+    "protocol": "ble",
+    "setup": {
+      "confidence": "high",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No authentication. Anything within radio range can connect and issue commands; physical proximity is the only access control.\n",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "confidence": "medium",
+        "effect": "No credential state to clear — nothing on the device binds it to a phone or network. Power-cycling drops the current connection, which is also the remedy for the common failure mode of the single link being held by another central. Timers and the system clock persist on-device until overwritten.\n",
+        "procedures": [
+          {
+            "name": "Power cycle",
+            "steps": [
+              {
+                "action": "Remove and reapply power.",
+                "actor": "user",
+                "expect": "Device advertises again and accepts a new connection."
+              }
+            ]
+          }
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false
+          },
+          "description": "Scan for the 0xFFF0 service UUID (advertised name starts with MELK-, ELK-, ELK~, XSL- or is \"LED LIGHT STRIP\"), connect, read 0xFFF3 once to confirm the link, write a set_system_time frame, then issue 9-byte command frames to 0xFFF3. Space back-to-back writes by >= 5 ms. No pairing, no PIN, no login handshake.\n",
+          "steps": [
+            {
+              "action": "Power the strip controller.",
+              "actor": "user",
+              "request": {
+                "protocol": "ble_gatt"
+              }
+            },
+            {
+              "action": "Scan for service 0xFFF0 / a matching name prefix and connect.\n",
+              "actor": "client"
+            },
+            {
+              "action": "Read characteristic 0xFFF3 (connection probe), then write a set_system_time frame.\n",
+              "actor": "client"
+            },
+            {
+              "action": "Write 9-byte command frames to characteristic 0xFFF3.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "No provisioning, no account, no bonding. The controller advertises when powered and accepts a GATT connection from any central in range. The vendor app's only \"setup\" is the post-connect read of 0xFFF3 followed by a system-time push — mirror that so the on-device timer/scheduler has a clock.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Nothing binds the device to an owner, so switching controllers is just connecting from the new one. If the old phone keeps reconnecting and holding the link, remove the device from its OS Bluetooth list as well.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "notes": "All facts below come from static analysis of the three vendor apps (wl.smartled.duoco.rgb 6.3.7, wl.smartled 6.5.08, wl.smartled.rgb 6.11.06). No live capture against hardware has been replayed by this project yet — see the CONFIDENCE paragraph in notes.\n",
+      "status": "untested"
+    },
+    "variants": [
+      {
+        "identification": {
+          "local_name_prefix": "MELK-"
+        },
+        "model": "MELK- pixel strip (duoCo StripX / Magic Lantern)",
+        "notes": "Addressable-pixel models. Name suffix gates features: OC/OT = scene tab, *CT* = CCT, *W* = white channel, DYDS = extra scene 156, OE/OB/TX = no external mic, TX = remote/transmitter.\n"
+      },
+      {
+        "identification": {
+          "local_name_prefix": "ELK-"
+        },
+        "model": "ELK- pixel strip (Lotus Lantern)",
+        "notes": "Lotus Lantern's primary filter. Same protocol; adds countdown (0x76) and laser-lamp commands on some models. Names containing \"INTRO\" flip the power-on payload byte to 0xFF.\n"
+      },
+      {
+        "identification": {
+          "local_name_prefix": "ELK~"
+        },
+        "model": "ELK~ pixel strip (wavy-name revision)"
+      },
+      {
+        "identification": {
+          "local_name_prefix": "XSL-"
+        },
+        "model": "XSL- pixel strip ('new strength')"
+      },
+      {
+        "identification": {
+          "local_name_prefix": "LED LIGHT STRIP"
+        },
+        "model": "LED LIGHT STRIP"
+      },
+      {
+        "identification": {
+          "local_name_prefix": "ELK_"
+        },
+        "model": "ELK_ broadcast/mesh device",
+        "notes": "Driven connectionlessly via phone-advertised relay frames (company id 0xBEE8) rather than GATT — see device.notes RELAY paragraph. A replacement client can still talk GATT to the same hardware when it advertises a connectable name.\n"
+      },
+      {
+        "identification": {
+          "local_name_prefix": "ELK-*"
+        },
+        "model": "ELK-* encrypted variant",
+        "notes": "Same protocol wrapped in the 21-byte AA…55 obfuscation layer described in device.notes (ENCRYPTED VARIANT). The hardcoded preset key is recoverable from the app and deliberately not reproduced here.\n"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "commands": {
+        "set_brightness": "set_brightness",
+        "set_color": "set_rgb_color",
+        "turn_off": "power_off",
+        "turn_on": "power_on"
+      },
+      "features": [
+        "brightness",
+        "color",
+        "color_temperature",
+        "effect"
+      ],
+      "name": "Pixel Strip",
+      "platform": "light",
+      "state_characteristic": "0000fff3-0000-1000-8000-00805f9b34fb"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "One of the three vendor apps for this platform (channel skin of the shared fstart/easylink codebase); protocol source for the MELK- name gating and the 241-entry mode table.",
+      "title": "duoCo StripX on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=wl.smartled.duoco.rgb"
+    },
+    {
+      "description": "The wl.smartled channel build; adds the ELK-/XSL-/LED LIGHT STRIP name filters, countdown and laser commands, and the ELK-* encrypted-device layer.",
+      "title": "Lotus Lantern on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=wl.smartled"
+    },
+    {
+      "description": "Third channel build of the same codebase; MELK- filter only. A spec written for Lotus Lantern's BLE protocol applies with the advertised-name prefix changed.",
+      "title": "Magic Lantern on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=wl.smartled.rgb"
+    },
+    {
+      "description": "Actively maintained Home Assistant component for the SIBLING PWM (ELK-BLEDOM) protocol — same 0xFFF0/0xFFF3 service and 7E…EF envelope but sequence-number framing and 0xFFF4 notify. Useful family context; its command set is NOT the pixel protocol documented here.",
+      "title": "dave-code-ruiz/elkbledom (HACS)",
+      "url": "https://github.com/dave-code-ruiz/elkbledom"
+    },
+    {
+      "description": "Clean-room reverse engineering of the ELK-BLEDOM PWM app; background on the wider ELK/duoCo controller family this pixel platform belongs to.",
+      "title": "FergusInLondon/ELK-BLEDOM",
+      "url": "https://github.com/FergusInLondon/ELK-BLEDOM"
+    }
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "power_off": {
+              "description": "Turn the light off (all-zero payload).",
+              "value": [
+                126,
+                4,
+                4,
+                0,
+                0,
+                0,
+                255,
+                0,
+                239
+              ]
+            },
+            "power_on": {
+              "description": "Turn the light on (opcode 0x04). On devices whose name contains \"INTRO\" the two 0x01 payload bytes become 0xFF.\n",
+              "value": [
+                126,
+                4,
+                4,
+                1,
+                0,
+                1,
+                255,
+                0,
+                239
+              ]
+            },
+            "query_timer": {
+              "description": "Query a timer: write this frame with payload 0xFF, then READ characteristic 0xFFF3. The reply validates as 7E 08 82 H M S mode weekdays EF (bit7 of weekdays = timer enabled). mode selects which alarm to query (0/1).\n",
+              "parameters": {
+                "mode": {
+                  "type": "uint8",
+                  "values": {
+                    "0": "on-alarm",
+                    "1": "off-alarm"
+                  }
+                }
+              },
+              "template": [
+                126,
+                8,
+                130,
+                255,
+                255,
+                255,
+                "{mode}",
+                255,
+                239
+              ]
+            },
+            "set_brightness": {
+              "description": "Set brightness 0-100 (opcode 0x01). light_mode selects the channel the brightness applies to: 0 = all, 1 = RGB, 2 = white, 3 = CCT.\n",
+              "parameters": {
+                "brightness": {
+                  "max": 100,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "light_mode": {
+                  "default": 0,
+                  "type": "uint8",
+                  "values": {
+                    "0": "all",
+                    "1": "RGB",
+                    "2": "white",
+                    "3": "CCT"
+                  }
+                }
+              },
+              "template": [
+                126,
+                4,
+                1,
+                "{brightness}",
+                "{light_mode}",
+                255,
+                255,
+                0,
+                239
+              ]
+            },
+            "set_channel_mask": {
+              "description": "RGBW channel on/off mask (opcode 0x04, RGBW models): flags byte 0xE0 = RGB on, OR 0x10 = white channel on; mode = light mode (0 all / 1 RGB / 2 W / 3 CT); state 1/0. Power-on uses flags 0x01, mode 0x00, state 0x01 (see power_on).\n",
+              "parameters": {
+                "flags": {
+                  "default": 224,
+                  "type": "uint8"
+                },
+                "mode": {
+                  "max": 3,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "state": {
+                  "type": "uint8",
+                  "values": {
+                    "0": "off",
+                    "1": "on"
+                  }
+                }
+              },
+              "template": [
+                126,
+                4,
+                4,
+                "{flags}",
+                "{mode}",
+                "{state}",
+                255,
+                0,
+                239
+              ]
+            },
+            "set_color_temperature": {
+              "description": "Set CCT warm/cold levels (opcode 0x05, sub 0x02, flag 0x08), 0-100 each on duoCo/Magic builds (Lotus Lantern's code suggests 0-255; firmware clamp unknown — MEDIUM). Only on CT models (name matches ^MELK-.+CT).\n",
+              "parameters": {
+                "cold": {
+                  "max": 100,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "warm": {
+                  "max": 100,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                6,
+                5,
+                2,
+                "{warm}",
+                "{cold}",
+                255,
+                8,
+                239
+              ]
+            },
+            "set_countdown": {
+              "description": "Countdown timer (opcode 0x76, Lotus Lantern builds only — MEDIUM). The 3 timestamp bytes are seconds-until x10, low byte first, derived from a 2001-01-01 UTC epoch in the app's time math; mode selects start/stop. Verify the exact epoch math against a live capture before relying on it.\n",
+              "parameters": {
+                "mode": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "ts_hi": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "ts_lo": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "ts_mid": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                7,
+                118,
+                "{ts_lo}",
+                "{ts_mid}",
+                "{ts_hi}",
+                "{mode}",
+                255,
+                239
+              ]
+            },
+            "set_effect_mode": {
+              "description": "Select a built-in dynamic effect (opcode 0x03) by mode code from the 241-entry table in device.notes (0 = Auto Play, groups 0-7). Note: the Lotus Lantern build ORs the mode index with 0x80 and uses byte[4]=0x03 instead of 0x06 — MEDIUM confidence, prefer this bare-index form.\n",
+              "parameters": {
+                "mode": {
+                  "max": 212,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                5,
+                3,
+                "{mode}",
+                6,
+                255,
+                255,
+                0,
+                239
+              ]
+            },
+            "set_effect_speed": {
+              "description": "Set effect change speed 0-100 (opcode 0x02).",
+              "parameters": {
+                "speed": {
+                  "max": 100,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                4,
+                2,
+                "{speed}",
+                255,
+                255,
+                255,
+                0,
+                239
+              ]
+            },
+            "set_mic_eq_mode": {
+              "description": "External-mic EQ mode (opcode 0x03 with the 0x80 bit set): eq_code = eq + 0x80 where eq 0-7 covers the ENERGIC / RHYTHM / SPECTRUM / ROLLING families (x2).\n",
+              "parameters": {
+                "eq_code": {
+                  "max": 135,
+                  "min": 128,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                7,
+                3,
+                "{eq_code}",
+                4,
+                255,
+                255,
+                0,
+                239
+              ]
+            },
+            "set_mic_on_off": {
+              "description": "External (on-device) mic on/off (opcode 0x07).",
+              "parameters": {
+                "state": {
+                  "type": "uint8",
+                  "values": {
+                    "0": "off",
+                    "1": "on"
+                  }
+                }
+              },
+              "template": [
+                126,
+                4,
+                7,
+                "{state}",
+                255,
+                255,
+                255,
+                0,
+                239
+              ]
+            },
+            "set_mic_sensitivity": {
+              "description": "External (on-device) mic sensitivity 0-100 (opcode 0x06). Not on MELK-OE/OB/TX.",
+              "parameters": {
+                "sensitivity": {
+                  "max": 100,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                4,
+                6,
+                "{sensitivity}",
+                255,
+                255,
+                255,
+                0,
+                239
+              ]
+            },
+            "set_music_color": {
+              "description": "Music/streaming amplitude color (opcode 0x05, sub 0x03, flag 0x20). Same layout as set_rgb_color; the app pre-multiplies amplitude into the color and sends the sentinel value 0xFF000000 (as R,G,B = FF,00,00 with the alpha implicit) to keep the current mode color. Drive this at audio rate for phone-mic-reactive effects.\n",
+              "parameters": {
+                "blue": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "green": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "red": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                7,
+                5,
+                3,
+                "{red}",
+                "{green}",
+                "{blue}",
+                32,
+                239
+              ]
+            },
+            "set_pixel_count": {
+              "description": "Set the total pixel/segment count (\"symphony point count\", opcode 0x21) as a 16-bit LITTLE-ENDIAN value (lo byte first). Range limits unknown — MEDIUM, verify on hardware.\n",
+              "parameters": {
+                "count_hi": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "count_lo": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                7,
+                33,
+                "{count_lo}",
+                "{count_hi}",
+                0,
+                255,
+                0,
+                239
+              ]
+            },
+            "set_rgb_color": {
+              "description": "Set a static RGB color (opcode 0x05, sub 0x03, flag 0x10).\n",
+              "parameters": {
+                "blue": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "green": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "red": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                7,
+                5,
+                3,
+                "{red}",
+                "{green}",
+                "{blue}",
+                16,
+                239
+              ]
+            },
+            "set_rgb_pin_order": {
+              "description": "Reprogram the RGB pin/wire order (opcode 0x81). The three bytes are a permutation of 01 02 03 (6 orders); default 01 02 03 = R,G,B. Use when a strip shows swapped colors.\n",
+              "parameters": {
+                "ch1": {
+                  "default": 1,
+                  "max": 3,
+                  "min": 1,
+                  "type": "uint8"
+                },
+                "ch2": {
+                  "default": 2,
+                  "max": 3,
+                  "min": 1,
+                  "type": "uint8"
+                },
+                "ch3": {
+                  "default": 3,
+                  "max": 3,
+                  "min": 1,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                6,
+                129,
+                "{ch1}",
+                "{ch2}",
+                "{ch3}",
+                255,
+                0,
+                239
+              ]
+            },
+            "set_scene": {
+              "description": "Select a built-in scene (opcode 0x31), codes 1-28 from the group-8 table in device.notes; 156 = \"Big Bang\" on MELK-DYDS models. Scene tab is only exposed on MELK-OC / MELK-OT devices.\n",
+              "parameters": {
+                "scene": {
+                  "max": 156,
+                  "min": 1,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                5,
+                49,
+                "{scene}",
+                7,
+                255,
+                255,
+                1,
+                239
+              ]
+            },
+            "set_single_color": {
+              "description": "Set one color from the device's palette by index (opcode 0x05, sub 0x01, flag 0x08) — the color-dial path in the apps.\n",
+              "parameters": {
+                "index": {
+                  "max": 100,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                5,
+                5,
+                1,
+                "{index}",
+                255,
+                255,
+                8,
+                239
+              ]
+            },
+            "set_system_time": {
+              "description": "Set the device clock (opcode 0x83): hour, minute, second, weekday bitmask. The apps push this right after connect so the scheduler has a valid clock — do the same.\n",
+              "parameters": {
+                "hours": {
+                  "max": 23,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "minutes": {
+                  "max": 59,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "seconds": {
+                  "max": 59,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "weekdays": {
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                7,
+                131,
+                "{hours}",
+                "{minutes}",
+                "{seconds}",
+                "{weekdays}",
+                255,
+                239
+              ]
+            },
+            "set_timer": {
+              "description": "Set a schedule/alarm (opcode 0x82): mode 0 = on-alarm, 1 = off-alarm; weekdays byte = day bitmask with bit7 = timer ENABLED (add 0x80 when enabling).\n",
+              "parameters": {
+                "hours": {
+                  "max": 23,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "minutes": {
+                  "max": 59,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "mode": {
+                  "type": "uint8",
+                  "values": {
+                    "0": "on-alarm",
+                    "1": "off-alarm"
+                  }
+                },
+                "seconds": {
+                  "max": 59,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "weekdays": {
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                126,
+                8,
+                130,
+                "{hours}",
+                "{minutes}",
+                "{seconds}",
+                "{mode}",
+                "{weekdays}",
+                239
+              ]
+            }
+          },
+          "name": "Command / Readback",
+          "notes": "All commands are written here as complete 9-byte frames (no framing layer needed — each write is one packet). The same characteristic is READ for the post-connect probe and for timer/system-time readback after a query_timer frame; replies match 7E 08 82 H M S mode weeks EF (timer) or 7E 07 83 … FF EF (system time). Notifications are not supported/used. Keep byte[1] and byte[7] exactly as shown per command — they are fixed routing constants, not computed fields.\n",
+          "properties": [
+            "write",
+            "read"
+          ],
+          "uuid": "0000fff3-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "wl.smartled Pixel Strip Service",
+      "notes": "Single service, single characteristic 0xFFF3 used for both writes (all commands) and reads (connection probe + timer readback). NO notify/indicate characteristic exists on this platform — state is polled. All frames are 9 bytes: [0x7E][per-command size 0x04-0x08] [opcode][4 payload bytes, 0xFF pad][flag][0xEF]. No checksum.\n",
+      "uuid": "0000fff0-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}
