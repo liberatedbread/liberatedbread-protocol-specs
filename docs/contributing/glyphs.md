@@ -109,7 +109,3 @@ the rules and a test checks that every extension in the store is covered. Run
 `git lfs install` once in a fresh clone; without it you get pointer files where
 the drawings should be, and the validator says so in as many words rather than
 failing on a parse error.
-
-One trade-off recorded honestly: SVG is text, so LFS costs it a readable diff.
-It is tracked anyway so the whole set lives under one rule. Drop the `*.svg`
-line from `.gitattributes` if reviewable diffs turn out to matter more.

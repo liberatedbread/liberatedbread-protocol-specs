@@ -1627,8 +1627,36 @@ def test_testing_status_is_stated(specs):
 
 @pytest.fixture(scope="module")
 def candidate_reset_spec() -> dict:
-    """A real spec whose factory_reset is unestablished with a candidate."""
-    return load(DEVICES_DIR / "govee-h6001-bulb.yaml")
+    """A real spec carrying an unestablished reset with a candidate procedure.
+
+    Found rather than named. This fixture used to point at one spec by
+    filename, and research resolving that device's reset to an established one
+    silently took the base case out from under three mutation tests — they kept
+    passing while proving nothing, which is the failure mode mutation testing
+    exists to avoid. Searching for a qualifying spec means the backfill can
+    resolve any device it likes without quietly disarming the guards.
+
+    If the catalogue ever contains no unestablished reset at all — a good
+    problem to have — the shape is built from a real spec instead, so the
+    schema rules stay tested either way.
+    """
+    for path in SPEC_PATHS:
+        spec = load(path)
+        reset = (spec["device"].get("setup") or {}).get("factory_reset") or {}
+        if reset.get("applicable") != "unknown":
+            continue
+        procedures = reset.get("procedures") or []
+        if procedures and procedures[0].get("verified") is False and procedures[0].get("basis"):
+            return spec
+
+    spec = copy.deepcopy(load(DEVICES_DIR / "wemo-devices.yaml"))
+    reset = spec["device"]["setup"]["factory_reset"]
+    reset["applicable"] = "unknown"
+    reset["confidence"] = "low"
+    reset["procedures"] = reset["procedures"][:1]
+    reset["procedures"][0]["verified"] = False
+    reset["procedures"][0].setdefault("basis", "synthesised for the mutation tests")
+    return spec
 
 
 def test_candidate_reset_spec_is_valid_to_begin_with(candidate_reset_spec):
