@@ -71,8 +71,16 @@ def collect_links(kind: str | None, only_spec: str | None) -> list[tuple[str, st
     return found
 
 
+# RFC 2606 reserves these for documentation. device-specs/examples/ uses one
+# deliberately, and it is supposed to 404 — flagging it would leave the checker
+# permanently red and therefore ignored.
+PLACEHOLDER_HOSTS = ("example.com", "example.org", "example.net")
+
+
 def probe(url: str) -> tuple[str, str]:
     """Return (verdict, detail). Verdict is ok / blocked / gone."""
+    if any(host in url for host in PLACEHOLDER_HOSTS):
+        return "ok", "placeholder"
     request = urllib.request.Request(url, headers={"User-Agent": UA})
     timeout = ARCHIVE_TIMEOUT if "web.archive.org" in url else TIMEOUT
     try:

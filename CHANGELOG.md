@@ -8,6 +8,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Manual links on 177 of 199 device specs.** Every URL verified to resolve
+  before it was committed; `scripts/check_links.py` re-checks them, and it
+  now reports 822 of 886 links across the whole catalogue resolving, with the
+  remainder blocked-not-dead (403 from hosts that refuse bots) and nothing
+  genuinely gone.
+
+  The `kind` tag is what makes them useful: `manual` for a product manual,
+  `vendor_support` for a vendor's support article or app page, `standard`
+  where the specification IS the documentation (IPP Everywhere, Matter), so a
+  consumer can surface "the manual" instead of an undifferentiated list.
+
+  Vendor-hosted wherever one exists — Bosch, Segway, Victron, Subaru's
+  techinfo site, Fronius, Kwikset, Schlage, Reolink, Hikvision, TP-Link,
+  Prusa, Spider Farmer, Tapplock, Ignis Pixel, Chemion, AdMore, Astral Hoops.
+  Internet Archive where the vendor is gone or the host refuses automated
+  requests: Anki, Smarter, Brava, June, Pebble, Nuki's reset article, the
+  PeriPage and BIO-key manuals, an FCC filing for the Shining Mask.
+
+  For hardware that genuinely has no manual — unbranded ODM LED controllers,
+  the ELK-BLEDOM strip, iTag trackers, iDotMatrix panels, CoolLEDX signs —
+  the entry says what it actually is: a community protocol write-up, a
+  working driver, or the vendor's app-store listing, tagged `implementation`
+  or `vendor_support` rather than dressed up as vendor documentation. Twenty-
+  two specs still carry no such link, and for most of them the honest answer
+  is that no vendor ever published one.
+
+  Some links were already in the catalogue and simply had no `kind` — the
+  Android adb docs, MotoScan's vendor pages, VentureHeat's guide, tiro.cc.
+  Those were tagged in place rather than duplicated.
+
+
 - **Manual links, with a `kind` field so a consumer can find them.** An owner
   holding abandoned hardware wants the manual, and once the vendor's site is
   gone that is the one thing they cannot find. `helpful_urls` entries now take
