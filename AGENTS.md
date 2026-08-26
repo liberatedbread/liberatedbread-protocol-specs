@@ -57,6 +57,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 ruff check .                      # lint the helper scripts
 pytest -q                         # test suite
 python scripts/validate_specs.py  # validate every spec against schema.json
+python scripts/validate_glyphs.py # glyph references, manifest and SVG hygiene
 python scripts/build_index.py --check   # JSON API freshness (what CI checks)
 mkdocs build --strict             # docs must build clean
 ```
@@ -73,13 +74,33 @@ the command to drop it. If you want to see the index your specs produce,
 of the commit (`python scripts/generate_index.py --check` reports staleness
 without writing).
 
+## Instruction glyphs (`glyphs/`)
+
+Small **original** drawings of the hardware a reset or pairing step refers to —
+which button, what the LED does — referenced from specs by `glyph` /
+`indicator_glyph` and rendered beside the step. Full guide:
+[docs/contributing/glyphs.md](docs/contributing/glyphs.md). The three rules
+worth knowing before you touch the directory:
+
+- **Draw it, never derive it.** Vendor artwork is inadmissible in any processed
+  form — not a manual crop, not a trace over a product photo, not a recoloured
+  app asset. `origin: original_drawing` in `glyphs/MANIFEST.yaml` is an
+  attestation, and it is the only value the validator accepts.
+- **Tracked with Git LFS.** Run `git lfs install` in a fresh clone or you get
+  pointer files instead of drawings.
+- **Every glyph is referenced and every reference resolves.** An orphan in the
+  store is a validation failure. Run `python scripts/validate_glyphs.py`.
+
 ## Adding or changing a device
 
 1. `docs/devices/_template.md` → `docs/devices/<device>.md` (include setup,
-   factory reset, rebinding).
+   pairing, factory reset, rebinding).
 2. Add the device to `docs/devices/index.md` and to `mkdocs.yml`'s nav.
 3. Add a spec under `device-specs/devices/`, then
-   `python scripts/validate_specs.py`. The index picks the spec up on its own
+   `python scripts/validate_specs.py`. A BLE spec must carry a
+   `device.pairing` block — "nothing pairs" is the usual answer and saying it
+   is the point; see
+   [docs/protocols/pairing.md](docs/protocols/pairing.md). The index picks the spec up on its own
    once this merges — do not commit `device-specs/index.json`.
 4. For net-new reverse engineering, follow the per-target clean-room workflow in
    [prompts/AGENT_META_PROMPT.md](prompts/AGENT_META_PROMPT.md).
