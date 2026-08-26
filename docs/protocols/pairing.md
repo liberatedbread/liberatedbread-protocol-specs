@@ -145,6 +145,28 @@ the schema half of a rule
 states in prose: a pairing PIN read off your own hardware is a live credential
 and is useless to every other reader besides.
 
+## "None" and "unknown" are different answers
+
+Both `pairing.required` and `factory_reset.applicable` take `false` and
+`"unknown"`, and the distinction is load-bearing:
+
+- **`false`** — established absence. The device has no pairing, or no reset,
+  and the spec says *why*. Airthings' Wave family has no reset control at all;
+  the button Airthings document at length belongs to the View series, which is
+  different hardware, so someone following those instructions is hunting for a
+  control that does not exist. b-parasite holds no state a reset could clear.
+  Hyperice say plainly their device has no reset button.
+- **`"unknown"`** — nobody has established it. That is a legitimate answer and
+  the schema supports it properly: it forces `confidence: low`, and any
+  procedure listed under it must be `verified: false` with a `basis`. It
+  should still say what was looked for and where it was not found.
+
+The one to avoid is `unknown` used as a shrug. "No factory-reset procedure is
+documented in the sources used here" tells a reader nothing they could not
+have guessed; "Beurer's own support position is that the PO60's stored
+measurements cannot be cleared on the device" is a finding, and a
+consequential one — that oximeter holds health data that no owner can remove.
+
 ## Procedures, glyphs and honesty
 
 Pairing-mode entry and unpairing share one shape with factory reset —

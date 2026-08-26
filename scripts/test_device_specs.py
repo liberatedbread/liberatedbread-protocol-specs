@@ -497,6 +497,78 @@ def test_the_schema_itself_rejects_a_per_unit_pin_value():
     assert errors, "schema accepted a per-unit PIN value; it must not"
 
 
+LINK_KINDS = {
+    "manual",
+    "vendor_support",
+    "teardown",
+    "protocol_writeup",
+    "implementation",
+    "forum",
+    "standard",
+    "video",
+    "other",
+}
+
+
+def helpful_urls(specs: dict[str, dict]):
+    for device_id, spec in specs.items():
+        for entry in spec.get("helpful_urls") or []:
+            yield device_id, entry
+
+
+def test_link_kinds_come_from_the_documented_vocabulary(specs):
+    """`kind` is only worth having if a consumer can switch on it."""
+    for device_id, entry in helpful_urls(specs):
+        kind = entry.get("kind")
+        if kind is None:
+            continue
+        assert kind in LINK_KINDS, (
+            f"{device_id}: helpful_urls kind {kind!r} not in {sorted(LINK_KINDS)}"
+        )
+
+
+def test_a_spec_does_not_link_the_same_url_twice(specs):
+    """Two entries for one URL is a merge artefact, not a second reference."""
+    for device_id, spec in specs.items():
+        urls = [entry["url"] for entry in spec.get("helpful_urls") or []]
+        duplicates = {url for url in urls if urls.count(url) > 1}
+        assert not duplicates, f"{device_id}: helpful_urls repeats {sorted(duplicates)}"
+
+
+def test_manual_links_say_which_manual(specs):
+    """A bare 'manual' link is a guessing game when a spec covers a family.
+
+    Most specs here document a family rather than one product — the Wemo
+    entry spans plugs and in-wall switches, Beurer's spans a dozen monitors —
+    so which model's manual this is, and whether it is vendor-hosted or an
+    archived copy, is the difference between a useful link and a shrug.
+    """
+    for device_id, entry in helpful_urls(specs):
+        if entry.get("kind") not in {"manual", "vendor_support"}:
+            continue
+        assert (entry.get("description") or "").strip(), (
+            f"{device_id}: the manual link {entry['url']} needs a description "
+            f"saying which model or edition it covers"
+        )
+
+
+def test_archived_links_are_kept_as_archive_urls(specs):
+    """An archive.org link must be a snapshot, not the availability API.
+
+    The API returns JSON about whether a snapshot exists; it is what
+    scripts/check_links.py queries, and it is useless to a human following a
+    link. Only the /web/<timestamp>/ replay form belongs in a spec.
+    """
+    for device_id, entry in helpful_urls(specs):
+        url = entry["url"]
+        if "archive.org/wayback/available" in url:
+            raise AssertionError(
+                f"{device_id}: {url} is the Wayback availability API, not a snapshot"
+            )
+        if "web.archive.org" in url:
+            assert "/web/" in url, f"{device_id}: {url} is not a Wayback replay URL"
+
+
 def test_credentials_declare_passphrase_handling(specs):
     """How the user's WiFi passphrase is protected is never 'unspecified'."""
     for device_id, spec in specs.items():

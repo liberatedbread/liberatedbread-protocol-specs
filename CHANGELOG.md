@@ -8,6 +8,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Manual links, with a `kind` field so a consumer can find them.** An owner
+  holding abandoned hardware wants the manual, and once the vendor's site is
+  gone that is the one thing they cannot find. `helpful_urls` entries now take
+  an optional `kind` (`manual`, `vendor_support`, `teardown`,
+  `protocol_writeup`, `implementation`, `forum`, `standard`, `video`,
+  `other`), so an app can surface "the manual" instead of rendering an
+  undifferentiated list. 54 specs carry one so far, every URL verified to
+  resolve first — the schema's own rule is that a dead link is worse than no
+  link.
+
+  Where a site refuses automated requests or the vendor is gone, the link is
+  to the Internet Archive: Anki's support site, Smarter's, Brava's, June's,
+  Pebble's and Nuki's reset article resolve there and nowhere else we can
+  check. For dead-vendor hardware an archive link is not a fallback, it is the
+  only thing that will still resolve in five years.
+
+- **`scripts/check_links.py`**, which is how those get verified and re-checked.
+  Deliberately not in CI: it talks to the open internet, and a third-party site
+  having a bad afternoon must not fail a spec PR. It separates *gone* (404 —
+  replace it, and `--wayback` will look up a snapshot) from *blocked* (403 or a
+  timeout from a site that is alive but refuses bots), so nobody deletes a good
+  link to make the output green.
+
+### Fixed
+
+- **Sixteen dead `helpful_urls` across the catalogue**, found by the new
+  checker on its first run — four delisted Play Store pages, a switched-off
+  vendor OTA endpoint, a deleted discussion thread, and vendor documentation
+  that had simply moved. Nine were repointed at a live equivalent or an
+  archived snapshot; seven pointed at things that no longer exist in any form
+  and were dropped. One of them, UBPM, had not died at all — it moved from
+  GitHub to Codeberg.
+
+- **Two specs linked the same URL twice** with different titles, a merge
+  artefact rather than a second reference. Merged, with a convention test so
+  it stays that way.
+
+
 - **`device.pairing` — the layer the schema had no room for, on 115 specs.**
   A device that answers a scan and then refuses to talk is the most common
   first-contact failure in this registry, and until now nothing in the schema
