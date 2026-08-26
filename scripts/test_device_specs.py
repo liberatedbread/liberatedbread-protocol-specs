@@ -2216,3 +2216,103 @@ def test_a_websocket_spec_declares_the_transport_its_commands_ride(specs):
             f"{spec_name}: declares a sendable `websocket` channel but "
             f"device.transport is {transport!r}"
         )
+
+
+def _credential_consumers(spec):
+    """name -> [(command, parameter, description)] for every `credential:` source."""
+    found = {}
+    for command_name, command in (spec.get("commands") or {}).items():
+        if not isinstance(command, dict):
+            continue
+        for param_name, param in (command.get("parameters") or {}).items():
+            if not isinstance(param, dict):
+                continue
+            source = param.get("source") or ""
+            if not source.startswith("credential:"):
+                continue
+            name = source[len("credential:"):]
+            found.setdefault(name, []).append(
+                (command_name, param_name, param.get("description"))
+            )
+    return found
+
+
+def _issued_credential_names(spec):
+    """Every name a setup method declares it issues."""
+    methods = ((spec.get("device") or {}).get("setup") or {}).get("methods") or []
+    return {
+        name
+        for method in methods
+        if isinstance(method, dict)
+        for name in (method.get("issues_credentials") or {})
+    }
+
+
+def test_every_credential_can_be_obtained_or_asked_for(specs):
+    """A `credential:` parameter says where its value comes from, one way or
+    the other.
+
+    Two routes, and a spec must offer one of them. Either a setup method
+    declares it in `issues_credentials`, so a consumer can run the flow and
+    read the value out of the reply — or the parameter carries a `description`
+    saying where a person finds it, so a consumer can ask.
+
+    Neither is a control surface that silently cannot be driven. The commands
+    resolve, the buttons draw, and every press fails on a value the client has
+    no way to obtain and no words to request. A generic consumer builds its
+    prompt out of this description — that is what makes it generic, and what
+    makes an absent one a prompt with a blank in it.
+
+    Hisense was the case that prompted this: `mqtt_client_id` is the source of
+    all thirty-nine of its commands, and what the id IS lived in
+    protocol_details, three hundred lines from the parameter that needs it.
+    """
+    for device_id, spec in specs.items():
+        issued = _issued_credential_names(spec)
+        for name, consumers in _credential_consumers(spec).items():
+            if name in issued:
+                continue
+            described = any(
+                (description or "").strip() for _, _, description in consumers
+            )
+            assert described, (
+                f"{device_id}: {len(consumers)} command(s) source "
+                f"{name!r} from a stored credential, but no setup method "
+                f"issues it and no parameter describes it. A client can "
+                f"neither obtain it nor ask for it. Add a `description` to "
+                f"the parameter saying where a person finds the value, or "
+                f"declare the issuing method in `issues_credentials`."
+            )
+
+
+def test_issued_credentials_are_named_the_way_their_consumers_spell_them(specs):
+    """`issues_credentials` keys and `credential:<name>` sources are one
+    vocabulary.
+
+    The schema says the coupling IS the key spelling — that is what lets a
+    consumer store a pairing's output and fill a later request without a
+    per-device table. A pairing that issues `user` for commands that source
+    `username` stores the value under a name nothing looks up, and every send
+    fails as though the pairing had never happened.
+
+    An issued name with no consumer is fine and deliberate: Hue's `clientkey`
+    is obtainable only at creation time and is stored because it can never be
+    had again, even though no command in the catalogue uses it yet.
+    """
+    for device_id, spec in specs.items():
+        consumed = set(_credential_consumers(spec))
+        issued = _issued_credential_names(spec)
+        if not consumed or not issued:
+            continue
+        # A spec whose consumers are ENTIRELY unissued names is not a
+        # spelling error -- it is a device whose credentials come from
+        # outside any flow it documents (a serial off a touchscreen). The
+        # mismatch worth catching is a pairing that issues something close
+        # to, but not the same as, what the commands ask for.
+        if consumed & issued:
+            continue
+        assert False, (
+            f"{device_id}: setup issues {sorted(issued)} and commands source "
+            f"{sorted(consumed)} — no name is shared, so nothing a pairing "
+            "yields can fill a request. The key spelling is the coupling."
+        )
