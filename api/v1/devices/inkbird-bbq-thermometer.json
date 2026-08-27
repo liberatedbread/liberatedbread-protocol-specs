@@ -70,6 +70,15 @@
     "manufacturer_status": "unsupported",
     "name": "Inkbird BBQ Thermometer (BLE)",
     "notes": "Covers Inkbird BLE BBQ thermometers using direct BLE protocol: IBT-2X (BG-BT1X, 1 probe), IBT-4XS (4 probes), IBT-6X (6 probes), IBBQ-4BW (4 probes + WiFi via Tuya), and related models.\nProtocol reverse-engineered by static analysis of the official Inkbird Android app — specifically its per-model device handlers for the BBQ-4BW and BG-BT1X families.\nThe app uses two BLE stacks: direct BLE (InkBluetoothManager) for BBQ thermometers, and Tuya/Thing Smart BLE SDK for newer devices. This spec documents the direct BLE protocol.\nAll protocol UUIDs use template 0000ffXX-0000-1000-8000-00805f9b34fb. Service is 0000ff00. Temperature data is little-endian signed 16-bit integers raw in device units; the unit (°F or °C) must be queried separately via command 04.\nError values: 0x7ffe, 0x7fff, 0x8000 indicate probe disconnected/fault.\nNewer firmware advertises different local names: a real 2025-era IBT-2X-B advertises \"Inkbird@IBT-2X-B\" (ble_monitor issue #1443), which none of the classic prefixes match — \"Inkbird@\" is included in the prefix lists.\nConnection requires a handshake: BG-BT1X uses fixed code fea1b2c3e40000 (an alternate fixed frame fea1b2c3e4f5f5 is written by the config activity); BBQ-4BW, IBT-4XS, IBT-26S and the 2-probe IBT-2XB use challenge-response (fb000000000000 to ff02, challenge on ff03 with fb prefix, fc+12-hex response back to ff02). The BBQ-4BW verify-code algorithm is fully recovered and given in full under the verify_response command below: deterministic sqrt/mod/pow math on the 6-byte challenge (no timestamp, no CRC), read out of the app's BBQ-4BW helper.\nCAVEAT — two incompatible BLE protocol families ship under the same model names: IBT-2X / IBT-4XS also exist on the older 0xfff0 \"iBBQ/EasyBBQ\" binary protocol (chars fff1-fff5, fixed-credentials login, s16le temps in 0.1 °C — uucidl ibbq-thermometer-protocol gist, gleeds/cloudbbq; covered by the sibling spec ibbq-meat-thermo, app com.inkbird.ibbtgo). Discovery must key on the advertised service UUID (ff00 vs fff0), not the name.\nThe ASCII-hex 14-char framing documented here is specific to the BBQ line. The INT-12-BW / INT-14-BW variant uses binary <LEN><TYPE>[PAYLOAD] framing on ff02 with temps in 0.1 °C and a different auth (01 fb challenge → response = LE16 ms + LE32 unix time + two-stage CRC-8) — recovered by paul43210/inkbird-bw-ble (17 captured test vectors in auth/python/auth.py).\nDIALECT WARNING — IBT-4WB: this 4-probe model matches this spec's discovery keys (IBT- name prefix, ff00 service) but speaks a different dialect of the protocol; a client written strictly to this spec would connect and then misparse it (per the app's IBT-4WB handler and model): - Auth is timestamp+CRC based: the fb challenge arrives on ff02 (not\n  ff03), and the response mixes the challenge with the client's current\n  unix-ms clock — LE16 of the ms-within-second, LE32 of the seconds,\n  then CRC-8/DVB-S2 over those 6 bytes; CRC-8/CDMA2000 over the\n  challenge is computed but not sent.\n- The verify frame breaks the universal 14-char rule: the app writes\n  \"fc\" + 14 hex chars (8 bytes, 16 chars total) to ff02.\n- Device status is parsed from ff03 (not ff04) with its own bitfield:\n  charging at bit 32, WiFi status at bits 33-37.\n- ff01 temps are 8 hex chars (s32 LE) per probe, not 4; the fault\n  sentinels are 32-bit (7ffffffe, 7fffffff, 80000001), and byte 16\n  (chars 32-33) carries the device ambient temp in °C.\nIBT-4RT also exists in the app's model list (4 probes); it is treated as protocol-compatible with this spec but has no documented model-specific code path — listed as compatible-but-undocumented.\nTiming and scan behavior (BBQ-4BW, from the app's handler delays): ~500 ms settle after connect before the handshake write, ~120 ms delays between chained init commands, and an auto-connect RSSI threshold of > -85 dBm (from its BBQ-4BW handler chain).\nEncoding nuance: the uniform s16le rule below is what the multi-probe models use (shortValue()); the 1-probe BG-BT1X instead parses ff01 as UNSIGNED u16 and treats only 7fff/8000 as fault on that path.\nNo BLE pairing/bonding required; all commands work over unencrypted BLE GATT.\nSchema gaps (device-specs/schema.json not modified): no dedicated field for byte-order notation, signed vs unsigned field typing, multi-byte reverse-endian bitfields, or challenge-response auth flows. These are documented in notes and field annotations.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "required": false
+      },
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -80,9 +89,10 @@
         "wifi_passphrase_protection": "not_applicable"
       },
       "factory_reset": {
-        "applicable": "unknown",
-        "confidence": "low",
-        "effect": "Not established. No reset command was recovered from the vendor app, and the BLE side holds no credential or binding that a reset would clear — the handshake code is a fixed constant, not per-device state. The IBBQ-4BW's WiFi side is provisioned through Tuya and is out of scope for this spec, which documents the direct BLE protocol.\n"
+        "applicable": false,
+        "confidence": "medium",
+        "description": "`false` rather than `unknown`: Inkbird's own documentation covers pairing, charging and use, and describes no reset control on any of these units; the sealed lithium battery on the IBT-4XS means there is not even a battery to pull.\nWhat people reach for a reset to fix is almost always the exclusivity problem instead, and Inkbird are explicit about it: one phone talks to one unit at a time, and a phone that has been paired with a different Inkbird thermometer has to have that record deleted before it will connect to this one. That is recorded in `pairing.exclusivity`, and it is the actual fix.\n",
+        "effect": "No factory reset, and nothing on the device that one would clear. The thermometer holds no credentials and no bond — it takes a connection from any central with no pairing code at all — and its alarm and unit settings are pushed from the app each session rather than persisted as state a user would need to wipe.\n"
       },
       "methods": [
         {
@@ -217,6 +227,18 @@
     {
       "title": "Home Assistant Inkbird integration docs",
       "url": "https://www.home-assistant.io/integrations/inkbird"
+    },
+    {
+      "description": "Vendor manual. Confirms no pairing code is needed and that one phone talks to one unit at a time.\n",
+      "kind": "manual",
+      "title": "INKBIRD IBT-4XS user manual (PDF)",
+      "url": "https://m.media-amazon.com/images/I/B1MeDqCdsHS.pdf"
+    },
+    {
+      "description": "Vendor product page with current documentation.\n",
+      "kind": "vendor_support",
+      "title": "INKBIRD: IBT-4XS product page",
+      "url": "https://www.inkbird.com/products/bluetooth-grill-thermometer-ibt-4xs"
     }
   ],
   "protocol_details": {

@@ -54,6 +54,59 @@
     "manufacturer_status": "active",
     "name": "Omron BLE Blood Pressure Monitors (OMRON connect family)",
     "notes": "Omron's Bluetooth blood pressure monitors (HEM-7xxx upper-arm and HEM-6xxx wrist families; global names M2/M3/M4/M7 Intelli IT, RS2/RS7 Intelli IT, EVOLV, Complete, Platinum, BP5xxx/BP7xxx) store readings in on-device EEPROM and sync them over BLE to the vendor app (\"OMRON connect\"; Japanese app package jp.co.omron.healthcare.omron_connect, US/Canada app com.omronhealthcare.omronconnect). The sync protocol is local: no cloud account, broker or vendor key is involved on the wire.\nVendor-app confirmation (2026-08-20 teardown of the Japanese app, jp.co.omron.healthcare.omron_connect 006.003.00001): the legacy 4x4 channel UUID set and the unlock characteristic below appear verbatim in the app; the app reassembles the split response by computing the channel count as ((length byte - 1) / 16) + 1 across the four TX channels; the pairing writes (02 || 16x00 expecting an 0x82-leading reply, 01 || key expecting 0x81) match the flow below. The app also ships per-model EEPROM memory-map configs for 86 model variants (BP monitors plus HBF body-composition, MC thermometer and HJA activity families on the same sync stack); its HEM-7322T-E map uses settings read/write addresses 0x0260/0x0286, 100 records per user and an unread-counter clear value of 0x8000, matching the worked example in this spec. Note the vendor maps number record bits from the END of the byte-reversed record, so their offsets are not comparable to the forward byte offsets used below.\nSources (no APK teardown used): userx14/omblepy (Python CLI with a per-model support matrix and the message-framing documentation), ichernev/omron-rs7-intelli-it (HCI-snoop reverse engineering of the RS7 Intelli IT with worked message annotations), eigger/hass-omron (Home Assistant integration verifying 12 models against hardware), and LazyT's UBPM project (multi-channel reception insight). Confidence: hardware-verified by those upstream projects across many models; not re-run against a device here.\nTRANSPORT — split-channel GATT. Parent service ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b carries four write characteristics (device RX channels), four notify characteristics (device TX channels) and one unlock characteristic. Each message is chopped into 16-byte chunks written in order across the four write characteristics; responses arrive likewise split across the four notify channels and are reassembled using the message's own length byte. (Some newer models use a single wider channel instead — the per-model drivers in both omblepy and hass-omron override the UUID set; the 4x4 legacy set below is the common case.)\nMESSAGE FRAMING (omblepy README + omblepy.py):\n  byte 0:    total message length in bytes (including this byte and CRC)\n  bytes 1-2: command/response type\n  bytes 3-4: EEPROM address (big-endian)\n  byte 5:    payload size\n  bytes 6..: payload\n  last byte: XOR checksum — all message bytes including the checksum\n             XOR to 0x00\nRequest types:  0000 start transmission, 0100 EEPROM read,\n                01c0 EEPROM write, 0f00 end transmission.\nResponse types: 8000 / 8100 / 81c0 / 8f00 respectively (request type\n                with the high bit set). The 8f00 end response carries\n                a status byte — non-zero is a device error.\nStart-of-session frame: 08 0000 0000 10 00 18. End: 08 0f00 0000 00 00 07. Read example (README): request 08 0100 0260 26 00 4d reads 0x26 bytes from EEPROM address 0x0260.\nPAIRING / UNLOCK — the monitor holds ONE client key at a time (hardware limit; using the vendor app and a local client together is not possible):\n  1. Hold the Bluetooth button on the monitor 3-5 s until the display\n     shows a blinking \"-P-\".\n  2. Connect and enable notifications on RX channel 0 — this triggers\n     an SMP security request, i.e. ordinary OS-level BLE bonding.\n  3. Enter key-programming mode: write 02 || 16x00 to the unlock\n     characteristic; response starts 8200 on success.\n  4. Program a client-chosen 16-byte key: write 00 || key; response\n     8000 confirms. (omblepy uses an arbitrary constant — the key is\n     not a vendor secret, it is whatever the client chooses.)\n  5. Later sessions skip pairing: write 01 || key to the unlock\n     characteristic; response 8100 means unlocked.\nAfter unlock: startTransmission (0000) -> EEPROM reads -> optionally writes (unread-counter reset, time sync) -> endTransmission (0f00).\nDATA MODEL — per-user ring buffers in EEPROM plus a settings region. Layouts are per-model; the worked example (HEM-7322T / M700 Intelli IT, omblepy deviceSpecific/hem-7322t.py):\n  - user record regions start at 0x02AC (user 1) and 0x0824 (user 2),\n    100 records each, 0x0E bytes per record\n  - settings region read at 0x0260, written back at 0x0286\n  - unread-record counters: settings bytes 0x00-0x08 (reset by\n    writing 0x8000 per user, big-endian)\n  - clock: settings bytes 0x14-0x1E, byte order\n    [month, year-2000, hour, day, second, minute] followed by a\n    0x00 byte and a sum-of-bytes & 0xFF checksum\nRECORD DECODE (HEM-7322T, 14-byte record, bit-packed big-endian):\n  bits 0-7   diastolic (mmHg)\n  bits 8-15  systolic - 25 (mmHg)\n  bits 16-23 year - 2000\n  bits 24-31 pulse (bpm)\n  bit 32     body-movement flag\n  bit 33     irregular-heartbeat flag\n  bits 34-37 month, 38-42 day, 43-47 hour, 52-57 minute, 58-63 second\nichernev's independent RS7 Intelli IT decode of the same 14-byte record inside the 8100 response agrees: sys = b[7] + 25, dia = b[6], pulse = b[9], flags b[8], packed timestamp b[10:14], and a two-byte record checksum where b[18] = 255 - b[19] and b[19] = sum(b[6:18]) mod 256.\nWARNING — EEPROM writes can brick calibration. The pressure-sensor calibration likely lives in the settings region; the only writes the upstream tools perform are the unread-counter reset and the time sync, at the model's documented settings write address. Treat every other write as dangerous on an unmapped model.\nKNOWN LIMITS: HEM-7196T (M4/X4 Connect AFib) encrypts its traffic and is NOT supported by omblepy. HEM-7380T1 (X7 Smart AFib) and HEM-7377T1 support readout without the pairing flow. EKG records of the HEM-7530T (Complete) are not decoded. Changing batteries can reset the device clock — re-run time sync afterwards.\n",
+    "pairing": {
+      "bonding": "required",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "indicator": "The display shows a blinking -P-.",
+        "procedures": [
+          {
+            "basis": "omblepy's documented flow and the vendor app's own instructions; not replayed against a monitor here.\n",
+            "glyph": "generic/hold-button.svg",
+            "hold_seconds": 3,
+            "indicator": "Blinking -P- on the monitor's display.",
+            "name": "Hold the Bluetooth button until the display shows a blinking -P-",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "Hold the monitor's Bluetooth button for 3-5 seconds.",
+                "actor": "user",
+                "expect": "The display shows a blinking -P-."
+              },
+              {
+                "action": "Connect and enable notifications on RX channel 0, which triggers the monitor's SMP security request.",
+                "actor": "client"
+              },
+              {
+                "action": "Program the 16-byte key while the -P- is still blinking; the monitor accepts key programming in no other state.",
+                "actor": "client"
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": true
+      },
+      "exclusivity": {
+        "recovery": "The monitor holds exactly one client key — a hardware limit, not a policy — so a second client does not join, it replaces. Re-enter pairing mode and program the new client's key, and the previous one stops working.\n",
+        "single_bond": true,
+        "single_connection": true
+      },
+      "notes": "Two layers, and the order between them is mandatory: OS-level bonding happens first, triggered by the monitor's own security request when the client enables notifications, and only then will it accept the key programming that authorises later sessions. The monitor measures perfectly well with no pairing at all — only syncing the stored readings needs any of this — and the HEM-7380T1 and HEM-7377T1 support readout without the key flow entirely.\n",
+      "pin": {
+        "length": 16,
+        "notes": "Not a typed PIN: a 16-byte unlock key chosen by the pairing client and programmed into the monitor while it is in pairing mode. It is the only secret in the protocol, and every later session presents it instead of re-pairing.\n",
+        "source": "user_chosen"
+      },
+      "required": true,
+      "security_mode": "just_works",
+      "unpair": {
+        "clears": "The single stored client key, by overwriting it. Measurements and settings are untouched.",
+        "notes": "Rebinding is done by pairing again rather than by clearing anything: the key is a single overwriteable slot, so putting the monitor back into pairing mode and programming a new key is the whole procedure. No reset is needed to hand the device to a new phone.\n",
+        "requires_factory_reset": false,
+        "supported": true
+      }
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -67,9 +120,42 @@
         "wifi_passphrase_protection": "not_applicable"
       },
       "factory_reset": {
-        "applicable": "unknown",
-        "confidence": "low",
-        "effect": "No factory-reset procedure is documented in the RE sources. The binding is a single overwriteable 16-byte key: putting the monitor back into pairing mode and programming a new key replaces it, so a reset is not needed to rebind. Stored measurements survive.\n"
+        "applicable": true,
+        "confidence": "medium",
+        "description": "Note that a reset is NOT how you rebind this device. The client key is a single overwriteable slot, so pairing a new phone only needs pairing mode and a new key; a reset additionally destroys the measurement history, which for a blood-pressure monitor is the part the owner actually cares about. Use this when handing the monitor on, not when changing phones.\nThe gesture is deliberately awkward — the same two-button hold twice over — and the display flashing between the two is the checkpoint. If it is not flashing, the first hold did not register.\n",
+        "effect": "Deletes everything stored on the monitor — measurement history, user settings and the bound client key — and returns it to defaults. The clock is cleared with the rest, which is why the year starts flashing as soon as the reset completes.\n",
+        "procedures": [
+          {
+            "basis": "Omron's instruction manual for the 7 Series (BP7350), section 'Restoring Your Monitor to the Default Settings'. Not replayed against a monitor here.\n",
+            "glyph": "generic/press-two-buttons.svg",
+            "hold_seconds": 3,
+            "indicator": "The display flashes after the first hold, and stops flashing after the second.",
+            "name": "Both buttons held twice, from the off state",
+            "power_state": "off",
+            "press_count": 2,
+            "steps": [
+              {
+                "action": "Make sure the monitor is turned off.",
+                "actor": "user"
+              },
+              {
+                "action": "Holding the Bluetooth button on the rear of the monitor down, press and hold [START/STOP] for more than three seconds.",
+                "actor": "user",
+                "expect": "The display flashes."
+              },
+              {
+                "action": "Holding the rear button down again, press and hold [START/STOP] for more than three seconds.",
+                "actor": "user",
+                "expect": "The display stops flashing; the monitor is back to defaults."
+              },
+              {
+                "action": "Press [START/STOP] to turn the monitor off. The year will be flashing when it is next used — the clock has to be set again.",
+                "actor": "user"
+              }
+            ],
+            "verified": false
+          }
+        ]
       },
       "methods": [
         {
@@ -209,14 +295,26 @@
       "url": "https://github.com/eigger/hass-omron/blob/master/custom_components/omron/manifest.json"
     },
     {
-      "description": "Desktop tool for Omron monitors, and the source of the multi-channel reception insight.",
-      "title": "UBPM",
-      "url": "https://github.com/LazyT/ubpm"
+      "description": "Desktop tool for Omron monitors, and the source of the multi-channel reception insight. It moved from GitHub to Codeberg and the old URL is gone; its predecessor OBPM (github.com/LazyT/obpm) is unmaintained and points here.",
+      "title": "UBPM — Universal Blood Pressure Manager",
+      "url": "https://codeberg.org/lazyt/ubpm"
     },
     {
       "description": "Upstream issue thread on Omron blood-pressure monitor support.",
       "title": "Gadgetbridge issue #3656 (Omron)",
       "url": "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/3656"
+    },
+    {
+      "description": "Vendor manual for the HEM-7322, whose EEPROM layout is the worked example in this spec.\n",
+      "kind": "manual",
+      "title": "Omron HEM-7322 instruction manual",
+      "url": "https://www.manualslib.com/manual/928334/Omron-Hem-7322.html"
+    },
+    {
+      "description": "A vendor-distributed PDF of the same document.\n",
+      "kind": "manual",
+      "title": "Omron HEM-7322 user manual (PDF)",
+      "url": "https://portalimages.blob.core.windows.net/products/pdfs/x3vjjm44_HEM-7322UserManual.pdf"
     }
   ],
   "services": [

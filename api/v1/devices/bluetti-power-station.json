@@ -33,6 +33,15 @@
     "manufacturer_status": "active",
     "name": "Bluetti Power Station (EP500 / V1 MODBUS family)",
     "notes": "Bluetti portable power stations / solar generators (EP500, EP500P, AC200M, AC300, AC500, AC60, EP600, EB3A and kin) expose full local telemetry and control over BLE with no pairing and no cloud dependency. The vendor is active; this is a cloud-independence spec: the Bluetti app funnels telemetry through Bluetti's cloud/IoT service, while every reading and control below is plain local GATT.\nThe protocol is MODBUS-RTU carried over GATT: write request frames to characteristic 0xFF02, receive responses as notifications on 0xFF01. Frame = [addr 0x01][function][payload...][crc16 lo][crc16 hi]. The CRC is CRC-16/MODBUS (poly 0x8005 reflected -> 0xA001, init 0xFFFF, no xorout) computed over every preceding byte and appended LITTLE-endian; register addresses and register values inside the payload are BIG-endian u16. Functions: 0x03 Read Holding Registers (request 01 03 <start u16 BE> <qty u16 BE> <crc>; response 01 03 <byte_count=2*qty> <qty words BE> <crc>), 0x06 Write Single Register (01 06 <addr> <value> <crc>; response echoes the request), 0x10 Write Multiple (unused for this family's controls). Error responses set bit 0x80 on the function byte, followed by a MODBUS exception code; reading an undefined register returns such an exception — handle it, do not retry.\nRESPONSE REASSEMBLY: requests fit one ATT write (8 bytes), but responses fragment across multiple FF01 notifications at the default 23-byte MTU (the largest documented poll, 61 registers, is 127 bytes). Append notifications until the buffer reaches exactly 2*qty+5 bytes (8 for a write echo), then verify the CRC. One command in flight at a time; wait for the complete response or a ~5 s timeout (bluetti_mqtt retries up to 5 times, and never retries a MODBUS exception). Single BLE central only — the vendor app and another client cannot be connected simultaneously.\nTHREE PROTOCOL GENERATIONS, discriminated at connect time: 1. Plain V1 (this spec's register map; EP500-vintage ~2021): silence on\n   FF01 after subscribing until you write.\n2. Plain V2 (AC70/AC180/EL30-class): same framing, shifted identity map —\n   device_type at register 110 as a byte-pair-swapped string, serial at\n   116, SOC at 102.\n3. Encrypted (newer firmware): immediately after subscribing to FF01 the\n   device pushes an unsolicited key-exchange message beginning with magic\n   bytes 2A 2A (\"**\"). The handshake (per the nhurman lineage): 4-byte\n   challenge -> MD5-derived interim AES key -> ECDH P-256 with\n   ECDSA-signed public keys -> AES-CBC session encrypting the same MODBUS\n   frames. Not documented further here; treat 2A 2A-on-subscribe as\n   \"encrypted unit\" and fall back to read-only vendor-app coexistence\n   until the handshake is specced.\n\nSAFETY: the writable 3000-range switches real mains/DC power. AC/DC output toggles (3007/3008) can cut power to whatever is plugged in — surface them as explicit switches, never automate blindly. Registers 3015/3016 (charge SOC window) and time-control programming change charging behavior; treat as advanced.\nCloud dependency: none for anything documented here.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "required": false
+      },
+      "required": false,
+      "security_mode": "none"
+    },
     "pictogram": "power-station",
     "protocol": "ble",
     "setup": {
@@ -44,9 +53,35 @@
         "wifi_passphrase_protection": "not_applicable"
       },
       "factory_reset": {
-        "applicable": "unknown",
+        "applicable": true,
         "confidence": "low",
-        "effect": "No BLE-relevant factory-reset procedure is documented in the public RE literature. The unit stores no client credentials and no bonds, so there is nothing to clear for local control. Not stated rather than guessed.\n"
+        "description": "The button combination differs across the AC and EP ranges and the sources for it are community rather than vendor, which is why this is low confidence: on the AC200P it is the light button and the power button together for about five seconds until the screen resets, and other units are described as using the power and settings buttons, or a long hold of the power button alone. Confirm against the manual for the specific model before trying it, and disconnect inputs and outputs first.\n",
+        "effect": "Returns the unit's settings to defaults. The stored energy in the battery is not affected — this is a settings reset, not a discharge.\n",
+        "procedures": [
+          {
+            "applies_to": [
+              "AC200P"
+            ],
+            "basis": "BLUETTI's community forum and third-party summaries of it, not a vendor manual. Applies to the AC200P; other models in the range differ.\n",
+            "glyph": "generic/press-two-buttons.svg",
+            "hold_seconds": 5,
+            "indicator": "The screen resets.",
+            "name": "Two-button hold with the unit off (AC200P)",
+            "power_state": "off",
+            "steps": [
+              {
+                "action": "Disconnect everything from the inputs and outputs and switch the unit off.",
+                "actor": "user"
+              },
+              {
+                "action": "Hold the light button and the power button together for about five seconds, until the screen resets.",
+                "actor": "user",
+                "expect": "The display reboots and settings are back to defaults."
+              }
+            ],
+            "verified": false
+          }
+        ]
       },
       "methods": [
         {
@@ -166,6 +201,12 @@
       "description": "ESP32 C++ bridge; third independent confirmation of service UUID, poll ranges and write registers 3007/3008.",
       "title": "mariolukas/Bluetti_ESP32_Bridge",
       "url": "https://github.com/mariolukas/Bluetti_ESP32_Bridge"
+    },
+    {
+      "description": "Vendor manual index. The reset button combination differs by model — take it from here rather than from this spec's AC200P example.\n",
+      "kind": "manual",
+      "title": "BLUETTI user guides (all models)",
+      "url": "https://www.bluettipower.com/pages/user-guides"
     }
   ],
   "payload_formats": {

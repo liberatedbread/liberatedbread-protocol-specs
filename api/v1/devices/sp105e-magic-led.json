@@ -34,6 +34,15 @@
     "manufacturer_status": "unsupported",
     "name": "SP105E Magic LED Pixel Controller",
     "notes": "Bluetooth SPI pixel (\"dream color\") LED strip controller sold generically as the SP105E and driven by the Magic-LED app (com.vengean.magicled). Single HM-10-style serial-port BLE profile: service 0xFFE0, one characteristic 0xFFE1 (write + notify). The app is FULLY LOCAL: no sockets, no HTTP(S) calls, no OTA/firmware URLs and no analytics domains anywhere in the binary — once the protocol is implemented the vendor cloud (there is none) and the vendor app are both unnecessary.\nCOMMAND FRAME — every command is exactly 5 bytes written to 0xFFE1:\n  [0]    0x38           header (ASCII '8')\n  [1..3] param0..param2 command parameters, big-endian where multi-byte\n  [4]    opcode         command byte\nNo length prefix, no checksum. For commands with fewer than three parameters the app fills the unused slots with RANDOM bytes, nudged +1 whenever a filler byte would equal 0x83 or 0x38 (so a command frame never contains a second 0x38 and never emits 0x83 — 0x83 is presumably the device's own reply header, unverified). A replacement client may send 0x00 filler instead of random bytes; that satisfies the avoidance rule. The fixed `value` commands below use 0x00 filler.\nHANDSHAKE — after service discovery the app sends check_device (0xD5) with three random parameter bytes r0,r1,r2 (each avoiding 0x38/0x83) and waits up to 5 s for a notification. The device must reply with exactly 8 bytes 00 01 02 03 04 05 06 KEY where\n  KEY = ((r2 >> 5) & 0x07) | ((r0 << 1) & 0x53) | r1\nOnly after a correct reply does the app treat the device as an SP105E and issue get_info. This is an obfuscation-grade challenge, not encryption: the algorithm is documented here in full and there is nothing else to recover. There is no encryption anywhere in the protocol — the app's only crypto is a signature self-check on its own APK, unrelated to the device.\nSTATUS — get_info (0x10) returns an 8-byte notification decoded as:\n  [0] power (1 = on, 0 = off)\n  [1] current mode (1..200 effect index; what static-color modes report\n      here is unverified)\n  [2] speed (device-side range unverified — commonly 1..31 on SP105E\n      clones; the app only steps it relatively)\n  [3] brightness (device-side range unverified — commonly 1..255; same\n      caveat)\n  [4] IC type index (0..26, same table as set_ic_type)\n  [5] RGB order index (0..5, same table as set_rgb_order)\n  [6..7] total pixels, big-endian uint16\nANY 8-byte notification on 0xFFE1 is parsed as this status block and also releases the app's write-wait gate.\nMODES — dynamic effects are numbered 1..200 (jump_to_mode wraps 200 -> 1). The UI's special entries map to dedicated opcodes: 0 = auto cycle (0x06), 1..5 = static red/green/blue/white/warm-white (the set_mode_* opcodes), 206 = custom solid color (solid_color, 0x1E). Mode index -> effect name mapping does not exist even in the app (it shows bare numbers), so a replacement client should present them numerically. Speed and brightness have NO absolute setter in the protocol: the app sends relative up/down steps and reads the current value back from the status reply. A client wanting \"set brightness to X\" must get_info, compute the delta, and send that many step commands.\nTIMING — the app paces commands at one per ~200 ms from a worker thread, retries a failed write once after 200 ms, and allows up to 5 s for the handshake reply. Emulate the pacing; the device is a low-end MCU and back-to-back writes are likely dropped (unverified).\nIC TABLE — set_ic_type index -> driver IC (27 entries, from the app's own resource table): 0 SM16703, 1 TM1804, 2 UCS1903, 3 WS2811, 4 WS2801, 5 SK6812, 6 SK6812-RGBW, 7 LPD6803, 8 LPD8806, 9 APA102, 10 APA105, 11 TM1814, 12 TM1914, 13 TM1913, 14 P9813, 15 INK1003, 16 DMX512, 17 P943S, 18 P9411, 19 P9412, 20 P9413, 21 P9414, 22 TX1812, 23 TX1813, 24 GS8206, 25 GS8208, 26 SK9822.\nOPCODES NEVER SENT BY THIS APP VERSION — mode_up (0x17), mode_down (0x05), led_match (0x1D, likely IR-remote pairing) and clear (0x0F, likely reset-to-default) are defined in the app's opcode table but never emitted; their device-side behaviour is a hypothesis.\nFAMILY — same 0xFFE0/0xFFE1 serial-port profile as the SP107E/SP110E documented in the sibling spec leds2rave4-lunchbox-led.yaml, but a different opcode set and 5-byte (not 4-byte) frames with an 0x38 header. The SP105E advertises the exact local name 'SP105E' (the vendor app's device list keeps only exact-name matches — no prefix matching), which is the reliable discriminator from its siblings.\nCONFIDENCE — HIGH (read directly from the app's frame builder): frame layout, full opcode map, handshake challenge/response formula, 8-byte status layout, IC/RGB-order tables, command pacing. MEDIUM (needs live capture): speed/brightness accepted ranges, mode byte semantics for static-color modes, behaviour of the four never-sent opcodes, whether set_* configuration persists across power cycles, and whether device replies really carry an 0x83 header.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "required": false
+      },
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -154,6 +163,18 @@
       "description": "The vendor app (com.vengean.magicled) whose v2.2.1 build this protocol was recovered from. Fully local — no account, no cloud — so it remains usable as a fallback while it stays installable.",
       "title": "Magic-LED on Google Play",
       "url": "https://play.google.com/store/apps/details?id=com.vengean.magicled"
+    },
+    {
+      "description": "Distributor-hosted vendor instructions for the SP105E.\n",
+      "kind": "manual",
+      "title": "SP105E magic controller operating instructions (PDF)",
+      "url": "https://suntechlite.com/wp-content/uploads/2023/05/SP105E-Magic-Controller-Suntech.pdf"
+    },
+    {
+      "description": "Another distributor's copy, covering the Magic-LED app pairing.\n",
+      "kind": "manual",
+      "title": "SP105E instructions (PDF)",
+      "url": "https://ledlightscanada.com/wp-content/uploads/2020/10/SP105E-Instructions-LLC.pdf"
     }
   ],
   "services": [

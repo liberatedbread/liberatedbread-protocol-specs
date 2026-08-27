@@ -305,6 +305,17 @@
     "manufacturer_status": "active",
     "name": "Airthings Wave Family",
     "notes": "Family of BLE air quality monitors: Wave (radon), Wave Plus (radon + CO₂ + VOC + pressure), Wave Mini (temp/humidity/mold risk), Wave Gen 2, View Plus (particulate + display), and Hub (gateway). All devices share a common GATT profile architecture (AtGattProfile) with per-model service UUIDs, manufacturer ID 820 (0x0334) in advertisement data, and a standardized ASR/ASRACP protocol for reading sensor data and controlling the device.\nDISCOVERY: Scan for service UUIDs in advertisement. Manufacturer data (company ID 820) carries 4-byte serial number followed by 2-byte flags. Device type identified by which service UUID is present in the advertisement itself (ADV_IND incomplete 128-bit service UUID list) — the HCI capture shows the scan response is empty on Wave Gen 2.\nCOMMUNICATION: Connect to the air sensor service UUID. Sensor data read via two paths: 1. Standard BLE GATT characteristics (temperature 2A6E, humidity 2A6F,\n   pressure 2A6D, dew point 2A7B) — read directly or via notify.\n2. ASR (Air Sensor Read) characteristic — notifications carry packed\n   multi-sensor data records. ASRACP (Access Control Point) used to\n   request historical data dumps, configure device settings, set time, etc.\n   On newer firmware the ASRACP characteristic multiplexes two command\n   sets: the legacy ASRACP opcodes (0x01-0x04, 0xF8/0xF9) and the newer\n   \"Griffin\" direct opcodes (0x02 dataset info, 0x66 UI settings, 0x6D\n   self check, 0x72-0x74 clock/flash, 0x76-0x79 region), the latter\n   confirmed by HCI capture on Wave Gen 2 firmware G-BLE-2.2.3.\n\nCONFIDENCE: Service/characteristic UUIDs are HIGH — sourced directly from the app's own per-model UUID tables; Wave Gen 2 ASR/ASRACP/combined UUIDs additionally exercised in capture. Advertisement serial/flags layout is HIGH — capture-verified (serial 2950016244 matches the LE decode; flag bits match the app's WaveScanResultData and legacy DeviceDefines bit tables). Combined sensor-data packet format is HIGH on Wave Gen 2 — 20-byte record captured and decoded against the app's CurrentValuesParser. ASRACP opcode protocol is HIGH — full opcode/format tables extracted and the Griffin subset observed live. Note opcode 0x02 is overloaded: legacy \"delete measurements\" vs Griffin \"dataset info\"; the captured firmware answered 0x02 with dataset info. ASR notification framing on Griffin firmware is HIGH for Wave Gen 2 — the long capture contains a full history readout: a report-measurements write on ASRACP answered by ONE 230-byte ASR notification carrying the pending hour as twelve 5-minute slots (format on the Wave 2 ASR characteristic below), cross-validated slot-by-slot against the combined-characteristic reads in the same session. The legacy multi-record ASR framing described in the app (flags byte + optional fields per record) was NOT what the Griffin firmware sent and remains MEDIUM, app-derived only. Security is MEDIUM — ATCommandSetFrame suggests optional PIN/challenge auth but flow not fully decoded; the captured session ran entirely without pairing, bonding, or encryption (no SMP traffic).\n",
+    "pairing": {
+      "bonding": "optional",
+      "confidence": "high",
+      "enter_pairing_mode": {
+        "notes": "The device does expose a pairing-mode state — bit 7 of the sensor flags field reports it — but nothing in the documented surface needs it. Reading the flag is useful for showing a user what the device thinks it is doing; entering the mode is not a prerequisite for anything here.\n",
+        "required": false
+      },
+      "notes": "A 44-minute HCI capture of four vendor-app sessions, including a full history readout, contains zero SMP traffic: sensor reads, DIS reads and every ASRACP write ran unauthenticated over an unencrypted link. So nothing is required. A central may still bond on its own initiative and the device will accept it, which is why `bonding` is optional rather than none — and why the rejoin note tells a user to clear the OS bond if one exists. An optional PIN/challenge path may exist for operations the capture did not exercise; the app's command-set frame parsing hints at one, but it was never seen on the wire.\n",
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -315,31 +326,10 @@
         "wifi_passphrase_protection": "not_applicable"
       },
       "factory_reset": {
-        "applicable": "unknown",
-        "confidence": "low",
-        "description": "Not established on any model in this family. The procedure below is the conventional one for button-equipped Airthings hardware and is worth trying first, but treat it as a starting point: the family spans six models — Wave, Wave Plus, Wave Mini, Wave Gen 2, View Plus and the Hub — whose physical controls differ, and the Wave Mini has no user-facing button at all, so no button-hold can apply to it.\nWorth knowing before trying: a reset is expected to destroy the on-device measurement history, and radon readings in particular are cumulative over weeks. Pull any history you care about over ASR before resetting, because that data is not recoverable afterwards.\n",
-        "effect": "Expected to clear the device's logged sensor history and any ASRACP password, though neither the trigger nor its effect was recovered from the app.\n",
-        "procedures": [
-          {
-            "applies_to": [
-              "Wave",
-              "Wave Plus",
-              "Wave Gen 2",
-              "View Plus"
-            ],
-            "basis": "The conventional reset for button-equipped Airthings devices. Neither the hold duration nor the confirmation signal was recovered from the decompiled app; not confirmed on hardware.\n",
-            "description": "Hold the device's single button down and keep holding well past the point where it would normally respond. Applies only to models that have a button — the Wave Mini does not, and no reset path is known for it.\n",
-            "name": "Button hold",
-            "steps": [
-              {
-                "action": "Hold the device button for 10+ seconds.",
-                "actor": "user",
-                "expect": "Device is expected to reset and re-advertise. The confirming signal is unknown — it may be an LED change, and there may be none at all, so re-scanning is the reliable way to tell whether it took.\n"
-              }
-            ],
-            "verified": false
-          }
-        ]
+        "applicable": false,
+        "confidence": "medium",
+        "description": "Worth stating loudly because the obvious search leads somewhere wrong. Airthings DOES document a reset button, at length, with a five-second hold that clears WiFi and Bluetooth pairing and shows a countdown on the display — and all of that belongs to the VIEW series, a different product. A Wave Plus, Wave Radon or Wave Mini has neither the button nor the display, so someone following those instructions is looking for a control that does not exist on the device in their hand.\nThere is also little for a reset to clear: the Wave is BLE-only, holds no network credentials, and never bonds (an HCI capture of a full vendor-app session shows no SMP traffic at all — see `pairing`). A new client just connects. Removing the batteries restarts the sensor, but no vendor source describes that as clearing anything.\n",
+        "effect": "Nothing to reset. The Wave family has no reset control and no documented factory-reset procedure: the vendor manual describes activation as pulling the battery tab and pairing as an in-app step, and no button is described anywhere on the housing.\n"
       },
       "methods": [
         {
@@ -784,6 +774,14 @@
       "platform": "sensor",
       "state_characteristic": "00002a19-0000-1000-8000-00805f9b34fb",
       "unit": "%"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor manual for the Wave Plus. Confirms the family has no reset control and that pairing is an in-app step.\n",
+      "kind": "manual",
+      "title": "Airthings Wave Plus user manual (PDF)",
+      "url": "https://www.airthings.com/hubfs/Website/Manuals/Wave%20Plus/Wave-Plus-manual-ENG.pdf?hsLang=en-ca"
     }
   ],
   "protocol_details": {

@@ -18,6 +18,15 @@
     "manufacturer_status": "active",
     "name": "ThermoPro TempSpike / TP9xx BBQ Thermometer",
     "notes": "Extracted by static analysis of the official ThermoPro companion app.\nIts BLE stack is the OEM's (Adsmart, the OEM behind ThermoPro's\nconnected devices), not ThermoPro-specific code.\n\nTRANSPORT IS PLAIN BLE GATT — NOT BLE MESH. The app contains no mesh stack\n(no/nordicsemi/android/ holds only ble/ + support/; no Mesh Proxy 0x1828,\nno PB-GATT, no provisioning anywhere in the sources). Two independent RE\nefforts agree: daniel-corbett/thermopro-cli calls it \"a simple BLE\nnotification-based protocol\", and Bluetooth-Devices/thermopro-ble decodes\nTempSpike probes passively from advertisements with no connection at all.\nAn earlier revision of this spec describing BLE Mesh provisioning was\nfabricated.\n\nTHERE IS NO SINGLE UNIVERSAL UUID SET. The app picks one of FIVE\nper-family BLE configs at connect time — its BLE manager picks one of\nfive per-family config classes (16-bit codes expand to\n0000XXXX-0000-1000-8000-00805F9B34FB):\n- TP9012 family (deviceType 7/8, TP90XConfig): service\n  0B863E05-BA64-4F7A-922D-007FD52DCAA9 — NOT 1086FFF0 — write FFF1,\n  notify FFF2.\n- TP922 (deviceType 22, TP922Config): service\n  BAAAFFF0-0001-4E6E-886A-57D347C919FE, write BAAAFFF1-…, notify\n  BAAAFFF2-….\n- TP940 (deviceType 24) and TempSpike TP960 (deviceTypes 30/31):\n  service 93bb7cab-eb14-c5a9-2354-a24f4df9330f with roles REVERSED —\n  write = FF02, notify = FF01 — plus a read characteristic FF03.\n- TP426 infrared (deviceType 50): service\n  0F86FFF0-63E8-4762-9DFB-7B6FE113376A, write FFF1, notify FFF2.\n- Default (all other deviceTypes, incl. TP920/TP25W and TP980,\n  TPBleConfig): service 1086FFF0-3343-4817-8BB2-B32206336CE8, write\n  FFF1, notify FFF2.\nClients must identify the family (advertised name, per the app's scan\nconfig)\nbefore choosing a service; 1086FFF0 is the fallback, not the universal\ncase.\n\nWRITE FRAMING IS PER-FAMILY. Only the TP9012 family wraps commands as\n0xAA | payload | checksum | 0xFF, where checksum = sum of the payload\nbytes EXCLUDING the opcode byte, & 0xFF (TP9012Data.getIntCheckSum);\nits notifications mirror this with 0xAA at offset 0 and the opcode at\noffset 1. TP920/TP25W-family frames have NO 0xAA/0xFF wrapper and a\ntrailing checksum that INCLUDES the opcode byte\n(TP920Data.getIntCheckSum:247-258); this family additionally expects a\nfixed init handshake write (starting 01 09 8a 7a ...) plus a\ntimestamp-sync command 0x28 after connect (thermopro-cli\ncreate_handshake_command). TP940, TP960 (TempSpike) and TP980 send raw\nopcode-prefixed frames with NO wrapper and NO checksum at all\n(TP940Data/TP960Data/TP980Data build Data straight from the opcode\nbytes).\n\nEight device change-utility families are dispatched in the app\n(MyBleManager.notificationDataCallback): TP9012, TP920, TP940, TP960,\nTP962, TP968, TP980 and TP426 (infrared). The TempSpike line\n(TP960/962/968 and TP970-973) is the current retail focus.\n\nTEMPSPIKE PASSIVE MODE: TP96x/TP97x probes broadcast probe index,\ntemperatures and battery voltage in BLE advertisement manufacturer data\n(company id prepended LE by the parser) — fully decodable without\nconnecting (Bluetooth-Devices/thermopro-ble parser.py, actively\nmaintained). This is the cheapest integration path for those models and\nobviates most of the setup below. TWO DIFFERENT LAYOUTS EXIST — an\nearlier revision of this spec claimed \"°F + 54 offset\" for all of them,\nwhich is wrong for TP96x:\n- TP96x / TP970 (7-byte payload; a 13-byte variant appends 6 bytes —\n  observed to be the reversed base-station MAC — which are ignored):\n  \"<BHHH\" = probe_index u8, internal_temp u16, battery_voltage u16,\n  ambient_temp u16. Temperatures are INTEGER values with a -30 offset\n  (raw - 30), NOT °F (parser.py:184-206).\n- TP97x (23-byte payload): \"<BHHfffHHH\" = probe_index u8, ambient_temp\n  u16, battery_voltage u16, then three float32 internal temperatures\n  (tip/center/end), three u16 ignored. Only THIS family encodes temps\n  as float32 °F with a +54 offset: celsius = (raw - 54 - 32) * 5/9 —\n  the same fahrenheit_to_celsius(x - 54) the connected TP980 path uses\n  (parser.py:155-182).\nBattery from advertisements uses a fitted tanh curve (mV → %):\n52.317286 * tanh(v/273.624277936 - 8.76485439394) + 51.06925, clamped\n0-100 (tp96_battery).\n\nFIRMWARE/DFU: the app carries TWO OTA paths (a DFU config and an OTA\nconfig). There is a DFU-mode GATT service 0x1850 (write 0x2C00,\nnotify 0x2C01), and two vendor OTA profiles with bundled firmware\nimages: ASR560X (service 0917fe11-5d37-816d-8000-00805f9b34fb, write\n09170001-…, notify 09170002-…; a bundled ASR560X OTA image, version 2.5,\nstring app-2.5.0-20251011.1000 — TempSpike-era hardware is ASR560X-based, not Nordic) and\nSilicon Labs (OTA service 1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0, control\nf7bf3564-fb6d-4e53-88a4-5e37e0326063, write\n984227f3-34fc-4045-a5d0-2c581f81a153; a bundled Silicon Labs OTA image,\nversion 1.17). Images are pushed to devices over BLE by the app's OTA\nlayer.\n\nThermoPro is rebranding to \"TempPro\" (announced ~April 2026; temppro.com);\nthe app already references both buythermopro.com and temppro.com.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "required": false
+      },
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -30,9 +39,10 @@
         "wifi_passphrase_protection": "unknown"
       },
       "factory_reset": {
-        "applicable": "unknown",
+        "applicable": false,
         "confidence": "low",
-        "effect": "No factory-reset button sequence was established from the app or any public source. Consult the model's manual rather than guessing.\n"
+        "description": "`false` rather than `unknown`, but with low confidence, and the distinction is worth stating: the answer here is that the vendor documents no reset and the hardware exposes no control that could be one, not that a reset was found and ruled out. If a TempSpike ever turns out to have a service gesture, this should become `true`.\nThe pairing between the probe and its own transmitter is a separate matter from the BLE link this spec documents, and re-seating the probe in the transmitter is what re-establishes it.\n",
+        "effect": "No factory reset is documented for the probe or its transmitter, and there is little for one to clear: the pair holds no credentials and no bond, and the probe is a sealed wireless unit that charges in its transmitter. Removing the probe from the transmitter and re-seating it is the only state change available.\n"
       },
       "methods": [
         {
@@ -221,6 +231,12 @@
       "description": "Home Assistant (HACS) integration for the active-BLE ThermoPro meat thermometers (TP902/TP920/TP960 incl. TempSpike, TP25W) built on this reverse-engineered protocol; the HA core thermopro integration covers only the passive-advertising climate sensors.",
       "title": "vitalybibikov/ha-thermopro-meat (HACS)",
       "url": "https://github.com/vitalybibikov/ha-thermopro-meat"
+    },
+    {
+      "description": "Vendor manuals for the TempSpike. They document setup and the probe-in-charger pairing, and no factory reset — which is the basis for this spec's `applicable: false`.\n",
+      "kind": "manual",
+      "title": "ThermoPro TP960 TempSpike manuals",
+      "url": "https://www.manualslib.com/products/Thermopro-Tp960-13097163.html"
     }
   ],
   "services": [

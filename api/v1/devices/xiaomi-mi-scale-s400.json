@@ -36,6 +36,25 @@
     "manufacturer_status": "active",
     "name": "Xiaomi Body Composition Scale S400",
     "notes": "Xiaomi Body Composition Scale S400, product model MJTZC01YM (MiOT model `yunmai.scales.ms104`; S400 Pro is MJTZC03YM and shares the format family). Dual-frequency BIA scale: weight, impedance, and heart rate. BLE 5.0, 3x AAA batteries, 0.1-150 kg range. Unlike the older Mi Scale v1/v2 (see xiaomi-mi-scale.yaml), the S400 does NOT speak the plaintext 0x2A2F frame protocol — every measurement is AES-CCM encrypted with a per-device 16-byte BLE bindkey that lives in the Xiaomi cloud account the scale is paired to, so a bindkey extraction step (e.g. Xiaomi-cloud-tokens-extractor) is a hard prerequisite for ANY third-party client.\nTwo independent access paths are documented in the public prior art:\nPASSIVE BROADCAST (openScale 3.x MiScaleS400Handler, built on lswiderski/mi-scale-exporter; independently confirmed by mnm-matin/miscale and by Bluetooth-Devices/xiaomi-ble as used by Home Assistant): the scale emits Service Data (AD type 0x16) for the Body Composition Service UUID 0x181B — 24 bytes of MiBeacon-style AES-CCM ciphertext — plus standard encrypted Xiaomi MiBeacon frames on service 0xFE95 whose decrypted payload carries measurement object 0x6E16. No GATT connection needed; the final reading is broadcast a few seconds after the measurement settles (mnm-matin/miscale notes frames may stop while Xiaomi Home is connected, and idle frames between weighings carry no data).\nDECRYPTION (0x181B service data, 24 bytes; strip a leading 2-byte UUID header first if 26 bytes arrive): nonce (12 bytes) = reversed MAC (6) || data[2:5] (3) || data[len-7:len-4] (3); AAD = single byte 0x11; 32-bit tag. Ciphertext = data[5:len-7] followed by the 4-byte MIC at data[len-4:]. Decrypt AES-CCM with the bindkey. The plaintext embeds a 9-byte object at bytes 3..11 (bytes 0..2 are a MiBeacon object header; byte 3 is a profile id); read a little-endian u32 at plaintext bytes 4..7 and split: bits 0-10 = weight raw (x0.1 kg, so /10), bits 11-17 = heart rate raw (+50 bpm, valid only when raw is 1..126), bits 18-31 = impedance raw (x0.1 ohm, /10). xiaomi-ble's obj6e16 parser unpacks the identical layout from MiBeacon object 0x6E16 as `profile_id:u8, word:u32le, pad:u16` — cross-confirmation of the bit field widths.\nTWO PACKETS PER WEIGHING: one packet carries weight (+ heart rate, + one impedance band); a second packet carries weight=0 and the other impedance band; mass==0 && hr==0 && impedance==0 is an idle/stepped-off reset frame. Sources DISAGREE on which band rides with the weight: openScale/lswiderski treat the weight packet's impedance as the HIGH-frequency band and the weightless packet's as LOW; xiaomi-ble comments the opposite (weight packet = 50 kHz low band, the weightless trailing packet = 250 kHz high band and marks the measurement stabilized). Both halves must be aggregated (openScale uses a 10 s session window plus a short dedup window); older firmware reportedly never sends the second packet, in which case the single band is used for both.\nGATT / HISTORY PATH (nokistin/xiaomi-s400-live, tested by its author against firmware 2.1.1_0006; auth layer from dnandha/miauth): connecting and running the standard Xiaomi Mi Home v2 BLE login on the 0xFE95 GATT service unlocks an encrypted command channel that streams live weight (~0.3 s cadence) while the user is standing on the scale and then delivers the final stored measurement (weight, both impedances, device unix timestamp, on-scale profile id) — the post-login \"final\" frames are the effective history/record-download surface. Login requires the 12-byte BLE token from the same Xiaomi cloud account; the token ROTATES on factory reset or remove/re-add in Xiaomi Home (HMAC mismatch = stale token). Handshake: exchange 16-byte random keys on AVDTP (commands on UPNP: CMD_LOGIN 0x24, framed parcels with headers 0000000b0100 / 0000000a0200), derive dev_key/app_key/dev_iv/app_iv via HKDF-SHA256(token, salt=app_rand||dev_rand, info=\"mible-login-info\"), verify with HMAC-SHA256, success = `21 00 00 00` on UPNP (failure `23`). Post-login messages ride CMTP (device->app) / VEND1A (app->device) as multi-frame AES-CCM parcels; decrypted CMTP plaintext contains an 0xA0 marker byte followed by an ASCII CSV payload — live frames are 2 fields \"weight_x10,stable_flag\", final frames are 32 fields with weight_x10 at index 3, stable flag index 4, device unix timestamp index 6, and the two impedances (x0.1 ohm) as the last two fields.\nBODY COMPOSITION: computed client-side from weight + impedance + profile (sex/age/height), as with the older scales; openScale ports Xiaomi-family formulas (selectable bone/BMR variants), xiaomi-s400-live credits mnm-matin/miscale. Values are estimates, not medical measurements.\nDISCOVERY: firmware/region-dependent advertised names; openScale matches \"SCALE S400\" (observed form \"Xiaomi Scale S400 XXXX\" with the last 4 MAC hex digits), raw model-style names \"XMTZC14HM\", and the generic \"XMTZC\" prefix. xiaomi-ble maps MiBeacon product IDs 0x30D9, 0x3BD5, 0x48CF to MJTZC01YM (and treats MJTZC01YM/MJTZC03YM as the sleepy S400 family). Firmware seen in the field includes 2.1.1_0057.0077; xiaomi-s400-live was verified on 2.1.1_0006.\nCONFIDENCE: HIGH for the need-a-bindkey model, the 0x181B/0xFE95 advertisement surface, the AES-CCM parameters, and the decrypted bit layout — three independent implementations (openScale/ lswiderski, xiaomi-ble, mnm-matin/miscale) agree. MEDIUM for the impedance high/low band assignment (sources contradict), the exact advertised-name strings, and the GATT CSV field indices (single hardware-tested but young source). This spec is itself untested on hardware by us.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "required": false
+      },
+      "pin": {
+        "notes": "Two secrets, both per-unit and both extracted from the Xiaomi Home account the scale is bound to: a 16-byte BLE bindkey for decrypting advertisements, and a 12-byte login token for the GATT path. Neither is reproduced here — they belong to whoever owns the scale.\n",
+        "source": "vendor_app"
+      },
+      "required": true,
+      "security_mode": "app_layer",
+      "unpair": {
+        "clears": "The account binding, and with it the validity of both extracted secrets.\n",
+        "notes": "Removing and re-adding the scale in Xiaomi Home rotates the token, as does a factory reset. A local client sees this as an HMAC failure rather than an authorisation error, and the fix is to re-extract rather than to retry.\n",
+        "requires_factory_reset": false,
+        "supported": true
+      }
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -69,55 +88,66 @@
       },
       "methods": [
         {
-          "cloud": {
-            "local_alternative": "None for the initial binding — the bindkey and token are issued by the account and there is no local path to obtain them. After extraction, though, runtime is fully local and cloud-free: both the passive advertisement path and the GATT session run entirely over BLE with no further cloud contact.\n",
-            "provider": "Xiaomi Home / Mi Cloud"
-          },
-          "description": "One-time binding: pair the scale to a Xiaomi Home account and take one in-app measurement, then extract the per-device secrets from that account — the 16-byte BLE bindkey for advertisement decryption and, for the GATT path, the 12-byte BLE login token.\n",
-          "steps": [
+          "description": "Both BLE access paths consume secrets that exist only after the scale has been bound to a Xiaomi Home account, so the binding is the first phase of this route rather than something to weigh against it: bind and extract the 16-byte bindkey and the 12-byte login token once, then read the scale directly and indefinitely. The token rotates on factory reset or remove/re-add, so a client must re-extract on HMAC failure.\n",
+          "name": "Bind once in Mi Home, then read over BLE",
+          "role": "primary",
+          "stages": [
             {
-              "action": "Pair the scale to Xiaomi Home and complete one in-app measurement.",
-              "actor": "user"
+              "cloud": {
+                "local_alternative": "None for the initial binding — the bindkey and token are issued by the account and there is no local path to obtain them. After extraction, though, runtime is fully local and cloud-free: both the passive advertisement path and the GATT session run entirely over BLE with no further cloud contact.\n",
+                "provider": "Xiaomi Home / Mi Cloud"
+              },
+              "description": "One-time binding: pair the scale to a Xiaomi Home account and take one in-app measurement, then extract the per-device secrets from that account — the 16-byte BLE bindkey for advertisement decryption and, for the GATT path, the 12-byte BLE login token.\n",
+              "name": "Bind in Mi Home, and extract the secrets",
+              "steps": [
+                {
+                  "action": "Pair the scale to Xiaomi Home and complete one in-app measurement.",
+                  "actor": "user"
+                },
+                {
+                  "action": "Extract the BLE bindkey (and the login token, for the GATT path) from the Xiaomi cloud account — e.g. with PiotrMachowski/Xiaomi-cloud-tokens-extractor, which handles 2FA.\n",
+                  "actor": "user",
+                  "expect": "Bindkey and token in hand. Both rotate on factory reset or remove/re-add, so re-extract whenever HMAC validation fails.\n",
+                  "request": {
+                    "protocol": "http"
+                  }
+                }
+              ],
+              "type": "cloud_account",
+              "verified": false
             },
             {
-              "action": "Extract the BLE bindkey (and the login token, for the GATT path) from the Xiaomi cloud account — e.g. with PiotrMachowski/Xiaomi-cloud-tokens-extractor, which handles 2FA.\n",
-              "actor": "user",
-              "expect": "Bindkey and token in hand. Both rotate on factory reset or remove/re-add, so re-extract whenever HMAC validation fails.\n",
-              "request": {
-                "protocol": "http"
-              }
-            }
-          ],
-          "type": "cloud_account",
-          "verified": false
-        },
-        {
-          "ble": {
-            "pairing_required": false
-          },
-          "description": "Passive: scan advertisements, decrypt 0x181B Service Data (or 0xFE95 MiBeacon object 0x6E16) with the extracted bindkey; aggregate the weight packet and the weightless second-impedance packet within a ~10 s session window. Active: connect, subscribe to UPNP/AVDTP/CMTP/VEND1A, run Mi Home v2 login with the 12-byte token, then read live and final CSV frames from the encrypted CMTP channel.\n",
-          "steps": [
-            {
-              "action": "Pair scale to Xiaomi Home and complete one in-app measurement.",
-              "actor": "user"
-            },
-            {
-              "action": "Extract BLE bindkey (and token for GATT) from the Xiaomi cloud account.",
-              "actor": "client",
-              "request": {
-                "protocol": "http"
-              }
-            },
-            {
-              "action": "Step on scale; scan for 0xFE95/0x181B advertisements.",
-              "actor": "client",
-              "request": {
-                "protocol": "ble_gatt"
-              }
-            },
-            {
-              "action": "Decrypt service data with bindkey; aggregate both impedance packets into one measurement.",
-              "actor": "client"
+              "ble": {
+                "pairing_required": false
+              },
+              "description": "Passive: scan advertisements, decrypt 0x181B Service Data (or 0xFE95 MiBeacon object 0x6E16) with the extracted bindkey; aggregate the weight packet and the weightless second-impedance packet within a ~10 s session window. Active: connect, subscribe to UPNP/AVDTP/CMTP/VEND1A, run Mi Home v2 login with the 12-byte token, then read live and final CSV frames from the encrypted CMTP channel.\n",
+              "name": "Read the scale over BLE",
+              "steps": [
+                {
+                  "action": "Pair scale to Xiaomi Home and complete one in-app measurement.",
+                  "actor": "user"
+                },
+                {
+                  "action": "Extract BLE bindkey (and token for GATT) from the Xiaomi cloud account.",
+                  "actor": "client",
+                  "request": {
+                    "protocol": "http"
+                  }
+                },
+                {
+                  "action": "Step on scale; scan for 0xFE95/0x181B advertisements.",
+                  "actor": "client",
+                  "request": {
+                    "protocol": "ble_gatt"
+                  }
+                },
+                {
+                  "action": "Decrypt service data with bindkey; aggregate both impedance packets into one measurement.",
+                  "actor": "client"
+                }
+              ],
+              "type": "ble_direct",
+              "verified": false
             }
           ],
           "type": "ble_direct",
@@ -198,6 +228,18 @@
       "description": "HA core integration covering Xiaomi Mi body scales' BLE advertisements.",
       "title": "Home Assistant Xiaomi BLE integration",
       "url": "https://www.home-assistant.io/integrations/xiaomi_ble/"
+    },
+    {
+      "description": "Vendor manual for the S400.\n",
+      "kind": "manual",
+      "title": "Xiaomi Body Composition Scale S400 user manual",
+      "url": "https://www.manualslib.com/manual/3453259/Xiaomi-Mi-S400.html"
+    },
+    {
+      "description": "Vendor's own guide download.\n",
+      "kind": "vendor_support",
+      "title": "Xiaomi: Body Composition Scale S400 user guide (PDF, vendor-hosted)",
+      "url": "https://www.mi.com/au/support/user-guide-pdf/xiaomi-body-composition-scale-s400/"
     }
   ],
   "services": [

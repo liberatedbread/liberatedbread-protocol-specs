@@ -303,9 +303,30 @@
         "wifi_passphrase_protection": "plaintext"
       },
       "factory_reset": {
-        "applicable": "unknown",
-        "confidence": "low",
-        "effect": "Clears Wi-Fi credentials and cloud binding, returning the unit to its unprovisioned state (BLE advertising / setup AP). Exact button procedure varies by model and is described in the printed manuals (Wi-Fi/reset control on the unit's panel); not captured in this project — stated at low confidence rather than guessed.\n"
+        "applicable": true,
+        "confidence": "medium",
+        "description": "No hold time is published — the vendor's instruction is simply to hold the wireless button to initiate or reset wireless setup. Treat the purifier's own wireless indicator as the signal and expect to experiment a little.\nTwo things to have in place before starting, both of which the vendor calls out and both of which fail silently: the phone's Bluetooth has to be on, and the network has to be 2.4 GHz.\n",
+        "effect": "Clears the stored wireless configuration and restarts wireless setup. The vendor describes it as resetting the WIRELESS settings rather than the whole device, so filter counters and unit settings are not documented as being affected.\n",
+        "procedures": [
+          {
+            "basis": "Rabbit Air's wireless FAQ and the MinusA2 WiFi product page. No hold time is given by the vendor.\n",
+            "glyph": "generic/hold-button.svg",
+            "name": "Hold the wireless button on the unit",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "Press and hold the wireless button on the purifier.",
+                "actor": "user",
+                "expect": "Wireless setup restarts and the unit is ready to be onboarded again."
+              },
+              {
+                "action": "Re-run setup from the vendor app with phone Bluetooth on and a 2.4 GHz network selected.",
+                "actor": "user"
+              }
+            ],
+            "verified": false
+          }
+        ]
       },
       "methods": [
         {
@@ -319,6 +340,8 @@
             "write_characteristic": "53ef7d7d-c244-42bd-9064-a1569a521ca9"
           },
           "description": "Preferred path in the Rabbit Air 2 app (its \"mobile\" connection method). The phone scans for the setup-mode peripheral — advertised name \"RabbitAirSetup\", GATT service 366048ae-9f36-43cf-8004-010c0c9fa52e — connects, negotiates MTU 515, and speaks the cleartext setup command set (rabbit_air_protocol.setup_commands) through the single command characteristic 53ef7d7d-c244-42bd-9064-a1569a521ca9 (write-with-response, INDICATIONS on the same characteristic — verified on hardware; the app code read \"notifications\"), framed and chunked exactly as rabbit_air_ble describes. Conversation: cmd 255 + cmd 4 (info/state sanity check), cmd 0 (read network settings — doubles as the device's own Wi-Fi scan list), cmd 1 (join network — ssid/passphrase/security), cmd 5 type 4 (push a client-generated user key), cmd 3 (set module name), cmd 2 (leave setup mode). The unit then joins Wi-Fi and appears on the LAN as _rabbitair._udp.local — allow MINUTES, not seconds: the verified unit held ip 0.0.0.0 in cmd 0 for ~4 minutes after cmd 2 before it associated and took a DHCP lease. The vendor app additionally pushes AWS IoT certificates (cmd 5 types 0-3) for cloud binding — optional; skip for local-only provisioning.\n",
+          "name": "BLE setup peripheral (replayed on hardware)",
+          "role": "primary",
           "steps": [
             {
               "action": "Power the purifier and hold Speed/Wireless until the wireless LED blinks — it advertises 'RabbitAirSetup' over BLE.",
@@ -413,6 +436,8 @@
         },
         {
           "description": "AP-mode fallback (the app's \"local\" connection method): the device hosts an open setup AP (SSID prefix \"rabbitair_\"); after joining it, the phone speaks the SAME cleartext setup command set as the BLE path — one JSON envelope per UDP datagram to 192.168.10.1:9009 (or TCP 9009 with the 2-byte little-endian length prefix). The app first resolves the fixed hostname rabbitair-setup.local via mDNS and falls back to the fixed gateway IP; the command sequence is identical to the BLE method (cmd 255/4 → 0 → 1 → 5 → 3 → 2), and cmd 2 \"leave AP mode\" closes the AP at the end. Transport confirmed from the app (wifi_iot joins the rabbitair_* SSID, then UDP/TCP 9009); 192.168.10.1:9009 independently corroborated by yepher/RabbiteAirProtocol's iOS research.\n",
+          "name": "Setup AP, same commands over UDP or TCP",
+          "role": "alternative",
           "softap": {
             "gateway_ip": "192.168.10.1",
             "open_network": true,
@@ -439,6 +464,8 @@
         },
         {
           "description": "Third connection method in the app: router push-button WPS join. The app then skips cmd 0/1 (no credentials cross the phone) and cmd 2, running only the naming/certificate steps (cmd 3/5). Which transport carries those commands in WPS mode has not been traced; recorded for completeness — prefer the BLE method.\n",
+          "name": "Router WPS push-button",
+          "role": "alternative",
           "type": "wps",
           "verified": false
         }
@@ -588,6 +615,12 @@
       "description": "Independent 2021 research on the earlier iOS app; corroborates the BLE service/characteristic UUID roles, the setup-AP address 192.168.10.1:9009, and the AES-CBC + appended-IV construction.",
       "title": "yepher/RabbiteAirProtocol",
       "url": "https://github.com/yepher/RabbiteAirProtocol"
+    },
+    {
+      "description": "Vendor FAQ covering wireless setup and the wireless-reset button used in this spec.\n",
+      "kind": "vendor_support",
+      "title": "Rabbit Air: wireless FAQ (iOS and Android)",
+      "url": "https://www.rabbitair.com/pages/wireless-faq"
     }
   ],
   "protocol_details": {

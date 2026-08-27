@@ -49,6 +49,15 @@
     "manufacturer_status": "active",
     "name": "Flowtoys Connect Props (capsule 2 / vision) via Connect Bridge",
     "notes": "Flowtoys LED flow-arts props (capsule 2.0 light engines, podpoi, vision poi/staff/club/wand) do NOT speak BLE themselves. They communicate over a proprietary 2.4 GHz \"flowtoys connect\" radio protocol that runs on nRF24L01+-compatible radios. A hardware \"connect bridge\" (USB or pocket bridge; ESP32 + nRF24) translates between the phone and the props. The official companion app is \"flowtoys connect\" (Android package com.flowtoys.app, Flutter); accounts, playlists and shows sync through the vendor cloud at api.flowtoys.com, but prop control itself is local.\nARCHITECTURE: phone --(BLE or WiFi/OSC)--> bridge --(nRF24 RF)--> prop groups. The app addresses GROUPS, never individual props: each group has a 16-bit radio ID shared by every prop in it. Five \"public\" groups use fixed IDs 1-5 (community builds label them orange/green/aqua/blue/ purple); user-created private groups get other 16-bit IDs (the open bridge firmware supports up to 100). To group props: from off, hold the prop button ~10 s until the LEDs flash/turn white. To let a bridge learn a group, the props must be awake on their sync page/mode (page 2 mode 1 on older firmware; the current app instructs page 5 mode 1) while the bridge is in sync mode.\nBRIDGE BLE — TWO GENERATIONS. The published open-source bridge firmware (github.com/benkuper/FlowtoysConnectBridge, written for Flowtoys) and its companion Flutter app (benkuper/FlowtoysConnect) use the Nordic UART Service: service 6E400001-B5A3-F393-E0A9-E50E24DCCA9E, phone writes ASCII command strings to 6E400002 (write / write-no-response), bridge notifies on 6E400003. The bridge advertises as \"FlowConnect <name>\" and the app requests MTU 48. The production app (com.flowtoys.app, decompiled) instead targets a vendor-specific service 49550001-AAD5-59BD-934C-023D807E01D5 with characteristics 49550002-..., 49550003-... and 49550005-... — their exact roles are not recoverable from the Flutter AOT binary's string table alone (the Dart command encoder is compiled, not string-visible). Treat the NUS command set below as the documented baseline and the 4955000x service as the production equivalent pending capture.\nASCII COMMAND SET (open bridge firmware, SerialManager; same parser is fed by USB serial at 115200 and by BLE NUS writes; messages end at '\\n' or 0xFF):\n  's'<timeout_s>   start RF group sync (float seconds, 0 = no timeout)\n  'S'              stop sync\n  'a'              reset sync (forget all private groups)\n  'n'<ssid>,<pass> set WiFi credentials\n  'g'<name>,<mode> set bridge name + radio mode (0=WiFi, 1=BLE, 2=both);\n                   bridge reboots after this\n  'w'<group> / 'W'<group>   wake up group (capital = public group ID 1-5)\n  'z'<group> / 'Z'<group>   power off group (capital = public)\n  'r'              restart the bridge ESP32\n  'p'<g>,<page>,<mode>,<actives>,<hue>,<sat>,<val>,<speed>,<density>,<lfo1..4>\n                   set pattern on private group g ('P' = public group).\n                   13 comma-separated decimal fields; actives is a\n                   bitmask: bit0 LFO, bit1 hue, bit2 saturation,\n                   bit3 value/brightness, bit4 speed, bit5 density;\n                   hue/sat/val/speed/density/lfo are uint8 (0-255).\n                   A solid color is page 2, mode 7, actives 0xFF with\n                   hue/sat/val from HSV.\n\nRF LINK (nRF24L01+, from the same firmware): 250 kbps, channel 2, 3-byte addresses, TX/RX address bytes {0x01, 0x07, 0xF1}, CRC-16, no auto-ack. Props are synchronized by a fixed 20-byte packed SyncPacket broadcast per group at ~30 ms cadence (5 repeats per change, plus a forced resend every 1 s): uint16 group_id (byte-swapped on the wire), uint32 padding/sequence counter, uint8 lfo[4], uint8 hue, sat, val, speed, density, a 6-bit \"active\" flags byte (lfo/hue/sat/val/speed/ density), 2 reserved bytes, uint8 page, uint8 mode, and a flags byte (adjust, wakeup, poweroff, force_reload, save, delete, alternate). Any nRF24 node with these parameters can therefore drive props directly without the vendor bridge.\nWIFI/OSC ALTERNATE PATH: the bridge joins a configured WLAN (firmware defaults SSID \"flowspace\"/\"flowarts\") or falls back to AP \"FlowConnect <name>\" (WPA2 password \"findyourflow\") at 192.168.4.1. It advertises mDNS _osc._udp (instance \"flowtoysconnect\") and listens for OSC 1.x over UDP (open firmware port 9000; the early companion app sends to port 8888 — check both). OSC addresses: /wakeUp (int group, int isPublic), /powerOff (same), /sync (float timeout), /stopSync, /resetSync, /pattern (14 ints: group, isPublic, page, mode, actives, hue, sat, brightness, speed, density, lfo1-4), /wifiSettings (2 strings), /globalConfig (string name, int mode), /play (string), /stop, /pause, /resume, /seek (float), /rgb/brightness (float).\nCONFIDENCE: HIGH for the RF packet layout, RF link parameters, NUS UUIDs, ASCII command grammar and OSC addresses — all read directly from the bridge firmware source Flowtoys commissioned and published, cross-checked against the open companion app source. MEDIUM for the production app's 4955000x BLE service (UUIDs extracted from the official APK's compiled Dart library; characteristic roles unknown). Mode metadata (base_modes.json inside the APK) confirms the page/mode model: modes are numbered within pages, each with default hue/saturation/brightness/speed/density in 0.0-1.0.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "required": false
+      },
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -145,6 +154,20 @@
       "name": "Flowtoys prop group",
       "notes": "Control is per GROUP, not per prop: each group ID maps to one light entity. Color/effect go through the set_pattern command (page/mode select the effect; hue/sat/brightness set the color); wake/power-off map to the light's on/off.\n",
       "platform": "light"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor instructions for the capsule light, the core of the Connect prop system.\n",
+      "kind": "manual",
+      "title": "Flowtoys capsule light instructions",
+      "url": "https://www.manualslib.com/manual/2044501/Flowtoys-Capsule-Light.html"
+    },
+    {
+      "description": "Vendor support library — the same folder this project's research cache mirrors.\n",
+      "kind": "vendor_support",
+      "title": "Flowtoys: guides and manuals download folder",
+      "url": "https://flowtoys2.freshdesk.com/support/solutions/folders/6000008575"
     }
   ],
   "services": [

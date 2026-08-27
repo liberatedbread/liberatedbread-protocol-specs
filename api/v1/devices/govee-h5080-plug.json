@@ -57,6 +57,15 @@
     "manufacturer_status": "active",
     "name": "Govee H5080 Smart Plug",
     "notes": "WiFi + BLE smart plug family from Govee. Local BLE control uses the classic Govee 20-byte binary packet — [2-byte command][17-byte payload][1-byte XOR checksum] — wire-verified (egold555 H5080.md, virtuald/govee-ble-plugs plugs.py), NOT IoT-style JSON (\"turn\"/\"state\" are keys of the app's internal IoT abstraction, not what goes on the wire). The plug also has a 2.4 GHz WiFi radio (FCC 2AQA6-H5080 lists 2412-2462 MHz; manual spec panel \"IEEE 802.11 b/g/n, 2.4GHz\") and a cloud binding; BLE local control works without WiFi or cloud.\nFamily members: - H5080: single plug (goodsType=43) - H5081: single plug variant (retail SKU, FCC 2AQA6-H5081; absent\n  from the APK's h5080 package — family membership unproven)\n- H5082: dual plug (goodsType=50; RE'd — right=port0, left=port1) - H5083: dual plug - H5085: Smart Plug Pro, single plug with Matter support - H5086: Smart Plug Pro Energy Monitoring (AA00 power metrics) - H5089: triple plug (goodsType=90) - H5160: triple plug variant - H5161: triple v2 (goodsTypes seen in app: 43 single, 50 & 307 dual,\n  90 triple)\n\nCOMMAND MAP (20-byte packets written to …2b11; responses echo the command id and arrive on …2b10): - AA01: get state - AA06 / AA20 / AA21: get firmware version (ASCII in payload) - AA07: get hardware version - AA00: power metrics (H5086 → EE19 response: seconds-powered-on,\n  Wh ×0.1, voltage ×0.01 V, current ×0.01 A, power ×0.01 W,\n  power factor %)\n- AAB1: get auth key (valid 16-byte key only while the physical\n  button is pressed; otherwise a random decoy)\n- 33B2 <16-byte key>: authenticate this connection - 3301 <byte>: set on/off. Single-plug H5080: 0xFF on / 0xF0 off\n  (all-ports selector — what the app's switch controller emits when\n  it addresses every port at once).\nThe device also sends unsolicited 3301 state notifications on physical-button presses, and the last manufacturer-data byte of the advertisement carries state (0x00/0x01; dual: bit0=right, bit1=left).\nOn/off byte encoding (from the app's switch controller): - bits 0-3: on-state per port (1=port0, 2=port1, 4=port2, 15=all) - bits 4-7: port selector (0x10=port0, 0x20=port1, 0x40=port2, 0xF0=all) e.g. 0x11 = port 0 on (0x10|0x01), 0x22 = port 1 on (0x20|0x02), 0x10 = port 0 off. Port-specific bytes are for multi-plug units; the single H5080 is driven with the all-ports 0xFF/0xF0 form.\nFIRMWARE LANDSCAPE: versions seen are 1.00.21 and 1.02.00 (RE captures) and 1.00.22 in the wild (2025-12 user report); the app treats fw <= 1.00.08 as an \"old H5080\" with reduced features (a dedicated capability check in its feature gating). OTA is in-app only — no public firmware downloads.\nPHYSICAL: 15 A / 1800 W max, ETL + FCC certified (FCC-filed manual spec panel).\nCONFIDENCE: HIGH for wire format, UUIDs, command bytes, and the auth flow — all wire-verified by two independent implementations (egold555 Govee-Reverse-Engineering H5080.md @ fe0cd60; virtuald/ govee-ble-plugs plugs.py @ 2cf65db). The manufacturer company_id is app-confirmed (0xEC88 = 60552; recorded in the identification and discovery blocks). Two items still want a single nRF capture: whether the 128-bit service UUID is in the ADV packet, and whether a plug uses the leading-version-byte broadcast layout that makes hosts report 0x88XX — that layout is confirmed on Govee lights, not on a plug.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "required": false
+      },
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -73,9 +82,29 @@
         "wifi_passphrase_protection": "unknown"
       },
       "factory_reset": {
-        "applicable": "unknown",
+        "applicable": true,
         "confidence": "low",
-        "effect": "Not established — no source covers a reset procedure. The plug is NOT stateless: it holds WiFi credentials, a cloud binding, and the static BLE auth key, so a real reset would have something to clear. Cutting mains power is the only confirmed state change and is not known to clear anything.\n"
+        "description": "Govee's plug range resets from its own button, but the published hold time is model-specific and the H5080's own manual does not state one: ten seconds is documented for the Smart Plug Pro H5086, which is the nearest sibling and the reason that number appears here at all. Confidence stays low for exactly that reason — treat ten seconds as a starting point and watch the indicator rather than the clock.\n",
+        "effect": "Restores factory settings and returns the plug to pairing mode, so it can be added again in the vendor app. The stored network credentials go with it on the WiFi-capable models.\n",
+        "procedures": [
+          {
+            "basis": "Govee's documentation for the Smart Plug Pro H5086, which gives a ten-second hold as the factory-settings restore. The H5080's own manual does not state a hold time; this is the family pattern, not a model-specific fact.\n",
+            "glyph": "generic/hold-button.svg",
+            "hold_seconds": 10,
+            "indicator": "The plug's indicator changes to its pairing pattern.",
+            "indicator_glyph": "generic/led-flashing.svg",
+            "name": "Hold the plug's button until it returns to pairing mode",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "With the plug powered, press and hold its button until the indicator changes to the pairing pattern.",
+                "actor": "user",
+                "expect": "The plug is discoverable in the vendor app as a new device."
+              }
+            ],
+            "verified": false
+          }
+        ]
       },
       "methods": [
         {
@@ -150,6 +179,12 @@
       "description": "HACS Govee integration covering the cloud-API switches/plugs; no Home Assistant integration speaks this BLE protocol directly yet.",
       "title": "LaggAt/hacs-govee (HACS)",
       "url": "https://github.com/LaggAt/hacs-govee"
+    },
+    {
+      "description": "Vendor manuals for the H5080. Note it gives no hold time for the reset, which is why this spec's procedure borrows the H5086's ten seconds and says so.\n",
+      "kind": "manual",
+      "title": "Govee H5080 smart plug manuals",
+      "url": "https://www.manualslib.com/products/Govee-H5080-11828283.html"
     }
   ],
   "services": [

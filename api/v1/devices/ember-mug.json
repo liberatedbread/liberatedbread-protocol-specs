@@ -59,6 +59,43 @@
     "manufacturer_status": "active",
     "name": "Ember Mug",
     "notes": "Covers Ember Mug 2 (10/14 oz), Travel Mug 2/2+, Cup (6 oz), Tumbler (16 oz). The official Ember Android app was inspected statically: its manifest confirms BLE permissions and Nordic DFU services (eight DFU foreground-service entries); its Flutter AOT strings expose the Ember Bluetooth model names and characteristic helper names such as `characteristicForTargetTemperature`, `characteristicForLED`, `characteristicForPushEvent`, `characteristicForDSK`, and `ManufacturerDataX|get#emberAdvertisementInfoOrNull`.\nAll protocol UUIDs use template fc54XXXX-236c-4c94-8fa9-944a3e5353fa. Standard Mug/Cup/Tumbler service is fc543622. Travel Mug libraries also use fc543621 and fc5421a1 as service UUIDs. BLE SIG company ID is 0x03C1 (961). Home Assistant discovery matches local names `Ember C*` and `Ember T*` with manufacturer_id 961, plus the known service UUIDs.\nPairing/auth: public libraries can connect locally with BLE pairing, but writes may fail until the product has first been set up in the official app. python-ember-mug models DSK (read) and UDSK (read/write, base64-encoded string); its `make_writable()` helper attempts to write a random UDSK if the mug is not writable. Treat UDSK/DSK details as partially understood.\nTemperature values are little-endian uint16 centi-degrees C. Target 0x0000 disables temperature control. python-ember-mug enforces setpoint bounds of 49-63 C or 120-145 F. Liquid level is a raw 0-30-ish value; orlopau notes it may only update on charger and only 0/30 are app-significant. Push event notifications are one-byte event IDs and should prompt clients to re-read the affected characteristic.\nDevice coverage is wider than the original orlopau Ember Mug 2 docs: sopelj/python-ember-mug reports tested Mug, Mug 2, Cup, Tumbler, Travel Mug, and Travel Mug 2 support. No dedicated ESPHome Ember component was found; the Home Assistant integration works through BLE adapters or active ESPHome Bluetooth proxies.\nSchema gaps (device-specs/schema.json intentionally not modified): there is no dedicated field for BLE manufacturer-data format, characteristic endianness, write authentication/pairing caveats, multiple equivalent service UUIDs sharing one characteristic table, or per-field evidence links. These are documented in notes and references. (Enum/value maps and unit/scale, formerly on this list, are now first-class: format fields carry `values`, `unit` and `scale` — see $defs/number_semantics in the schema.)\nHARDWARE, 2026-08-16, the factory reset: held about 15 seconds, LED blue then yellow then red, released at red. It cleared the claim at fc54000f to twenty zero bytes, and reset the target to 5a16 (57.22 C, exactly 135.0 F), the unit to Celsius, the date-time zone byte to 00 and the LED to ffffffff. Firmware, hardware, serial, address and the DSK all read back byte identical, so the reset restores settings and does not touch identity. HARDWARE 2026-08-19, the same reset on the fw-394 unit (triggered accidentally by button holds during a flat-battery recovery): claim to twenty zero bytes, target to 5a16, date-time to zeros, LED to ffffffff, identity intact — all matching — but the unit byte came out 01 Fahrenheit where it had read 00 Celsius before the reset. So the post-reset unit default is NOT universally Celsius; it may be firmware-dependent or region-dependent. Do not use the unit byte to detect a reset — use the UDSK.\nAn unclaimed mug refuses every write with ATT 0x03. Target, LED and mug name were each refused after the reset, having each been written successfully an hour earlier while claimed. So the claiming procedure this file documents, write a UDSK to fc54000f, cannot bootstrap: the write is locked until the mug is claimed. Something else unlocks a fresh mug and no source here says what.\nThis mug also caps its ATT MTU at 23. BlueZ asked 517 and got 23, leaving a twenty byte payload, and it does not answer prepare-write, so no client can write more than twenty bytes to any characteristic on it.\nHARDWARE, 2026-08-16: two statements in this summary did not survive the bench, and each is corrected in place further down. The company ID on this unit is 0xFFFF, not 0x03C1, which is why both Home Assistant discovery patterns named above match it in no state. HARDWARE, 2026-08-19: the company ID is firmware-dependent, not simply wrong — a firmware 394 Mug 2 advertises 0x03C1 (961) in both the idle and the pairing state, and a second mug in the same home advertised 961 as well, so the HA patterns DO match firmware 394 and fail firmware 367. Match on the name and treat the company ID as corroboration. Liquid level does emit intermediate values, off the coaster as well as on it, so orlopau is wrong that only 0 and 30 appear, though right that a client should not read them as a fill fraction.\nTarget 0x0000 disabling temperature control is confirmed, and against a running cycle rather than an idle mug. It also puts the mug into liquid state 3, not 0. See fc540003.\n",
+    "pairing": {
+      "bonding": "optional",
+      "confidence": "high",
+      "enter_pairing_mode": {
+        "indicator": "The base LED changes to the pairing pattern.",
+        "notes": "Only the vendor's claim flow needs this. Ordinary reads do not: on a link BlueZ reported as unpaired, seventeen of the eighteen characteristics on a Mug 2 answered — temperature, target, battery, liquid state, firmware, mug id, LED, all of it.\n",
+        "procedures": [
+          {
+            "basis": "The vendor app's own instructions and python-ember-mug's claim sequence. Not run on the bench, where every session that mattered reached the mug without it.\n",
+            "glyph": "generic/hold-button.svg",
+            "indicator": "Base LED changes to the pairing pattern.",
+            "name": "Hold the button on the base until the LED shows the pairing pattern",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "Hold the button on the base of the mug.",
+                "actor": "user"
+              },
+              {
+                "action": "Release when the LED shows the pairing pattern.",
+                "actor": "user"
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": true
+      },
+      "exclusivity": {
+        "recovery": "Close the Ember app and wait before retrying. Three quick sessions in succession put the mug into a state where it refuses connections outright, reproduced on the bench; it clears on its own.\n",
+        "single_bond": false,
+        "single_connection": true
+      },
+      "notes": "The trap here is not whether pairing is required — it is not — but what happens when a client touches the one characteristic that is protected. Reading the DSK returns an insufficient-authentication error, and BlueZ responds by starting SMP on its own, without the application asking for it. On a host with no pairing agent registered, which is the normal state of a headless Home Assistant box, bluetoothd answers its own confirmation request in the negative, SMP fails with a passkey-entry error and the mug drops the connection. Since reading the DSK is step one of the vendor's unlock sequence, a client that correctly concludes it never needs to pair still gets everything except the characteristic that flow starts from. Note also that completing SMP created a long-term key on this bench even though BlueZ had requested no bonding: a client doing this bonds to the mug whether it meant to or not.\n",
+      "required": false,
+      "security_mode": "just_works"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
@@ -85,7 +122,8 @@
                 "actor": "user",
                 "notes": "HARDWARE (fw-367 unit, 2026-08-16): the Ember app 4.5.9 troubleshooting copy says 12 seconds and 'blinks red', but the bench and Ember's support page agree on ~15 seconds and the blue/yellow/red ladder — red is the LAST of three colours, so watch the LED rather than the clock, and release the instant it turns red. Shorter holds (release on the first colour change) are the harmless connection-refusal recovery; holding to red is the reset — a fw-394 unit was reset exactly this way by accident on 2026-08-19, and its cleared state matched this block.\n"
               }
-            ]
+            ],
+            "verified": true
           }
         ]
       },
@@ -384,6 +422,12 @@
       "description": "Vendor instructions for putting the mug into pairing mode, which is the physical step this spec's setup sequence starts from.",
       "title": "Ember support: how to pair a mug",
       "url": "https://support.ember.com/en-US/ember-mug-how-to-pair-1757457"
+    },
+    {
+      "description": "Vendor manual. Note it gives a shorter hold than the fifteen seconds observed on hardware here — the LED sequence in this spec is the authority.\n",
+      "kind": "manual",
+      "title": "Ember Mug 2 user manual",
+      "url": "https://www.manua.ls/ember/mug-2/manual"
     }
   ],
   "services": [

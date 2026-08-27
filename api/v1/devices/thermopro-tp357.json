@@ -55,6 +55,37 @@
     "manufacturer_status": "active",
     "name": "ThermoPro TP357/TP358/TP359/TP393 Thermometer-Hygrometer",
     "notes": "Battery-powered BLE temperature/humidity sensors that broadcast readings in BLE advertisement manufacturer data — no connection required. Covers the TP35x/TP39x hygrometer family: TP357, TP357S, TP358, TP358S, TP359, TP393 and TP397 (matched by advertised name prefix \"TP35\"/\"TP39\"). TempSpike BBQ probes (TP96x/TP97x, name prefixes \"TP96\"/\"TP97\") are a different advertisement family handled by the same parser library — see the sibling spec thermopro-tempspike-bbq, which also covers the vendor's 1086FFF0 connected GATT protocol for its BBQ line.\nADVERTISEMENT QUIRK — no real company ID, same shape as Inkbird's IBS-TH: the reading starts inside the two bytes that BLE stacks report as the manufacturer company identifier. Byte 0 of the AD content varies per unit (0xC2 in most captures, 0x82 also seen) and byte 1 is the low byte of the temperature, so every distinct temperature surfaces as a distinct \"company id\" (captured keys cluster around 0xF1C2, 0xEEC2, ...). Discovery must key on the advertised local name, never on a fixed company id.\nON-AIR MANUFACTURER DATA (6 bytes for TP357/TP358/TP359/TP393, 7 for TP357S; offsets from the start of the AD structure content):\n  byte 0:     per-unit prefix byte (0xC2 / 0x82 observed)\n  bytes 1-2:  temperature, signed int16 LE, /10.0 °C\n              (proven: 82 f1 00 1d 02 2c -> 0x00F1 = 241 -> 24.1 °C,\n              humidity 0x1D = 29 %, thermopro-ble test_tp357_raw)\n  byte 3:     humidity, uint8, % RH\n  byte 4:     battery level in the low 2 bits: 0 -> 1 %, 1 -> 50 %,\n              2 -> 100 % (verified against a laboratory power supply\n              per the parser comment); upper bits unknown\n  byte 5:     0x2C in TP357/TP393 captures\n  bytes 5-6:  TP357S carries a 2-byte tail instead (0x0B 0x01 observed)\nSentinel: temperature+humidity bytes FF FF FF mark an invalid reading (emitted by TP357S) — drop the packet.\nNAME FORMAT: \"TP357 (2142)\", \"TP357S (3C62)\", \"TP393 (9376)\" — model string, space, then the last two bytes of the device MAC as 4 hex chars in parentheses (pytp357s mac_to_name_suffix). No service UUIDs are advertised in the captured advertisements.\nCONNECTED MODE (TP357S, pytp357s PROTOCOL.md): the S variant exposes a GATT history interface under service 00010203-0405-0607-0809-0a0b0c0d1910 (fixed across units), write char ...2b11, notify char ...2b10. A Nordic DFU service (0xFE59) and an ASCII version characteristic also exist but are not used for data. Session rules and framing are in the services block below; in short: every connection needs an 0xa5 datetime-sync write before history commands are answered, live readings also arrive connected as 0xc2 notifications (c2 00 00 <temp s16 LE x10> <hum u8> <XX>), and history streams as 0xcccc-framed, 0x6666-terminated record triplets (temp x10 s16 LE + humidity), most-recent-first at 1-minute intervals. Record count is a 16-bit LE request field; pasky/tp357 found counts above 28800 (~20 days of minutes) are silently ignored, so that is presumably the buffer size, and a battery pull clears stored history.\nCONNECTED MODE (original TP357, non-S): a DIFFERENT history protocol using opcodes 0xa6/0xa7/0xa8 (year/week/day modes) per pasky/tp357 and tpy357; those opcodes on a TP357S only echo a live reading. Not documented in detail here — see the referenced projects.\nSources (no APK teardown used for this spec): the Bluetooth-Devices/thermopro-ble parser library (copied from Ernst79's bleparser / ble_monitor), whose test suite pins the advertisement layout against raw captured packets (e.g. AD content 82 f1 00 1d 02 2c decodes to 24.1 °C / 29 % / battery-full in test_tp357_raw); giovannipizzi/pytp357s PROTOCOL.md for the TP357S connected mode; pasky/tp357 for the original TP357 connected mode and buffer limits. Confidence: parser-library-derived for advertisements, single-project RE for the connected modes; not re-verified against hardware here.\n",
+    "pairing": {
+      "bonding": "none",
+      "confidence": "high",
+      "enter_pairing_mode": {
+        "indicator": "The Bluetooth icon on the display flashes.",
+        "notes": "Not required for anything this spec documents — the advertisements are there whenever the sensor has power. The button below exists for the vendor app's benefit and is recorded because a user whose app cannot find the sensor will be told to press it, and it is the same button that changes the temperature unit.\n",
+        "procedures": [
+          {
+            "basis": "ThermoPro's TP357 user manuals, which document the same button as both the unit toggle (press) and the pairing-status entry (hold).\n",
+            "glyph": "generic/hold-button.svg",
+            "hold_seconds": 2,
+            "indicator": "The Bluetooth icon on the display starts flashing.",
+            "indicator_glyph": "generic/led-flashing.svg",
+            "name": "Hold the F/C button for two seconds",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "Press and hold the F/C button on the back of the unit for two seconds.",
+                "actor": "user",
+                "expect": "The Bluetooth icon begins flashing, which is the pairing state."
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": false
+      },
+      "notes": "Broadcast-only in normal use, with no bond of any kind: any client that can hear the advertisement can decode it. Connecting is needed only for on-device history on the TP357 and TP357S, and that needs no pairing either — just a per-session datetime-sync write on the TP357S. The passive decode is pinned by captured advertisements in the parser library's test suite and runs in production in Home Assistant.\n",
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "ble",
     "setup": {
       "confidence": "high",
@@ -182,6 +213,12 @@
       "description": "HA core integration passively decoding TP357/TP358/TP393 BLE advertisements.",
       "title": "Home Assistant ThermoPro integration",
       "url": "https://www.home-assistant.io/integrations/thermopro/"
+    },
+    {
+      "description": "Vendor manual for the TP357, including the two-second F/C hold that enters pairing status.\n",
+      "kind": "manual",
+      "title": "ThermoPro TP357 manual",
+      "url": "https://www.manualslib.com/manual/2185218/Thermopro-Tp357.html"
     }
   ],
   "payload_formats": {
