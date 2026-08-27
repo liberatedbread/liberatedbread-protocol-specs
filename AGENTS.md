@@ -133,8 +133,16 @@ helpful_urls:
    `python scripts/validate_specs.py`. A BLE spec must carry a
    `device.pairing` block — "nothing pairs" is the usual answer and saying it
    is the point; see
-   [docs/protocols/pairing.md](docs/protocols/pairing.md). The index picks the spec up on its own
-   once this merges — do not commit `device-specs/index.json`.
+   [docs/protocols/pairing.md](docs/protocols/pairing.md). If the device has
+   more than one `setup.methods` entry, each one needs a `name` and a `role`
+   (`primary` / `alternative` / `variant` / `historical`) and the list is
+   ordered easiest first, with anything defunct last. Every entry is a route
+   the reader CHOOSES: two things they must both do, in order, are one method
+   with `stages`, not two methods. `type` is the mechanism, not a label — two
+   methods on one device routinely share it. See
+   [docs/api/spec-format.md](docs/api/spec-format.md#methods). The index picks
+   the spec up on its own once this merges — do not commit
+   `device-specs/index.json`.
 4. For net-new reverse engineering, follow the per-target clean-room workflow in
    [prompts/AGENT_META_PROMPT.md](prompts/AGENT_META_PROMPT.md).
 

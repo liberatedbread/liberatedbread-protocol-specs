@@ -119,48 +119,61 @@ device:
       After 2026-09-22 the pairing half cannot be performed at all until a
       replacement cloud exists.
     methods:
-      - type: "device_ui"
-        verified: false
-        description: >
-          Join Wi-Fi from the oven's touchscreen (enter SSID/passphrase
-          on-device). No app involvement. The credentials never cross a
-          network.
       - type: "cloud_account"
+        name: "Wi-Fi on the touchscreen, then companion pairing"
+        role: "primary"
         verified: false
         description: >
-          Companion pairing: register a device identity with the cloud, obtain
-          an 8-digit PIN (with Damm check digit), type it on the oven, then
-          complete SRP-6a with INVERTED roles — the companion is the SRP
-          server. See the top-level `pairing` block for the crypto.
-        steps:
-          - action: "Register a companion identity: POST /2/devices/register with a random device_id, a random 32-hex password, and the app's published client_id/client_secret protocol constants."
-            actor: "client"
-            expect: "7-day Bearer token (expires_in 604800). 'Refresh' is re-registering the same device_id; grant_type=refresh_token is rejected with unsupported_grant_type."
-          - action: "Request a pairing code from the cloud and display it for the user."
-            actor: "client"
-            expect: "8-digit PIN; the final digit is a Damm check digit."
-          - action: "Type the PIN on the oven's touchscreen."
-            actor: "user"
-          - action: "Act as the SRP-6a SERVER (RFC 5054 8192-bit group, g=19, SHA-1, I='user', password = the displayed PIN) and POST /2/devices/pairing/{code}/companion with {salt, B, companion_info}, where companion_info is sealed with NaCl secretbox under K = BLAKE2b-256(S)."
-            actor: "client"
-            expect: "Pairing progresses; the oven completes its side of SRP."
-            notes: "Do NOT DELETE the pairing session early — the oven has not finished SRP yet and will emit 10027 PairingSessionInvalidated. Wait for the SECOND 10026 frame carrying oven_info."
-          - action: "Resolve the oven identity: GET /2/devices/{deviceId}/associated."
-            actor: "client"
-            expect: "Response carries the oven_id used in all messaging URLs."
-          - action: "Persist the pairing material (oven_id, device_id, device_name, device password, Ed25519 seed) in the platform keychain, and offer it as an export."
-            actor: "client"
-            notes: "After 2026-09-22 this set cannot be re-minted; an Ed25519 seed the oven already trusts keeps working against any endpoint that can reach the oven."
-        cloud:
-          provider: "June cloud (retires 2026-09-22)"
-          local_alternative: >
-            None known. Pairing exists only inside the vendor cloud: there is
-            no mDNS/SSDP/local HTTP surface and no BLE control surface on
-            stock firmware, so after the shutdown no new companion can be
-            paired at all. An already-paired oven keeps cooking from its own
-            touchscreen; a factory-reset or new oven cannot complete first
-            boot. Recovering remote control means standing up a replacement
-            backend for the recovered endpoints.
+          Two distinct phases, both required. Wi-Fi credentials are typed
+          on the oven's OWN touchscreen — there is no SoftAP, BLE or WPS
+          provisioning path — and pairing a companion then runs through
+          the June cloud with an 8-digit PIN and an SRP-6a exchange. See
+          the top-level `pairing` block for the crypto.
+        stages:
+          - type: "device_ui"
+            name: "Enter Wi-Fi credentials on the oven's touchscreen"
+            verified: false
+            description: >
+              Join Wi-Fi from the oven's touchscreen (enter SSID/passphrase
+              on-device). No app involvement. The credentials never cross a
+              network.
+          - type: "cloud_account"
+            name: "Pair a companion: cloud PIN, then SRP-6a"
+            verified: false
+            description: >
+              Companion pairing: register a device identity with the cloud, obtain
+              an 8-digit PIN (with Damm check digit), type it on the oven, then
+              complete SRP-6a with INVERTED roles — the companion is the SRP
+              server. See the top-level `pairing` block for the crypto.
+            steps:
+              - action: "Register a companion identity: POST /2/devices/register with a random device_id, a random 32-hex password, and the app's published client_id/client_secret protocol constants."
+                actor: "client"
+                expect: "7-day Bearer token (expires_in 604800). 'Refresh' is re-registering the same device_id; grant_type=refresh_token is rejected with unsupported_grant_type."
+              - action: "Request a pairing code from the cloud and display it for the user."
+                actor: "client"
+                expect: "8-digit PIN; the final digit is a Damm check digit."
+              - action: "Type the PIN on the oven's touchscreen."
+                actor: "user"
+              - action: "Act as the SRP-6a SERVER (RFC 5054 8192-bit group, g=19, SHA-1, I='user', password = the displayed PIN) and POST /2/devices/pairing/{code}/companion with {salt, B, companion_info}, where companion_info is sealed with NaCl secretbox under K = BLAKE2b-256(S)."
+                actor: "client"
+                expect: "Pairing progresses; the oven completes its side of SRP."
+                notes: "Do NOT DELETE the pairing session early — the oven has not finished SRP yet and will emit 10027 PairingSessionInvalidated. Wait for the SECOND 10026 frame carrying oven_info."
+              - action: "Resolve the oven identity: GET /2/devices/{deviceId}/associated."
+                actor: "client"
+                expect: "Response carries the oven_id used in all messaging URLs."
+              - action: "Persist the pairing material (oven_id, device_id, device_name, device password, Ed25519 seed) in the platform keychain, and offer it as an export."
+                actor: "client"
+                notes: "After 2026-09-22 this set cannot be re-minted; an Ed25519 seed the oven already trusts keeps working against any endpoint that can reach the oven."
+            cloud:
+              provider: "June cloud (retires 2026-09-22)"
+              local_alternative: >
+                None known. Pairing exists only inside the vendor cloud: there is
+                no mDNS/SSDP/local HTTP surface and no BLE control surface on
+                stock firmware, so after the shutdown no new companion can be
+                paired at all. An already-paired oven keeps cooking from its own
+                touchscreen; a factory-reset or new oven cannot complete first
+                boot. Recovering remote control means standing up a replacement
+                backend for the recovered endpoints.
     factory_reset:
       applicable: true
       confidence: low

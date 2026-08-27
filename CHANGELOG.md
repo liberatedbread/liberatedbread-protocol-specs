@@ -8,6 +8,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`name` and `role` on every setup method, where a device has more than
+  one.** `setup.methods` was described only as "first is preferred", and
+  preference turned out to be too weak a word for what the 25 multi-method
+  specs were putting in it. Three genuine ways to hand one purifier its Wi-Fi
+  credentials sat in the same shape as a flow that applies only to hardware
+  sold before 2019, and as one that has not worked since the cloud was
+  switched off. Rendered as a flat list, every one of those read as *pick one*.
+
+  `role` is now the field that says which kind each entry is — `primary`,
+  `alternative`, `variant`, `historical` — and `name` is what a reader chooses
+  by, because `type` answers "what protocol does it speak" and two methods on
+  one device routinely share it (both Rachio generations are `softap_http`).
+  The schema requires the pair once a spec lists two or more methods.
+
+- **`stages`, for a route that takes more than one phase.** "Plug in the
+  Ethernet" and "press the link button" are both required and happen in that
+  order; listed side by side as sibling methods they read as a choice, and a
+  reader does one of them and stops. Eight routes were shaped that way — the
+  Hue and Lutron bridges, the SmartThings hub, both ovens, the Bravia, the
+  Tuya soil tester and the Mi scale — and each is now a single method carrying
+  its phases in `stages`.
+
+  A stage is a method in miniature and `$ref`s the same definition, so it
+  keeps its own `type`, prose, detail block and steps: folding Hue's two
+  phases together does not lose that the first half is `wired`, or that the
+  second is the half that issues credentials. Stages do not nest, carry no
+  `role`, and a method has `steps` or `stages`, never both.
+
+### Changed
+
+- **Setup methods are ordered for a reader working down the list**, not by
+  when they were written: the recommended route and its alternatives easiest
+  first, then hardware-specific variants, and anything that cannot be
+  completed today last. Easiest means fewest obstacles — no vendor account
+  beats an account, and a replayed flow beats one nobody has run. Reordered
+  where that was wrong: the Denon leads with Ethernet rather than on-screen
+  Wi-Fi entry, the devolo migration route comes before the inclusion flow that
+  died with the cloud, and Rachio leads with the Gen 3 units still being sold.
+  `scripts/test_device_specs.py` enforces the mechanical parts of the rule.
+
+### Fixed
+
+- **mopeka-pro-check-ble: two procedures that were not factory resets.** The
+  block said `applicable: unknown` and `effect: no documented factory reset`
+  and then listed two procedures anyway — waking the sensor with the SYNC
+  button, and re-syncing a display monitor to a different sensor. Neither
+  clears anything on the sensor, and the second one is performed on a
+  different piece of hardware. Both moved to `pairing.enter_pairing_mode`,
+  which until now said `required: false` and nothing else while the
+  procedures a reader needed sat one block up under the wrong heading.
+
 - **Manual links on 177 of 199 device specs.** Every URL verified to resolve
   before it was committed; `scripts/check_links.py` re-checks them, and it
   now reports 822 of 886 links across the whole catalogue resolving, with the

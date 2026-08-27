@@ -165,64 +165,78 @@ device:
       client has to be authorized by the physical link button. Only the second
       step is a protocol flow.
     methods:
-      - type: "wired"
-        verified: false
-        description: >
-          Plug the bridge into the router with Ethernet and power it. It takes
-          a DHCP lease and starts answering mDNS/SSDP; there is no WiFi
-          passphrase to transfer, so there is no setup AP and no credential
-          encryption problem.
-        steps:
-          - action: "Connect the bridge to the LAN over Ethernet and apply power."
-            actor: "user"
-            expect: "All three front LEDs light; the bridge answers _hue._tcp.local."
-            timeout_seconds: 120
       - type: "button_pairing"
+        name: "Ethernet, then the link button"
+        role: "primary"
         verified: false
         description: >
-          The bridge issues an API username (whitelist entry) to any client
-          that asks within roughly 30 seconds of the physical link button being
-          pressed. This is a proximity proof, not an account: no cloud login is
-          involved and the username keeps working after the vendor cloud goes
-          away. commands.create_user is this flow as an executable command —
-          poll it every couple of seconds; error type 101 means keep waiting,
-          not failure.
-        issues_credentials:
-          username:
-            command: "create_user"
-            reply_path: "[0].success.username"
-            notes: >
-              The value every later request's `credential:username` parameter
-              names. Store it keyed by bridgeid, not IP.
-          clientkey:
-            command: "create_user"
-            reply_path: "[0].success.clientkey"
-            request_condition: "generateclientkey: true"
-            notes: >
-              Entertainment DTLS PSK, issued only at create time — a re-pair
-              without generateclientkey never sees it again, which is why
-              create_user sends it unconditionally.
-        steps:
-          - action: "POST /api with a devicetype string to confirm the bridge rejects unauthorized clients."
-            actor: "client"
-            request:
-              protocol: "http"
-              action: "POST /api"
-              arguments:
-                - name: "devicetype"
-                  type: "string"
-                  required: true
-                  description: "application#instance identifier, e.g. opengreeniot#hub."
-            expect: "Error type 101, 'link button not pressed' — proves the bridge is reachable and unpaired."
-          - action: "Press the round link button on the top of the bridge."
-            actor: "user"
-          - action: "Repeat POST /api within the pairing window."
-            actor: "client"
-            request:
-              protocol: "http"
-              action: "POST /api"
-            expect: "success.username — store it; it is the only credential needed for all later control."
-            timeout_seconds: 30
+          Two things have to happen and neither is a choice: the bridge
+          reaches the LAN over Ethernet — it has no Wi-Fi radio and no
+          credential provisioning of its own — and then the client is
+          authorized by a physical button press, which is the only part
+          that is a protocol. A client that stops after the first phase
+          has a bridge it cannot talk to.
+        stages:
+          - type: "wired"
+            name: "Get the bridge onto the LAN"
+            verified: false
+            description: >
+              Plug the bridge into the router with Ethernet and power it. It takes
+              a DHCP lease and starts answering mDNS/SSDP; there is no WiFi
+              passphrase to transfer, so there is no setup AP and no credential
+              encryption problem.
+            steps:
+              - action: "Connect the bridge to the LAN over Ethernet and apply power."
+                actor: "user"
+                expect: "All three front LEDs light; the bridge answers _hue._tcp.local."
+                timeout_seconds: 120
+          - type: "button_pairing"
+            name: "Authorize this client at the link button"
+            verified: false
+            description: >
+              The bridge issues an API username (whitelist entry) to any client
+              that asks within roughly 30 seconds of the physical link button being
+              pressed. This is a proximity proof, not an account: no cloud login is
+              involved and the username keeps working after the vendor cloud goes
+              away. commands.create_user is this flow as an executable command —
+              poll it every couple of seconds; error type 101 means keep waiting,
+              not failure.
+            issues_credentials:
+              username:
+                command: "create_user"
+                reply_path: "[0].success.username"
+                notes: >
+                  The value every later request's `credential:username` parameter
+                  names. Store it keyed by bridgeid, not IP.
+              clientkey:
+                command: "create_user"
+                reply_path: "[0].success.clientkey"
+                request_condition: "generateclientkey: true"
+                notes: >
+                  Entertainment DTLS PSK, issued only at create time — a re-pair
+                  without generateclientkey never sees it again, which is why
+                  create_user sends it unconditionally.
+            steps:
+              - action: "POST /api with a devicetype string to confirm the bridge rejects unauthorized clients."
+                actor: "client"
+                request:
+                  protocol: "http"
+                  action: "POST /api"
+                  arguments:
+                    - name: "devicetype"
+                      type: "string"
+                      required: true
+                      description: "application#instance identifier, e.g. opengreeniot#hub."
+                expect: "Error type 101, 'link button not pressed' — proves the bridge is reachable and unpaired."
+              - action: "Press the round link button on the top of the bridge."
+                actor: "user"
+              - action: "Repeat POST /api within the pairing window."
+                actor: "client"
+                request:
+                  protocol: "http"
+                  action: "POST /api"
+                expect: "success.username — store it; it is the only credential needed for all later control."
+                timeout_seconds: 30
     factory_reset:
       confidence: "medium"
       effect: >
