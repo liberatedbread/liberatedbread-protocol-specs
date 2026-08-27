@@ -88,6 +88,28 @@ def setups(specs: dict[str, dict]):
             yield device_id, setup
 
 
+def phases(method: dict):
+    """Yield the phases of a method: its `stages`, or the method itself.
+
+    A route with more than one phase carries them in `stages`, and everything
+    that reads a method's `type`, `steps` or detail blocks wants the phases
+    rather than the wrapper -- the wrapper's `type` names the route's defining
+    act, and `cloud`, `ble` or `issues_credentials` sit on whichever phase
+    owns them.
+    """
+    return method.get("stages") or [method]
+
+
+def method_phases(setup: dict):
+    """Every phase of every method in a setup block, wrappers flattened."""
+    for method in setup["methods"]:
+        yield from phases(method)
+
+
+def method_types(setup: dict) -> set[str]:
+    return {phase["type"] for phase in method_phases(setup)}
+
+
 def is_reference(spec: dict) -> bool:
     """True for published-protocol references rather than devices.
 
@@ -149,6 +171,114 @@ def test_every_method_states_type_description_and_verified(specs):
             )
 
 
+METHOD_ROLES = {"primary", "alternative", "variant", "historical"}
+
+
+def test_multi_method_setups_label_every_method(specs):
+    """A list of two `type` values does not say which one the reader does.
+
+    `type` is the mechanism -- and two methods on one device routinely share
+    it (both Rachio generations are `softap_http`, both Bravia steps are
+    `device_ui`). What tells them apart is `name`, and what says whether the
+    reader picks one or does both is `role`. The schema requires the pair
+    once a spec lists two or more methods; this checks the values are usable
+    rather than merely present.
+    """
+    for device_id, setup in setups(specs):
+        methods = setup["methods"]
+        if len(methods) < 2:
+            continue
+        seen = set()
+        for method in methods:
+            label = f"{device_id}:{method.get('type', '?')}"
+            name = method.get("name", "")
+            assert name, f"{label}: needs a `name` -- it is the only label a reader has"
+            assert name not in seen, f"{device_id}: two methods both named {name!r}"
+            seen.add(name)
+            assert method.get("role") in METHOD_ROLES, (
+                f"{label}: role {method.get('role')!r} not in {sorted(METHOD_ROLES)}"
+            )
+
+
+def test_setup_methods_are_ordered_for_a_reader(specs):
+    """Order is the instruction, so it has to hold top to bottom.
+
+    Someone reads this list with the device in their hands and picks one
+    entry. That only works if the route to recommend is the first thing they
+    meet and what cannot be done today is the last. Which of two alternatives
+    is "easier" is a judgement the ordering rule states and a test cannot
+    check; these two are mechanical and are the ones that mislead when they
+    are wrong.
+    """
+    for device_id, setup in setups(specs):
+        roles = [m.get("role") for m in setup["methods"]]
+        if len(roles) < 2:
+            continue
+        assert roles.count("primary") <= 1, (
+            f"{device_id}: {roles.count('primary')} methods claim role 'primary' "
+            "-- at most one route can be the one to recommend"
+        )
+        if "primary" in roles:
+            assert roles.index("primary") == 0, (
+                f"{device_id}: the 'primary' method is at index "
+                f"{roles.index('primary')}, behind {roles[:roles.index('primary')]} "
+                "-- the recommended route comes first"
+            )
+        last_live = max(
+            (i for i, r in enumerate(roles) if r != "historical"), default=-1
+        )
+        first_dead = next(
+            (i for i, r in enumerate(roles) if r == "historical"), len(roles)
+        )
+        assert first_dead > last_live, (
+            f"{device_id}: a 'historical' method at index {first_dead} sits "
+            f"above one that still works -- routes that cannot be completed "
+            "today go last, or they get tried first"
+        )
+
+
+def test_a_multi_phase_route_is_one_method_with_stages(specs):
+    """Consecutive phases are not options, and must not be listed as options.
+
+    "Plug in the Ethernet" and "press the link button" are both required and
+    happen in that order; side by side in `methods` they read as a choice, and
+    a reader does one of them. A route with more than one phase is one method
+    carrying `stages`. Each stage keeps its own `type`, so folding the phases
+    together does not lose that the first half of the Hue route is `wired`.
+    """
+    for device_id, setup in setups(specs):
+        for method in setup["methods"]:
+            stages = method.get("stages")
+            if stages is None:
+                continue
+            label = f"{device_id}:{method.get('name', method['type'])}"
+            assert "steps" not in method, (
+                f"{label}: has both `steps` and `stages` -- a route describes "
+                "its flow one way or the other"
+            )
+            assert len(stages) >= 2, (
+                f"{label}: `stages` with {len(stages)} entry -- a single-phase "
+                "route uses `steps`"
+            )
+            seen = set()
+            for stage in stages:
+                name = stage.get("name", "")
+                assert name, f"{label}: a stage has no name"
+                assert name not in seen, f"{label}: two stages named {name!r}"
+                seen.add(name)
+                assert stage.get("type") in METHOD_TYPES, (
+                    f"{label}/{name}: stage type {stage.get('type')!r} is not a "
+                    "known method type"
+                )
+                assert "role" not in stage, (
+                    f"{label}/{name}: a stage has no `role` -- role is about "
+                    "choosing between routes, and there is no choice inside one"
+                )
+                assert "stages" not in stage, (
+                    f"{label}/{name}: stages do not nest"
+                )
+
+
 def test_verified_methods_are_high_confidence(specs):
     """A flow run against hardware cannot be low confidence."""
     for device_id, setup in setups(specs):
@@ -163,7 +293,7 @@ def test_verified_methods_are_high_confidence(specs):
 def test_steps_name_a_valid_actor(specs):
     """`actor` decides what a wizard can automate, so it must be meaningful."""
     for device_id, setup in setups(specs):
-        step_lists = [m.get("steps", []) for m in setup["methods"]]
+        step_lists = [p.get("steps", []) for p in method_phases(setup)]
         step_lists += [
             p.get("steps", [])
             for p in setup["factory_reset"].get("procedures", [])
@@ -183,7 +313,7 @@ def test_devices_that_need_provisioning_document_the_flow(specs):
     for device_id, setup in setups(specs):
         if not setup["required"]:
             continue
-        total = sum(len(m.get("steps", [])) for m in setup["methods"])
+        total = sum(len(p.get("steps", [])) for p in method_phases(setup))
         assert total > 0, (
             f"{device_id}: setup.required is true but no method documents steps"
         )
@@ -192,7 +322,7 @@ def test_devices_that_need_provisioning_document_the_flow(specs):
 def test_no_provisioning_methods_are_consistent_with_required(specs):
     """A device whose only method is 'nothing to do' must not claim required."""
     for device_id, setup in setups(specs):
-        types = {m["type"] for m in setup["methods"]}
+        types = method_types(setup)
         if types <= NO_PROVISIONING_TYPES:
             assert not setup["required"], (
                 f"{device_id}: only no-provisioning methods ({sorted(types)}) "
@@ -207,7 +337,7 @@ def test_ble_devices_use_ble_method_types(specs):
         setup = spec["device"].get("setup")
         if not setup or spec["device"]["protocol"] != "ble":
             continue
-        types = {m["type"] for m in setup["methods"]}
+        types = method_types(setup)
         assert not (types & wifi_only), (
             f"{device_id}: BLE device documents WiFi-only onboarding {types & wifi_only}"
         )
@@ -594,7 +724,7 @@ def test_credentials_declare_passphrase_handling(specs):
         # provisioning (thermopro-tempspike-bbq), lock pairing (nuki-smart-lock).
         # It only implicates a passphrase when the device has WiFi to join.
         if protection == "not_applicable":
-            types = {m["type"] for m in setup["methods"]}
+            types = method_types(setup)
             hands_over_credentials = bool(
                 types & {"softap_http", "softap_soap", "wps", "smartconfig"}
             ) or ("ble_provisioning" in types and spec["device"]["protocol"] == "wifi")
@@ -607,10 +737,10 @@ def test_credentials_declare_passphrase_handling(specs):
 def test_cloud_only_onboarding_records_whether_a_local_path_exists(specs):
     """The whole point of flagging cloud_account is the recoverability answer."""
     for device_id, setup in setups(specs):
-        for method in setup["methods"]:
-            if method["type"] != "cloud_account":
+        for phase in method_phases(setup):
+            if phase["type"] != "cloud_account":
                 continue
-            cloud = method.get("cloud", {})
+            cloud = phase.get("cloud", {})
             assert cloud.get("local_alternative"), (
                 f"{device_id}: cloud_account onboarding must state whether any "
                 "local alternative exists — 'none known' is a valid answer"
@@ -2613,7 +2743,7 @@ def test_issued_credentials_are_named_the_way_their_consumers_spell_them(specs):
         # to, but not the same as, what the commands ask for.
         if consumed & issued:
             continue
-        assert False, (
+        raise AssertionError(
             f"{device_id}: setup issues {sorted(issued)} and commands source "
             f"{sorted(consumed)} — no name is shared, so nothing a pairing "
             "yields can fill a request. The key spelling is the coupling."

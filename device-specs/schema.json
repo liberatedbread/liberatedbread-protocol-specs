@@ -787,6 +787,346 @@
           "description": "Value of the scheme's channel-tag byte for writes to this characteristic (daniao_fragment byte 3): 0 on the command channel; on bulk channels it identifies the buffer type and is chosen per transfer, so a fixed value here only covers the common case."
         }
       }
+    },
+    "setup_method": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "none",
+            "softap_http",
+            "softap_soap",
+            "softap_udp",
+            "softap_mqtt",
+            "ble_provisioning",
+            "ble_direct",
+            "wps",
+            "smartconfig",
+            "wired",
+            "device_ui",
+            "hub_pairing",
+            "button_pairing",
+            "cloud_account"
+          ],
+          "description": "Onboarding model -- the mechanism, not the label. Two methods on the same device routinely share a `type` and are not remotely the same procedure, which is what `name` is for. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 80,
+          "description": "Short label for THIS method, in the reader's terms -- 'Setup AP, current app', 'HOME-button handshake, no account', 'Read the key out of the vendor account'. It is what a person chooses by when a device offers more than one route, and it is the heading a consumer renders. Say what makes this one different from its siblings (which generation, which app, which button, whether an account is involved); do not restate the `type`, which is already machine-readable, and do not write 'Method 2'.",
+          "$comment": "Required once a spec lists two or more methods, enforced by the conditional below. One method needs no label because there is nothing to tell it apart from."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "alternative",
+            "variant",
+            "historical"
+          ],
+          "description": "How this method relates to the others on the device. Every entry in `methods` is a route the reader CHOOSES -- if two entries are things they must both do, in order, they were never two methods and belong in one method's `stages`. 'primary' = the route to recommend, and at most one entry may claim it. 'alternative' = another independent route to the same finished state; the ordering rule puts the easiest first. 'variant' = which one applies is decided by the hardware or firmware the reader owns, not by preference; the entry must say in `description` which units it covers. 'historical' = it cannot be completed today (the cloud it depended on is gone, the app release that spoke it is retired) and is kept only so a reader who finds it referenced elsewhere knows why it fails.",
+          "$comment": "Two roles were tried here and removed: 'follow_on' for a method done after another, and 'prerequisite' for one done before. Both were ordering facts about phases of a single route, and expressing them as sibling methods put 'plug in the Ethernet' and 'press the link button' side by side as though a reader picked one. They are `stages` of one method now, which is where a sequence belongs; what is left in this enum is exactly the set of things someone chooses between."
+        },
+        "description": {
+          "type": "string",
+          "description": "The method in prose: what actually happens, what it needs, and what it leaves behind. For `role: variant` this is where the applicability lives (which generation, which firmware, how to tell which one is in hand). For `role: historical` it is where the reason it stopped working goes."
+        },
+        "softap": {
+          "type": "object",
+          "description": "Details of the temporary access point the device hosts while in setup mode.",
+          "properties": {
+            "ssid_prefix": {
+              "type": "string",
+              "description": "Case-insensitive SSID prefix that identifies the setup AP."
+            },
+            "ssid_examples": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "open_network": {
+              "type": "boolean",
+              "description": "True when the setup AP has no passphrase."
+            },
+            "passphrase_source": {
+              "type": "string",
+              "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')."
+            },
+            "gateway_ip": {
+              "type": "string",
+              "description": "IP the device answers on while hosting the setup AP."
+            },
+            "port": {
+              "type": "integer",
+              "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap/softap_mqtt, UDP for softap_udp."
+            },
+            "credential_encryption": {
+              "type": "object",
+              "description": "How the WiFi passphrase is protected on the wire during provisioning.",
+              "properties": {
+                "algorithm": {
+                  "type": "string"
+                },
+                "padding": {
+                  "type": "string",
+                  "description": "Block cipher padding scheme, e.g. pkcs7."
+                },
+                "key_derivation": {
+                  "type": "string",
+                  "description": "Where the key material comes from (e.g. 'device metadata returned by GetMetaInfo')."
+                },
+                "algorithm_steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The encryption as an ordered, unambiguous procedure. Prose like 'AES-128-CBC with a key derived from device metadata' is not implementable; state the byte-level detail — whether values are UTF-8 or hex-decoded, how many hash rounds, the padding, the output encoding."
+                },
+                "variants": {
+                  "type": "array",
+                  "description": "Alternative key derivations where firmware generations differ. Each entry must say how a client decides it applies.",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "method"
+                    ],
+                    "properties": {
+                      "method": {
+                        "type": "integer"
+                      },
+                      "keydata": {
+                        "type": "string",
+                        "description": "Key material layout for this variant."
+                      },
+                      "add_lengths": {
+                        "type": "boolean"
+                      },
+                      "selector": {
+                        "type": "string",
+                        "description": "How a client decides this variant applies."
+                      }
+                    }
+                  }
+                },
+                "openssl_equivalent": {
+                  "type": "object",
+                  "description": "An equivalent openssl(1) invocation, for implementations without a crypto library — and as a second description of the algorithm that can be checked against the first.",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "password_constraints": {
+                  "type": "object",
+                  "properties": {
+                    "min_length": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "max_length": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "test_vectors": {
+                  "type": "object",
+                  "description": "Known-good values so an implementation can be verified without hardware — the highest-value thing this block can carry. Use a documentation-range MAC and an invented serial so the vectors identify no real device, and add a test asserting they stay reproducible.",
+                  "properties": {
+                    "description": {
+                      "type": "string"
+                    },
+                    "input": {
+                      "type": "object",
+                      "description": "The inputs every vector is derived from.",
+                      "additionalProperties": true
+                    },
+                    "vectors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                },
+                "encoding": {
+                  "type": "string",
+                  "description": "How the ciphertext is encoded before transmission (e.g. base64 plus hex length suffix)."
+                },
+                "notes": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "ble": {
+          "type": "object",
+          "description": "Details of a BLE-based provisioning channel.",
+          "properties": {
+            "advertised_name": {
+              "type": "string",
+              "description": "Name pattern advertised while in setup/pairing mode."
+            },
+            "advertised_name_match": {
+              "type": "string",
+              "enum": [
+                "exact",
+                "prefix"
+              ],
+              "default": "exact",
+              "description": "How `advertised_name` compares against a scan result's local name. Rabbit Air's setup-mode unit advertises exactly 'RabbitAirSetup'; a family that suffixes a serial would say 'prefix'. Stated so a consumer can route a setup-mode device to its provisioning flow from the spec alone rather than hardcoding the name."
+            },
+            "protocol": {
+              "type": "string",
+              "description": "Name of the provisioning protocol (e.g. 'Anki RTS')."
+            },
+            "service_uuid": {
+              "$ref": "#/$defs/uuid"
+            },
+            "write_characteristic": {
+              "$ref": "#/$defs/uuid"
+            },
+            "read_characteristic": {
+              "$ref": "#/$defs/uuid"
+            },
+            "pairing_required": {
+              "type": "boolean",
+              "description": "Whether BLE bonding / a PIN is required before provisioning messages are accepted."
+            },
+            "pin_source": {
+              "type": "string",
+              "description": "Where the pairing PIN comes from (device screen, sticker, fixed default)."
+            }
+          }
+        },
+        "cloud": {
+          "type": "object",
+          "description": "Details of a cloud-account-only onboarding path.",
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "local_alternative": {
+              "type": "string",
+              "description": "Any known way to provision without the vendor cloud, or an explicit statement that none is known."
+            }
+          }
+        },
+        "issues_credentials": {
+          "type": "object",
+          "description": "Machine-readable statement of the credentials this method issues, keyed by the exact name that `source: credential:<name>` parameters refer to -- the key spelling is the coupling, the way `instances.keyed_by` is for `instance:` parameters. This is what lets a consumer run the pairing flow and store what it yields without a per-device credential table: the Hue link-button flow issues `username` (and `clientkey` when asked), and every later request's `credential:username` names the stored value.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "reply_path"
+            ],
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "Named command whose reply carries the value (Hue's `create_user`). Omit when the method has exactly one exchange and it is unambiguous."
+              },
+              "reply_path": {
+                "type": "string",
+                "description": "Dotted path with bracketed indices into that reply: '[0].success.username'."
+              },
+              "request_condition": {
+                "type": "string",
+                "description": "Request argument that must be set for the field to appear at all -- Hue's clientkey exists only when `generateclientkey: true` rode the create request, and only at create time; a re-pair without it never sees the key again."
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "description": "Ordered provisioning steps.",
+          "items": {
+            "$ref": "#/$defs/setup_step"
+          }
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 2,
+          "description": "The ordered phases of THIS route, when it takes more than one and they are different enough that a flat step list hides the shape -- get the bridge onto the LAN, THEN authorize a client at its button; join Wi-Fi on the oven's touchscreen, THEN pair a companion through the cloud. A stage is a method in miniature: it carries its own `type`, its own prose, and whichever detail block belongs to it, so the `wired` half of a route does not lose that it was wired when the route as a whole is named for its pairing step. Use `steps` instead when the route has one phase; a method may not have both.",
+          "$comment": "Stages exist because the alternative was worse in both directions. Left as sibling methods, a two-phase route reads as two options and a reader does one of them. Flattened into a single `steps` list, the phases lose their `type` and their detail blocks collide -- Hue's route would have to be either `wired` or `button_pairing` and could only carry one `issues_credentials`. A stage $refs the method definition so it keeps all of that; it may not nest further and may not carry a `role`, because `role` is about choosing between routes and there is no choice inside one.",
+          "items": {
+            "$ref": "#/$defs/setup_method",
+            "required": [
+              "name"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "stages"
+                  ]
+                },
+                {
+                  "required": [
+                    "role"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "True only when this exact flow has been executed successfully against hardware. Always state it: an absent flag reads as an oversight rather than as 'not yet verified'."
+        },
+        "payload_formats": {
+          "$ref": "#/$defs/payload_formats"
+        },
+        "timing": {
+          "type": "object",
+          "description": "Timing constants a client must honour. Onboarding flows are full of values that look arbitrary but are not (minimum poll timeouts, deliberate duplicate sends); record them rather than leaving the next implementer to rediscover them by failing.",
+          "additionalProperties": true
+        },
+        "troubleshooting": {
+          "type": "array",
+          "description": "Known failure modes and their causes. Onboarding fails for a small number of recurring reasons — wrong band, unsupported security mode, wrong credential variant — and naming them is often the difference between a working implementation and an abandoned one.",
+          "items": {
+            "type": "object",
+            "required": [
+              "symptom"
+            ],
+            "properties": {
+              "symptom": {
+                "type": "string"
+              },
+              "causes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "not": {
+        "required": [
+          "steps",
+          "stages"
+        ]
+      }
     }
   },
   "properties": {
@@ -1908,295 +2248,22 @@
             "methods": {
               "type": "array",
               "minItems": 1,
-              "description": "Ordered onboarding methods to try, first is preferred.",
-              "items": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "none",
-                      "softap_http",
-                      "softap_soap",
-                      "softap_udp",
-                      "softap_mqtt",
-                      "ble_provisioning",
-                      "ble_direct",
-                      "wps",
-                      "smartconfig",
-                      "wired",
-                      "device_ui",
-                      "hub_pairing",
-                      "button_pairing",
-                      "cloud_account"
-                    ],
-                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "softap": {
-                    "type": "object",
-                    "description": "Details of the temporary access point the device hosts while in setup mode.",
-                    "properties": {
-                      "ssid_prefix": {
-                        "type": "string",
-                        "description": "Case-insensitive SSID prefix that identifies the setup AP."
-                      },
-                      "ssid_examples": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "open_network": {
-                        "type": "boolean",
-                        "description": "True when the setup AP has no passphrase."
-                      },
-                      "passphrase_source": {
-                        "type": "string",
-                        "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')."
-                      },
-                      "gateway_ip": {
-                        "type": "string",
-                        "description": "IP the device answers on while hosting the setup AP."
-                      },
-                      "port": {
-                        "type": "integer",
-                        "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap/softap_mqtt, UDP for softap_udp."
-                      },
-                      "credential_encryption": {
-                        "type": "object",
-                        "description": "How the WiFi passphrase is protected on the wire during provisioning.",
-                        "properties": {
-                          "algorithm": {
-                            "type": "string"
-                          },
-                          "padding": {
-                            "type": "string",
-                            "description": "Block cipher padding scheme, e.g. pkcs7."
-                          },
-                          "key_derivation": {
-                            "type": "string",
-                            "description": "Where the key material comes from (e.g. 'device metadata returned by GetMetaInfo')."
-                          },
-                          "algorithm_steps": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            },
-                            "description": "The encryption as an ordered, unambiguous procedure. Prose like 'AES-128-CBC with a key derived from device metadata' is not implementable; state the byte-level detail — whether values are UTF-8 or hex-decoded, how many hash rounds, the padding, the output encoding."
-                          },
-                          "variants": {
-                            "type": "array",
-                            "description": "Alternative key derivations where firmware generations differ. Each entry must say how a client decides it applies.",
-                            "items": {
-                              "type": "object",
-                              "required": [
-                                "method"
-                              ],
-                              "properties": {
-                                "method": {
-                                  "type": "integer"
-                                },
-                                "keydata": {
-                                  "type": "string",
-                                  "description": "Key material layout for this variant."
-                                },
-                                "add_lengths": {
-                                  "type": "boolean"
-                                },
-                                "selector": {
-                                  "type": "string",
-                                  "description": "How a client decides this variant applies."
-                                }
-                              }
-                            }
-                          },
-                          "openssl_equivalent": {
-                            "type": "object",
-                            "description": "An equivalent openssl(1) invocation, for implementations without a crypto library — and as a second description of the algorithm that can be checked against the first.",
-                            "properties": {
-                              "command": {
-                                "type": "string"
-                              },
-                              "notes": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "password_constraints": {
-                            "type": "object",
-                            "properties": {
-                              "min_length": {
-                                "type": "integer",
-                                "minimum": 0
-                              },
-                              "max_length": {
-                                "type": "integer",
-                                "minimum": 1
-                              },
-                              "notes": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "test_vectors": {
-                            "type": "object",
-                            "description": "Known-good values so an implementation can be verified without hardware — the highest-value thing this block can carry. Use a documentation-range MAC and an invented serial so the vectors identify no real device, and add a test asserting they stay reproducible.",
-                            "properties": {
-                              "description": {
-                                "type": "string"
-                              },
-                              "input": {
-                                "type": "object",
-                                "description": "The inputs every vector is derived from.",
-                                "additionalProperties": true
-                              },
-                              "vectors": {
-                                "type": "array",
-                                "items": {
-                                  "type": "object",
-                                  "additionalProperties": true
-                                }
-                              }
-                            }
-                          },
-                          "encoding": {
-                            "type": "string",
-                            "description": "How the ciphertext is encoded before transmission (e.g. base64 plus hex length suffix)."
-                          },
-                          "notes": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "ble": {
-                    "type": "object",
-                    "description": "Details of a BLE-based provisioning channel.",
-                    "properties": {
-                      "advertised_name": {
-                        "type": "string",
-                        "description": "Name pattern advertised while in setup/pairing mode."
-                      },
-                      "advertised_name_match": {
-                        "type": "string",
-                        "enum": [
-                          "exact",
-                          "prefix"
-                        ],
-                        "default": "exact",
-                        "description": "How `advertised_name` compares against a scan result's local name. Rabbit Air's setup-mode unit advertises exactly 'RabbitAirSetup'; a family that suffixes a serial would say 'prefix'. Stated so a consumer can route a setup-mode device to its provisioning flow from the spec alone rather than hardcoding the name."
-                      },
-                      "protocol": {
-                        "type": "string",
-                        "description": "Name of the provisioning protocol (e.g. 'Anki RTS')."
-                      },
-                      "service_uuid": {
-                        "$ref": "#/$defs/uuid"
-                      },
-                      "write_characteristic": {
-                        "$ref": "#/$defs/uuid"
-                      },
-                      "read_characteristic": {
-                        "$ref": "#/$defs/uuid"
-                      },
-                      "pairing_required": {
-                        "type": "boolean",
-                        "description": "Whether BLE bonding / a PIN is required before provisioning messages are accepted."
-                      },
-                      "pin_source": {
-                        "type": "string",
-                        "description": "Where the pairing PIN comes from (device screen, sticker, fixed default)."
-                      }
-                    }
-                  },
-                  "cloud": {
-                    "type": "object",
-                    "description": "Details of a cloud-account-only onboarding path.",
-                    "properties": {
-                      "provider": {
-                        "type": "string"
-                      },
-                      "local_alternative": {
-                        "type": "string",
-                        "description": "Any known way to provision without the vendor cloud, or an explicit statement that none is known."
-                      }
-                    }
-                  },
-                  "issues_credentials": {
-                    "type": "object",
-                    "description": "Machine-readable statement of the credentials this method issues, keyed by the exact name that `source: credential:<name>` parameters refer to -- the key spelling is the coupling, the way `instances.keyed_by` is for `instance:` parameters. This is what lets a consumer run the pairing flow and store what it yields without a per-device credential table: the Hue link-button flow issues `username` (and `clientkey` when asked), and every later request's `credential:username` names the stored value.",
-                    "additionalProperties": {
-                      "type": "object",
-                      "required": [
-                        "reply_path"
-                      ],
-                      "properties": {
-                        "command": {
-                          "type": "string",
-                          "description": "Named command whose reply carries the value (Hue's `create_user`). Omit when the method has exactly one exchange and it is unambiguous."
-                        },
-                        "reply_path": {
-                          "type": "string",
-                          "description": "Dotted path with bracketed indices into that reply: '[0].success.username'."
-                        },
-                        "request_condition": {
-                          "type": "string",
-                          "description": "Request argument that must be set for the field to appear at all -- Hue's clientkey exists only when `generateclientkey: true` rode the create request, and only at create time; a re-pair without it never sees the key again."
-                        },
-                        "notes": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  },
-                  "steps": {
-                    "type": "array",
-                    "description": "Ordered provisioning steps.",
-                    "items": {
-                      "$ref": "#/$defs/setup_step"
-                    }
-                  },
-                  "verified": {
-                    "type": "boolean",
-                    "description": "True only when this exact flow has been executed successfully against hardware. Always state it: an absent flag reads as an oversight rather than as 'not yet verified'."
-                  },
-                  "payload_formats": {
-                    "$ref": "#/$defs/payload_formats"
-                  },
-                  "timing": {
-                    "type": "object",
-                    "description": "Timing constants a client must honour. Onboarding flows are full of values that look arbitrary but are not (minimum poll timeouts, deliberate duplicate sends); record them rather than leaving the next implementer to rediscover them by failing.",
-                    "additionalProperties": true
-                  },
-                  "troubleshooting": {
-                    "type": "array",
-                    "description": "Known failure modes and their causes. Onboarding fails for a small number of recurring reasons — wrong band, unsupported security mode, wrong credential variant — and naming them is often the difference between a working implementation and an abandoned one.",
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "symptom"
-                      ],
-                      "properties": {
-                        "symptom": {
-                          "type": "string"
-                        },
-                        "causes": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    }
-                  }
+              "description": "The routes onto the network that a reader CHOOSES BETWEEN, ordered easiest first: the recommended one (`role: primary`) and its alternatives, then routes selected by which hardware the reader happens to own rather than by preference (`role: variant`), and last anything that no longer works (`role: historical`). Easiest means fewest obstacles for the reader, not fewest packets: no vendor account beats an account, no extra hardware beats a hub or a second radio, and a flow this project has actually run beats one nobody has. Every entry in a list of two or more carries a `name` and a `role`, because a bare list of `type` values cannot say which of them a reader is supposed to do. A route that takes several phases is ONE entry with `stages` -- never several entries.",
+              "if": {
+                "minItems": 2
+              },
+              "then": {
+                "items": {
+                  "required": [
+                    "type",
+                    "name",
+                    "role"
+                  ]
                 }
+              },
+              "$comment": "This list was for a long time described only as `first is preferred`, and preference turned out to be too weak a word for what specs were putting in it. The entries were not all the same kind of thing: some were genuine alternatives (three ways to hand the same device WiFi credentials), some were consecutive phases of one route filed side by side (join WiFi on the touchscreen, THEN pair the app), one was a one-time account binding whose only product was a key the next entry needed, one applied solely to hardware sold before 2019, and one had not worked since the cloud was switched off. Rendered as an undifferentiated list, all of those read as `pick one` -- so a reader picks the defunct one, or does the first half of a route and stops. `role` says which kind each entry is, `stages` holds the routes that have more than one phase, and `name` is what a reader chooses by; `type` answers `what protocol does it speak`, which is a different question and never was a label.",
+              "items": {
+                "$ref": "#/$defs/setup_method"
               }
             },
             "factory_reset": {

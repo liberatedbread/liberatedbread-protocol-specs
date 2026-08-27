@@ -123,6 +123,45 @@ device:
       vendor app at least once.
     methods:
       - type: "softap_http"
+        name: "Gen 3 setup AP: HTTPS JSON under a pinned CA"
+        role: "variant"
+        verified: false
+        description: >
+          Gen 3 flow (current vendor app): the
+          phone joins the unit's setup Wi-Fi, then talks HTTPS JSON to the
+          device — POST https://<deviceMac>/<endpoint> with a custom DNS
+          resolver, a pinned root CA shipped in the app assets
+          (rachioBroker_rootCA.pem) and auth header
+          "x-api-key: <serial uppercase>". Endpoints: info, config, conn,
+          schedule, time, done, remove, fwupdate. The config body carries
+          the home ssid/pass in cleartext JSON (protected only by the pinned
+          TLS session); time carries the epoch. The conn poll exposes the
+          device's connection state machine — WIFI_CONNECTED → DNS_SUCCESS →
+          TLS_CONNECTED → MQTT_CONNECTED → MQTT_SUBSCRIBED → FULLY_CONNECTED
+          — confirming the Gen 3 cloud path is MQTT. App-side provisioning
+          states run CONNECT → SETTINGTIME → CONFIGURING → WAITINGFORWIFI →
+          CHECKING → COMPLETE, with a final POST done.
+        softap:
+          ssid_prefix: "Rachio"
+          ssid_examples: ["Rachio-XXXXXX"]
+          credential_encryption:
+            algorithm: "TLS with a pinned vendor root CA"
+            notes: "Wi-Fi credentials travel as cleartext JSON fields (ssid, pass) inside the pinned-TLS POST body; no application-layer encryption like Gen 2."
+        steps:
+          - action: 'Join the controller''s setup Wi-Fi (SSID "Rachio-XXXXXX", XXXXXX = last 3 MAC bytes uppercase).'
+            actor: "client"
+          - action: "POST https://<deviceMac>/time with the current epoch (JSON, pinned CA, x-api-key header)."
+            actor: "client"
+          - action: "POST https://<deviceMac>/config with the home Wi-Fi ssid and pass as JSON."
+            actor: "client"
+          - action: "Poll https://<deviceMac>/conn until the device reports Wi-Fi then MQTT connected (state machine ending at FULLY_CONNECTED)."
+            actor: "client"
+          - action: "POST https://<deviceMac>/done to end provisioning."
+            actor: "client"
+            notes: "Derived from the vendor app; not replayed on hardware. The pinned CA means third-party clients must extract or replace it to talk to the device. Corroborated on the live LAN 2026-08-25: the provisioned unit serves TCP 443 with a device cert (CN=*-rachio.local) issued by a vendor device CA, and the info/conn/time/fwupdate routes exist there (403 without x-api-key) — config/schedule/done/remove are setup-AP-only (404 on the LAN)."
+      - type: "softap_http"
+        name: "Gen 2 setup AP: Curve25519 secure session"
+        role: "variant"
         verified: false
         description: >
           Gen 2 flow (from an older release of the vendor app; constants
@@ -158,42 +197,9 @@ device:
           - action: "POST /sys/time to sync the epoch."
             actor: "client"
             notes: "Gen 2 verified from the vendor app (an older release's flow, constants re-confirmed in the current app); not replayed on hardware."
-      - type: "softap_http"
-        verified: false
-        description: >
-          Gen 3 flow (current vendor app): the
-          phone joins the unit's setup Wi-Fi, then talks HTTPS JSON to the
-          device — POST https://<deviceMac>/<endpoint> with a custom DNS
-          resolver, a pinned root CA shipped in the app assets
-          (rachioBroker_rootCA.pem) and auth header
-          "x-api-key: <serial uppercase>". Endpoints: info, config, conn,
-          schedule, time, done, remove, fwupdate. The config body carries
-          the home ssid/pass in cleartext JSON (protected only by the pinned
-          TLS session); time carries the epoch. The conn poll exposes the
-          device's connection state machine — WIFI_CONNECTED → DNS_SUCCESS →
-          TLS_CONNECTED → MQTT_CONNECTED → MQTT_SUBSCRIBED → FULLY_CONNECTED
-          — confirming the Gen 3 cloud path is MQTT. App-side provisioning
-          states run CONNECT → SETTINGTIME → CONFIGURING → WAITINGFORWIFI →
-          CHECKING → COMPLETE, with a final POST done.
-        softap:
-          ssid_prefix: "Rachio"
-          ssid_examples: ["Rachio-XXXXXX"]
-          credential_encryption:
-            algorithm: "TLS with a pinned vendor root CA"
-            notes: "Wi-Fi credentials travel as cleartext JSON fields (ssid, pass) inside the pinned-TLS POST body; no application-layer encryption like Gen 2."
-        steps:
-          - action: 'Join the controller''s setup Wi-Fi (SSID "Rachio-XXXXXX", XXXXXX = last 3 MAC bytes uppercase).'
-            actor: "client"
-          - action: "POST https://<deviceMac>/time with the current epoch (JSON, pinned CA, x-api-key header)."
-            actor: "client"
-          - action: "POST https://<deviceMac>/config with the home Wi-Fi ssid and pass as JSON."
-            actor: "client"
-          - action: "Poll https://<deviceMac>/conn until the device reports Wi-Fi then MQTT connected (state machine ending at FULLY_CONNECTED)."
-            actor: "client"
-          - action: "POST https://<deviceMac>/done to end provisioning."
-            actor: "client"
-            notes: "Derived from the vendor app; not replayed on hardware. The pinned CA means third-party clients must extract or replace it to talk to the device. Corroborated on the live LAN 2026-08-25: the provisioned unit serves TCP 443 with a device cert (CN=*-rachio.local) issued by a vendor device CA, and the info/conn/time/fwupdate routes exist there (403 without x-api-key) — config/schedule/done/remove are setup-AP-only (404 on the LAN)."
       - type: "button_pairing"
+        name: "HomeKit pairing with the app's 8-digit code"
+        role: "alternative"
         verified: false
         description: >
           HomeKit pairing using the 8-digit setup code generated and displayed
