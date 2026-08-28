@@ -2748,3 +2748,146 @@ def test_issued_credentials_are_named_the_way_their_consumers_spell_them(specs):
             f"{sorted(consumed)} — no name is shared, so nothing a pairing "
             "yields can fill a request. The key spelling is the coupling."
         )
+
+
+# ---------------------------------------------------------------------------
+# Clean-room: private LAN addresses are placeholders or product facts
+# ---------------------------------------------------------------------------
+#
+# docs/CLEANROOM_RULES.md: an address the researcher's DHCP server happened to
+# assign identifies the researcher's network, teaches nobody anything, and
+# keeps arriving inside otherwise-good verification evidence. The convention
+# is 192.168.1.50 (.51-.53 when one note needs several distinct hosts).
+# Addresses fixed by the PRODUCT — a SoftAP gateway, a captive-portal
+# endpoint, a camera's hardcoded address — are protocol facts and stay.
+#
+# The scrub happened once already and regressed; this is the gate that stops
+# it regressing again. Every RFC1918 address under device-specs/ and docs/
+# must be a placeholder, a known product-fixed address, or declared by the
+# same YAML file in a fixed-address field (gateway_ip / ap_ip /
+# setup_endpoint). research-notes/ is swept by hand for now — it is prose
+# scratch space and earns the same gate once its product-fixed set settles.
+
+PLACEHOLDER_LAN_ADDRESSES = frozenset(
+    {"192.168.1.50", "192.168.1.51", "192.168.1.52", "192.168.1.53"}
+)
+
+# Addresses that are the device's, not the researcher's. Keyed by address so
+# a reviewer can see at a glance why each one is allowed; a new product-fixed
+# address is added here (or declared in a gateway_ip-style field, which
+# allows it in that file without touching this table).
+PRODUCT_FIXED_LAN_ADDRESSES = {
+    "192.168.0.1": "Frigidaire v2.0 cleartext exception target; Particle SoftAP UI",
+    "192.168.1.1": "AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket",
+    "192.168.1.10": "VEVOR VT256 thermal imager's fixed AP address",
+    "192.168.4.1": "ESP-style SoftAP default (SP108E, LED Space, BanlanX…)",
+    "192.168.6.1": "Frigidaire/Electrolux NIU setup endpoint",
+    "192.168.8.1": "Valetudo provisioning AP; June oven's captive-DNS answer",
+    "192.168.10.1": "Rachio Gen 2 / Rabbit Air setup AP gateway",
+    "192.168.42.1": "Parrot Bebop/Anafi family AP",
+    "192.168.60.1": "Dyson setup-AP MQTT broker (non-EC categories)",
+    "192.168.100.1": "OpenGarage device-AP web UI",
+    "192.168.186.2": "iRobot Create 3 over USB-C RNDIS Ethernet",
+    "10.10.100.254": "HF-LPB100 module SoftAP (Mi-Light bridge and kin)",
+    "10.22.22.1": "Wemo setup AP",
+    "172.16.0.1": "LIFX SoftAP gateway",
+    "172.30.1.1": "Enphase Envoy AP-mode gateway",
+}
+
+# YAML keys whose value states an address fixed by the product. An address a
+# spec declares under one of these is allowed anywhere in the same file, so a
+# new SoftAP spec does not need to touch the table above.
+FIXED_ADDRESS_FIELDS = frozenset({"gateway_ip", "ap_ip", "setup_endpoint"})
+
+# The three RFC1918 blocks, as they appear embedded in prose, YAML and JSON.
+# The lookbehind keeps this from matching inside a longer dotted run or a
+# standard's section number (ISO 15765-2 §10.4.2.1 is not an address); the
+# lookahead stops a partial match of a longer final octet.
+RFC1918_ADDRESS_RE = re.compile(
+    r"(?<![\w.§])"
+    r"(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"|192\.168\.\d{1,3}\.\d{1,3})"
+    r"(?!\d)"
+)
+
+
+def _rfc1918_scan_paths():
+    """Every text file the gate reads: specs, the schema, and the docs."""
+    for tree in (REPO_ROOT / "device-specs", REPO_ROOT / "docs"):
+        for path in sorted(tree.rglob("*")):
+            if path.suffix not in {".yaml", ".yml", ".md", ".json"}:
+                continue
+            # Generated on main by CI from specs that already pass this test.
+            if path.name == "index.json":
+                continue
+            yield path
+
+
+def _declared_fixed_addresses(path: Path) -> frozenset:
+    """Addresses this YAML file declares in a fixed-address field."""
+    if path.suffix not in {".yaml", ".yml"}:
+        return frozenset()
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return frozenset()  # validate_specs.py owns reporting parse errors
+
+    found: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in FIXED_ADDRESS_FIELDS and isinstance(value, str):
+                    found.update(RFC1918_ADDRESS_RE.findall(value))
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(doc)
+    return frozenset(found)
+
+
+def test_lan_addresses_are_placeholders_or_product_facts():
+    """No researcher-network address may reach a published file again."""
+    offenders = []
+    for path in _rfc1918_scan_paths():
+        allowed = (
+            PLACEHOLDER_LAN_ADDRESSES
+            | set(PRODUCT_FIXED_LAN_ADDRESSES)
+            | _declared_fixed_addresses(path)
+        )
+        rel = path.relative_to(REPO_ROOT)
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            for match in RFC1918_ADDRESS_RE.finditer(line):
+                address = match.group()
+                if address in allowed:
+                    continue
+                rest = line[match.end():]
+                # Subnet notation (192.168.1.0/24) and broadcast addresses
+                # (192.168.1.255) describe a network, not a host on the
+                # researcher's — both are the shape an implementer needs.
+                # The `.0` requirement keeps `<real host>/24` from slipping
+                # through as if it were a network.
+                if (
+                    address.endswith(".0")
+                    and rest[:1] == "/"
+                    and rest[1:3].rstrip().isdigit()
+                ):
+                    continue
+                if address.endswith(".255"):
+                    continue
+                offenders.append(f"{rel}:{lineno}: {address}")
+
+    assert not offenders, (
+        "researcher-network addresses in published files (see "
+        "docs/CLEANROOM_RULES.md — scrub your own identifiers):\n  "
+        + "\n  ".join(offenders)
+        + "\nUse 192.168.1.50 (.51-.53 for distinct hosts). If the address "
+        "is fixed by the product, declare it in a gateway_ip / ap_ip / "
+        "setup_endpoint field or add it to PRODUCT_FIXED_LAN_ADDRESSES "
+        "with a note saying whose it is."
+    )
