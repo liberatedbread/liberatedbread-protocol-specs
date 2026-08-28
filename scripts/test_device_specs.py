@@ -207,9 +207,10 @@ def test_setup_methods_are_ordered_for_a_reader(specs):
     entry. That only works if the route to recommend is the first thing they
     meet and what cannot be done today is the last. Which of two alternatives
     is "easier" is a judgement the ordering rule states and a test cannot
-    check; these two are mechanical and are the ones that mislead when they
-    are wrong.
+    check; the checks here are mechanical and are the ones that mislead when
+    they are wrong.
     """
+    rank = {"primary": 0, "alternative": 1, "variant": 2, "historical": 3}
     for device_id, setup in setups(specs):
         roles = [m.get("role") for m in setup["methods"]]
         if len(roles) < 2:
@@ -234,6 +235,17 @@ def test_setup_methods_are_ordered_for_a_reader(specs):
             f"{device_id}: a 'historical' method at index {first_dead} sits "
             f"above one that still works -- routes that cannot be completed "
             "today go last, or they get tried first"
+        )
+        # The general form of the two checks above: role rank never goes back
+        # up. The recommended route, then genuine alternatives, then routes
+        # selected by which hardware the reader owns, then what no longer
+        # works -- an alternative BELOW a variant reads as an afterthought
+        # when it is actually the route to prefer.
+        ranked = [rank[r] for r in roles]
+        assert ranked == sorted(ranked), (
+            f"{device_id}: methods are ordered {roles} -- role rank "
+            "(primary, alternative, variant, historical) must be "
+            "non-decreasing top to bottom"
         )
 
 
