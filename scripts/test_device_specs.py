@@ -2792,6 +2792,8 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
     "192.168.0.1": "Frigidaire v2.0 cleartext exception target; Particle SoftAP UI",
     "192.168.1.1": "AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket",
     "192.168.1.10": "VEVOR VT256 thermal imager's fixed AP address",
+    "192.168.1.188": "Dericam/Wanscam-family static factory-default IP",
+    "192.168.1.254": "Novatek dashcam AP default (INNOVV K-series web UI)",
     "192.168.4.1": "ESP-style SoftAP default (SP108E, LED Space, BanlanX…)",
     "192.168.6.1": "Frigidaire/Electrolux NIU setup endpoint",
     "192.168.8.1": "Valetudo provisioning AP; June oven's captive-DNS answer",
@@ -2825,8 +2827,16 @@ RFC1918_ADDRESS_RE = re.compile(
 
 
 def _rfc1918_scan_paths():
-    """Every text file the gate reads: specs, the schema, and the docs."""
-    for tree in (REPO_ROOT / "device-specs", REPO_ROOT / "docs"):
+    """Every text file the gate reads: specs, the schema, the docs — and the
+    research notes, which are where the addresses actually leak. The notes
+    tree is where a hardware session's paste lands first (this repo's own
+    address scrub happened there), so carving it out guarded every tree
+    except the one with the regression history."""
+    for tree in (
+        REPO_ROOT / "device-specs",
+        REPO_ROOT / "docs",
+        REPO_ROOT / "research-notes",
+    ):
         for path in sorted(tree.rglob("*")):
             if path.suffix not in {".yaml", ".yml", ".md", ".json"}:
                 continue

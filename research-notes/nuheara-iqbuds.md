@@ -48,7 +48,7 @@ Whether IQbuds² MAX (BT 5.0) also exposes GAIA-over-BLE needs a live scan.
 ## Local feasibility
 High, via GAIA. No cloud in the device-control path; the app's account/registration
 is optional. Firmware update for gen-1 was USB+desktop utility; OTA manager exists
-in-app for later models (`IQBudsOTAManager`).
+in-app for later models (a dedicated OTA-manager class).
 
 ## Prior art
 - Qualcomm GAIA protocol documentation is public; multiple open-source GAIA host
