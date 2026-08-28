@@ -215,32 +215,24 @@ def test_setup_methods_are_ordered_for_a_reader(specs):
         roles = [m.get("role") for m in setup["methods"]]
         if len(roles) < 2:
             continue
+        # Named before ranked: a missing or misspelled role used to surface
+        # as a bare KeyError with no device in it, aborting the loop so
+        # every spec after the broken one went unchecked.
+        unknown = [r for r in roles if r not in rank]
+        assert not unknown, (
+            f"{device_id}: methods carry role(s) {unknown} -- with two or "
+            f"more methods every one needs a role from {sorted(rank)}, or "
+            "the reading order below cannot be judged"
+        )
         assert roles.count("primary") <= 1, (
             f"{device_id}: {roles.count('primary')} methods claim role 'primary' "
             "-- at most one route can be the one to recommend"
         )
-        if "primary" in roles:
-            assert roles.index("primary") == 0, (
-                f"{device_id}: the 'primary' method is at index "
-                f"{roles.index('primary')}, behind {roles[:roles.index('primary')]} "
-                "-- the recommended route comes first"
-            )
-        last_live = max(
-            (i for i, r in enumerate(roles) if r != "historical"), default=-1
-        )
-        first_dead = next(
-            (i for i, r in enumerate(roles) if r == "historical"), len(roles)
-        )
-        assert first_dead > last_live, (
-            f"{device_id}: a 'historical' method at index {first_dead} sits "
-            f"above one that still works -- routes that cannot be completed "
-            "today go last, or they get tried first"
-        )
-        # The general form of the two checks above: role rank never goes back
-        # up. The recommended route, then genuine alternatives, then routes
-        # selected by which hardware the reader owns, then what no longer
-        # works -- an alternative BELOW a variant reads as an afterthought
-        # when it is actually the route to prefer.
+        # Role rank never goes back up: the recommended route, then genuine
+        # alternatives, then routes selected by which hardware the reader
+        # owns, then what no longer works. This one check IS
+        # primary-comes-first and historical-goes-last — the two used to be
+        # spelled out separately above it, three assertions for one rule.
         ranked = [rank[r] for r in roles]
         assert ranked == sorted(ranked), (
             f"{device_id}: methods are ordered {roles} -- role rank "
@@ -2808,6 +2800,14 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
     "172.30.1.1": "Enphase Envoy AP-mode gateway",
 }
 
+# Two of the product-fixed addresses are ALSO the commonest home-router
+# gateways. In the curated trees the ambiguity resolves by review; in
+# research-notes/ — where a live session's paste lands first — a bare
+# 192.168.1.1 is overwhelmingly the researcher's own gateway, so there the
+# table above does not vouch for them: scrub the address, or declare it in
+# a FIXED_ADDRESS_FIELDS key if the product genuinely fixes it.
+RESEARCHER_GATEWAY_LOOKALIKES = frozenset({"192.168.0.1", "192.168.1.1"})
+
 # YAML keys whose value states an address fixed by the product. An address a
 # spec declares under one of these is allowed anywhere in the same file, so a
 # new SoftAP spec does not need to touch the table above.
@@ -2846,14 +2846,24 @@ def _rfc1918_scan_paths():
             yield path
 
 
-def _declared_fixed_addresses(path: Path) -> frozenset:
+def _declared_fixed_addresses(path: Path, parsed_specs=None) -> frozenset:
     """Addresses this YAML file declares in a fixed-address field."""
     if path.suffix not in {".yaml", ".yml"}:
         return frozenset()
-    try:
-        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError:
-        return frozenset()  # validate_specs.py owns reporting parse errors
+    # The module fixture already parsed every device spec once; re-reading
+    # the whole catalogue here doubled the run's YAML cost for the same
+    # documents. Only files outside the fixture (research-note YAML and kin)
+    # still parse fresh.
+    doc = (
+        parsed_specs.get(path.stem)
+        if parsed_specs is not None and path in SPEC_PATHS
+        else None
+    )
+    if doc is None:
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            return frozenset()  # validate_specs.py owns reporting parse errors
 
     found: set[str] = set()
 
@@ -2871,16 +2881,27 @@ def _declared_fixed_addresses(path: Path) -> frozenset:
     return frozenset(found)
 
 
-def test_lan_addresses_are_placeholders_or_product_facts():
+def test_lan_addresses_are_placeholders_or_product_facts(specs):
     """No researcher-network address may reach a published file again."""
     offenders = []
     for path in _rfc1918_scan_paths():
+        declared = _declared_fixed_addresses(path, specs)
         allowed = (
             PLACEHOLDER_LAN_ADDRESSES
             | set(PRODUCT_FIXED_LAN_ADDRESSES)
-            | _declared_fixed_addresses(path)
+            | declared
         )
         rel = path.relative_to(REPO_ROOT)
+        if rel.parts[0] == "research-notes":
+            # The blanket table stops vouching for the gateway lookalikes
+            # here; a declaration in the file itself still does. A note
+            # pair shares that declaration — garadget.md's SoftAP address
+            # is vouched for by garadget.yaml's ap_ip — so the prose half
+            # does not have to strip a genuine product fact.
+            allowed -= RESEARCHER_GATEWAY_LOOKALIKES - declared
+            sibling = path.with_suffix(".yaml")
+            if path.suffix == ".md" and sibling.exists():
+                allowed |= _declared_fixed_addresses(sibling, specs)
         for lineno, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), start=1
         ):
@@ -2889,18 +2910,22 @@ def test_lan_addresses_are_placeholders_or_product_facts():
                 if address in allowed:
                     continue
                 rest = line[match.end():]
-                # Subnet notation (192.168.1.0/24) and broadcast addresses
-                # (192.168.1.255) describe a network, not a host on the
-                # researcher's — both are the shape an implementer needs.
-                # The `.0` requirement keeps `<real host>/24` from slipping
-                # through as if it were a network.
-                if (
-                    address.endswith(".0")
-                    and rest[:1] == "/"
-                    and rest[1:3].rstrip().isdigit()
-                ):
+                # Subnet notation (192.168.1.0/24) describes a network, not
+                # a host on the researcher's — the shape an implementer
+                # needs. The `.0` requirement keeps `<real host>/24` from
+                # slipping through as if it were a network, and the prefix
+                # match reads one- and two-digit lengths whatever follows
+                # them (`/8,` used to fail the old two-character check).
+                if address.endswith(".0") and re.match(r"/\d{1,2}(?!\d)", rest):
                     continue
-                if address.endswith(".255"):
+                # A `.255` is a broadcast only in its /24-or-wider context;
+                # bare, it is as likely a host in a pasted /16. It passes
+                # when its own line SAYS so — a CIDR alongside, or the word
+                # broadcast — which every genuine use in the tree does.
+                if address.endswith(".255") and (
+                    "broadcast" in line.lower()
+                    or re.search(r"/\d{1,2}(?!\d)", line)
+                ):
                     continue
                 offenders.append(f"{rel}:{lineno}: {address}")
 
