@@ -2766,11 +2766,13 @@ def test_issued_credentials_are_named_the_way_their_consumers_spell_them(specs):
 # endpoint, a camera's hardcoded address — are protocol facts and stay.
 #
 # The scrub happened once already and regressed; this is the gate that stops
-# it regressing again. Every RFC1918 address under device-specs/ and docs/
-# must be a placeholder, a known product-fixed address, or declared by the
-# same YAML file in a fixed-address field (gateway_ip / ap_ip /
-# setup_endpoint). research-notes/ is swept by hand for now — it is prose
-# scratch space and earns the same gate once its product-fixed set settles.
+# it regressing again. Every RFC1918 address under device-specs/, docs/ AND
+# research-notes/ must be a placeholder, a known product-fixed address, or
+# declared by the same YAML file in a fixed-address field (gateway_ip /
+# ap_ip / setup_endpoint). research-notes/ is held to a STRICTER rule than
+# the other two: the common home-gateway lookalikes are not vouched for by
+# the table there (see RESEARCHER_GATEWAY_LOOKALIKES), because that tree is
+# where a live session's paste lands first.
 
 PLACEHOLDER_LAN_ADDRESSES = frozenset(
     {"192.168.1.50", "192.168.1.51", "192.168.1.52", "192.168.1.53"}
