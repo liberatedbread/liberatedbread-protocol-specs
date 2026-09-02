@@ -5,6 +5,20 @@
 > **Manufacturer**: Home Skinovations (Silk'n)
 > **Manufacturer Status**: Active
 
+## Safety
+
+!!! danger "IPL can permanently damage skin and eyes"
+    This is an intense-pulsed-light hair-removal handset (a home-pulsed-light (HPL) handset). Improper use
+    can cause permanent skin burns, blistering, discolouration or scarring, and
+    serious eye injury. Patch-test first, match the intensity to your skin tone
+    (IPL is unsafe on the darkest skin tones), never treat broken, tanned,
+    tattooed or moled skin, and keep it away from the eyes. This project ships an
+    **experimental, unaffiliated** third-party client — the manufacturer's own
+    instructions govern.
+
+- Manufacturer safety guidance: <https://www.manualslib.com/manual/2132171/Home-Skinovations-Silk-N-Infinity.html>
+- Archived copy (web.archive.org), if the page above is offline: <https://web.archive.org/web/20260831005752/https://www.manualslib.com/manual/2132171/Home-Skinovations-Silk-N-Infinity.html>
+
 ## Overview
 
 Home IPL (intense pulsed light) hair-removal devices: the **Infinity** family
@@ -17,7 +31,7 @@ The headline: **the device works fully without the app, and the BLE protocol
 is unauthenticated** — no pairing, no bonding, no challenge, no paywall. The
 app counts flashes via notifications, shows device errors, polls the
 skin-color sensor, and has exactly one write: an opt-in **lock**. The app
-itself is account-centric (a blocking no-network dialog at startup, login
+itself is account-centric (a blocking no-network dialogue at startup, login
 before the main screen), but none of that reaches the hardware — a cloud
 shutdown strands the app, not the device.
 
