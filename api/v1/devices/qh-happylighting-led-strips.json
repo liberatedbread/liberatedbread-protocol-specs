@@ -47,7 +47,7 @@
     "manufacturer": "Shenzhen Qianghe Technology Co., Ltd. (qh-tek.com)",
     "manufacturer_status": "active",
     "name": "Qianghe HappyLighting (Triones/QHM) BLE LED Strip Controller",
-    "notes": "Cheap BLE RGB(W) LED controllers sold under many listings and driven by the vendor \"HappyLighting\" app (Android and iOS). The reference instance documented here is the AliExpress 3256812708626256 4x72-LED USB car interior strip kit (\"LED LAMP\" / \"LED Controller\" inline box; its QR code resolves to the HappyLighting download portal), but the app drives the whole advertised-name family. This is the Triones / HappyLighting / QHM family — NOT Tuya and NOT the ELK-BLEDOM (duoCo) family documented in elk-bledom-led-strip.yaml; the packet formats are unrelated.\nPROTOCOL: short fixed frames, no pairing, no auth, no session. Power on CC 23 33, off CC 24 33. Static color 56 R G B W F0 AA (the W byte is the white channel; the app scales it with brightness on RGBW hardware) with a variant 57 R G B W F0 75. Effect mode BB <mode> <speed> 44. Status query EF 01 77; the app parses the reply payload from byte offsets 3..9 of the notification value. A mic/music sensitivity frame 69 00 00 F0 96 is sent on the ffd5/ffd9 layout.\nGATT LAYOUTS: the app supports two. Legacy units expose service 0xFFE0 with write characteristic 0xFFE1 and notify 0xFFE2. Current app builds send commands on service 0xFFD5, write characteristic 0xFFD9. Which layout a given controller revision uses could not be confirmed without hardware; try 0xFFD5/0xFFD9 first and fall back to 0xFFE0/0xFFE1. The command frames themselves are the same on both.\nDISCOVERY: advertised local names matched by the app are Dream#, Dream~, Dream=, QLAMP, QHM* and Triones~ (name-contains checks, so prefixes Dream/QLAMP/QHM/Triones are the practical match).\nCONFIDENCE: MEDIUM-HIGH for the command frames and both UUID sets — read straight out of the vendor app and corroborated by the community Triones documentation and Home Assistant led_ble. Which layout/name a specific unit uses, and the exact status-reply field semantics, are unverified against hardware.\n",
+    "notes": "Cheap BLE RGB(W) LED controllers sold under many listings and driven by the vendor \"HappyLighting\" app (Android and iOS). The reference instance documented here is the AliExpress 3256812708626256 4x72-LED USB car interior strip kit (\"LED LAMP\" / \"LED Controller\" inline box; its QR code resolves to the HappyLighting download portal), but the app drives the whole advertised-name family. This is the Triones / HappyLighting / QHM family — NOT Tuya and NOT the ELK-BLEDOM (duoCo) family documented in elk-bledom-led-strip.yaml; the packet formats are unrelated.\nPROTOCOL: short fixed frames, no pairing, no auth, no session. Power on CC 23 33, off CC 24 33. Static color 56 R G B 00 F0 AA, where byte 6 is a channel-select flag: 0xF0 selects the RGB channels (the white byte is then inert) and, per the Triones lineage, 0x0F selects the white channel (56 00 00 00 W 0F AA). The vendor app was seen emitting a white value in the RGB frame alongside 0xF0, but that byte does nothing under 0xF0. A 57 R G B 00 F0 75 variant of the RGB frame also exists. Effect mode BB <mode> <speed> 44. Status query EF 01 77; the app parses the reply payload from byte offsets 3..9 of the notification value. A mic/music sensitivity frame 69 00 00 F0 96 is sent on the ffd5/ffd9 layout.\nGATT LAYOUTS: the app supports two. Legacy units expose service 0xFFE0 with write characteristic 0xFFE1 and notify 0xFFE2. Current app builds send commands on service 0xFFD5, write characteristic 0xFFD9. Which layout a given controller revision uses could not be confirmed without hardware; try 0xFFD5/0xFFD9 first and fall back to 0xFFE0/0xFFE1. The command frames themselves are the same on both.\nDISCOVERY: advertised local names matched by the app are Dream#, Dream~, Dream=, QLAMP, QHM* and Triones~ (name-contains checks, so prefixes Dream/QLAMP/QHM/Triones are the practical match).\nCONFIDENCE: MEDIUM-HIGH for the command frames and both UUID sets — read straight out of the vendor app and corroborated by the community Triones documentation and Home Assistant led_ble. Which layout/name a specific unit uses, and the exact status-reply field semantics, are unverified against hardware.\n",
     "pairing": {
       "bonding": "none",
       "confidence": "medium",
@@ -303,7 +303,7 @@
               "verification": "reported"
             },
             "set_static_color": {
-              "description": "Set a static RGB(W) color. Byte 5 (white) is the white channel; the app scales it with brightness on RGBW hardware. Pass 0x00 for white on RGB-only strips.\n",
+              "description": "Set a static RGB color. Byte 6 is the channel-select flag: 0xF0 selects the RGB channels, so the device applies red/green/blue and IGNORES byte 5 (held at 0x00). In the Triones lineage a single 0xF0 frame cannot also set the white channel — the vendor app was seen to place a white value in byte 5 alongside 0xF0, but under this flag that byte is inert (community Triones docs / HA led_ble). Drive the white channel on RGBW hardware with set_white, which sends 0x0F in byte 6.\n",
               "parameters": {
                 "blue": {
                   "max": 255,
@@ -316,12 +316,6 @@
                   "type": "uint8"
                 },
                 "red": {
-                  "max": 255,
-                  "min": 0,
-                  "type": "uint8"
-                },
-                "white": {
-                  "default": 0,
                   "max": 255,
                   "min": 0,
                   "type": "uint8"
@@ -332,14 +326,14 @@
                 "{red}",
                 "{green}",
                 "{blue}",
-                "{white}",
+                0,
                 240,
                 170
               ],
               "verification": "reported"
             },
             "set_static_color_alt": {
-              "description": "Alternate static-color frame emitted on a second app code path (same payload layout, 0x57 opcode, 0x75 trailer). Purpose of the variant is not established; prefer set_static_color.\n",
+              "description": "Alternate static-color frame emitted on a second app code path (same payload layout, 0x57 opcode, 0x75 trailer). Purpose of the variant is not established; prefer set_static_color. Byte 6 is 0xF0 (RGB channel-select), so — as with set_static_color — byte 5 is held at 0x00 and the white channel cannot be set from this frame. No 0x0F (white-select) form of the 0x57 opcode was observed, so this spec does not document a white-mode variant for it.\n",
               "parameters": {
                 "blue": {
                   "max": 255,
@@ -355,12 +349,6 @@
                   "max": 255,
                   "min": 0,
                   "type": "uint8"
-                },
-                "white": {
-                  "default": 0,
-                  "max": 255,
-                  "min": 0,
-                  "type": "uint8"
                 }
               },
               "template": [
@@ -368,11 +356,31 @@
                 "{red}",
                 "{green}",
                 "{blue}",
-                "{white}",
+                0,
                 240,
                 117
               ],
               "verification": "reported"
+            },
+            "set_white": {
+              "description": "Set the white channel on RGBW hardware. Byte 6 is 0x0F, which selects the white channel: the device applies byte 5 (white) and ignores the RGB bytes (held at 0x00). The 0xF0/0x0F channel-select is the community-documented Triones / HA led_ble behavior; this project observed only the 0xF0 (RGB) frame in the vendor app, so the 0x0F white frame is inferred from that lineage and unverified against this hardware.\n",
+              "parameters": {
+                "white": {
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                86,
+                0,
+                0,
+                0,
+                "{white}",
+                15,
+                170
+              ],
+              "verification": "hypothesis"
             }
           },
           "name": "Write",

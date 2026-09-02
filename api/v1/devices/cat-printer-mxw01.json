@@ -115,13 +115,21 @@
   "entities": [
     {
       "name": "Print Feed",
+      "notes": "Reads the `state` field of the 0xA1 get_status frame (payload[0]: 0 standby, 1 printing, 2 feeding paper, 3 ejecting paper). This is what separates it from Battery Level, which reads a different field of the same multiplexed characteristic — select the status frame by cmd_id == 0xA1 (raw offset 2) first. It reports paper-motion state, not a literal open/closed position, and is read-only: no cover-motion commands are documented for this model.\n",
       "platform": "cover",
-      "state_characteristic": "0000ae02-0000-1000-8000-00805f9b34fb"
+      "state_characteristic": "0000ae02-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "state"
+      }
     },
     {
       "name": "Battery Level",
+      "notes": "Reads the `battery_level` field of the SAME 0xA1 get_status frame (payload[3], approximate). Distinguished from Print Feed by field/offset within the one status frame; select the frame by cmd_id == 0xA1 (raw offset 2). No unit is stated — the byte's scale (raw vs percent) is not established across clients. A dedicated 0xAB get_battery_level command returns the same level at its own payload[0] if a discrete poll is preferred.\n",
       "platform": "sensor",
-      "state_characteristic": "0000ae02-0000-1000-8000-00805f9b34fb"
+      "state_characteristic": "0000ae02-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "battery_level"
+      }
     }
   ],
   "features": [
@@ -179,8 +187,58 @@
           "uuid": "0000ae01-0000-1000-8000-00805f9b34fb"
         },
         {
+          "format": [
+            {
+              "length": 1,
+              "name": "cmd_id",
+              "notes": "Response command id. 0xA1 marks the get_status frame the entities below read; other values are different frames on this same channel.",
+              "offset": 2,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "state",
+              "notes": "payload[0]: paper/print motion state.",
+              "offset": 6,
+              "type": "uint8",
+              "values": {
+                "0": "standby",
+                "1": "printing",
+                "2": "feeding paper",
+                "3": "ejecting paper"
+              }
+            },
+            {
+              "length": 1,
+              "name": "battery_level",
+              "notes": "payload[3]: battery level (approximate). The dedicated 0xAB get_battery_level reply carries the same level at its own payload[0].",
+              "offset": 9,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "head_temperature",
+              "notes": "payload[4]: printhead temperature (approximate).",
+              "offset": 10,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "error_flag",
+              "notes": "payload[6]: 0 = OK, non-zero = error.",
+              "offset": 12,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "error_bitmask",
+              "notes": "payload[7]: valid when error_flag != 0 — bit0 (0x01) no paper, bit2 (0x04) overheated, bit3 (0x08) low battery.",
+              "offset": 13,
+              "type": "uint8"
+            }
+          ],
           "name": "Notify (Printer → Client)",
-          "notes": "Command responses (0xA1 status, 0xA9 print accept, 0xAB battery, 0xB0/0xB1 info) and the unsolicited 0xAA print_complete notification. Subscribe before sending commands. Responses may omit the CRC/footer — parse by declared length.\n",
+          "notes": "Command responses (0xA1 status, 0xA9 print accept, 0xAB battery, 0xB0/0xB1 info) and the unsolicited 0xAA print_complete notification. Subscribe before sending commands. Responses may omit the CRC/footer — parse by declared length. The `format` above decodes the 0xA1 status frame; match cmd_id (offset 2) before trusting the other offsets.\n",
           "properties": [
             "notify"
           ],
