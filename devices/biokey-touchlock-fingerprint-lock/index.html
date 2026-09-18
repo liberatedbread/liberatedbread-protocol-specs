@@ -5403,9 +5403,11 @@
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>The TouchLock BT family is a line of Bluetooth Low Energy keyless locks —
 padlocks (XS/XL), a TSA luggage lock, a bike lock and a U-lock — sold by
-BIO-key from about 2017 and now discontinued. Everything about them was
-recovered by decompiling the official Android app (TouchLock BT v2.2.1,
-<code>com.champion.lock</code>, jadx output; sha256 in the spec's <code>sources</code>).</p>
+BIO-key from about 2017 and now discontinued. The protocol was recovered by
+decompiling the official Android app (TouchLock BT v2.2.1,
+<code>com.champion.lock</code>, jadx output; sha256 in the spec's <code>sources</code>), and the
+key parts are now confirmed by an over-the-air capture of that app driving
+a real lock (2026-08-30 — see the spec's <code>evidence</code>).</p>
 <p>Two facts make this family unusually rescue-friendly:</p>
 <ul>
 <li><strong>There is no cloud at all.</strong> No HTTP client, endpoint, account, sync or
@@ -5449,8 +5451,8 @@ this family was found — this spec is the starting point.</p>
 exist and are <strong>not</strong> covered here.</p>
 <h2 id="initial-setup">Initial Setup<a class="headerlink" href="#initial-setup" title="Permanent link">&para;</a></h2>
 <p>There is no network to join — "setup" is BLE enrollment, required before the
-lock will open. Facts below are read from the decompiled app, re-checked
-against the jadx output, and not yet replayed against hardware.</p>
+lock will open. The enrollment exchange below was observed end-to-end in the
+2026-08-30 capture; it has not yet been replayed by a third-party client.</p>
 <table>
 <thead>
 <tr>
@@ -5477,7 +5479,7 @@ against the jadx output, and not yet replayed against hardware.</p>
 </tr>
 <tr>
 <td>Confidence</td>
-<td>medium (decompile-derived, not hardware-run)</td>
+<td>high (enrollment observed on hardware in the capture)</td>
 </tr>
 </tbody>
 </table>
@@ -5485,11 +5487,13 @@ against the jadx output, and not yet replayed against hardware.</p>
 <ol>
 <li>Scan unfiltered; match the name patterns above plus the presence of a
    manufacturer-data status byte.</li>
-<li>Connect, bond (no PIN), discover services, enable notifications on
-   <code>67ac8801-…</code>, wait ~1.2 s.</li>
-<li>If the status byte's registered bit (bit 4) is clear, send
-   <strong>RegisterAdmin (0x80)</strong> with a fresh client-generated 8-byte admin ID
-   and the current time-based password.</li>
+<li>Connect, bond (no PIN — the lock initiates security immediately and no
+   GATT discovery completes before the bond exists), discover services,
+   enable notifications on <code>67ac8801-…</code>, wait ~1.2 s.</li>
+<li>Send <strong>RegisterAdmin (0x80)</strong> with a fresh client-generated 8-byte admin
+   ID and the current time-based password. An already-enrolled lock answers
+   error <code>05</code> — that, not any status-byte bit, is the reliable "already
+   registered" signal.</li>
 <li>Store the admin ID and password locally — they are the only credentials.</li>
 </ol>
 <p><strong>Factory reset</strong>: a BLE command, not a button. <strong>FactoryInit (0x8f)</strong>
@@ -5576,44 +5580,61 @@ needed when every credential is lost.</p>
 </tr>
 </tbody>
 </table>
-<p><strong>Response</strong> (notify, parsed as a hex string):</p>
+<p><strong>Response</strong> (notify): every observed frame is 5 bytes:</p>
 <table>
 <thead>
 <tr>
-<th>Chars</th>
+<th>Byte</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>0–1</td>
+<td>0</td>
 <td>Echoed opcode</td>
 </tr>
 <tr>
-<td>2–3</td>
+<td>1</td>
 <td>Error code: <code>00</code> ok, <code>01</code> invalid command, <code>02</code> checksum, <code>03</code> wrong password, <code>04</code> invalid user ID, <code>05</code> already registered, <code>06</code> user record full, <code>07</code> unbonded device</td>
 </tr>
 <tr>
-<td>4–5</td>
+<td>2</td>
 <td>Status byte</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Frame flag (<code>00</code>/<code>01</code> in the capture; excluded from the checksum)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Checksum — observed responses fit <code>(0x5A − sum(bytes[0..2])) &amp; 0xFF</code></td>
 </tr>
 </tbody>
 </table>
-<p>Status byte: bit 7 = lock state (polarity unconfirmed), bit 4 = registered
-flag, bits 2–0 = battery 0–7. The same byte is broadcast in manufacturer
+<p>Status byte (working model, partially disputed): bit 7 = lock state
+(polarity unconfirmed), bits 2–0 = battery 0–7. The decompile said bit 4 =
+registered flag, but the capture contradicts it: the observed sequence was
+<code>0x13</code> → <code>0x03</code> (bit 4 <em>cleared</em> by a successful RegisterAdmin) → <code>0x01</code>,
+and the low bits dropping 3 → 1 within minutes is suspiciously fast for a
+battery gauge. One controlled lock/unlock with a battery reading will
+settle the layout. The same byte is broadcast in manufacturer
 advertisement data while disconnected — state and battery can be tracked
 passively.</p>
 <p>Opcode table: <code>00</code> OpenLock · <code>01</code> TimeStamp (RTC sync, must precede
-unlock) · <code>80</code> RegisterAdmin · <code>81</code> RemoveUser · <code>82</code> GetUserInfo (unused) ·
-<code>8c</code>/<code>8d</code> change factory password · <code>8f</code> FactoryInit · <code>90</code>/<code>91</code> user
-registration · <code>ad</code> GetMac (unused) · <code>cc</code> FindLock (fixed payload
+unlock) · <code>80</code> RegisterAdmin ✓ · <code>81</code> RemoveUser · <code>82</code> GetUserInfo (unused) ·
+<code>8c</code>/<code>8d</code> change factory password ✓ · <code>8f</code> FactoryInit · <code>90</code>/<code>91</code> user
+registration · <code>ad</code> GetMac ✓ (reply carries the <em>client's</em> own BT address,
+byte-reversed) · <code>cc</code> FindLock (fixed payload
 <code>22 44 66 88 88 66 44 22</code> / <code>11 33 55 77 77 55 33 11</code>) · <code>ff</code> UpdateStatus
-(unsolicited, device→client).</p>
+(unsolicited, device→client, ~1 Hz for the whole connection).
+✓ = observed on the wire in the capture. OpenLock/TimeStamp were never
+observed — the vendor app crashed before sending them.</p>
 <p>The "rolling password" is the current timestamp <code>yy-MM-dd-HH-mm-ss-SSSS</code>
 split into eight two-digit decimal groups, each written as one hex-parsed
-byte. Unlock = send TimeStamp, then OpenLock with the stored password in
-payload A and the new time-based password in payload B; on success the new
-password becomes the stored one.</p>
+byte — capture-confirmed (a RegisterAdmin frame's password bytes equal the
+session's wall-clock time). Unlock = send TimeStamp, then OpenLock with the
+stored password in payload A and the new time-based password in payload B;
+on success the new password becomes the stored one.</p>
 <h2 id="cloud-dependency-home-assistant-guidance">Cloud Dependency &amp; Home Assistant Guidance<a class="headerlink" href="#cloud-dependency-home-assistant-guidance" title="Permanent link">&para;</a></h2>
 <p><strong>None.</strong> No cloud exists, nothing needs a keep-alive, and nothing breaks
 when the vendor disappears. The app itself is archived (see the spec's
@@ -5628,17 +5649,22 @@ when the vendor disappears. The app itself is archived (see the spec's
   connection.</li>
 <li>Track state and battery passively from the advertisement status byte —
   no connection needed. The manufacturer-data company ID is still unknown
-  (needs one capture), so identify adverts by name pattern until then.</li>
-<li>Expect bonding (Just Works, no PIN); the lock appears to reject unbonded
-  writers with error <code>07</code>. The official app deliberately unpairs on
-  disconnect — an integration that keeps a persistent bond is in
-  uncharted-but-plausible territory.</li>
+  (the capture contains no advertising reports), so identify adverts by
+  name pattern until then.</li>
+<li>Bonding is mandatory and confirmed: the lock sends an SMP security
+  request as its first packet, pairing is legacy Just Works (no PIN), and
+  no GATT service discovery completes before the bond exists — a client
+  that never pairs discovers zero services and gets dropped. The lock
+  refuses unbonded writers with error <code>07</code>. The official app deliberately
+  unpairs on disconnect — an integration that keeps a persistent bond is
+  in uncharted-but-plausible territory.</li>
 <li>Honor the app's pacing: ~1.2 s pause after enabling notifications, and
-  always sync the RTC (TimeStamp) before OpenLock.</li>
+  always sync the RTC (TimeStamp) before OpenLock. Once notifications are
+  on, expect an unsolicited <code>ff</code> status frame about once per second.</li>
 </ul>
 <h2 id="tools-used">Tools Used<a class="headerlink" href="#tools-used" title="Permanent link">&para;</a></h2>
 <ul>
-<li>[ ] Wireshark / nRF Connect — no capture exists yet</li>
+<li>[x] Wireshark / tshark — Android HCI snoop of the vendor app driving one lock (2026-08-30)</li>
 <li>[x] jadx decompile of <code>com.champion.lock</code> v2.2.1</li>
 </ul>
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
@@ -5652,6 +5678,7 @@ when the vendor disappears. The app itself is archived (see the spec's
 <h2 id="contributors">Contributors<a class="headerlink" href="#contributors" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Automated research agent — APK acquisition, decompile, initial RE dossier (2026-08)</li>
+<li>Owner capture + analysis — HCI snoop of a vendor-app session; bonding, framing, enrollment and status-notify confirmations (2026-08)</li>
 </ul>
 
 
