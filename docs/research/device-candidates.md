@@ -14,6 +14,15 @@ it stood that day — 69 specs in `device-specs/devices/` and 51 target stubs in
     *why* a device is worth doing survives; the "nobody has done this" half does
     not age.
 
+!!! tip "Newer survey: [Missing Devices (2026-09)](missing-devices.md)"
+
+    A fresh gap survey from 2026-09-23 was checked against the full catalogue of
+    203 specs. It lists what on this page has since been done, carries the rest
+    forward, and adds about 200 candidates this page never looked at, each
+    verified against the repo and against its sources. Start there when you are
+    choosing what to spec next. Use this page for its hardware prices and its
+    reasoning about filters.
+
 This page answers two questions at once:
 
 1. **What should we document next?** Devices whose vendor cloud is dead or dying,
@@ -388,6 +397,15 @@ notification channel is also worth documenting as a pattern. First-party UUIDs
 and encoding means the spec can be written with high confidence and then
 confirmed against $15 hardware.
 
+!!! note "Correction, 2026-09-23: the Mini is a different protocol"
+
+    Only the **Nano** uses the service, COBS and protobuf framing above. The
+    **Mini** has its own BLE service (`910772a8-a5e7-49a7-bc6d-701e9a783a5c`)
+    and sends JSON payloads Base64-encoded, one characteristic per function
+    ([vendor docs](https://developer.anovaculinary.com/docs/devices/mini/overview)).
+    That makes two specs, or one family spec with two clearly separate
+    profiles.
+
 ### Generation 3 — Wi-Fi devices and the Precision Oven
 
 | | |
@@ -403,8 +421,18 @@ expensive item surveyed, and several 1.0 listings report the same
 "temperature runaway" fault — poor value as a verification unit when the same
 WebSocket API can be exercised on a $26 Wi-Fi cooker.
 
+!!! note "Correction, 2026-09-23: this WebSocket is a cloud endpoint"
+
+    The Generation 3 WebSocket is served by Anova's cloud
+    (`wss://devices.anovaculinary.io`, per
+    [bogd/anova-oven-api](https://github.com/bogd/anova-oven-api/blob/main/docs/README.md)),
+    not by the device on the LAN. That puts Generation 3 in
+    [No local path](#no-local-path-cloud-only-architecture) until someone shows
+    a LAN endpoint. The `awgneo/anova-homeassistant` link in the table above no
+    longer resolves.
+
 Worth flagging honestly: a token minted through the vendor app is a cloud
-dependency, even though the transport is local. The spec should say so plainly
+dependency, and here the transport is the cloud as well. The spec should say so plainly
 and record what happens to an already-issued token if the account lapses —
 that is the question a subscription-era owner actually needs answered, and it
 is exactly the kind of thing that goes unrecorded until the answer stops
