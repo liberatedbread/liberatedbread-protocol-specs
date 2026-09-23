@@ -15,6 +15,10 @@
 Two adapters are in scope: Baofeng's own, sold for its cable-programmed
 radios, and TIDRadio's, sold for theirs.
 
+They matter most on iOS. An iPhone app gets no access to a USB-serial adapter
+at all, so for a radio with no Bluetooth of its own, one of these is the only
+way to program it from an iPhone.
+
 ## Known facts (public + observed)
 Thin, deliberately: almost nothing about these is published, and this document
 exists to say so rather than to guess.
@@ -83,7 +87,12 @@ exists to say so rather than to guess.
 ## Control surface inventory (what the replacement app must support)
 Nothing yet. Until step 3 answers, there is no surface to design against.
 If the bridge is transparent, the surface is exactly the radios' own and the
-adapter becomes a transport detail rather than a device.
+adapter becomes a transport detail rather than a device: a byte pipe that
+writes, and reads an exact number of bytes with a timeout — which is all the
+serial protocol in [baofeng-uv5r-family.md](baofeng-uv5r-family.md) asks of
+a cable. Two things a cable does that a bridge may not, worth checking in
+step 3: the paced, byte-at-a-time magic, and the stray 0x06 that precedes
+every read answer after the first.
 
 ## Evidence checklist
 - [ ] Advertisement captured for each adapter
