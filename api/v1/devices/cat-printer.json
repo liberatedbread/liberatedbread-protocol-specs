@@ -206,8 +206,12 @@
     {
       "format": "1bit-bitmap",
       "max_height": 65535,
+      "max_palette_colors": 2,
       "max_width": 384,
       "type": "image_upload"
+    },
+    {
+      "type": "raster_print"
     }
   ],
   "helpful_urls": [
@@ -244,16 +248,317 @@
     }
   ],
   "protocol_handler": "cat_printer",
+  "remaining_unknowns": [
+    "set_energy byte order is declared little-endian on NaitLee's authority (and WerWolv's decompile); rbaron sends big-endian and also prints. Nobody has compared the two on one unit at a fixed darkness, so which the firmware actually reads is unresolved — a threshold value swaps silently rather than failing.",
+    "The 0xBF run-length row (rbaron) is not declared as a command: its payload length varies per row and the parameter vocabulary has no payload-length role, only a whole-packet one.",
+    "None of the command bytes has been run against hardware by this project; every `verification: reported` rests on the open-source clients and captures named in the TX characteristic notes."
+  ],
   "services": [
     {
       "characteristics": [
         {
+          "commands": {
+            "apply_energy": {
+              "description": "0xBE with payload 0x01 — commit the energy set by set_energy (step 6). The payload byte is 0x01, not 0x00 (NaitLee commander.py).",
+              "value": [
+                81,
+                120,
+                190,
+                0,
+                1,
+                0,
+                1,
+                7,
+                255
+              ],
+              "verification": "reported"
+            },
+            "draw_bitmap": {
+              "description": "0xA2 — one 384-pixel row, 48 bytes, 1 = black, sent AFTER bit-reversing each byte (MSB<->LSB): `row` is the wire bytes, so the caller reverses. One row per frame (length byte 0x30) is what NaitLee sends; the frame format allows up to 255 payload bytes and rbaron packs several rows per write, which this template does not express. Wait on a pause notification from 0xAE02 before the next row (step 9). On problem_feeding models (MX05-MX10) 128 blank rows through this command replace feed_paper.\n",
+              "parameters": {
+                "crc": {
+                  "auto": "crc8",
+                  "checksum_start": 6,
+                  "description": "CRC-8 (poly 0x07) over the 48 row bytes; encoder-filled.",
+                  "type": "uint8"
+                },
+                "row": {
+                  "description": "48 bytes = 384 pixels, each byte already bit-reversed, 1 = black.",
+                  "max_length": 48,
+                  "min_length": 48,
+                  "type": "bytes"
+                }
+              },
+              "template": [
+                81,
+                120,
+                162,
+                0,
+                48,
+                0,
+                "{row}",
+                "{crc}",
+                255
+              ],
+              "verification": "reported"
+            },
+            "end_lattice": {
+              "description": "0xA6 with the fixed 11-byte end marker AA 55 17 00 00 00 00 00 00 00 17 — closes the print area (step 10).",
+              "value": [
+                81,
+                120,
+                166,
+                0,
+                11,
+                0,
+                170,
+                85,
+                23,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                23,
+                17,
+                255
+              ],
+              "verification": "reported"
+            },
+            "feed_paper": {
+              "description": "0xA1 — feed the paper forward by a uint16 LITTLE-endian count of pixel rows (step 11 sends 128 after set_speed 8). Misbehaves on problem_feeding models; use blank draw_bitmap rows there.",
+              "parameters": {
+                "crc": {
+                  "auto": "crc8",
+                  "checksum_start": 6,
+                  "description": "CRC-8 (poly 0x07) over the two count bytes; encoder-filled.",
+                  "type": "uint8"
+                },
+                "rows": {
+                  "default": 128,
+                  "description": "Pixel rows to feed; 128 is the post-print value in the reference sequence.",
+                  "endianness": "little",
+                  "max": 65535,
+                  "min": 0,
+                  "type": "uint16"
+                }
+              },
+              "template": [
+                81,
+                120,
+                161,
+                0,
+                2,
+                0,
+                "{rows}",
+                "{crc}",
+                255
+              ],
+              "verification": "reported"
+            },
+            "get_device_info": {
+              "description": "0xA8 with payload 0x00 — device info query; reply arrives on 0xAE02 (lisp3r capture 51 78 a8 00 01 00 00 00 ff).",
+              "value": [
+                81,
+                120,
+                168,
+                0,
+                1,
+                0,
+                0,
+                0,
+                255
+              ],
+              "verification": "reported"
+            },
+            "get_device_state": {
+              "description": "0xA3 with payload 0x00 — refresh device state / apply config; step 1 and step 12 of the printing sequence. NaitLee's start_printing sends this identical frame (step 2), so one command serves both; lisp3r's GT01 capture shows the same bytes on the wire.\n",
+              "value": [
+                81,
+                120,
+                163,
+                0,
+                1,
+                0,
+                0,
+                0,
+                255
+              ],
+              "verification": "reported"
+            },
+            "retract_paper": {
+              "description": "0xA0 — retract the paper by a uint16 LITTLE-endian count of pixel rows.",
+              "parameters": {
+                "crc": {
+                  "auto": "crc8",
+                  "checksum_start": 6,
+                  "description": "CRC-8 (poly 0x07) over the two count bytes; encoder-filled.",
+                  "type": "uint8"
+                },
+                "rows": {
+                  "default": 0,
+                  "description": "Pixel rows to retract.",
+                  "endianness": "little",
+                  "max": 65535,
+                  "min": 0,
+                  "type": "uint16"
+                }
+              },
+              "template": [
+                81,
+                120,
+                160,
+                0,
+                2,
+                0,
+                "{rows}",
+                "{crc}",
+                255
+              ],
+              "verification": "reported"
+            },
+            "set_dpi_as_200": {
+              "description": "0xA4 with the fixed value 50 (0x32) — step 3 of the printing sequence. Purpose beyond 'set 200 dpi' unknown; every client sends exactly this.",
+              "value": [
+                81,
+                120,
+                164,
+                0,
+                1,
+                0,
+                50,
+                158,
+                255
+              ],
+              "verification": "reported"
+            },
+            "set_energy": {
+              "description": "0xAF — thermal energy (darkness) as a uint16, 0x0000-0xFFFF, LITTLE-endian as NaitLee sends it (int_to_bytes low byte first; WerWolv's decompile of the vendor app shows low byte first too). rbaron sends the two bytes big-endian and reports it works — energy is a threshold, so a swapped value is merely a different darkness, not an error. The device-side default is about 0x3000; NaitLee's CLI defaults to 0x4000 for images and 0x6000 for text. Step 5 of the sequence; follow with apply_energy.\n",
+              "parameters": {
+                "crc": {
+                  "auto": "crc8",
+                  "checksum_start": 6,
+                  "description": "CRC-8 (poly 0x07) over the two energy bytes; encoder-filled.",
+                  "type": "uint8"
+                },
+                "energy": {
+                  "default": 12288,
+                  "description": "Thermal energy, 0-65535; 12288 (0x3000) is the device default, higher is darker.",
+                  "endianness": "little",
+                  "max": 65535,
+                  "min": 0,
+                  "type": "uint16"
+                }
+              },
+              "template": [
+                81,
+                120,
+                175,
+                0,
+                2,
+                0,
+                "{energy}",
+                "{crc}",
+                255
+              ],
+              "verification": "reported"
+            },
+            "set_speed": {
+              "description": "0xBD — feed/retract speed, ONE byte, lower = faster. Default 32 for printing (step 4); the sequence's finish sends 8 before feed_paper. Values below 4 stall the feed on NaitLee's unit. Speed also affects print quality (heat time).\n",
+              "parameters": {
+                "crc": {
+                  "auto": "crc8",
+                  "checksum_start": 6,
+                  "description": "CRC-8 (poly 0x07) over the payload byte; encoder-filled.",
+                  "type": "uint8"
+                },
+                "speed": {
+                  "default": 32,
+                  "description": "Feed speed byte; lower is quicker. 32 is the print default, 8 the post-print feed value.",
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                81,
+                120,
+                189,
+                0,
+                1,
+                0,
+                "{speed}",
+                "{crc}",
+                255
+              ],
+              "verification": "reported"
+            },
+            "start_lattice": {
+              "description": "0xA6 with the fixed 11-byte start marker AA 55 17 38 44 5F 5F 5F 44 38 2C — opens the print area (step 8).",
+              "value": [
+                81,
+                120,
+                166,
+                0,
+                11,
+                0,
+                170,
+                85,
+                23,
+                56,
+                68,
+                95,
+                95,
+                95,
+                68,
+                56,
+                44,
+                161,
+                255
+              ],
+              "verification": "reported"
+            },
+            "start_printing_new": {
+              "description": "The is_new_kind (GB03) start-printing frame: a single 0x12 byte prefixed to the get_device_state frame. Send instead of the plain frame at step 2 on models flagged is_new_kind.\n",
+              "value": [
+                18,
+                81,
+                120,
+                163,
+                0,
+                1,
+                0,
+                0,
+                0,
+                255
+              ],
+              "verification": "reported"
+            },
+            "update_device": {
+              "description": "0xA9 with payload 0x00 — apply the configuration sent so far (step 7).",
+              "value": [
+                81,
+                120,
+                169,
+                0,
+                1,
+                0,
+                0,
+                0,
+                255
+              ],
+              "verification": "reported"
+            }
+          },
           "name": "TX (Client → Printer)",
-          "notes": "Write channel for commands and bitmap data. Bitmap rows are 48 bytes (384 pixels / 8) with bits reversed before transmission.\n",
+          "notes": "Write channel for commands and bitmap data. Bitmap rows are 48 bytes (384 pixels / 8) with bits reversed before transmission. Every command below is one complete frame, [0x51 0x78 cmd 0x00 len 0x00][payload][crc8][0xFF], with the CRC-8 (poly 0x07, init 0x00, no reflection — `auto: crc8` over the payload, `checksum_start: 6`) already in the bytes: the fixed-payload commands carry it precomputed in `value`, the parameterised ones compute it. Byte values are transcribed from NaitLee/Cat-Printer (printer_lib/commander.py) and cross-checked against rbaron/catprinter and lisp3r's GT01 captures — `reported`, not run by this project. The printing sequence in device.notes names these commands in order; honour the pause/resume notifications on 0xAE02 between draw_bitmap writes. Not declared as a command: the 0xBF RLE row (rbaron), whose payload length varies per row and so needs a payload-length role the parameter vocabulary does not have — fall back to draw_bitmap.\n",
           "properties": [
             "write",
             "write_without_response"
           ],
+          "role": "command",
           "uuid": "0000ae01-0000-1000-8000-00805f9b34fb"
         },
         {
@@ -262,6 +567,7 @@
           "properties": [
             "notify"
           ],
+          "role": "notify",
           "uuid": "0000ae02-0000-1000-8000-00805f9b34fb"
         }
       ],

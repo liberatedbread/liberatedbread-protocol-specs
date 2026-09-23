@@ -1,13 +1,34 @@
 {
   "device": {
     "category": "wearable",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "exact",
+              "values": [
+                "BT-912",
+                "BT-712"
+              ]
+            }
+          },
+          "notes": "The vendor app applies no scan filter of any kind -- no name, no service UUID -- it lists everything and the user picks; a paired controller is re-found by its stored address. \"BT-912\" and \"BT-712\" are the advertised device names the app reads back after a scan to colour its UI, i.e. the generic BLE module's model number, so any product built on the same module advertises one of them. Whether 0xFFB0 appears in the advertisement or only in the GATT table after connect is not established.\n",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
     "identification": {
-      "advertisement_names": [
+      "local_names": [
         "BT-912",
         "BT-712"
-      ],
-      "service_uuids": [
-        "0000ffb0-0000-1000-8000-00805f9b34fb"
       ]
     },
     "manufacturer": "Comoto Holdings, Inc. (HOTWIRED brand)",
@@ -119,7 +140,9 @@
       "temp_step": 1
     },
     {
+      "device_class": "battery",
       "name": "Battery Level",
+      "notes": "Binds the gauge bits of the CC status report's battery byte (the field's `mask` strips the present flag) and maps steps 0-4 to a nominal percent. AA echoes are excluded by the characteristic's `format_match`.\n",
       "platform": "sensor",
       "state_characteristic": "0000ffb2-0000-1000-8000-00805f9b34fb",
       "state_mapping": {
@@ -127,16 +150,21 @@
         "1": 25,
         "2": 50,
         "3": 75,
-        "4": 100
+        "4": 100,
+        "value": "battery_status"
       },
       "unit": "%",
       "value_template": "{{ value[3:4] | int(base=16) | binary }}"
     },
     {
+      "device_class": "temperature",
       "name": "Internal Temperature",
-      "notes": "Scale and offset unconfirmed — requires bench testing",
+      "notes": "Scale and offset unconfirmed — requires bench testing. The field is declared as whole degrees C as a hypothesis; see the format block. AA echoes are excluded by the characteristic's `format_match`.\n",
       "platform": "sensor",
       "state_characteristic": "0000ffb2-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "internal_temp_raw"
+      },
       "unit": "C",
       "value_template": "{{ value[4:5] | int(base=16) }}"
     }
@@ -262,6 +290,10 @@
       "write_retry_ms": 3000
     }
   },
+  "remaining_unknowns": [
+    "Which values of the battery byte's upper nibble mean \"charging\" as opposed to merely \"present\".\n",
+    "The internal temperature byte's unit and scale are a hypothesis (the app never displays it); bench-test against a thermometer before trusting the reading.\n"
+  ],
   "services": [
     {
       "characteristics": [
@@ -311,8 +343,76 @@
           "uuid": "0000ffb1-0000-1000-8000-00805f9b34fb"
         },
         {
+          "format": [
+            {
+              "length": 1,
+              "name": "frame_type",
+              "notes": "Only the status report is laid out below.",
+              "offset": 0,
+              "type": "uint8",
+              "values": {
+                "170": "command_echo",
+                "204": "status_report"
+              }
+            },
+            {
+              "length": 1,
+              "name": "power_state",
+              "offset": 1,
+              "type": "uint8",
+              "values": {
+                "0": "off",
+                "1": "on"
+              }
+            },
+            {
+              "length": 1,
+              "name": "heat_level",
+              "notes": "0-10, the current heat step.",
+              "offset": 2,
+              "type": "uint8"
+            },
+            {
+              "device_class": "battery",
+              "length": 1,
+              "mask": 7,
+              "name": "battery_status",
+              "notes": "The low three bits of a packed byte: a five-step gauge, 0 = empty, 1 = 25 %, 2 = 50 %, 3 = 75 %, 4 = 100 %. The upper nibble (battery_present below) is a battery-present / charger flag, so the raw byte 0x14 reads \"present, full\".\n",
+              "offset": 3,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 240,
+              "name": "battery_present",
+              "notes": "Upper nibble of the battery byte: 0 = no battery shown, non-zero = present. The app treats it as a flag; which values mean \"charging\" is not established.\n",
+              "offset": 3,
+              "type": "uint8"
+            },
+            {
+              "device_class": "temperature",
+              "length": 1,
+              "name": "internal_temp_raw",
+              "notes": "Device internal temperature. The app never displays it, so the unit and scale are inferred (0x20 = 32 reads plausibly as whole degrees C) — hypothesis until bench-tested.\n",
+              "offset": 4,
+              "type": "uint8",
+              "unit": "C"
+            },
+            {
+              "length": 1,
+              "name": "control_state",
+              "notes": "Unused by the app; meaning unknown.",
+              "offset": 5,
+              "type": "uint8"
+            }
+          ],
+          "format_match": {
+            "notes": "CC = status report. AA = echo of the last write, not decoded.",
+            "offset": 0,
+            "value": 204
+          },
           "name": "Status Notify",
-          "notes": "Notifications provide two response types: Type 1 (AA prefix): Command echo acknowledgment. Type 2 (CC prefix): Status report with battery/temperature. CC format: CC <STATUS> <TEMPS> <BATTERY> <TEMP> <CONTROL>. Enable notifications via CCCD 00002902-0000-1000-8000-00805f9b34fb. Connection order in the stock app: it issues readCharacteristic on ffb2 during service discovery BEFORE enabling notifications (per the app's BLE service). Also check fallback: 0000fee1-0000-1000-8000-00805f9b34fb.\n",
+          "notes": "Notifications provide two response types: Type 1 (AA prefix): Command echo acknowledgment. Type 2 (CC prefix): Status report with battery/temperature. CC format: CC <STATUS> <TEMPS> <BATTERY> <TEMP> <CONTROL>. Enable notifications via CCCD 00002902-0000-1000-8000-00805f9b34fb. Connection order in the stock app: it issues readCharacteristic on ffb2 during service discovery BEFORE enabling notifications (per the app's BLE service). Also check fallback: 0000fee1-0000-1000-8000-00805f9b34fb. FRAME SELECTION: `format` describes the CC status report only, and `format_match` says so: an AA-prefixed notification is the echo of the last write and its bytes mean something else. Offsets are from the app's status parser (six bytes, one field each); the app decodes the battery byte as two bit groups and reads nothing from the temperature byte, so the temperature scaling is a hypothesis. Nothing here has been read back from hardware by this project.\n",
           "properties": [
             "read",
             "notify"

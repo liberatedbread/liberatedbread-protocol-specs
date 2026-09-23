@@ -1,5 +1,27 @@
 {
   "commands": {
+    "get_all_conf": {
+      "body": "{\"Command\": \"Channel/GetAllConf\"}",
+      "description": "Read every panel setting in one call: Channel/GetAllConf (documented for /post; answered by firmware 90104 and later). The reply is a flat object -- LightSwitch (1 = screen on), Brightness (0-100), RotationFlag, ClockTime, GalleryTime, CurClockId, Time24Flag, TemperatureMode, GyrateAngle, MirrorFlag -- with error_code 0 on success. The Pixel Display entity's state read. The app also knows a `Channel/GetOnOff` command name, but that string appears only in its cloud-routed command table and is not in Divoom's local API documentation, so it is not declared here.",
+      "example_body": "{\"Command\": \"Channel/GetAllConf\"}",
+      "method": "POST",
+      "path": "/post",
+      "returns": [
+        {
+          "description": "1 when the screen is on, 0 when blanked by Channel/OnOffScreen.",
+          "name": "LightSwitch",
+          "type": "integer"
+        },
+        {
+          "description": "System brightness 0-100.",
+          "name": "Brightness",
+          "type": "integer",
+          "unit": "%"
+        }
+      ],
+      "transport": "http",
+      "verification": "reported"
+    },
     "screen_off": {
       "body": "{\"Command\": \"Channel/OnOffScreen\", \"OnOff\": 0}",
       "description": "Blank the panel's display. The device stays on the network and keeps answering the API.",
@@ -37,18 +59,56 @@
   "device": {
     "category": "display",
     "discovery": {
-      "none": "No local discovery protocol exists -- no UDP broadcast, no mDNS, no BLE advertisement. Established by static analysis of the vendor app, which gets a device's LAN address from Divoom's cloud device-list API and only then talks to port 9000 directly. A consumer without the cloud has to be given the address, or find the device by probing port 9000 across the subnet.\n"
+      "identity": {
+        "display": "local_name",
+        "notes": "The Bluetooth address is only seen during setup. After provisioning the display is addressed by the LAN IP and DeviceId the cloud device-list returns; neither is visible to a scanner.\n",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "values": [
+                "Pixoo16-WiFi",
+                "Pixoo16WiFi",
+                "Pixoo64",
+                "Di-Da"
+              ]
+            }
+          },
+          "notes": "Setup-time advertisement only. The Pixoo advertises these names over Bluetooth while it is being provisioned onto Wi-Fi -- the vendor app's Bluetooth scanner filters on exactly this prefix list, and Divoom's own setup guide says the Pixoo-64 II uses Bluetooth for initial setup. Once the display is on Wi-Fi there is no local discovery of any kind -- no UDP broadcast, no mDNS -- and the vendor app learns the LAN address from Divoom's cloud device-list API before talking to port 9000 directly. A consumer without the cloud has to be given the address, or find the display by probing port 9000 across the subnet.\n",
+          "type": "ble_scan"
+        },
+        {
+          "ble": {
+            "local_name": {
+              "match": "contains",
+              "value": "PixooLCDWIFI"
+            }
+          },
+          "notes": "The five-panel LCD model, matched by substring because the app does (its constant is a startsWith on the model token inside a longer name). Same setup-time-only caveat as above.\n",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
     },
     "identification": {
-      "local_name_contains": [
-        "PixooLCDWIFI"
+      "default_port": 80,
+      "local_name_prefixes": [
+        "Pixoo16-WiFi",
+        "Pixoo16WiFi",
+        "Pixoo64",
+        "Di-Da"
       ],
-      "local_name_prefix": "Pixoo16-WiFi,Pixoo16WiFi,Pixoo64,Di-Da"
+      "notes": "The name prefixes are the vendor app's Bluetooth-scan constants for the Wi-Fi Pixoo models (Pixoo16-WiFi / Pixoo16WiFi for the 16x16, Pixoo64 / Di-Da for the 64x64); the LCD-panel model advertises a name containing \"PixooLCDWIFI\", which is a substring rather than a prefix and so lives only in the discovery matcher. Port 80 carries Divoom's documented local API that the commands below use; port 9000 is the app's token-gated channel, and either open port is a LAN-side fact a consumer can probe for.\n"
     },
     "manufacturer": "Divoom",
     "manufacturer_status": "active",
     "name": "Divoom Pixoo WiFi",
-    "notes": "WiFi-connected RGB LED pixel-matrix display. Displays static images, animations (GIF-like), scrolling text, clock faces, EQ visualizer, and cloud gallery content. Cloud-mediated device discovery: the device registers itself with Divoom's servers; the app fetches the device IP from the cloud API, then communicates locally via HTTP on port 9000.\nPIXEL ENCODING: Multiple encoding types identified by a leading type byte (see pixel_encodings section). 16x16 uses raw or AES-128-CBC (hardcoded key — obfuscation, not compression). 64x64 uses per-frame LZO (type 25), NDK PixelEncode64 (type 26) or ZSTD (type 37); 128x128 uses NDK PixelEncode128 — the NDK algorithm lives in a bundled native library, not in the app's Java.\nCOMMUNICATION: Three channels in priority order:\n  1. Local HTTP (same LAN) → POST http://<ip>:9000/divoom_api\n  2. MQTT (same LAN, fallback) → the PHONE hosts the broker: the app embeds an MQTT server plus a paho client to tcp://127.0.0.1:1883, and the device connects to it (per the app's MQTT request layer; firmware contains app-MQTT client strings). Topics not fully analyzed.\n  3. Remote (cloud relay) → POST to Divoom cloud, device polls\n\nError semantics: local :9000 responses return HTTP 200 even on rejection, with a non-zero error_code field in the JSON body (ztomer/divoom_lib divoomd/src/lan.rs).\n\nCloud hosts: the app uses https://appin.divoom-gz.com; sibling host https://app.divoom-gz.com is also live and used by Divoom's own docs and community clients (r12f/divoom). Firmware metadata is available unauthenticated: POST app.divoom-gz.com/Device/GetUpdateFileList (HardwareList) then Device/GetUpdateFileV3 (Hardware) returns FileId/Version/SHA-1; files are served from f.divoom-gz.com.\n\nThe device also exposes Divoom's official documented third-party local API at POST http://<ip>:80/post (no LocalToken; docs at docin.divoom-gz.com) — see http_endpoints.\n\nDEVICE TYPES: Pixoo64 (64x64), Pixoo16 (16x16), Pixoo Max, Pixoo VJ, LCD 5-panel WiFi, and photo frame variants. Pixel matrix dimensions and supported encoding formats vary by model.\nEVIDENCE MAP (all from static analysis of the vendor app):\n  command table — all API command paths and cloud server URLs\n  HTTP client — local endpoint construction\n  pixel encoder — encoding types, headers, compression\n  request envelope — JSON request format\n  device-list response — device list structure (IP, token, type)\n  constants — device name prefixes, supported models\n  device function enum — device types, feature flags\n  send model — send priority, HTTP/MQTT/Remote flow\n\n\nDiscovery: No local discovery protocol (no UDP broadcast, mDNS, or BLE scan). Device registers with Divoom cloud; app queries Device/GetListV2 to get device IP and metadata. Divoom's own third-party docs also offer a cloud LAN-discovery endpoint, POST https://app.divoom-gz.com/Device/ReturnSameLANDevice, which returns same-LAN devices (name, id, IP, MAC) — a documented alternative to GetListV2 (still cloud-dependent).\n",
+    "notes": "WiFi-connected RGB LED pixel-matrix display. Displays static images, animations (GIF-like), scrolling text, clock faces, EQ visualizer, and cloud gallery content. Cloud-mediated device discovery: the device registers itself with Divoom's servers; the app fetches the device IP from the cloud API, then communicates locally via HTTP on port 9000.\nPIXEL ENCODING: Multiple encoding types identified by a leading type byte (see pixel_encodings section). 16x16 uses raw or AES-128-CBC (hardcoded key — obfuscation, not compression). 64x64 uses per-frame LZO (type 25), NDK PixelEncode64 (type 26) or ZSTD (type 37); 128x128 uses NDK PixelEncode128 — the NDK algorithm lives in a bundled native library, not in the app's Java.\nCOMMUNICATION: Three channels in priority order:\n  1. Local HTTP (same LAN) → POST http://<ip>:9000/divoom_api\n  2. MQTT (same LAN, fallback) → the PHONE hosts the broker: the app embeds an MQTT server plus a paho client to tcp://127.0.0.1:1883, and the device connects to it (per the app's MQTT request layer; firmware contains app-MQTT client strings). Topics not fully analyzed.\n  3. Remote (cloud relay) → POST to Divoom cloud, device polls\n\nError semantics: local :9000 responses return HTTP 200 even on rejection, with a non-zero error_code field in the JSON body (ztomer/divoom_lib divoomd/src/lan.rs).\n\nCloud hosts: the app uses https://appin.divoom-gz.com; sibling host https://app.divoom-gz.com is also live and used by Divoom's own docs and community clients (r12f/divoom). Firmware metadata is available unauthenticated: POST app.divoom-gz.com/Device/GetUpdateFileList (HardwareList) then Device/GetUpdateFileV3 (Hardware) returns FileId/Version/SHA-1; files are served from f.divoom-gz.com.\n\nThe device also exposes Divoom's official documented third-party local API at POST http://<ip>:80/post (no LocalToken; docs at docin.divoom-gz.com) — see http_endpoints.\n\nDEVICE TYPES: Pixoo64 (64x64), Pixoo16 (16x16), Pixoo Max, Pixoo VJ, LCD 5-panel WiFi, and photo frame variants. Pixel matrix dimensions and supported encoding formats vary by model.\nEVIDENCE MAP (all from static analysis of the vendor app):\n  command table — all API command paths and cloud server URLs\n  HTTP client — local endpoint construction\n  pixel encoder — encoding types, headers, compression\n  request envelope — JSON request format\n  device-list response — device list structure (IP, token, type)\n  constants — device name prefixes, supported models\n  device function enum — device types, feature flags\n  send model — send priority, HTTP/MQTT/Remote flow\n\n\nDiscovery: No local LAN discovery protocol (no UDP broadcast or mDNS); the only advertisement is the setup-time BLE name, see device.discovery. Device registers with Divoom cloud; app queries Device/GetListV2 to get device IP and metadata. Divoom's own third-party docs also offer a cloud LAN-discovery endpoint, POST https://app.divoom-gz.com/Device/ReturnSameLANDevice, which returns same-LAN devices (name, id, IP, MAC) — a documented alternative to GetListV2 (still cloud-dependent).\n",
     "protocol": "wifi",
     "setup": {
       "confidence": "high",
@@ -192,29 +252,31 @@
       ],
       "name": "Pixel Display",
       "platform": "light",
-      "state_command": "Channel/GetOnOff",
-      "state_endpoint": "/divoom_api"
+      "state_command": "get_all_conf",
+      "state_endpoint": "/post",
+      "state_mapping": {
+        "brightness": "Brightness",
+        "is_on": "LightSwitch",
+        "on_value": 1
+      }
     },
     {
       "name": "Device IP",
+      "notes": "Cloud Device/GetListV2, DeviceList[0].DevicePrivateIP. No local read; the LAN address is what discovery found anyway.",
       "platform": "sensor",
-      "state_command": "Device/GetListV2",
-      "state_endpoint": "cloud",
-      "state_path": "DeviceList[0].DevicePrivateIP"
+      "state_endpoint": "cloud"
     },
     {
       "name": "WiFi SSID",
+      "notes": "Cloud Device/GetListV2, DeviceList[0].DeviceSSID. No local read.",
       "platform": "sensor",
-      "state_command": "Device/GetListV2",
-      "state_endpoint": "cloud",
-      "state_path": "DeviceList[0].DeviceSSID"
+      "state_endpoint": "cloud"
     },
     {
       "name": "Firmware Version",
+      "notes": "Cloud Device/GetListV2, DeviceList[0].DeviceVersion. No local read documented; the firmware gates which /post commands answer (get_all_conf needs 90104+).",
       "platform": "sensor",
-      "state_command": "Device/GetListV2",
-      "state_endpoint": "cloud",
-      "state_path": "DeviceList[0].DeviceVersion"
+      "state_endpoint": "cloud"
     }
   ],
   "helpful_urls": [

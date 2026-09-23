@@ -1,38 +1,184 @@
 {
   "commands": {
+    "advanced_mode": {
+      "description": "ESC i K <flags> — expanded mode: bit 3 (0x08) cut at end, bit 6 (0x40) 600-dpi length mode (not on this 300-dpi head), bit 0 (0x01) two-colour (QL-8x0 only). brother_ql sends 0x08.",
+      "parameters": {
+        "flags": {
+          "default": 8,
+          "description": "0x08 = cut at end.",
+          "type": "uint8"
+        }
+      },
+      "payload_hex": "1B694B <flags>",
+      "verification": "reported"
+    },
+    "auto_status_notification": {
+      "description": "ESC i ! <mode> — 0x00 turns automatic status notifications on (the printer pushes the 32-byte reply on completion, error and phase change), 0x01 turns them off.",
+      "parameters": {
+        "mode": {
+          "default": 0,
+          "description": "0x00 notify, 0x01 do not notify.",
+          "enum": [
+            0,
+            1
+          ],
+          "type": "uint8"
+        }
+      },
+      "payload_hex": "1B6921 <mode>",
+      "verification": "reported"
+    },
+    "compression_mode": {
+      "description": "M <mode> — 0x02 turns PackBits (TIFF) compression of raster rows on, 0x00 off. Rows keep their 67 00 <n> framing; <n> becomes the compressed length.",
+      "parameters": {
+        "mode": {
+          "default": 2,
+          "description": "0x02 compressed, 0x00 raw.",
+          "enum": [
+            0,
+            2
+          ],
+          "type": "uint8"
+        }
+      },
+      "payload_hex": "4D <mode>",
+      "verification": "reported"
+    },
+    "cut_each": {
+      "description": "ESC i A <n> — cut every n labels (1 = after each).",
+      "parameters": {
+        "n": {
+          "default": 1,
+          "description": "Pages between cuts.",
+          "type": "uint8"
+        }
+      },
+      "payload_hex": "1B6941 <n>",
+      "verification": "reported"
+    },
     "initialize": {
       "description": "ESC @ — reset job state (page counter, mode flags) without touching loaded-media sensing.",
       "payload_hex": "1B40",
       "verification": "reported"
     },
     "invalidate": {
-      "description": "200 bytes of 0x00 — clears the command buffer before a job.",
-      "payload_hex": "00 (×200)",
+      "description": "Invalidate — 200 bytes of 0x00 (print_geometry.invalidate_bytes) that flush any half-eaten command from the printer's buffer. First thing in a job; brother_ql sends switch_dynamic_command_mode once before it as well.",
+      "payload_hex": "00 (x200)",
       "verification": "reported"
     },
-    "media_and_quality": {
-      "description": "ESC i z + 10 bytes: valid flags (bit 7 always set; bit 1 media type, bit 2 width, bit 3 length, bit 6 high-quality), media type (0x0A continuous / 0x0B die-cut), media width mm, media length mm (0 = continuous), raster line count u32 LE, page number, trailing 0x00. A typical die-cut job on 102×152 labels: 1B 69 7A 8E 0B 66 98 <rows u32LE> 00 00.\n",
-      "payload_hex": "1B697A <10 bytes>",
+    "margin_amount": {
+      "description": "ESC i d <dots u16 LE> — feed/margin amount in dots; 35 (0x23 0x00) on continuous rolls (print_geometry.feed_margin_dots), 0 on die-cut.",
+      "parameters": {
+        "dots": {
+          "default": 35,
+          "description": "Margin in dots, LITTLE-endian.",
+          "type": "uint16"
+        }
+      },
+      "payload_hex": "1B6964 <dots u16LE>",
       "verification": "reported"
     },
-    "print_page": {
-      "description": "0x1A prints the final page; 0x0C prints an intermediate page of a multi-page job.",
+    "print": {
+      "description": "FF (0x0C) — print the page and keep the job open for another (multi-page jobs).",
+      "payload_hex": "0C",
+      "verification": "reported"
+    },
+    "print_information": {
+      "description": "ESC i z + 10 bytes: valid flags (bit 7 always set; bit 1 = media type valid, bit 2 = width valid, bit 3 = length valid, bit 6 = high-quality/priority), media type (0x0A continuous / 0x0B die-cut; features[].media[].media_type_code), media width mm, media length mm (0 = continuous), raster line count u32 LE, page number (0 on the first page, 1 after), trailing 0x00. A die-cut job on the DK-11241 roll (Brother's catalogue calls it 102x152; the media table above and brother_ql send 153): 1B 69 7A 8E 0B 66 99 <rows u32LE> 00 00.\n",
+      "parameters": {
+        "flags": {
+          "default": 142,
+          "description": "Valid-flag byte; 0x8E = media type + width + length valid (0x80 | 0x02 | 0x04 | 0x08); OR 0x40 for high-quality.",
+          "type": "uint8"
+        },
+        "length_mm": {
+          "default": 0,
+          "description": "Label length in mm for die-cut; 0 for continuous.",
+          "type": "uint8"
+        },
+        "media_type": {
+          "description": "0x0A continuous, 0x0B die-cut.",
+          "enum": [
+            10,
+            11
+          ],
+          "type": "uint8"
+        },
+        "page": {
+          "default": 0,
+          "description": "0 on the first page of a job, 1 on later pages.",
+          "type": "uint8"
+        },
+        "rows": {
+          "description": "Raster line count for this page, LITTLE-endian.",
+          "type": "uint32"
+        },
+        "width_mm": {
+          "description": "Tape width in mm (features[].media[].width_mm).",
+          "type": "uint8"
+        }
+      },
+      "payload_hex": "1B697A <flags> <media_type> <width_mm> <length_mm> <rows u32LE> <page> 00",
+      "verification": "reported"
+    },
+    "print_with_feeding": {
+      "description": "SUB (0x1A) — print the final page, feed and cut per the mode flags; ends the job.",
       "payload_hex": "1A",
       "verification": "reported"
     },
-    "raster_row": {
-      "description": "One print line: 67 00 <len> <data>; 5A for an all-white row; prefix job with 4D 02 to PackBits-compress row payloads.",
-      "payload_hex": "67 00 <len> <data>",
+    "raster_line": {
+      "description": "g 00 <n> <n bytes> — one print line, 1 bit per dot, MSB first, 1 = black, mirrored left-to-right before packing (print_geometry.mirror_rows), padded white to 162 bytes; n = 162 uncompressed or the PackBits length when compression_mode is on.",
+      "parameters": {
+        "n": {
+          "default": 162,
+          "description": "Byte count that follows.",
+          "type": "uint8"
+        },
+        "row": {
+          "description": "The row: 162 raw bytes, or its PackBits encoding.",
+          "type": "bytes"
+        }
+      },
+      "payload_hex": "6700 <n> <row bytes>",
       "verification": "reported"
     },
-    "status_request": {
-      "description": "Request the 32-byte status reply (see brother_ql_raster_protocol.status_reply).",
+    "status_information_request": {
+      "description": "ESC i S — request the 32-byte status reply (header 80 20 42; layout in brother_ql_raster_protocol.status_reply). The Media Width and Printer Errors sensors read this reply.",
       "payload_hex": "1B6953",
       "verification": "reported"
     },
-    "switch_to_raster_mode": {
-      "description": "Select raster graphics mode. Sent at the head of every job.",
-      "payload_hex": "1B696101",
+    "switch_dynamic_command_mode": {
+      "description": "ESC i a <mode> — select the command set: 00 ESC/P, 01 raster (everything here), 03 P-touch Template. Sent at the head of every raster job.",
+      "parameters": {
+        "mode": {
+          "default": 1,
+          "description": "0x00 ESC/P, 0x01 raster, 0x03 P-touch Template.",
+          "enum": [
+            0,
+            1,
+            3
+          ],
+          "type": "uint8"
+        }
+      },
+      "payload_hex": "1B6961 <mode>",
+      "verification": "reported"
+    },
+    "various_mode": {
+      "description": "ESC i M <flags> — bit 6 (0x40) auto-cut on; brother_ql sends 0x40 for auto-cut.",
+      "parameters": {
+        "flags": {
+          "default": 64,
+          "description": "0x40 = auto-cut; 0x00 = off.",
+          "type": "uint8"
+        }
+      },
+      "payload_hex": "1B694D <flags>",
+      "verification": "reported"
+    },
+    "zero_raster_line": {
+      "description": "Z — one entirely white print line; saves sending 162 zero bytes.",
+      "payload_hex": "5A",
       "verification": "reported"
     }
   },
@@ -261,7 +407,7 @@
   "entities": [
     {
       "name": "Media Width",
-      "notes": "mm, from status reply offset 10 (also reveals loaded roll; 0 when no media). Bound via the status_request command; there is no GATT characteristic on this device.\n",
+      "notes": "mm, from status reply offset 10 (also reveals loaded roll; 0 when no media). Bound via the status_information_request command; there is no GATT characteristic on this device.\n",
       "platform": "sensor"
     },
     {
@@ -274,8 +420,311 @@
     {
       "format": "1bit-bitmap",
       "max_height": 35434,
+      "max_palette_colors": 2,
       "max_width": 1296,
+      "media": [
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "12mm continuous (DK-22214)",
+          "print_width_dots": 106,
+          "right_margin_dots": 29,
+          "total_width_dots": 142,
+          "width_mm": 12
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "29mm continuous (DK-22210)",
+          "print_width_dots": 306,
+          "right_margin_dots": 6,
+          "total_width_dots": 342,
+          "width_mm": 29
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "38mm continuous (DK-22225)",
+          "print_width_dots": 413,
+          "right_margin_dots": 12,
+          "total_width_dots": 449,
+          "width_mm": 38
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "50mm continuous (DK-22223)",
+          "print_width_dots": 554,
+          "right_margin_dots": 12,
+          "total_width_dots": 590,
+          "width_mm": 50
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "54mm continuous (DK-N55224)",
+          "print_width_dots": 590,
+          "right_margin_dots": 0,
+          "total_width_dots": 636,
+          "width_mm": 54
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "62mm continuous (DK-22205)",
+          "print_width_dots": 696,
+          "right_margin_dots": 12,
+          "total_width_dots": 732,
+          "width_mm": 62
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "102mm continuous (DK-22243)",
+          "print_width_dots": 1164,
+          "right_margin_dots": 12,
+          "total_width_dots": 1200,
+          "width_mm": 102
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "continuous",
+          "media_type_code": 10,
+          "name": "104mm continuous (DK-22246)",
+          "print_width_dots": 1200,
+          "right_margin_dots": 12,
+          "total_width_dots": 1224,
+          "width_mm": 104
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 54,
+          "media_type_code": 11,
+          "name": "17x54mm die-cut (DK-11204)",
+          "print_length_dots": 566,
+          "print_width_dots": 165,
+          "right_margin_dots": 0,
+          "total_length_dots": 636,
+          "total_width_dots": 201,
+          "width_mm": 17
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 87,
+          "media_type_code": 11,
+          "name": "17x87mm die-cut (DK-11203)",
+          "print_length_dots": 956,
+          "print_width_dots": 165,
+          "right_margin_dots": 0,
+          "total_length_dots": 1026,
+          "total_width_dots": 201,
+          "width_mm": 17
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 23,
+          "media_type_code": 11,
+          "name": "23x23mm die-cut (DK-11221)",
+          "print_length_dots": 202,
+          "print_width_dots": 202,
+          "right_margin_dots": 42,
+          "total_length_dots": 272,
+          "total_width_dots": 272,
+          "width_mm": 23
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 42,
+          "media_type_code": 11,
+          "name": "29x42mm die-cut",
+          "print_length_dots": 425,
+          "print_width_dots": 306,
+          "right_margin_dots": 6,
+          "total_length_dots": 495,
+          "total_width_dots": 342,
+          "width_mm": 29
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 90,
+          "media_type_code": 11,
+          "name": "29x90mm die-cut (DK-11201)",
+          "print_length_dots": 991,
+          "print_width_dots": 306,
+          "right_margin_dots": 6,
+          "total_length_dots": 1061,
+          "total_width_dots": 342,
+          "width_mm": 29
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 90,
+          "media_type_code": 11,
+          "name": "38x90mm die-cut (DK-11208)",
+          "print_length_dots": 991,
+          "print_width_dots": 413,
+          "right_margin_dots": 12,
+          "total_length_dots": 1061,
+          "total_width_dots": 449,
+          "width_mm": 38
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 48,
+          "media_type_code": 11,
+          "name": "39x48mm die-cut",
+          "print_length_dots": 495,
+          "print_width_dots": 425,
+          "right_margin_dots": 6,
+          "total_length_dots": 565,
+          "total_width_dots": 461,
+          "width_mm": 39
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 29,
+          "media_type_code": 11,
+          "name": "52x29mm die-cut",
+          "print_length_dots": 271,
+          "print_width_dots": 578,
+          "right_margin_dots": 0,
+          "total_length_dots": 341,
+          "total_width_dots": 614,
+          "width_mm": 52
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 87,
+          "media_type_code": 11,
+          "name": "60x87mm die-cut",
+          "print_length_dots": 954,
+          "print_width_dots": 672,
+          "right_margin_dots": 18,
+          "total_length_dots": 1024,
+          "total_width_dots": 708,
+          "width_mm": 60
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 29,
+          "media_type_code": 11,
+          "name": "62x29mm die-cut (DK-11209)",
+          "print_length_dots": 271,
+          "print_width_dots": 696,
+          "right_margin_dots": 12,
+          "total_length_dots": 341,
+          "total_width_dots": 732,
+          "width_mm": 62
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 100,
+          "media_type_code": 11,
+          "name": "62x100mm die-cut (DK-11202)",
+          "print_length_dots": 1109,
+          "print_width_dots": 696,
+          "right_margin_dots": 12,
+          "total_length_dots": 1179,
+          "total_width_dots": 732,
+          "width_mm": 62
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 51,
+          "media_type_code": 11,
+          "name": "102x51mm die-cut (DK-11240)",
+          "print_length_dots": 526,
+          "print_width_dots": 1164,
+          "right_margin_dots": 12,
+          "total_length_dots": 596,
+          "total_width_dots": 1200,
+          "width_mm": 102
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 153,
+          "media_type_code": 11,
+          "name": "102x153mm die-cut (DK-11241)",
+          "print_length_dots": 1660,
+          "print_width_dots": 1164,
+          "right_margin_dots": 12,
+          "total_length_dots": 1804,
+          "total_width_dots": 1200,
+          "width_mm": 102
+        },
+        {
+          "kind": "die_cut",
+          "length_mm": 164,
+          "media_type_code": 11,
+          "name": "104x164mm die-cut (DK-11247)",
+          "print_length_dots": 1822,
+          "print_width_dots": 1200,
+          "right_margin_dots": 12,
+          "total_length_dots": 1941,
+          "total_width_dots": 1224,
+          "width_mm": 104
+        },
+        {
+          "feed_margin_dots": 35,
+          "kind": "round_die_cut",
+          "length_mm": 12,
+          "media_type_code": 11,
+          "name": "12mm round die-cut (DK-11219)",
+          "print_length_dots": 94,
+          "print_width_dots": 94,
+          "right_margin_dots": 113,
+          "total_length_dots": 142,
+          "total_width_dots": 142,
+          "width_mm": 12
+        },
+        {
+          "kind": "round_die_cut",
+          "length_mm": 24,
+          "media_type_code": 11,
+          "name": "24mm round die-cut (DK-11218)",
+          "print_length_dots": 236,
+          "print_width_dots": 236,
+          "right_margin_dots": 42,
+          "total_length_dots": 284,
+          "total_width_dots": 284,
+          "width_mm": 24
+        },
+        {
+          "kind": "round_die_cut",
+          "length_mm": 58,
+          "media_type_code": 11,
+          "name": "58mm round die-cut (DK-11207)",
+          "print_length_dots": 618,
+          "print_width_dots": 618,
+          "right_margin_dots": 51,
+          "total_length_dots": 688,
+          "total_width_dots": 688,
+          "width_mm": 58
+        }
+      ],
+      "print_geometry": {
+        "additional_offset_right_dots": 44,
+        "bytes_per_row": 162,
+        "dpi": 300,
+        "feed_margin_dots": 35,
+        "head_dots": 1296,
+        "invalidate_bytes": 200,
+        "max_length_dots": 35434,
+        "min_length_dots": 301,
+        "mirror_rows": true,
+        "printable_dots": 1252
+      },
       "type": "image_upload"
+    },
+    {
+      "type": "raster_print"
     }
   ],
   "helpful_urls": [
@@ -338,22 +787,14 @@
   "protocol_details": {
     "brother_ql_raster_protocol": {
       "geometry": {
-        "additional_offset_right_dots": 44,
-        "bytes_per_row": 162,
-        "dpi": 300,
-        "head_dots": 1296,
-        "invalidate_bytes": 200,
-        "max_length_dots": 35434,
-        "max_print_width_mm": 101.6,
-        "min_length_dots": 301,
-        "notes": "Every raster row is exactly 162 bytes wide; content narrower than the head is padded white on the right (the last 44 dots of the head do not print — right-side dead zone). Continuous media needs ESC i z media length = 0 and lets the raster row count set the label length (301–35434 dots, i.e. ~25.5 mm–3 m).\n"
+        "note": "MOVED: the numbers (dpi, bytes_per_row, head_dots, invalidate_bytes, min/max_length_dots, additional_offset_right_dots, feed margin) are now declared under features[image_upload].print_geometry, which is authoritative. Every raster row is exactly 162 bytes wide; content narrower than the head is padded white on the right (the last 44 dots of the head do not print — right-side dead zone). Continuous media needs ESC i z media length = 0 and lets the raster row count set the label length (301–35434 dots, i.e. ~25.5 mm–3 m).\n"
       },
       "job_structure": [
         "1B 69 61 01   switch to raster mode (also emitted once before the invalidate run)",
         "00 × 200      invalidate — clears any half-eaten command in the buffer",
         "1B 40         ESC @ initialize",
         "1B 69 53      (optional) status information request",
-        "1B 69 7A …    media and quality (see commands.media_and_quality)",
+        "1B 69 7A …    print information / media and quality (see commands.print_information)",
         "1B 69 4D 40   auto-cut on (bit 6); 1B 69 41 01 cut every 1 page",
         "1B 69 4B 08   expanded mode: bit 3 = cut at end (bit 0 two-color and bit 6 600-dpi do NOT apply to this 300-dpi monochrome head)",
         "1B 69 64 23 00  margin/feed amount, u16 LE dots (35 typical)",
@@ -362,67 +803,7 @@
         "1A             print final page (0C prints an intermediate page in multi-page jobs)"
       ],
       "media": {
-        "notes": "DK rolls. dots_printable is the printable width at 300 dpi from brother_ql's label table (die-cut entries also fix the length). ESC i z takes the media width/length in mm.\n",
-        "rolls": [
-          {
-            "dots": 106,
-            "id": "12mm continuous",
-            "width_mm": 12
-          },
-          {
-            "dots": 306,
-            "id": "29mm continuous",
-            "width_mm": 29
-          },
-          {
-            "dots": 413,
-            "id": "38mm continuous",
-            "width_mm": 38
-          },
-          {
-            "dots": 554,
-            "id": "50mm continuous",
-            "width_mm": 50
-          },
-          {
-            "dots": 590,
-            "id": "54mm continuous",
-            "width_mm": 54
-          },
-          {
-            "dots": 696,
-            "id": "62mm continuous (DK-2205)",
-            "width_mm": 62
-          },
-          {
-            "dots": 1164,
-            "id": "102mm continuous (DK-2243)",
-            "width_mm": 102
-          },
-          {
-            "dots": 1200,
-            "id": "104mm continuous (DK-22246)",
-            "width_mm": 104
-          },
-          {
-            "dots": "1164x526",
-            "id": "102x51 die-cut (DK-11240)",
-            "length_mm": 51,
-            "width_mm": 102
-          },
-          {
-            "dots": "1164x1660",
-            "id": "102x152 die-cut (DK-11241)",
-            "length_mm": 153,
-            "width_mm": 102
-          },
-          {
-            "dots": "1200x1822",
-            "id": "103x164 die-cut (DK-11247)",
-            "length_mm": 164,
-            "width_mm": 104
-          }
-        ]
+        "note": "MOVED: the roll table (width/length in mm, total and printable dots, right offset, feed margin, media-type code) is now declared under features[image_upload].media, which is authoritative and carries every DK roll brother_ql lists for this model rather than the eleven this block used to. ESC i z takes the media width/length in mm.\n"
       },
       "raster_rows": {
         "blank_row": "5A                            (whole row white)",
@@ -484,5 +865,10 @@
       "transport": "Raw byte stream, identical on every carriage: TCP 9100 (RAW/AppSocket), LPR/LPD 515, FTP 21 (file drop), Bluetooth Classic SPP, or USB bulk. No framing, no authentication; the printer consumes the stream as-is.\n"
     }
   },
-  "protocol_handler": "brother_ql_raster"
+  "protocol_handler": "brother_ql_raster",
+  "remaining_unknowns": [
+    "The top-level `commands` schema has no raw-byte-stream transport, so the raster opcodes above are documentary (`payload_hex`, an undeclared key) rather than executable by a generic renderer; a `tcp-raw`/`byte-stream` transport arm with `value`/`template` is the missing piece.",
+    "Narrow-media centring (right_margin_dots on the smallest rolls) is transcribed from brother_ql and has not been driven on this unit; the mobile handler's caveat that it is a calibration question stands.",
+    "No job from this document has been printed by this project (device.testing is untested); every opcode is `reported` from Brother's reference and brother_ql."
+  ]
 }

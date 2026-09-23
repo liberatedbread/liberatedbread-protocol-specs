@@ -31,7 +31,7 @@
     "manufacturer": "Sciener (TTLock platform) — rebadged by hundreds of OEMs",
     "manufacturer_status": "active",
     "name": "TTLock / Sciener BLE Locks (rebadged smart deadbolts, padlocks, cabinet locks)",
-    "notes": "TTLock is a white-label BLE lock stack by Sciener, rebadged by a huge number of OEMs (generic \"S2xx\" smart deadbolts, padlocks, cabinet locks). Sciener is active and ships a closed Android/iOS SDK and a cloud, but does NOT publish the BLE wire protocol; the community has partially reverse-engineered it. Local control is possible: the cloud is only for key/passcode issuance, and once a client holds the lock's per-lock AES key (obtained after pairing) it can unlock over BLE offline.\nGATT: command writes on characteristic 0000fff2 (write-without-response), status notifications on 0000fff4; battery is the standard 0x2A19 under 0x180F. (A Nordic legacy DFU service 00001530-1212-efde-1523-785feabcd123 is also present for OTA — deliberately not documented here: bricking risk.)\nFRAME: [12-byte header][16-32 byte data][3-byte tail]. Header bytes 0-1 are the fixed magic 7F 5A; byte 2 protocol type, byte 3 sub-version, byte 4 scene, bytes 5-6 groupId, bytes 7-8 orgId, byte 9 command id, byte 10 encryption flag, byte 11 data length. Tail = 1 byte CRC-8/MAXIM over header+payload, then CRLF (0D 0A) terminating every packet.\nCRYPTO: data is AES/CBC/PKCS5, 16-byte blocks, with the IV equal to the key (16 bytes). A pre-AES XOR obfuscation is applied per byte using a 256-entry CRC table. Encryption is confirmed for protocol 5 / sub-version 3; the AES key (aesKeyArray) is retrieved from the lock after successful pairing (it is NOT one global constant). Auth is a custom multi-packet key exchange, not standard BLE bonding.\n",
+    "notes": "TTLock is a white-label BLE lock stack by Sciener, rebadged by a huge number of OEMs (generic \"S2xx\" smart deadbolts, padlocks, cabinet locks). Sciener is active and ships a closed Android/iOS SDK and a cloud, but does NOT publish the BLE wire protocol; the community has partially reverse-engineered it. Local control is possible: the cloud is only for key/passcode issuance, and once a client holds the lock's per-lock AES key (obtained after pairing) it can unlock over BLE offline.\nGATT: command writes on characteristic 0000fff2 (write-without-response), status notifications on 0000fff4; battery is the standard 0x2A19 under 0x180F. (A Nordic legacy DFU service 00001530-1212-efde-1523-785feabcd123 is also present for OTA. Only its presence is recorded, in features[type: firmware_update], so a generic client knows to keep out of it; the update procedure is deliberately not documented: bricking risk.)\nFRAME: [12-byte header][16-32 byte data][3-byte tail]. Header bytes 0-1 are the fixed magic 7F 5A; byte 2 protocol type, byte 3 sub-version, byte 4 scene, bytes 5-6 groupId, bytes 7-8 orgId, byte 9 command id, byte 10 encryption flag, byte 11 data length. Tail = 1 byte CRC-8/MAXIM over header+payload, then CRLF (0D 0A) terminating every packet.\nCRYPTO: data is AES/CBC/PKCS5, 16-byte blocks, with the IV equal to the key (16 bytes). A pre-AES XOR obfuscation is applied per byte using a 256-entry CRC table. Encryption is confirmed for protocol 5 / sub-version 3; the AES key (aesKeyArray) is retrieved from the lock after successful pairing (it is NOT one global constant). Auth is a custom multi-packet key exchange, not standard BLE bonding.\n",
     "openness": {
       "notes": "Sciener publishes a closed SDK (black-box native lock core) and a registered-developer cloud API, but not the BLE frame/crypto. The community RE is the only open wire documentation and is incomplete (the AES key-exchange is not fully solved).\n",
       "reverse_engineered": true,
@@ -178,7 +178,41 @@
       "notes": "Standard battery-level characteristic.",
       "platform": "sensor",
       "state_characteristic": "00002a19-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "battery_level"
+      },
       "unit": "%"
+    }
+  ],
+  "features": [
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "Not observed. A stock legacy bootloader advertises \"DfuTarg\", and whether it moves address depends on the SDK version, so nothing yet binds a DfuTarg advert back to a TTLock lock.\n"
+        },
+        "enter": {
+          "how": "unknown",
+          "notes": "Not documented on purpose. The stack's buttonless entry (01 04 on the legacy control point) is in firmware-update.md; nothing here says whether this firmware honours it.\n"
+        },
+        "image": {
+          "notes": "A stock legacy Nordic bootloader takes unsigned images with a CRC-16 init packet; whether Sciener changed that is not established.",
+          "signing": "unknown",
+          "source": "unknown"
+        },
+        "mechanisms": [
+          "nordic_legacy_dfu"
+        ],
+        "notes": "Service presence from the community reverse engineering; the vendor's closed SDK also exposes a DFU feature. A replacement client should recognise the service and leave it alone: a failed update on a lock can strand the door.\n",
+        "recovery": {
+          "interrupted": "unknown"
+        },
+        "services": [
+          "00001530-1212-efde-1523-785feabcd123"
+        ],
+        "transport": "ble",
+        "verification": "reported"
+      },
+      "type": "firmware_update"
     }
   ],
   "helpful_urls": [
@@ -230,6 +264,17 @@
           "uuid": "0000fff4-0000-1000-8000-00805f9b34fb"
         },
         {
+          "format": [
+            {
+              "device_class": "battery",
+              "length": 1,
+              "name": "battery_level",
+              "notes": "The SIG-defined layout; not read back from a lock by this project (reported, not confirmed).\n",
+              "offset": 0,
+              "type": "uint8",
+              "unit": "%"
+            }
+          ],
           "name": "Battery Level (standard)",
           "notes": "Standard SIG Battery Level (uint8 %) under service 0x180F.",
           "properties": [
@@ -239,8 +284,13 @@
         }
       ],
       "name": "TTLock command service (0x1910)",
-      "notes": "Command channel (GATT service 0x1910; per the Fusseldieb gatttool dump the fff2/fff4 characteristics sit inside service 0x1910, not a 0xFFF0 service). Characteristics resolved by UUID: write 0000fff2 (write-without-response), notify 0000fff4. All packets are [12B header (magic 7F 5A ...)][data][CRC-8/MAXIM][CRLF]; data is AES/CBC/PKCS5 with IV = key. A Nordic DFU service (00001530-1212-efde-...) is also present for OTA and is intentionally not documented (bricking risk).\n",
+      "notes": "Command channel (GATT service 0x1910; per the Fusseldieb gatttool dump the fff2/fff4 characteristics sit inside service 0x1910, not a 0xFFF0 service). Characteristics resolved by UUID: write 0000fff2 (write-without-response), notify 0000fff4. All packets are [12B header (magic 7F 5A ...)][data][CRC-8/MAXIM][CRLF]; data is AES/CBC/PKCS5 with IV = key. A Nordic legacy DFU service (00001530-1212-efde-1523-785feabcd123) is also present for OTA; see its own entry below.\n",
       "uuid": "00001910-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "name": "Nordic Legacy DFU Service",
+      "notes": "The firmware-update path, not a control surface: list it read-only and never write to it. Present on the lock per the community reverse engineering (Fusseldieb/ttlock-reverse-engineering); its characteristics and the update procedure are intentionally not documented here (bricking risk). See features[type: firmware_update].\n",
+      "uuid": "00001530-1212-efde-1523-785feabcd123"
     }
   ]
 }

@@ -1,39 +1,150 @@
 {
   "commands": {
     "get_config": {
-      "description": "Fetch the full config: activities and devices, each with a label and numeric id.",
+      "action": "vnd.logitech.harmony/vnd.logitech.harmony.engine?config",
+      "arguments": {
+        "format": "json",
+        "verb": "get"
+      },
+      "description": "Fetch the full config: activities and devices, each with a label and numeric id, plus each device's controlGroup command lists (the names send_command takes).",
+      "example_body": "{\"hubId\":\"<remoteId>\",\"timeout\":30,\"hbus\":{\"cmd\":\"vnd.logitech.harmony/vnd.logitech.harmony.engine?config\",\"id\":1,\"params\":{\"verb\":\"get\",\"format\":\"json\"}}}",
+      "returns": [
+        {
+          "description": "Activities: {id, label, type, ...}; id \"-1\" is PowerOff.",
+          "name": "data.activity[]",
+          "type": "array"
+        },
+        {
+          "description": "Devices: {id, label, controlGroup[{name, function[{name, action}]}], ...}.",
+          "name": "data.device[]",
+          "type": "array"
+        }
+      ],
+      "verification": "reported"
+    },
+    "get_current_activity": {
+      "action": "vnd.logitech.harmony/vnd.logitech.harmony.engine?getCurrentActivity",
+      "arguments": {
+        "format": "json",
+        "verb": "get"
+      },
+      "description": "Which activity is running; data.result is the activity id as a string, \"-1\" when everything is off.",
+      "example_body": "{\"hubId\":\"<remoteId>\",\"timeout\":30,\"hbus\":{\"cmd\":\"vnd.logitech.harmony/vnd.logitech.harmony.engine?getCurrentActivity\",\"id\":1,\"params\":{\"verb\":\"get\",\"format\":\"json\"}}}",
+      "returns": [
+        {
+          "description": "Current activity id; \"-1\" = PowerOff.",
+          "name": "data.result",
+          "type": "string"
+        }
+      ],
+      "verification": "reported"
+    },
+    "get_provision_info": {
+      "action": "Provisioning — get remoteId (port 8088)",
+      "body": "{\"id\":1,\"cmd\":\"setup.account?getProvisionInfo\",\"params\":{}}",
+      "description": "Fetch the hub's remoteId, the value every WebSocket frame's hubId and the connect path carry. One HTTP POST on port 8088 -- the same port as the socket -- with the Origin header the hub insists on. Not authenticated; any LAN client may call it.\n",
+      "example_body": "{\"id\":1,\"cmd\":\"setup.account?getProvisionInfo\",\"params\":{}}",
+      "headers": {
+        "Accept": "application/json",
+        "Accept-Charset": "utf-8",
+        "Content-Type": "application/json",
+        "Origin": "http://sl.dhg.myharmony.com"
+      },
+      "method": "POST",
+      "path": "/",
+      "returns": [
+        {
+          "description": "The remoteId; store it as the `remote_id` credential.",
+          "name": "data.activeRemoteId",
+          "type": "string"
+        },
+        {
+          "description": "The hub's user-assigned name.",
+          "name": "data.friendlyName",
+          "type": "string"
+        }
+      ],
       "transport": "http",
       "verification": "reported"
     },
     "power_off": {
-      "description": "Stop the current activity (PowerOff, activity id -1).",
-      "transport": "http",
+      "action": "harmony.activityengine?runactivity",
+      "arguments": {
+        "activityId": "-1",
+        "async": "true",
+        "timestamp": 0
+      },
+      "description": "Stop the current activity: runactivity with the built-in PowerOff activity, id -1.",
+      "example_body": "{\"hubId\":\"<remoteId>\",\"timeout\":30,\"hbus\":{\"cmd\":\"harmony.activityengine?runactivity\",\"id\":1,\"params\":{\"async\":\"true\",\"timestamp\":0,\"activityId\":\"-1\"}}}",
       "verification": "reported"
     },
     "send_command": {
-      "description": "Send a single device command (e.g. VolumeUp) to a device by id.",
+      "action": "vnd.logitech.harmony/vnd.logitech.harmony.engine?holdAction",
+      "arguments": {
+        "action": "{\"command\":: \"{command}\",\"type\":: \"IRCommand\",\"deviceId\":: \"{device_id}\"}",
+        "status": "press",
+        "timestamp": "0",
+        "verb": "render"
+      },
+      "description": "Press a single device command (e.g. VolumeUp) on a device by id -- the PRESS half of a key. Follow it with send_command_release, ~100 ms later, or the hub treats the key as held. The `action` argument is a JSON-looking STRING with every colon doubled (\"::\"), exactly as the hub wants it (hub_protocol.hold_action).\n",
+      "example_body": "{\"hubId\":\"<remoteId>\",\"timeout\":30,\"hbus\":{\"cmd\":\"vnd.logitech.harmony/vnd.logitech.harmony.engine?holdAction\",\"id\":1,\"params\":{\"status\":\"press\",\"timestamp\":\"0\",\"verb\":\"render\",\"action\":\"{\\\"command\\\":: \\\"VolumeUp\\\",\\\"type\\\":: \\\"IRCommand\\\",\\\"deviceId\\\":: \\\"12345\\\"}\"}}}",
+      "example_notes": "Worked case: VolumeUp on device 12345. The inner action value is a string, so its quotes are escaped in the frame.",
       "parameters": {
         "command": {
-          "description": "Command label from the device's command list (e.g. VolumeUp, Mute).",
+          "description": "Command name from the device's controlGroup function list in get_config (e.g. VolumeUp, Mute, PowerToggle).",
+          "required": true,
           "type": "string"
         },
         "device_id": {
-          "description": "Device id from get_config.",
+          "description": "Device id from get_config (data.device[].id).",
+          "required": true,
           "type": "string"
         }
       },
-      "transport": "http",
+      "verification": "reported"
+    },
+    "send_command_release": {
+      "action": "vnd.logitech.harmony/vnd.logitech.harmony.engine?holdAction",
+      "arguments": {
+        "action": "{\"command\":: \"{command}\",\"type\":: \"IRCommand\",\"deviceId\":: \"{device_id}\"}",
+        "status": "release",
+        "timestamp": "0",
+        "verb": "render"
+      },
+      "description": "The RELEASE half of send_command: identical frame with status \"release\". Send it after every press; the gap between the two is the hold duration.",
+      "example_body": "{\"hubId\":\"<remoteId>\",\"timeout\":30,\"hbus\":{\"cmd\":\"vnd.logitech.harmony/vnd.logitech.harmony.engine?holdAction\",\"id\":1,\"params\":{\"status\":\"release\",\"timestamp\":\"0\",\"verb\":\"render\",\"action\":\"{\\\"command\\\":: \\\"VolumeUp\\\",\\\"type\\\":: \\\"IRCommand\\\",\\\"deviceId\\\":: \\\"12345\\\"}\"}}}",
+      "example_notes": "Worked case: the release matching the send_command example.",
+      "parameters": {
+        "command": {
+          "description": "The same command name the press carried.",
+          "required": true,
+          "type": "string"
+        },
+        "device_id": {
+          "description": "Device id from get_config (data.device[].id).",
+          "required": true,
+          "type": "string"
+        }
+      },
       "verification": "reported"
     },
     "start_activity": {
-      "description": "Start an activity by its id (turns on and switches inputs across the AV stack).",
+      "action": "harmony.activityengine?runactivity",
+      "arguments": {
+        "activityId": "{activity_id}",
+        "async": "true",
+        "timestamp": 0
+      },
+      "description": "Start an activity by its id (turns on and switches inputs across the AV stack). The hub streams code-100 progress frames until the activity is up.",
+      "example_body": "{\"hubId\":\"<remoteId>\",\"timeout\":30,\"hbus\":{\"cmd\":\"harmony.activityengine?runactivity\",\"id\":1,\"params\":{\"async\":\"true\",\"timestamp\":0,\"activityId\":\"12345678\"}}}",
+      "example_notes": "Worked case: activity 12345678.",
       "parameters": {
         "activity_id": {
-          "description": "Activity id from get_config; -1 is the 'PowerOff' activity.",
+          "description": "Activity id from get_config (data.activity[].id), as a string; -1 is the built-in PowerOff activity.",
+          "required": true,
           "type": "string"
         }
       },
-      "transport": "http",
       "verification": "reported"
     }
   },
@@ -136,14 +247,26 @@
             "local_alternative": "Yes for CONTROL — once the hub is configured, the local WebSocket API on port 8088 drives it with no cloud. Editing the activity/device configuration, however, has historically required the Harmony app; with Logitech's servers winding down, export/keep a working configuration while it can still be authored.\n"
           },
           "description": "Activity/device configuration is authored in the Harmony app, which historically synced with the MyHarmony cloud. After configuration, control is fully local (see the WebSocket API); no account is needed at control time.\n",
+          "issues_credentials": {
+            "remote_id": {
+              "command": "get_provision_info",
+              "notes": "The value the WebSocket connect path's `{remote_id}` and every frame's `hubId` are filled from. Not a secret -- any LAN client can fetch it again -- but it is per-hub, so store it keyed by the hub's UDN.\n",
+              "reply_path": "data.activeRemoteId"
+            }
+          },
           "steps": [
             {
               "action": "Configure activities and devices in the Harmony app (one-time, cloud-assisted).",
               "actor": "user"
             },
             {
-              "action": "Retrieve the hub's remoteId with the port-8088 provisioning POST, then open the WebSocket for local control.",
-              "actor": "client"
+              "action": "Retrieve the hub's remoteId with the port-8088 provisioning POST (`get_provision_info`), then open the WebSocket for local control.",
+              "actor": "client",
+              "expect": "JSON reply whose data.activeRemoteId is the hub's remoteId.",
+              "request": {
+                "action": "POST / on port 8088",
+                "protocol": "http"
+              }
             }
           ],
           "type": "cloud_account",
@@ -159,10 +282,10 @@
       "required": true
     },
     "testing": {
-      "notes": "Not driven against hardware by this project. Facts are from the aioharmony and harmonyhub-api open-source clients and Home Assistant's integration; the local WebSocket message envelope should be confirmed against aioharmony source before relying on the exact shape.\n",
+      "notes": "Not driven against hardware by this project. Facts are from the aioharmony and harmonyhub-api open-source clients and Home Assistant's integration; the WebSocket envelope, command strings and params in `websocket`/`commands` were transcribed from aioharmony's source (hubconnector_websocket.py, const.py, harmonyclient.py) rather than captured, so they are `reported`.\n",
       "status": "untested"
     },
-    "transport": "http"
+    "transport": "websocket"
   },
   "helpful_urls": [
     {
@@ -213,8 +336,13 @@
         "content_type": "application/json",
         "fields": [
           {
-            "description": "Session id required to open the control WebSocket.",
-            "name": "remoteId",
+            "description": "The hub's remoteId (per-hub, not a session credential); fills `{remote_id}` in the WebSocket connect path and every frame's `hubId`.",
+            "name": "data.activeRemoteId",
+            "type": "string"
+          },
+          {
+            "description": "The hub's user-set name.",
+            "name": "data.friendlyName",
             "type": "string"
           }
         ]
@@ -222,21 +350,41 @@
     }
   ],
   "protocol_details": {
-    "websocket": {
-      "channels": [
-        {
-          "default": true,
-          "description": "JSON requests, each with a unique message id echoed in the reply. Operations: get config (activities + devices, each label + id), get current activity, start/stop activity by id, send device command, hold a command for a duration, change channel.\n",
-          "encoding": "json",
-          "name": "control"
-        }
-      ],
-      "connect": {
-        "path": "/?domain=svcs.myharmony.com&hubId={remote_id}",
-        "port": 8088,
-        "scheme": "ws"
-      },
-      "notes": "Local control channel. After retrieving the remoteId (the port-8088 provisioning POST in http_endpoints), open the WebSocket and issue requests on the control channel. Idle connections are closed by the hub after ~60s unless pinged. The exact request envelope should be confirmed against aioharmony source. Verification: reported.\n"
+    "hub_protocol": {
+      "activities": "runactivity takes params {\"async\":\"true\",\"timestamp\":0,\"activityId\": \"<id>\"}; the hub streams progress frames (code 100, data.done / data.total) and pushes an \"activityId\" change notification when the activity is running. Activity id \"-1\" is the built-in PowerOff. The current activity is getCurrentActivity, whose data.result is the id.\n",
+      "envelope": "Every request on the socket is one JSON text frame {\"hubId\": \"<remoteId>\", \"timeout\": <seconds>, \"hbus\": {\"cmd\": \"<mime>?<operation>\", \"id\": <client-chosen unique id>, \"params\": {...}}}. The hub answers with a frame carrying the same id, a \"code\" (100 = in progress, 200 = done) and \"data\". cmd is the pair of an XMPP-era mime type and an operation, joined with \"?\": \"vnd.logitech.harmony/vnd.logitech.harmony.engine?config\", \"harmony.activityengine?runactivity\", \"vnd.logitech.harmony/vnd.logitech.harmony.engine?holdAction\". The `timeout` is the hub-side reply timeout in seconds (aioharmony sends 5, the Node clients 30; either works). Reads take params {\"verb\":\"get\",\"format\":\"json\"}.\n",
+      "history": "Firmware 4.15.206 (Dec 2018) removed the XMPP local API on TCP 5222; 4.15.250 (Feb 2019) restored it after community backlash. The WebSocket surface above is the one modern firmware speaks by default; aioharmony keeps an XMPP connector for hubs that still expose 5222. Only the WebSocket transport is declared here.\n",
+      "hold_action": "A device command is a press followed by a release: two holdAction frames whose params differ only in \"status\" (\"press\", then \"release\"). The \"action\" param is a STRING, not an object, and inside it every colon is doubled -- {\"command\":: \"VolumeUp\",\"type\":: \"IRCommand\",\"deviceId\":: \"12345\"} -- which is the hub's own escaping of the XMPP-era attribute syntax (PROTOCOL.md shows the same \"::\" in the XMPP form). Send the release a short interval after the press (aioharmony defaults to ~0.1 s; a longer gap is a held key).\n",
+      "keepalive": "Idle sockets are closed by the hub after ~60 s; aioharmony sends a WebSocket ping every 30 s and expects a pong within 15 s.\n",
+      "provisioning": "Before the socket can be opened the client needs the hub's remoteId: POST http://<ip>:8088/ with Origin: http://sl.dhg.myharmony.com, Content-Type: application/json, Accept: application/json and Accept-Charset: utf-8, body {\"id\":1,\"cmd\":\"setup.account?getProvisionInfo\",\"params\":{}}. The reply is {\"cmd\":..., \"code\":200, \"data\":{\"activeRemoteId\": \"<remoteId>\", ...}}. The Origin header is what the hub keys the request on; without it the POST is refused.\n",
+      "transport": "WebSocket, JSON text frames, TCP 8088; provisioning over HTTP on the same port",
+      "verification": "reported"
     }
+  },
+  "websocket": {
+    "channels": [
+      {
+        "default": true,
+        "description": "The only channel. Every request is one JSON text frame in this envelope; replies carry the same id with \"code\" and \"data\" (hub_protocol.envelope). The hub also pushes unsolicited frames on this socket (activity changes, config updates) with no request id.\n",
+        "encoding": "json",
+        "frame": {
+          "hbus": {
+            "cmd": "{action}",
+            "id": "{request_id}",
+            "params": "{arguments}"
+          },
+          "hubId": "{remote_id}",
+          "timeout": 30
+        },
+        "name": "hbus"
+      }
+    ],
+    "connect": {
+      "heartbeat_seconds": 30,
+      "path": "/?domain=svcs.myharmony.com&hubId={remote_id}",
+      "port": 8088,
+      "scheme": "ws"
+    },
+    "notes": "No pairing block: the socket needs nothing beyond the remoteId in the connect path, and that is fetched from the hub itself by get_provision_info -- not issued by a consent flow the schema's pairing modes describe. Verification: reported (aioharmony, harmonyhubjs).\n"
   }
 }
