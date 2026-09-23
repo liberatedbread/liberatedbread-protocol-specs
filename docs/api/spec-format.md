@@ -393,7 +393,13 @@ rather than described in prose:
   header line. A device that answered is tagged with the spec's
   `identification.lan_protocols` token (`govee-lan`, `yeelight-ssdp`,
   `tplink-smarthome`), which is the strong identification: only something
-  that speaks the protocol replies at all.
+  that speaks the protocol replies at all. When two specs send the same
+  probe, the narrower one states what its product's reply must carry in
+  `response_match` (`source`/`match`/`value`, ANDed, the udp_broadcast twin
+  of `scope_match`). The broader one declares `platform_fallback: true`,
+  which `ssdp` now also accepts. Yeelight's cube lists `set_segment_rgb` in
+  the reply's `support` header, and `yeelight-wifi` is the fallback for
+  every other Yeelight.
 - **`ws_discovery`** — the OASIS WS-Discovery Probe ONVIF cameras answer, a
   SOAP-over-UDP multicast to `239.255.255.250:3702` with `probe_types`
   (`dn:NetworkVideoTransmitter`), whose ProbeMatch carries a `urn:uuid`
@@ -442,10 +448,10 @@ the two little-endian company-id bytes, which `company_id` has already
 matched: an advertisement reading `54 52 00 61` on the air under company id
 21076 (`0x5254`) has the pattern `0061`, never `54520061`. `match` is `prefix`
 (the default), `exact`, or `masked` — in which case `mask` is the same length
-as `pattern` and the comparison is `payload & mask == pattern & mask`. The four
-"TR" specs (ideal-led, magic-display, shining-glasses, shining-mask) differ in
-nothing but those two bytes, so the origin is what makes them four devices
-rather than one.
+as `pattern` and the comparison is `payload & mask == pattern & mask`. The five
+"TR" specs (ideal-led `0061`, magic-display `0027`, shining-glasses `0041`,
+shining-mask `004a`, led-helmet-display `0074`) differ in nothing but those
+two bytes, so the origin is what makes them five devices rather than one.
 
 `mac_prefixes` earns its place by ranking rather than by deciding. An OUI never
 justifies claiming a device is supported — `C4:7C:8D` matches every Xiaomi
@@ -1003,6 +1009,27 @@ differently:
 | Wire unit is a protocol constant; any C/F toggle is display-only | `fixed` (default) | Ember Mug: always centi-°C on the wire; `fc540004` changes the mug's screen, nothing else | Decode with `scale`/`unit` and never look back |
 | Wire unit follows a device setting | `device_setting` | Inkbird iBBQ: the same raw 165 is 165 °C or 165 °F depending on state | Read the setting named in `unit_reference`, map it through `unit_values`, only then decode |
 
+When the setting changes the resolution as well as the unit, add
+`unit_scales`, a scale per unit, keyed by what `unit_values` yields. A Mi
+Scale reports kilograms at raw/200 but pounds and jin at raw/100:
+`unit_scales: {kg: 0.005, lb: 0.01, jin: 0.01}`, with `scale` as the
+fallback for any unit not listed.
+
+A unit setting, or any other reading, often lives in a few bits of a packed
+byte. `mask` picks them out before anything else applies: the value becomes
+`(raw & mask) >> (trailing zero bits of mask)`, and several fields may share
+one `offset` with different masks. Hotwired's battery byte is `mask: 0x07`
+for its gauge step and `mask: 0xF0` for its present flag. The Mi Scale v2's
+two unit bits sit in different control bytes, so its `unit_flags` field
+reads both bytes as one little-endian word under `mask: 0x4001`.
+
+Some characteristics carry more than one kind of frame. `format_match:
+{offset, value}` on the characteristic says which frames `format`
+describes: any notification without `value` at `offset` is not decoded, and
+entities bound to it keep their last state. Hotwired's status notifications
+are CC reports interleaved with AA echoes of the last write; without the
+match, every echo would be published as a status.
+
 Getting the second case wrong is not an error you notice: every reading stays
 plausible and is simply in the wrong unit. That is why `unit_source:
 device_setting` requires a `unit_reference` — "it depends" without "on what"
@@ -1128,11 +1155,22 @@ declared command unsendable:
 
 - **`headers`** — request headers this command sends, name → value, with the
   same `{name}` substitution as `body` and `path`. This is where a bearer
-  credential rides (`AUTH: "{auth_token}"` on every Vizio key, `X-Auth-PSK:
-  "{psk}"` on every Sony call, each from a `source: "credential:..."`
-  parameter) and where a REST API's insisted-on `Content-Type` is stated. A
-  placeholder the consumer cannot fill fails the send; it never goes out
-  empty.
+  credential rides (`AUTH: "{auth_token}"` on every Vizio key, from a
+  `source: "credential:auth_token"` parameter) and where a REST API's
+  insisted-on `Content-Type` is stated. A placeholder the consumer cannot
+  fill fails the send; it never goes out empty.
+- **`auth`, naming entries of the root `auth_schemes`**, for a device that
+  accepts more than one credential on the same commands. Sony Bravia takes
+  either a pre-shared key (`X-Auth-PSK`) or the cookie a PIN pairing
+  issued. Pinning one of them as a fixed header locked out every client that
+  took the other route. Each scheme is `type: header` (its `headers` merge
+  over the command's) or `type: http_basic` (`username`/`password`, which
+  the client base64-encodes), and names the stored `credential` it needs. A
+  command lists the schemes it accepts, in order of preference, and the
+  client uses the first one it holds a credential for. Placeholders fill
+  from the command's parameters first, then from that credential. Sony's
+  `act_register` authenticates with `pin_basic`, whose password is its own
+  `pin` parameter.
 - **A literal `body` for an HTTP command whose wire shape is not a flat
   object.** `arguments` renders a flat JSON object; Vizio's
   `{"KEYLIST":[{...}]}` and Sony's JSON-RPC envelope are not one, so those
@@ -1300,6 +1338,44 @@ length then the packet, split into `max_chunk_size` writes (Rabbit Air); and
 a parameter's **`auto: crc8`** is CRC-8 poly 0x07 / init 0x00 over the
 `checksum_start` span (the cat printers, over the payload only, so
 `checksum_start: 6`).
+
+#### `firmware_update` and its `dfu` block
+
+A device that takes new firmware declares a `firmware_update` feature with a
+`dfu` block. The schema requires the block, so the facts cannot live only
+in prose:
+
+```yaml
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]       # stack(s); closed enum
+      transport: "ble"
+      image: { signing: "signed", algorithm: "ecdsa_p256", source: "bundled_in_app" }
+      enter: { how: "command", command: "enter_dfu" }   # must be `advanced`
+      dfu_mode:                               # checked BEFORE identification
+        local_names: ["AdMore Light Bar DFU"]
+        address_offset: 1
+      services: ["0000fe59-0000-1000-8000-00805f9b34fb"]
+      recovery: { interrupted: "keeps_old_image", inactivity_timeout_s: 120 }
+      verification: "reported"
+```
+
+A consumer matches `dfu_mode` before ordinary identification and shows a hit
+as "this product, mid-update", with no controls. `services` are listed
+read-only by a GATT explorer and never identify the product on their own.
+`image.signing` tells a user whether a replacement client could build an
+image or only deliver the vendor's. What each stack does by default (UUIDs,
+the `DfuTarg` name, the +1 address, timeouts) is in
+[Firmware Update](../protocols/firmware-update.md) and
+`registries/dfu-signatures.tsv`. A spec records only what its device
+changes.
+
+When the stack depends on the board, declare one `firmware_update` entry per
+group and scope each with `variants`: names from `device.variants[].model`,
+as on an entity. hello-fairy's ST17H66, ESP32 and Bluetrum boards each get
+their own entry. No variant may be covered by two entries of the same
+`type`.
 
 ### One spec, several models
 

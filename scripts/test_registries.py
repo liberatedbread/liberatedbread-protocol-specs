@@ -270,3 +270,64 @@ def test_shared_service_types_carries_the_types_the_catalogue_leans_on() -> None
 def test_shared_service_types_ends_with_lf_newline() -> None:
     raw = (REGISTRY_DIR / SHARED_SERVICE_TYPES).read_bytes()
     assert raw.endswith(b"\n") and b"\r" not in raw
+
+
+# ---------------------------------------------------------------------------
+# dfu-signatures.tsv -- hand-maintained, not fetched
+# ---------------------------------------------------------------------------
+#
+# The per-stack signatures of a firmware-update path: service and
+# characteristic UUIDs and default bootloader names. A scanner uses it to
+# recognise ANY device in its bootloader (an anonymous "DfuTarg"), and to keep
+# update services out of product identification. The `mechanism` column is
+# the schema's features[].dfu.mechanisms vocabulary, so the two cannot drift.
+
+DFU_SIGNATURES = "dfu-signatures.tsv"
+DFU_SIGNATURES_HEADER = ["signature", "kind", "mechanism", "meaning", "source"]
+UUID128 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def _dfu_rows() -> list[list[str]]:
+    lines = _lines(DFU_SIGNATURES)
+    assert lines and lines[0].split("\t") == DFU_SIGNATURES_HEADER, (
+        f"{DFU_SIGNATURES}: first line must be the header"
+    )
+    rows = []
+    for number, line in enumerate(lines[1:], start=2):
+        parts = line.split("\t")
+        assert len(parts) == 5, f"{DFU_SIGNATURES}:{number}: expected 5 columns"
+        rows.append(parts)
+    return rows
+
+
+def _dfu_mechanisms() -> set[str]:
+    import json
+
+    schema_path = REGISTRY_DIR.parent / "device-specs" / "schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    dfu = schema["properties"]["features"]["items"]["properties"]["dfu"]
+    return set(dfu["properties"]["mechanisms"]["items"]["enum"])
+
+
+def test_dfu_signatures_rows_are_well_formed() -> None:
+    mechanisms = _dfu_mechanisms()
+    for signature, kind, mechanism, meaning, source in _dfu_rows():
+        assert kind in {"service_uuid", "characteristic_uuid", "local_name"}, (
+            f"{signature}: kind {kind!r}"
+        )
+        if kind != "local_name":
+            assert UUID128.match(signature), (
+                f"{signature!r} is not a lowercase 128-bit UUID"
+            )
+        assert mechanism in mechanisms, (
+            f"{signature}: mechanism {mechanism!r} is not in the schema's "
+            "features[].dfu.mechanisms enum"
+        )
+        assert meaning.strip(), f"{signature}: needs a meaning"
+        assert source.startswith("https://"), f"{signature}: needs a source URL"
+
+
+def test_dfu_signatures_are_unique_and_sorted() -> None:
+    keys = [(kind, signature) for signature, kind, *_ in _dfu_rows()]
+    assert len(keys) == len(set(keys)), "duplicate DFU signature"
+    assert keys == sorted(keys), "rows must be sorted by kind, then signature"

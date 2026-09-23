@@ -27,18 +27,18 @@ device:
     five per-family config classes (16-bit codes expand to
     0000XXXX-0000-1000-8000-00805F9B34FB):
     - TP9012 family (deviceType 7/8, its own per-family BLE config in the app): service
-      0B863E05-BA64-4F7A-922D-007FD52DCAA9 — NOT 1086FFF0 — write FFF1,
+      0b863e05-ba64-4f7a-922d-007fd52dcaa9 — NOT 1086FFF0 — write FFF1,
       notify FFF2.
     - TP922 (deviceType 22, its own per-family BLE config in the app): service
-      BAAAFFF0-0001-4E6E-886A-57D347C919FE, write BAAAFFF1-…, notify
+      baaafff0-0001-4e6e-886a-57d347c919fe, write BAAAFFF1-…, notify
       BAAAFFF2-….
     - TP940 (deviceType 24) and TempSpike TP960 (deviceTypes 30/31):
       service 93bb7cab-eb14-c5a9-2354-a24f4df9330f with roles REVERSED —
       write = FF02, notify = FF01 — plus a read characteristic FF03.
     - TP426 infrared (deviceType 50): service
-      0F86FFF0-63E8-4762-9DFB-7B6FE113376A, write FFF1, notify FFF2.
+      0f86fff0-63e8-4762-9dfb-7b6fe113376a, write FFF1, notify FFF2.
     - Default (all other deviceTypes, incl. TP920/TP25W and TP980,
-      the app's default BLE config): service 1086FFF0-3343-4817-8BB2-B32206336CE8, write
+      the app's default BLE config): service 1086fff0-3343-4817-8bb2-b32206336ce8, write
       FFF1, notify FFF2.
     Clients must identify the family (advertised name, per the app's scan
     config)
@@ -51,16 +51,16 @@ device:
     its notifications mirror this with 0xAA at offset 0 and the opcode at
     offset 1. TP920/TP25W-family frames have NO 0xAA/0xFF wrapper and a
     trailing checksum that INCLUDES the opcode byte
-    (TP920Data.getIntCheckSum:247-258); this family additionally expects a
+    (the app's TP920 checksum helper); this family additionally expects a
     fixed init handshake write (starting 01 09 8a 7a ...) plus a
     timestamp-sync command 0x28 after connect (thermopro-cli
     create_handshake_command). TP940, TP960 (TempSpike) and TP980 send raw
     opcode-prefixed frames with NO wrapper and NO checksum at all
-    (TP940Data/TP960Data/TP980Data build Data straight from the opcode
-    bytes).
+    (the app's TP940, TP960 and TP980 command builders emit the opcode
+    bytes as-is).
 
-    Eight device change-utility families are dispatched in the app
-    (MyBleManager.notificationDataCallback): TP9012, TP920, TP940, TP960,
+    Eight device parser families are dispatched in the app (by its BLE
+    manager's notification callback): TP9012, TP920, TP940, TP960,
     TP962, TP968, TP980 and TP426 (infrared). The TempSpike line
     (TP960/962/968 and TP970-973) is the current retail focus.
 
@@ -87,17 +87,23 @@ device:
     52.317286 * tanh(v/273.624277936 - 8.76485439394) + 51.06925, clamped
     0-100 (tp96_battery).
 
-    FIRMWARE/DFU: the app carries TWO OTA paths (a DFU config and an OTA
-    config). There is a DFU-mode GATT service 0x1850 (write 0x2C00,
-    notify 0x2C01), and two vendor OTA profiles with bundled firmware
-    images: ASR560X (service 0917fe11-5d37-816d-8000-00805f9b34fb, write
-    09170001-…, notify 09170002-…; a bundled ASR560X OTA image, version 2.5,
-    string app-2.5.0-20251011.1000 — TempSpike-era hardware is ASR560X-based, not Nordic) and
-    Silicon Labs (OTA service 1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0, control
-    f7bf3564-fb6d-4e53-88a4-5e37e0326063, write
-    984227f3-34fc-4045-a5d0-2c581f81a153; a bundled Silicon Labs OTA image,
-    version 1.17). Images are pushed to devices over BLE by the app's OTA
-    layer.
+    FIRMWARE/DFU: the app picks its updater by the app-internal deviceType
+    it assigned the unit, and only two deviceTypes are ever offered a BLE
+    update. deviceType 40 (the TP980R scan name, i.e. the TP980 variant)
+    gets the Silicon Labs Gecko OTA path (OTA service
+    1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0, control
+    f7bf3564-fb6d-4e53-88a4-5e37e0326063, data
+    984227f3-34fc-4045-a5d0-2c581f81a153) with a bundled GBL image,
+    version 1.17. deviceType 22 (the TP920-family Wi-Fi units that report
+    type byte 0x62, scan names TP922/TP923/TP924, which are not a variant
+    of this spec) gets the ASR560X path (service
+    0917fe11-5d37-816d-8000-00805f9b34fb, write 09170001-…, notify
+    09170002-…) with a bundled ASR560X image, version 2.5, string
+    app-2.5.0-20251011.1000. TempSpike (TP960/TP962/TP968), TP940 and
+    TP9012 units are never offered an update, so the ASR560X image says
+    nothing about TempSpike silicon. The app also declares a 0x1850
+    service (0x2C00/0x2C01) in a DFU config that no GATT lookup ever
+    reads. Details are in the firmware_update feature.
 
     ThermoPro is rebranding to "TempPro" (announced ~April 2026; temppro.com);
     the app already references both buythermopro.com and temppro.com.
@@ -233,7 +239,7 @@ device:
       description: Basic 2-probe BBQ thermometer (app code family — "TP9012" may be an internal/OEM designation; no retail page found)
       probe_count: 2
       temperature_encoding: nibbles
-      temperature_encoding_detail: "(byteHigh << 4) + byteLow °C — TP9012ChangeUtils.getProTemp, NO /10. Sentinels: 0xFF,0x9C → -999.0; 0xDD,0xDD → -100.0; 0xEE,0xEE → 666.0"
+      temperature_encoding_detail: "(byteHigh << 4) + byteLow °C — the app's TP9012 probe-temperature decoder, NO /10. Sentinels: 0xFF,0x9C → -999.0; 0xDD,0xDD → -100.0; 0xEE,0xEE → 666.0"
       command_opcodes:
         - code: 0xB0
           name: DEVICE_CHECK
@@ -283,11 +289,11 @@ device:
       temperature_encoding_detail: >
         BCD: temp = (b1>>4)*100 + (b1&0x0F)*10 + (b2>>4) + (b2&0x0F)*0.1 °C;
         negative when the high nibble of b1 is 0x9 (subtract 1000). Disconnect
-        sentinel 0xCC,0xCC → -999.0 (TP940ChangeUtils.getProTemp). The TP920/
+        sentinel 0xCC,0xCC → -999.0 (the app's TP940 probe-temperature decoder). The TP920/
         TP25W family uses the same BCD digit layout but DIFFERENT sign/sentinel
         handling — sign = bit 0x80 of b1, sentinels 0xFF,0xFF → -999.0 /
-        0xDD,0xDD → -100.0 / 0xEE,0xEE → 666.0 (TP920DataChangeUtils.
-        getProTemp:654-665) — which is also the scheme thermopro-cli's
+        0xDD,0xDD → -100.0 / 0xEE,0xEE → 666.0 (the app's TP920
+        probe-temperature decoder) — which is also the scheme thermopro-cli's
         decode_temperature implements, so the CLI is a valid reference for
         TP920 but NOT for TP940's sign/sentinels. TempSpike TP96x does not
         use BCD at all (u16 LE − 30, see the TP960 family below).
@@ -330,12 +336,12 @@ device:
         first frame, 0x05 low battery upload, 0x06 box battery upload, 0x10
         auto temp return, 0x11 low battery (alt), 0x12 probe connect upload,
         0x13 temp alarm close, 0x14 ambient temp alarm close. Writes
-        (TP960Data): 0x01 read temp, 0x02 read temp history, 0x03 auto-
+        (the app's TP960 command builder): 0x01 read temp, 0x02 read temp history, 0x03 auto-
         notification on/off, 0x04 set probe temp alarm (°C and °F variants),
         0x05 read battery state, 0x06 read battery (TP962), 0x15 set ambient
         temperature alarm, 0x19 set temp unit, 0x1A read probe color. Battery:
         u16 LE millivolt bands <2311 → 0%, 2311-2450 → 33%, 2451-2600 → 66%,
-        ≥2601 → 100% (TP960ChangeUtils.getBattery:255-263); passive ads use the
+        ≥2601 → 100% (the app's TP960 battery decoder); passive ads use the
         fitted tanh curve instead (see device.notes).
 
     - model: TP962 / TP968 (TempSpike variants)
@@ -477,20 +483,20 @@ services:
       - uuid: "00002c00-0000-1000-8000-00805f9b34fb"
         name: DFU Write
         properties: ["write"]
-        description: "DFU-mode command write."
+        description: "Named in the app's DFU config, but no code path looks it up on a connected device; its role is unknown."
       - uuid: "00002c01-0000-1000-8000-00805f9b34fb"
         name: DFU Notification
         properties: ["notify"]
-        description: "DFU-mode notifications."
+        description: "Named in the app's DFU config, but no code path looks it up on a connected device; its role is unknown."
 
-  # Vendor OTA profiles (OtaConfig) — two SoC families with bundled firmware.
+  # Vendor OTA profiles (the app's OTA config) — two SoC families with bundled firmware.
   - uuid: "0917fe11-5d37-816d-8000-00805f9b34fb"
     name: ASR560X OTA Service
     characteristics:
       - uuid: "09170001-5d37-816d-8000-00805f9b34fb"
         name: OTA Write
         properties: ["write"]
-        description: "ASR560X OTA image write. The app bundles a matching image (version 2.5)."
+        description: "ASR560X OTA image write. The app bundles a matching image (version 2.5) and uses this path only for its deviceType 22 (TP922/TP923/TP924), not for any variant of this spec."
       - uuid: "09170002-5d37-816d-8000-00805f9b34fb"
         name: OTA Notification
         properties: ["notify"]
@@ -501,11 +507,75 @@ services:
       - uuid: "f7bf3564-fb6d-4e53-88a4-5e37e0326063"
         name: OTA Control
         properties: ["write"]
-        description: "Silicon Labs OTA control point — the app writes an OTA_CONTROL_START command here. Bundled firmware: a Silicon Labs OTA image, version 1.17."
+        description: "Silicon Labs OTA control point. The app writes the stack's OTA start command here, on TP980 only. Bundled firmware: a Silicon Labs OTA image, version 1.17."
       - uuid: "984227f3-34fc-4045-a5d0-2c581f81a153"
         name: OTA Data Write
         properties: ["write"]
         description: "Silicon Labs OTA data write."
+
+features:
+  # The app chooses its updater by the deviceType it assigned the unit.
+  # Only two deviceTypes are ever offered a BLE update: 40 (TP980, below)
+  # and 22 (TP922/TP923/TP924, the ASR560X path, not a variant here).
+  # TP9012, TP940 and the TempSpike line (TP960/TP962/TP968) never are,
+  # so they carry no firmware_update entry.
+  - type: "firmware_update"
+    variants: ["TP980"]
+    dfu:
+      mechanisms: ["silabs_ota", "vendor_cloud"]
+      transport: ["ble", "cloud"]
+      services: ["1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0"]
+      image:
+        signing: "unknown"
+        algorithm: "ecdsa_p256"
+        encrypted: true
+        source: "bundled_in_app"
+        format: "Silicon Labs GBL (the app's bundled image, version 1.17)."
+        notes: >
+          The bundled GBL's header marks it encrypted and signed. It carries
+          an encryption-init tag, encrypted program tags (AES-CTR) and a
+          64-byte ECDSA P-256 signature tag. Whether this unit's Gecko
+          bootloader enforces the signature is a build option and is not
+          established. Because the payload is encrypted, a replacement
+          client can deliver the vendor's image but cannot build a new one
+          without the device key. The image ships in the app and stays
+          there.
+      enter:
+        how: "stack_characteristic"
+        notes: >
+          The app writes 0x00 to OTA Control (f7bf3564-…) on the running
+          TP980, which reboots it into AppLoader. It offers this only when
+          the unit's reported BLE firmware version is above 1.0 and below
+          the bundled 1.17.
+      dfu_mode:
+        local_names: ["OTA"]
+        address_offset: 0
+        notes: >
+          The app's scan filter includes the exact name "OTA". It accepts
+          such an advertisement only at the address of a unit it has already
+          bound, so the unit keeps its address in AppLoader. On reconnecting
+          to a unit whose name is now "OTA", the app writes 0x00 to OTA
+          Control again, streams the GBL to 984227f3-… in MTU-sized writes,
+          then writes 0x03. On success it restores the stored name to TP980R
+          and disconnects. A scanner that sees "OTA" at a known TP980
+          address has found that unit mid-update.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From static analysis of the vendor app (its per-deviceType OTA
+        dispatch, OTA config and scan config) and of the bundled image's
+        header, not run on hardware. The Silicon Labs OTA data
+        characteristic 984227f3-… exists only in AppLoader on a stock
+        stack, which is why only the OTA service is listed under
+        `services`. `vendor_cloud`: when no BLE update applies, the app asks
+        the ThermoPro cloud for this unit's firmware and, if an update is
+        listed, sends a cloud IoT command (id 65503, payload 0xFF). The unit
+        then fetches the update itself over Wi-Fi. What that updates (the
+        Wi-Fi module or the whole unit) is not established. The app also
+        declares a 0x1850 service (write 0x2C00, notify 0x2C01) in a DFU
+        config that it instantiates but never looks up on a device. No
+        mechanism is inferred from it.
 
 evidence:
   static_analysis: >

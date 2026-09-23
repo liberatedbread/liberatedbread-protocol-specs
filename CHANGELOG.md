@@ -8,6 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Firmware update, declared.** `features[type: firmware_update]` now
+  requires a `dfu` block covering the update stack(s) (closed enum:
+  Nordic Secure/legacy DFU, MCUboot SMP, TI OAD, Telink, Silicon Labs,
+  Espressif, JieLi and others). It also states image signing and source, how
+  the device enters update mode (and which `advanced` command or HTTP
+  endpoint does it), how the device appears in update mode (name, service,
+  address offset, SoftAP, advert flag), which GATT services belong to the
+  update path, and what an interrupted update leaves behind. A consumer
+  checks `dfu_mode` before identification, so a bootloader is shown as
+  "this product, mid-update" instead of an unknown device or a controllable
+  one. `registries/dfu-signatures.tsv` holds each stack's UUIDs and default
+  bootloader names, so any bootloader is recognisable. The new page
+  `docs/protocols/firmware-update.md` gives the per-stack behaviour with
+  sources. `http_endpoints` entries can now be `advanced` (WLED `/update`,
+  Rachio `/fwupdate`). A `features` entry can be scoped to some `variants`,
+  so a family whose boards update differently (hello-fairy) states each
+  board's path. The DFU-capable specs in the catalogue declare the
+  block, and DFU-entry opcodes that lived only in prose are now `advanced`
+  commands.
+
+- **Alternative credentials, bit fields, frame selection, per-unit scales
+  and narrowed UDP probes** (PR #61 review). Root `auth_schemes` plus a
+  command's `auth` list let one command accept either of two credentials.
+  Sony Bravia's 56 commands take the PSK or the PIN-pairing cookie, and PIN
+  pairing is now an executable `act_register`. `issues_credentials` gains
+  `reply_cookie` (a Set-Cookie token) and `user_entered` (a value the user
+  types in). BLE `format` fields gain `mask`, characteristics gain
+  `format_match`, and the number-semantics block gains `unit_scales`:
+  Hotwired's battery gauge and CC-only status decode are declared, and
+  the Mi Scale's lb/jin readings scale correctly. `udp_broadcast` gains
+  `response_match` and `platform_fallback`, and `ssdp` gains
+  `platform_fallback`: the Yeelight cube no longer ties with every
+  Yeelight bulb.
+
 - **`headers` on a network command, and a literal `body` for HTTP.** A
   command can now say which request headers it sends, with the same `{name}`
   substitution as `body` and `path` — so a bearer credential (`AUTH:
@@ -268,6 +302,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `scripts/test_device_specs.py` enforces the mechanical parts of the rule.
 
 ### Fixed
+
+- **Wrong bytes and wrong matchers found while checking the review.**
+  - iKettle's `boil`/`stop` bodies were decimal command IDs written as
+    hex (`21`/`22`, which are other real commands). They are now
+    `15`/`16`, every ID is spelled "0x15 (21)", the 2.0 gets its own
+    hard reset and a `reset_wifi` command, and the 3rd-generation base
+    reset is labelled as such.
+  - Shining Mask's scan pattern is `004a`, not `004e`.
+  - led-helmet-display's "name prefix" was an OTA project number; it is
+    now identified by its `54 52 00 74` manufacturer data, not by
+    JieLi's generic `ae00`.
+  - hello-fairy's ESP32 variant no longer identifies on a GATT-only
+    Silicon Labs UUID.
+  - m6's `…dcca9d` UART UUIDs are confirmed from the firmware (not a
+    typo), and it identifies by name and manufacturer data rather than a
+    service it never advertises.
+  - Nuki's Opener, Smart Door, Door Sensor, Keypad and 5th-generation
+    Smart Lock are separate top-level GATT services from the official
+    APIs. The "Keypad" and "Door Sensor" UUIDs were other products'.
+    Paired locks and Openers are found by their iBeacon.
+  - ThermoPro's update applies to the TP980 only.
+  - SwitchBot's update stacks are mapped per model group, with an
+    `enter_ota` command.
+
+- **PR #61 review and follow-ups.** Nuki's keyturner GATT is now three
+  top-level services (Initialization, Pairing, Keyturner). The pairing and
+  command services used to be listed as characteristics of the
+  initialization service. Hotwired no longer claims 0xFFB0 as an advertised
+  identification signal. UniFi Protect's host prefix is `UDMPRO`, not
+  `UDM`, because the base Dream Machine does not host Protect. Vevor
+  VT256's SSID identity key, lost with `identity_keys`, is back as
+  `discovery.identity`. AdMore's `enter_dfu` is `advanced`. Every 128-bit
+  UUID in the specs and docs is lowercase, and a test keeps it that way.
 
 - **mopeka-pro-check-ble: two procedures that were not factory resets.** The
   block said `applicable: unknown` and `effect: no documented factory reset`

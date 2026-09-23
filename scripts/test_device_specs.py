@@ -3308,14 +3308,14 @@ def _credential_consumers(spec):
 
 
 def _issued_credential_names(spec):
-    """Every name a setup method declares it issues."""
+    """Every name a setup method, or one of its stages, declares it issues."""
     methods = ((spec.get("device") or {}).get("setup") or {}).get("methods") or []
-    return {
-        name
-        for method in methods
-        if isinstance(method, dict)
-        for name in (method.get("issues_credentials") or {})
-    }
+    phases = []
+    for method in methods:
+        if isinstance(method, dict):
+            phases.append(method)
+            phases.extend(s for s in method.get("stages") or [] if isinstance(s, dict))
+    return {name for phase in phases for name in (phase.get("issues_credentials") or {})}
 
 
 def test_every_credential_can_be_obtained_or_asked_for(specs):
@@ -3720,3 +3720,197 @@ def test_every_product_fixed_owner_names_a_real_file():
         f"PRODUCT_FIXED_LAN_ADDRESSES owner tokens matching no scanned file "
         f"(a stem must name a spec/note, a path must exist): {dangling}"
     )
+
+
+def test_command_auth_names_declared_schemes(specs):
+    """`auth` on a command names entries of the root `auth_schemes`; a
+    misspelt name is a command no client can authenticate."""
+    for device_id, spec in specs.items():
+        schemes = spec.get("auth_schemes") or {}
+        used = set()
+        for name, command in (spec.get("commands") or {}).items():
+            for scheme in (command or {}).get("auth") or []:
+                assert scheme in schemes, (
+                    f"{device_id}: command {name!r} accepts auth scheme "
+                    f"{scheme!r}, which auth_schemes does not declare"
+                )
+                used.add(scheme)
+        unused = set(schemes) - used
+        assert not unused, f"{device_id}: auth_schemes {sorted(unused)} are used by no command"
+
+
+def test_auth_scheme_placeholders_resolve(specs):
+    """A scheme's `{name}` placeholders are its stored credential or a
+    parameter of every command that uses it -- nothing else fills them."""
+    placeholder = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+    for device_id, spec in specs.items():
+        schemes = spec.get("auth_schemes") or {}
+        for scheme_name, scheme in schemes.items():
+            values = list((scheme.get("headers") or {}).values())
+            values += [scheme.get("username") or "", scheme.get("password") or ""]
+            names = {n for v in values for n in placeholder.findall(v)}
+            for command_name, command in (spec.get("commands") or {}).items():
+                if scheme_name not in ((command or {}).get("auth") or []):
+                    continue
+                params = set((command.get("parameters") or {}))
+                missing = names - params - {scheme.get("credential")}
+                assert not missing, (
+                    f"{device_id}: auth scheme {scheme_name!r} used by "
+                    f"{command_name!r} needs {sorted(missing)}, which is neither "
+                    "the scheme's credential nor a parameter of the command"
+                )
+
+
+def test_auth_scheme_credentials_can_be_obtained(specs):
+    """A scheme that needs a stored credential is useless unless setup says
+    how to get one."""
+    for device_id, spec in specs.items():
+        issued = _issued_credential_names(spec)
+        for scheme_name, scheme in (spec.get("auth_schemes") or {}).items():
+            credential = scheme.get("credential")
+            if credential:
+                assert credential in issued, (
+                    f"{device_id}: auth scheme {scheme_name!r} needs credential "
+                    f"{credential!r}, which no setup method or stage issues"
+                )
+
+
+def _format_fields(spec):
+    for service in spec.get("services") or []:
+        for characteristic in (service or {}).get("characteristics") or []:
+            for field in (characteristic or {}).get("format") or []:
+                yield characteristic, field
+
+
+def test_format_masks_fit_their_field(specs):
+    for device_id, spec in specs.items():
+        for characteristic, field in _format_fields(spec):
+            mask = field.get("mask")
+            if mask is None:
+                continue
+            assert mask < 1 << (8 * field["length"]), (
+                f"{device_id}: {characteristic['uuid']} field {field['name']!r} "
+                f"mask {mask:#x} is wider than its {field['length']}-byte field"
+            )
+
+
+def test_unit_scales_are_keyed_by_units_the_field_can_be_in(specs):
+    """`unit_scales` is looked up by the unit `unit_values` resolved to; a key
+    no unit_values entry produces is a scale nothing ever selects."""
+    for device_id, spec in specs.items():
+        for characteristic, field in _format_fields(spec):
+            scales = field.get("unit_scales")
+            if not scales:
+                continue
+            units = set((field.get("unit_values") or {}).values()) | {field.get("unit")}
+            stray = set(scales) - units
+            assert not stray, (
+                f"{device_id}: {characteristic['uuid']} field {field['name']!r} "
+                f"has unit_scales for {sorted(stray)}, which unit_values never yields"
+            )
+
+
+def _all_commands(spec):
+    """name -> command, across the top-level block and every characteristic."""
+    found = dict(spec.get("commands") or {})
+    for service in spec.get("services") or []:
+        for characteristic in (service or {}).get("characteristics") or []:
+            found.update((characteristic or {}).get("commands") or {})
+    return found
+
+
+def _dfu_blocks(spec):
+    for feature in spec.get("features") or []:
+        if isinstance(feature, dict) and feature.get("dfu"):
+            yield feature["dfu"]
+
+
+def test_dfu_entry_command_exists_and_is_advanced(specs):
+    """The command that reboots a device into its bootloader is one tap from
+    leaving it unusable, so it is `advanced` -- and it must be a real
+    command, or the declaration points nowhere."""
+    for device_id, spec in specs.items():
+        commands = _all_commands(spec)
+        for dfu in _dfu_blocks(spec):
+            enter = dfu.get("enter") or {}
+            name = enter.get("command")
+            if enter.get("how") == "command":
+                assert name, f"{device_id}: dfu.enter.how is command but names none"
+            if not name:
+                continue
+            assert name in commands, (
+                f"{device_id}: dfu.enter.command {name!r} is not a declared command"
+            )
+            assert commands[name].get("advanced") is True, (
+                f"{device_id}: {name!r} enters the bootloader but is not `advanced`"
+            )
+
+
+def test_dfu_services_are_declared_services(specs):
+    """`dfu.services` points a GATT explorer at services to keep read-only;
+    one the spec does not declare cannot be recognised on connect."""
+    for device_id, spec in specs.items():
+        declared = {
+            (service or {}).get("uuid") for service in spec.get("services") or []
+        }
+        for dfu in _dfu_blocks(spec):
+            for uuid in dfu.get("services") or []:
+                assert uuid in declared, (
+                    f"{device_id}: dfu.services lists {uuid}, which `services` "
+                    "does not declare"
+                )
+
+
+def test_dfu_upload_endpoint_exists_and_is_advanced(specs):
+    for device_id, spec in specs.items():
+        endpoints = {
+            (e or {}).get("name"): e for e in spec.get("http_endpoints") or []
+        }
+        for dfu in _dfu_blocks(spec):
+            name = dfu.get("endpoint")
+            if not name:
+                continue
+            assert name in endpoints, (
+                f"{device_id}: dfu.endpoint {name!r} is not an http_endpoints name"
+            )
+            assert endpoints[name].get("advanced") is True, (
+                f"{device_id}: http endpoint {name!r} takes a firmware image but "
+                "is not `advanced`"
+            )
+
+
+def test_feature_variants_name_declared_models_and_do_not_overlap(specs):
+    """`features[].variants` refers to `device.variants[].model`, like an
+    entity's. Two entries of one type covering the same model leave a
+    consumer to guess which one holds for it."""
+    for device_id, spec in specs.items():
+        models = {
+            (v or {}).get("model") for v in spec["device"].get("variants") or []
+        }
+        by_type = {}
+        for feature in spec.get("features") or []:
+            if not isinstance(feature, dict):
+                continue
+            scoped = feature.get("variants")
+            for model in scoped or []:
+                assert model in models, (
+                    f"{device_id}: feature {feature['type']!r} names variant "
+                    f"{model!r}, which device.variants does not declare"
+                )
+            by_type.setdefault(feature["type"], []).append(
+                frozenset(scoped) if scoped else None
+            )
+        for feature_type, scopes in by_type.items():
+            if len(scopes) < 2:
+                continue
+            assert None not in scopes, (
+                f"{device_id}: several {feature_type!r} features and one has no "
+                "`variants`, so it overlaps every other"
+            )
+            seen = set()
+            for scope in scopes:
+                assert not (seen & scope), (
+                    f"{device_id}: variants {sorted(seen & scope)} are covered by "
+                    f"more than one {feature_type!r} feature"
+                )
+                seen |= scope

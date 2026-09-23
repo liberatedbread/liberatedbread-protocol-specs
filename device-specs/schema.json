@@ -141,7 +141,8 @@
   "$defs": {
     "uuid": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      "description": "A full 128-bit UUID in canonical 8-4-4-4-12 form, lowercase hex (RFC 9562 output form). 16-bit SIG UUIDs are written expanded onto the Bluetooth base UUID, e.g. 0000fff0-0000-1000-8000-00805f9b34fb.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "device_class": {
       "type": "string",
@@ -437,6 +438,13 @@
             "type": "string"
           },
           "description": "Map from the referenced unit-setting's raw value to the unit then in force, e.g. {0: 'C', 1: 'F'}. The key 'default' covers every unlisted value — the Inkbird unit byte means F when 0x46 (ASCII 'F') and C for anything else, which is {0x46: 'F', default: 'C'}."
+        },
+        "unit_scales": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Scale per unit, keyed by the unit strings that `unit_values` produces. Use it when the device's unit setting changes the resolution as well as the unit: a Mi Scale reports kilograms at raw/200 but pounds and jin at raw/100. The client resolves the unit through `unit_values`, then takes that unit's scale from here, falling back to `scale` for any unit not listed."
         },
         "values": {
           "type": "object",
@@ -1183,9 +1191,6 @@
           "description": "Machine-readable statement of the credentials this method issues, keyed by the exact name that `source: credential:<name>` parameters refer to -- the key spelling is the coupling, the way `instances.keyed_by` is for `instance:` parameters. This is what lets a consumer run the pairing flow and store what it yields without a per-device credential table: the Hue link-button flow issues `username` (and `clientkey` when asked), and every later request's `credential:username` names the stored value.",
           "additionalProperties": {
             "type": "object",
-            "required": [
-              "reply_path"
-            ],
             "properties": {
               "command": {
                 "type": "string",
@@ -1195,6 +1200,15 @@
                 "type": "string",
                 "description": "Dotted path with bracketed indices into that reply: '[0].success.username'."
               },
+              "reply_cookie": {
+                "type": "string",
+                "description": "Name of the cookie, in the reply's Set-Cookie header, whose value is the credential -- for a device that issues its token as a cookie rather than in the body (Sony's actRegister answers `Set-Cookie: auth=<token>`). Parse it leniently: Sony's spelling is not RFC 6265-clean."
+              },
+              "user_entered": {
+                "type": "boolean",
+                "const": true,
+                "description": "The value is not read from any reply: a person sets it on the device and types the same string into the client (Sony's pre-shared key). The consumer prompts for it using `notes`."
+              },
               "request_condition": {
                 "type": "string",
                 "description": "Request argument that must be set for the field to appear at all -- Hue's clientkey exists only when `generateclientkey: true` rode the create request, and only at create time; a re-pair without it never sees the key again."
@@ -1202,7 +1216,24 @@
               "notes": {
                 "type": "string"
               }
-            }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "reply_path"
+                ]
+              },
+              {
+                "required": [
+                  "reply_cookie"
+                ]
+              },
+              {
+                "required": [
+                  "user_entered"
+                ]
+              }
+            ]
           }
         },
         "steps": {
@@ -2315,6 +2346,11 @@
                             "type": "object",
                             "description": "Listen windows and probe timeouts. The response wait must be at least MX.",
                             "additionalProperties": true
+                          },
+                          "platform_fallback": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "This method matches a whole PLATFORM, not one product, and is the deliberate catch-all for it: a consumer uses it only when no spec matched the same probe with a narrower match (a udp_broadcast `response_match` on the same search target, or a more specific search target). Same contract as the mdns and ws_discovery `platform_fallback`. At most one spec should declare it per probe."
                           }
                         }
                       }
@@ -2563,6 +2599,47 @@
                                 }
                               }
                             }
+                          },
+                          "response_match": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "source",
+                                "match",
+                                "value"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "source": {
+                                  "type": "string",
+                                  "description": "Where in the reply, in the same `<dialect>:<key>` spelling as `identity_mapping` sources (`header:support`, `json:model`, `tlv:0x0c`)."
+                                },
+                                "match": {
+                                  "type": "string",
+                                  "enum": [
+                                    "exact",
+                                    "prefix",
+                                    "contains",
+                                    "regex"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "description": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "description": "Conditions on the reply that narrow this method from 'a device speaking this protocol' to THIS product. The conditions are ANDed. A reply that fails one is not this spec's device, though it may still be a platform fallback's. Two specs sending the same probe tie on every reply unless the narrower one says what it requires. Yeelight is the case: the cube and the plain bulbs answer the same port-1982 M-SEARCH, and only the reply's `support` header tells them apart."
+                          },
+                          "platform_fallback": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "This method matches a whole PLATFORM, not one product, and is the deliberate catch-all for it: a consumer uses it only when no spec matched the same probe with a narrower `response_match`. Same contract as the mdns and ws_discovery `platform_fallback`. At most one spec should declare it per probe."
                           }
                         }
                       }
@@ -3313,6 +3390,14 @@
             ],
             "description": "Capability type. `stored_upload` persists content ON the device so it plays standalone after disconnect (distinct from `image_upload`, which streams live frames). `raster_print` states that the device's control surface is a raster byte stream — a label or receipt printer that takes rows of pixels and puts them on paper — and therefore resolves no entities: a consumer keeps such a device even though nothing binds a switch or a sensor to it, instead of dropping it as empty. It is a MARKER declared BESIDE the `image_upload` entry, not a replacement for it: the `image_upload` entry keeps describing the bitmap the stream accepts (`max_width`, `format: 1bit-bitmap`, `max_palette_colors`, `print_density`, `paper_type`, `print_geometry`, `media`), and `raster_print` answers the one question that entry cannot — whether the upload IS the whole device. Every raster printer in the catalogue declares both."
           },
+          "variants": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Which of `device.variants` this feature applies to, by `model`, as for `entities[].variants`. Omit when every variant has it. A spec whose variants update differently declares one `firmware_update` entry per group: hello-fairy's ST17H66, ESP32 and Bluetrum boards each have their own stack, entry and update-mode signals. A variant must not be covered by two entries of the same `type`."
+          },
           "container_format": {
             "type": "string",
             "description": "Names the consumer-side encoder that builds the persisted file blob for a `stored_upload` (e.g. `daniao_amx`). Like `protocol_handler` for the live path: the container layout (protobuf + CRC over a base template) cannot be declarative, so the spec names an algorithm the consumer implements."
@@ -3635,8 +3720,298 @@
                 }
               }
             }
+          },
+          "dfu": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mechanisms"
+            ],
+            "description": "How this device takes new firmware, in the shape a consumer acts on. Three consumer jobs depend on it: (1) recognising the device when it is sitting in its bootloader, which is exactly when a user is most worried and when a scanner most often mislabels it; (2) never letting a generic control surface wander into the update path; (3) telling a user whether a replacement client could ever update the device, or only deliver the vendor's own images. The per-stack facts (which UUIDs, which default bootloader name, which inactivity timeout) are in docs/protocols/firmware-update.md and registries/dfu-signatures.tsv; this block says which of them apply here and what the vendor changed.",
+            "properties": {
+              "mechanisms": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "nordic_secure_dfu",
+                    "nordic_legacy_dfu",
+                    "mcuboot_smp",
+                    "ti_oad",
+                    "telink_ota",
+                    "silabs_ota",
+                    "espressif_ota",
+                    "jieli_ota",
+                    "csr_ota",
+                    "dialog_suota",
+                    "freqchip_ota",
+                    "phyplus_ota",
+                    "quintic_ota",
+                    "panchip_ota",
+                    "asr_ota",
+                    "realtek_ota",
+                    "tuya_ble_ota",
+                    "beken_ota",
+                    "huami_dfu",
+                    "vendor_ble",
+                    "http_upload",
+                    "vendor_cloud",
+                    "custom",
+                    "unknown"
+                  ]
+                },
+                "description": "The update stack(s). A list because some devices carry two (a Nordic MCU plus a Wi-Fi module, or a legacy and a current path). `vendor_ble` is a vendor-specific protocol over the device's own GATT service; `http_upload` a firmware file POSTed to a web endpoint (WLED /update, ESPHome web OTA); `vendor_cloud` an update the device fetches itself when the vendor cloud tells it to; `custom` anything else described in `notes`."
+              },
+              "transport": {
+                "description": "What the image travels over. A list when the image can travel more than one way (a hub that pulls over Wi-Fi or takes a BLE write).",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "ble",
+                      "http",
+                      "tcp",
+                      "udp",
+                      "wifi_softap",
+                      "uart",
+                      "usb",
+                      "cloud"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "ble",
+                        "http",
+                        "tcp",
+                        "udp",
+                        "wifi_softap",
+                        "uart",
+                        "usb",
+                        "cloud"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "image": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "signing": {
+                    "type": "string",
+                    "enum": [
+                      "signed",
+                      "unsigned",
+                      "unknown"
+                    ],
+                    "description": "Whether the bootloader verifies a vendor signature. `signed` means a replacement client can deliver the vendor's images but cannot build new ones; `unsigned` means anyone can flash anything (and so can an attacker in radio range)."
+                  },
+                  "algorithm": {
+                    "type": "string",
+                    "enum": [
+                      "ecdsa_p256",
+                      "ed25519",
+                      "rsa2048",
+                      "rsa3072",
+                      "rsa_pss_3072",
+                      "hmac",
+                      "crc_only",
+                      "unknown"
+                    ],
+                    "description": "Signature or integrity algorithm, when known. `crc_only` is an integrity check, not authentication."
+                  },
+                  "encrypted": {
+                    "type": "boolean",
+                    "description": "Whether the image is encrypted in transit or at rest (SiLabs GBL AES-CTR, JieLi scrambling)."
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "bundled_in_app",
+                      "vendor_cloud",
+                      "public_url",
+                      "device_pulls",
+                      "user_supplied",
+                      "unknown"
+                    ],
+                    "description": "Where images come from. `public_url` only when the URL is already public and stated in `notes`; `device_pulls` when the device downloads its own update and the client only triggers it."
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "Container, e.g. 'nrfutil DFU zip (manifest.json + .bin + .dat init packet)', 'Silicon Labs GBL', 'raw flash image for offset 0x2000'."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "enter": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "how"
+                ],
+                "properties": {
+                  "how": {
+                    "type": "string",
+                    "enum": [
+                      "command",
+                      "stack_characteristic",
+                      "in_place",
+                      "button",
+                      "power_cycle",
+                      "automatic",
+                      "unknown"
+                    ],
+                    "description": "`command`: a vendor command in this spec (named in `command`) reboots into the bootloader. `stack_characteristic`: the stack's own buttonless entry (Nordic 8ec90003/8ec90004 opcode 0x01, SiLabs ota_control 0x00, Nordic legacy 1531 [0x01, 0x04]); the registry and firmware-update.md give the bytes. `in_place`: the running application receives the image itself, no reboot first (Telink, TI off-chip OAD, MCUboot SMP, ESP-IDF). `button`: a physical button or button combination. `automatic`: the device enters on its own (a vendor cloud push)."
+                  },
+                  "command": {
+                    "type": "string",
+                    "description": "The `commands` entry (or a characteristic's command) that enters the update mode. It must be `advanced`: a one-tap bootloader entry leaves the device unusable until an image arrives or a timeout returns it."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "endpoint": {
+                "type": "string",
+                "description": "For `http_upload`: the `http_endpoints` entry (by `name`) that takes the image. It must be `advanced`, like an entry command."
+              },
+              "dfu_mode": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "How the device appears while in its bootloader or update mode. A consumer checks these BEFORE ordinary identification: a match here is 'this product, mid-update', and gets no controls. Without it the bootloader either looks like an unknown device or, worse, matches the product and is offered controls it cannot answer.",
+                "properties": {
+                  "local_names": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": "Exact advertised names in update mode ('AdMore Light Bar DFU', 'LT716_OTA')."
+                  },
+                  "local_name_prefix": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "service_uuids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    "description": "Service UUIDs advertised in update mode."
+                  },
+                  "address_offset": {
+                    "type": "integer",
+                    "minimum": -255,
+                    "maximum": 255,
+                    "description": "Difference between the update-mode BLE address and the normal one, added to the least-significant byte: 1 for a Nordic Secure DFU bootloader without bond sharing, 0 when it keeps its address. It is the only link a scanner has from an anonymous 'DfuTarg' back to the device the user just tapped."
+                  },
+                  "ssid_prefix": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "SoftAP SSID the device raises in update mode (iKettle's 'iKettle Update')."
+                  },
+                  "advertisement_flag": {
+                    "type": "string",
+                    "description": "Where the normal advertisement signals an update in progress, e.g. 'manufacturer data byte 0 bit 4' (Aranet4). A scanner seeing it set treats the device as mid-update."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "services": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/uuid"
+                },
+                "description": "GATT services on this device that belong to the update path, in normal mode. A generic GATT explorer lists them read-only and never writes to them."
+              },
+              "recovery": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "interrupted": {
+                    "type": "string",
+                    "enum": [
+                      "keeps_old_image",
+                      "stays_in_bootloader",
+                      "bricks",
+                      "unknown"
+                    ],
+                    "description": "What an interrupted update leaves behind. `keeps_old_image`: dual-bank or A/B slots, the old firmware still boots. `stays_in_bootloader`: single-bank; the device waits in update mode (dfu_mode) for a retry. `bricks`: needs a wired reflash."
+                  },
+                  "inactivity_timeout_s": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Seconds of no update activity after which the bootloader boots a valid application again (Nordic SDK default 120). 0 = never."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "verification": {
+                "type": "string",
+                "enum": [
+                  "confirmed",
+                  "reported",
+                  "hypothesis"
+                ]
+              },
+              "notes": {
+                "type": "string",
+                "description": "Everything else, including the sequence of a vendor protocol this block cannot state and the basis for the facts above."
+              }
+            }
           }
-        }
+        },
+        "allOf": [
+          {
+            "$comment": "A firmware_update feature without its dfu block is the prose-only state this block exists to end.",
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "firmware_update"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "dfu"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "dfu"
+              ]
+            },
+            "then": {
+              "properties": {
+                "type": {
+                  "const": "firmware_update"
+                }
+              }
+            }
+          }
+        ]
       }
     },
     "services": {
@@ -4087,6 +4462,30 @@
                     }
                   }
                 },
+                "format_match": {
+                  "type": "object",
+                  "required": [
+                    "offset",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "value": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255,
+                      "description": "The byte that must be present at `offset`."
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "Which notifications `format` describes, for a characteristic that carries more than one kind of frame. A value whose byte at `offset` is not `value` is not decoded by `format`, and entities bound to this characteristic keep their last state. Hotwired's status characteristic is the case: CC-prefixed status reports and AA-prefixed echoes of the last write arrive on the same characteristic, and decoding an echo as a status report publishes garbage."
+                },
                 "format": {
                   "type": "array",
                   "items": {
@@ -4129,6 +4528,11 @@
                           "string"
                         ],
                         "description": "Field value type. int32/uint32/uint24 are consumed by the mobile Rust ValueType enum (fixed width, endianness honored; uint24 is a 3-byte unsigned field, e.g. KingSmith WiLink telemetry) — do not work around them with prose or paired uint16 fields."
+                      },
+                      "mask": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Bit mask applied to the raw integer before anything else: raw = (raw & mask) >> (number of trailing zero bits in mask). It picks a bit field out of a packed byte -- Hotwired's battery byte keeps its gauge step in the low three bits (mask 7) and a charger flag above them. Several fields may share one `offset` with different masks. `scale`, `value_offset` and `values` apply to the masked value."
                       },
                       "endianness": {
                         "type": "string",
@@ -4296,8 +4700,36 @@
                 "description": "A literal response body. The one an implementer parses first, so it must be real enough to test against: an entity bound to this endpoint should be derivable from it and nothing else. Same role as `payload_formats.<name>.example`, one level up — that one is a value, this is the document carrying it."
               }
             }
+          },
+          "advanced": {
+            "type": "boolean",
+            "description": "Same meaning as on a command: a generic client does not offer this endpoint without an explicit opt-in (a firmware upload, a factory reset). Requires `advanced_reason`."
+          },
+          "advanced_reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Shown to the user at the opt-in point, as for a command."
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "advanced": {
+                  "const": true
+                }
+              },
+              "required": [
+                "advanced"
+              ]
+            },
+            "then": {
+              "required": [
+                "advanced_reason"
+              ]
+            }
+          }
+        ]
       }
     },
     "websocket": {
@@ -5749,6 +6181,79 @@
         }
       }
     },
+    "auth_schemes": {
+      "type": "object",
+      "description": "Named ways of authenticating a network request, for devices that accept more than one credential for the same commands. Keyed by scheme name; a command's `auth` lists the schemes it accepts. Sony Bravia is the case: every request carries EITHER the pre-shared key as `X-Auth-PSK` OR the cookie a PIN pairing issued, and a client holds whichever one its user set up. Stating that as one fixed header on each command locked out every PIN-paired client. Header values and the Basic-auth `username`/`password` use the same `{name}` placeholders as `headers`, filled first from the command's own `parameters` and then from the stored credential the scheme names.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "header",
+              "http_basic"
+            ],
+            "description": "`header`: send `headers`. `http_basic`: send `Authorization: Basic base64(username:password)` -- the client does the encoding, which a header template cannot."
+          },
+          "credential": {
+            "type": "string",
+            "description": "The stored credential this scheme needs, spelled as `issues_credentials` and `credential:<name>` spell it. A client uses a scheme only when it holds this credential. Omit for a scheme whose values all come from the command's parameters (Sony's actRegister Basic auth, whose password is the PIN on screen)."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Headers this scheme adds, merged over the command's own `headers`."
+          },
+          "username": {
+            "type": "string",
+            "description": "http_basic username; may be empty."
+          },
+          "password": {
+            "type": "string",
+            "description": "http_basic password, usually a `{placeholder}`."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "header"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "headers"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "http_basic"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "password"
+              ]
+            }
+          }
+        ]
+      }
+    },
     "commands": {
       "type": "object",
       "description": "Named invocations a client can send, for devices whose control surface is not a GATT characteristic. Keyed by command name; an entity's `commands:` role map (`turn_on: plug_turn_on`) names an entry here, exactly as it names a characteristic's command on a BLE device.\n\nThe distinction from `http_endpoints`/`mqtt_topics` is what makes both blocks necessary: those catalogue the ACTIONS a device offers -- what exists, what it takes, what it returns -- while a command here is one INVOCATION of an action with its arguments already chosen. 'Turn the plug on' is SetBinaryState with BinaryState=1, and that '1' has nowhere else to live: an entity's role map carries a name, not a payload. A consumer sends one by substituting `parameters` into `arguments` and rendering through whatever request template the spec's transport block publishes.\n\nDeliberately not `additionalProperties: false`. BLE specs (airthings-wave-family) already keep a top-level command catalogue keyed by `characteristic`/`template`/`value`, and the point of one block is that a role map resolves the same way whatever the transport underneath it is.",
@@ -5998,6 +6503,14 @@
               "type": "string"
             },
             "description": "Request headers this command sends, name -> value, for transports that carry them (http, soap, websocket handshakes). Values may contain `{name}` placeholders filled from `parameters` exactly as `body` templates and `path` segments are -- so a per-device bearer credential rides as `AUTH: \"{auth_token}\"` with `auth_token: {source: \"credential:auth_token\"}`, and Sony's pre-shared key as `X-Auth-PSK: \"{psk}\"`. The same shape as `websocket.connect.headers`. A declared `Content-Type` replaces the one a consumer would infer from the body; a placeholder the consumer cannot fill must fail the send visibly, never go out empty. Headers the transport block already mandates for every request (a SOAP renderer's SOAPACTION) need not be repeated here; what belongs here is what varies per command or per device -- an auth header, a content type a REST API insists on for PUTs."
+          },
+          "auth": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Names from the root `auth_schemes` this command accepts, in order of preference. A client applies the first one it can satisfy (holds its `credential`, or the scheme needs none) and sends that scheme's headers alongside the command's own. Use it when the credential varies by how the device was set up. A command with only one way to authenticate can simply carry the header in `headers`."
           },
           "example_body": {
             "type": "string",

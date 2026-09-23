@@ -16,7 +16,7 @@ device:
     water, bone mass, visceral fat, BMR). Price $20-30. Body composition is
     computed client-side from the impedance reading; the metric math
     originates from Holtek (the scale's MCU OEM) — Zepp Life ships it as a
-    JNI wrapper (Holtek HTBodyfat class loading a native "Bodyfat"
+    JNI wrapper (a Holtek body-fat class loading a native body-fat
     library) — and openScale's MiScaleLib is the reverse-engineered port.
     A newer Xiaomi Body Composition Scale S400 (MJTZC01YM) exists and is
     handled by openScale's separate MiScaleS400Handler.
@@ -248,8 +248,18 @@ services:
             type: "uint8"
             notes: >
               Bit field, not a code: bit 0 = pounds, bit 4 = jin (catty),
-              bit 5 = stabilised, bit 7 = weight removed. The unit flags
-              decide how weight_raw scales; see that field.
+              bit 5 = stabilised, bit 7 = weight removed. The two unit bits
+              are also declared on their own as unit_flags below.
+          - offset: 0
+            length: 1
+            name: "unit_flags"
+            type: "uint8"
+            mask: 0x11
+            values:
+              0: "kg"
+              1: "lb"
+              16: "jin"
+            notes: "Bits 0 and 4 of the control byte: the unit weight_raw is in."
           - offset: 1
             length: 2
             name: "weight_raw"
@@ -257,17 +267,23 @@ services:
             scale: 0.005
             unit: "kg"
             unit_source: "device_setting"
-            unit_reference: "00002a9d-0000-1000-8000-00805f9b34fb.control"
+            unit_reference: "00002a9d-0000-1000-8000-00805f9b34fb.unit_flags"
+            unit_values:
+              0: "kg"
+              1: "lb"
+              16: "jin"
+              default: "kg"
+            unit_scales:
+              kg: 0.005
+              lb: 0.01
+              jin: 0.01
             device_class: "weight"
             notes: >
-              The scale reports in whichever unit it is set to and the
-              control byte says which. With neither unit bit set the value
-              is kilograms at raw / 200 (the declared scale). With control
-              bit 0 set it is pounds at raw / 100, and with bit 4 set it is
-              jin at raw / 100 — the unit AND the scale change together,
-              which unit_values cannot say for a bit field, so a consumer
-              must test the bits itself. The 0x1542 unit command selects
-              which the scale uses.
+              The scale reports in whichever unit it is set to, and changing
+              the unit changes the resolution too: kilograms at raw / 200,
+              pounds and jin at raw / 100. unit_values and unit_scales state
+              both from unit_flags. The 0x1542 unit command selects which
+              unit the scale uses.
           - offset: 3
             length: 2
             name: "year"
@@ -390,6 +406,20 @@ services:
             notes: >
               Bit 1 = impedance present, bit 5 = stabilised, bit 6 = jin
               (catty), bit 7 = weight removed.
+          - offset: 0
+            length: 2
+            name: "unit_flags"
+            type: "uint16"
+            endianness: "little"
+            mask: 0x4001
+            values:
+              0: "kg"
+              1: "lb"
+              16384: "jin"
+            notes: >
+              The two unit bits, read as one little-endian word over both
+              control bytes: bit 0 is control_0 bit 0 (pounds) and bit 14 is
+              control_1 bit 6 (jin).
           - offset: 2
             length: 2
             name: "year"
@@ -430,14 +460,56 @@ services:
             scale: 0.005
             unit: "kg"
             unit_source: "device_setting"
-            unit_reference: "00002a9c-0000-1000-8000-00805f9b34fb.control_0"
+            unit_reference: "00002a9c-0000-1000-8000-00805f9b34fb.unit_flags"
+            unit_values:
+              0: "kg"
+              1: "lb"
+              16384: "jin"
+              default: "kg"
+            unit_scales:
+              kg: 0.005
+              lb: 0.01
+              jin: 0.01
             device_class: "weight"
             notes: >
-              Kilograms at raw / 200 (the declared scale) when neither unit
-              bit is set; pounds at raw / 100 when control_0 bit 0 is set;
-              jin at raw / 100 when control_1 bit 6 is set. Unit and scale
-              move together and live in two bit fields, so a consumer tests
-              the bits rather than following unit_values.
+              Kilograms at raw / 200 when neither unit bit is set; pounds at
+              raw / 100 when control_0 bit 0 is set; jin at raw / 100 when
+              control_1 bit 6 is set. unit_values and unit_scales state both
+              from unit_flags.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["huami_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          OTAs are delivered device-bound through the Zepp Life app; there
+          are no public firmware files.
+      enter:
+        how: "unknown"
+        notes: >
+          The DFU control point 0x1531 and packet 0x1532 sit in the Mi vendor
+          service 0x1530 in normal mode, beside the 0x1542 unit
+          configuration. How the app starts an update on them is not
+          established.
+      dfu_mode:
+        notes: "How the scale appears while updating is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived (Zepp Life's DFU profile binds service 0x1530 with control
+        point 0x1531 and packet 0x1532), not hardware-verified. The layout
+        mirrors Nordic's legacy DFU (1530/1531/1532) but on the Huami
+        0000xxxx-0000-3512-2118-0009af100700 base, not Nordic's
+        …-1212-efde-1523-785feabcd123, so a Nordic legacy client will not
+        find it, and whether the opcodes match Nordic's is not established
+        (hence `huami_dfu`, not nordic_legacy_dfu). dfu.services is omitted because
+        0x1530 also carries the unit configuration a client does need to
+        write.
 
 entities:
   - platform: "sensor"
@@ -450,9 +522,9 @@ entities:
       value: "weight_raw"
     notes: >
       v1 only — the body-composition models carry weight in the 0x2A9C frame
-      instead (see the second Weight entity). kg is the out-of-box unit; the
-      frame's control byte says when the scale has been switched to pounds
-      or jin, and the field notes give the scaling for each.
+      instead (see the second Weight entity). kg is the out-of-box unit. When
+      the scale is switched to pounds or jin, the bound field's unit_values
+      and unit_scales give the unit and scaling in force.
   - platform: "sensor"
     name: "Weight"
     device_class: "weight"
@@ -465,8 +537,8 @@ entities:
     state_mapping:
       value: "weight_raw"
     notes: >
-      From the 13-byte v2 frame; same unit caveat as the v1 entity, read
-      from control_0 / control_1 of this frame.
+      From the 13-byte v2 frame. kg is the out-of-box unit; the bound
+      field's unit_values and unit_scales follow this frame's unit_flags.
   - platform: "sensor"
     name: "Impedance"
     unit: "ohm"

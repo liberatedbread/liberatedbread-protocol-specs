@@ -200,6 +200,21 @@ device:
             description: >
               Enable IP control and choose authentication. The client cannot do
               any of this remotely — that is the point of the setting.
+            # One of the two, per the route the user picks; auth_schemes
+            # says how each rides a request.
+            issues_credentials:
+              psk:
+                user_entered: true
+                notes: >
+                  The pre-shared key the user sets under Remote device
+                  settings > IP control > Pre-Shared Key, typed into the
+                  client as the same string.
+              auth_cookie:
+                command: "act_register"
+                reply_cookie: "auth"
+                notes: >
+                  Issued by the second act_register call, carrying the PIN
+                  shown on screen. Store it keyed by the TV's serial.
             steps:
               - action: >
                   On the TV: Settings > Network & Internet > Remote device
@@ -214,12 +229,11 @@ device:
                   more reliable one.
                 actor: "user"
               - action: >
-                  OR use PIN pairing: the client POSTs actRegister to
-                  /sony/accessControl with HTTP Basic auth (empty username,
-                  password "0000") to make the TV display a PIN, then repeats
-                  the call with the shown PIN as the Basic-auth password; the
-                  TV answers 200 with an auth cookie the client sends on every
-                  later request. See bravia_common.authentication.
+                  OR use PIN pairing: the client sends act_register with its
+                  default pin "0000" to make the TV display a PIN, then repeats
+                  it with the shown PIN; the TV answers 200 with an auth cookie
+                  the client sends on every later request. See
+                  bravia_common.authentication.
                 actor: "client"
                 expect: "actRegister returns 200 and a Set-Cookie: auth=... header."
               - action: "Confirm the REST API is reachable and authenticated."
@@ -697,6 +711,28 @@ http_endpoints:
       example: |
         {"method": "actRegister", "params": [{"clientid": "OpenGreenIoT:8f4a2c10-0000-4000-8000-000000000000", "nickname": "OpenGreenIoT Remote", "level": "private"}, [{"value": "yes", "function": "WOL"}]], "id": 1, "version": "1.0"}
 
+# The two credentials a Bravia accepts on every /sony/* request
+# (bravia_common.authentication). Which one a client holds depends on the
+# route its user took in device.setup; every command below accepts both.
+auth_schemes:
+  psk:
+    type: "header"
+    credential: "psk"
+    headers:
+      X-Auth-PSK: "{psk}"
+    description: "Pre-shared key, set on the TV and typed into the client. No handshake, no expiry."
+  pin_cookie:
+    type: "header"
+    credential: "auth_cookie"
+    headers:
+      Cookie: "auth={auth_cookie}"
+    description: "The auth cookie act_register issues after PIN pairing."
+  pin_basic:
+    type: "http_basic"
+    username: ""
+    password: "{pin}"
+    description: "act_register's own authentication: Basic auth with an empty username and the PIN as the password."
+
 # One command per remote key, in the shape entities can bind: a `press` role
 # needs a command with no caller-supplied blanks, so each key is its own
 # command with the code already in its arguments. Every command here is an
@@ -713,19 +749,45 @@ http_endpoints:
 # daily by pybravia/Home Assistant, but not replayed against hardware by
 # this project.
 #
-# AUTHENTICATION: every command declares `headers: {X-Auth-PSK: "{psk}"}`
-# with `psk` sourced from the stored `credential:psk` — the pre-shared-key
-# path of bravia_common.authentication, which is the one a spec can state
-# as a header template. The PIN-pairing alternative sends `Cookie: auth=
-# <token>` instead; a consumer holding a cookie rather than a PSK
-# substitutes that header for this one (the same slot, a different name),
-# and this spec cannot declare both on one command. A TV with
-# authentication set to "None" ignores the header.
+# AUTHENTICATION: every command carries `auth: [psk, pin_cookie]` -- the
+# two schemes in `auth_schemes` below. A client sends whichever one it
+# holds a credential for: the pre-shared key as X-Auth-PSK, or the cookie a
+# PIN pairing (act_register) issued. A TV with authentication set to "None"
+# ignores both.
 #
 # The JSON-RPC state reads (get_power_status and friends, at the end of
 # this block) are the http half: POST /sony/<service> with a JSON body and
 # the same header. The entities' `state_command` names them.
 commands:
+  # -- PIN pairing. Call once with the default pin "0000": the TV answers
+  #    401/403 and shows a PIN on screen. Call again with that PIN: the TV
+  #    answers 200 and Set-Cookie: auth=<token> (device.setup
+  #    issues_credentials.auth_cookie). A clientid that is already registered
+  #    makes the TV refuse to show a new PIN.
+  act_register:
+    description: "actRegister: PIN pairing. The first call makes the TV display a PIN; the second, carrying that PIN, is answered with the auth cookie."
+    transport: "http"
+    method: "POST"
+    path: "/sony/accessControl"
+    action: "Register Client"
+    headers:
+      Content-Type: "application/json"
+    auth: ["pin_basic"]
+    body: '{"method": "actRegister", "params": [{"clientid": "{client_id}", "nickname": "{nickname}", "level": "private"}, [{"value": "yes", "function": "WOL"}]], "id": 1, "version": "1.0"}'
+    example_body: '{"method": "actRegister", "params": [{"clientid": "OpenGreenIoT:8f4a2c10-0000-4000-8000-000000000000", "nickname": "OpenGreenIoT Remote", "level": "private"}, [{"value": "yes", "function": "WOL"}]], "id": 1, "version": "1.0"}'
+    parameters:
+      pin:
+        type: "string"
+        default: "0000"
+        description: "\"0000\" on the first call, which makes the TV display a PIN. On the second call, the 4-digit PIN shown on the TV."
+      client_id:
+        type: "string"
+        description: "A stable id this client picks and reuses, conventionally \"<name>:<uuid>\". Re-registering with the same id is refused until it is removed on the TV."
+      nickname:
+        type: "string"
+        description: "The name the TV lists this client under in its registered-device menu."
+    verification: "reported"
+
   # -- Power. "Power" on Sony's table is the toggle; consumer sets also
   #    expose discrete PowerOn/PowerOff codes (pybravia ships PowerOn for
   #    its wake path). All three wake only from network standby
@@ -737,13 +799,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAVAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_power_on:
     description: "Discrete power-on — pybravia's CODE_POWER_ON; on Sony's consumer key lists, not in the pro table."
@@ -752,13 +808,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAuAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_power_off:
     description: "Discrete power-off/standby — community table; not in the pro table."
@@ -767,13 +817,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAvAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Navigation.
@@ -784,13 +828,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAABgAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_back:
     description: "Back/return one screen ('Back' on Sony's table; community tables spell it 'Return')."
@@ -799,13 +837,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAjAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_exit:
     description: "Exit — community table; not in the pro table."
@@ -814,13 +846,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAABjAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_up:
     description: "D-pad up — Sony's published table."
@@ -829,13 +855,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAB0Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_down:
     description: "D-pad down — Sony's published table."
@@ -844,13 +864,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAB1Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_left:
     description: "D-pad left — Sony's published table. The widely-copied community table spells Left differently (AAAAAQAAAAEAAAB2Aw==); trust getRemoteControllerInfo where they disagree."
@@ -859,13 +873,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAA0Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_right:
     description: "D-pad right — Sony's published table. Community tables spell it AAAAAQAAAAEAAAB3Aw==; same caveat as Left."
@@ -874,13 +882,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAzAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_confirm:
     description: "OK/enter — 'Confirm' on Sony's table."
@@ -889,13 +891,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAABlAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_options:
     description: "Options/context menu for the focused item — Sony's published table."
@@ -904,13 +900,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAA2Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_display:
     description: "Display the info overlay — Sony's published table."
@@ -919,13 +909,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAA6Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_help:
     description: "Help screen — Sony's published table."
@@ -934,13 +918,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAMQAAABNAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_sync_menu:
     description: "Sync Menu (BRAVIA Sync device menu) — Sony's published table."
@@ -949,13 +927,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABYAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Number keys.
@@ -966,13 +938,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAJAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num1:
     description: "Digit 1 — Sony's published table."
@@ -981,13 +947,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAAAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num2:
     description: "Digit 2 — Sony's published table."
@@ -996,13 +956,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAABAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num3:
     description: "Digit 3 — Sony's published table."
@@ -1011,13 +965,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAACAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num4:
     description: "Digit 4 — Sony's published table."
@@ -1026,13 +974,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAADAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num5:
     description: "Digit 5 — Sony's published table."
@@ -1041,13 +983,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAEAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num6:
     description: "Digit 6 — Sony's published table."
@@ -1056,13 +992,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAFAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num7:
     description: "Digit 7 — Sony's published table."
@@ -1071,13 +1001,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAGAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num8:
     description: "Digit 8 — Sony's published table."
@@ -1086,13 +1010,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAHAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num9:
     description: "Digit 9 — Sony's published table."
@@ -1101,13 +1019,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAIAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_dot:
     description: "The '.', separator for digital sub-channels — 'Dot(.)' on Sony's table."
@@ -1116,13 +1028,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAdAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Playback transport.
@@ -1133,13 +1039,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAaAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_pause:
     description: "Pause — Sony's published table."
@@ -1148,13 +1048,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAZAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_stop:
     description: "Stop — Sony's published table."
@@ -1163,13 +1057,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAYAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_rewind:
     description: "Rewind — community table ('Forward'/'Rewind' pair); not in the pro table."
@@ -1178,13 +1066,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAbAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_forward:
     description: "Fast-forward — community table; not in the pro table."
@@ -1193,13 +1075,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAcAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_prev:
     description: "Previous track/chapter — Sony's published table (community tables spell Prev differently; same caveat as Left)."
@@ -1208,13 +1084,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAA8Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_next:
     description: "Next track/chapter — Sony's published table."
@@ -1223,13 +1093,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAA9Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_flash_plus:
     description: "Flash+ (step forward during pause) — Sony's published table."
@@ -1238,13 +1102,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAB4Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_flash_minus:
     description: "Flash- (step back during pause) — Sony's published table."
@@ -1253,13 +1111,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAB5Aw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Volume and channel.
@@ -1270,13 +1122,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAASAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_volume_down:
     description: "Volume down one step — Sony's published table."
@@ -1285,13 +1131,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAATAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_mute:
     description: "Mute toggle — Sony's published table."
@@ -1300,13 +1140,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAUAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_audio:
     description: "Audio track/language selection — Sony's published table."
@@ -1315,13 +1149,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAXAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_channel_up:
     description: "Next tuner channel — Sony's published table."
@@ -1330,13 +1158,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAQAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_channel_down:
     description: "Previous tuner channel — Sony's published table."
@@ -1345,13 +1167,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAARAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_epg:
     description: "Electronic programme guide — community table ('EPG'); not in the pro table."
@@ -1360,13 +1176,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAKQAAABbAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_cc:
     description: "Closed captions/subtitles — 'CC' on Sony's table."
@@ -1375,13 +1185,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAoAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Colour keys.
@@ -1392,13 +1196,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAlAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_green:
     description: "Green colour key — Sony's published table."
@@ -1407,13 +1205,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAmAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_yellow:
     description: "Yellow colour key — Sony's published table."
@@ -1422,13 +1214,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAnAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_blue:
     description: "Blue colour key — Sony's published table."
@@ -1437,13 +1223,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAkAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Inputs. The key-based path; the REST path is Play Content with an
@@ -1455,13 +1235,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAlAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi1:
     description: "Switch to HDMI 1 — Sony's published table."
@@ -1470,13 +1244,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABaAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi2:
     description: "Switch to HDMI 2 — Sony's published table."
@@ -1485,13 +1253,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABbAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi3:
     description: "Switch to HDMI 3 — Sony's published table."
@@ -1500,13 +1262,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABcAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi4:
     description: "Switch to HDMI 4 — Sony's published table."
@@ -1515,13 +1271,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABdAw=="
-    headers:
-      X-Auth-PSK: "{psk}"
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV under Settings > Network > Home network setup > IP control > Pre-Shared Key (bravia_common.authentication.psk). Clients that paired by PIN send the auth cookie instead; see the commands comment."
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- JSON-RPC reads and writes (bravia_common.rest). One POST per method:
@@ -1537,14 +1287,9 @@ commands:
     action: "System Information"
     headers:
       Content-Type: "application/json"
-      X-Auth-PSK: "{psk}"
+    auth: ["psk", "pin_cookie"]
     body: '{"method": "getSystemInformation", "params": [], "id": 1, "version": "1.0"}'
     example_body: '{"method": "getSystemInformation", "params": [], "id": 1, "version": "1.0"}'
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV's IP control settings (bravia_common.authentication.psk)."
     returns:
       - name: "result[0].model"
         type: "string"
@@ -1560,14 +1305,9 @@ commands:
     action: "Power Status"
     headers:
       Content-Type: "application/json"
-      X-Auth-PSK: "{psk}"
+    auth: ["psk", "pin_cookie"]
     body: '{"method": "getPowerStatus", "params": [], "id": 1, "version": "1.0"}'
     example_body: '{"method": "getPowerStatus", "params": [], "id": 1, "version": "1.0"}'
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV's IP control settings (bravia_common.authentication.psk)."
     returns:
       - name: "result[0].status"
         type: "string"
@@ -1581,14 +1321,9 @@ commands:
     action: "Volume Information"
     headers:
       Content-Type: "application/json"
-      X-Auth-PSK: "{psk}"
+    auth: ["psk", "pin_cookie"]
     body: '{"method": "getVolumeInformation", "params": [], "id": 1, "version": "1.0"}'
     example_body: '{"method": "getVolumeInformation", "params": [], "id": 1, "version": "1.0"}'
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV's IP control settings (bravia_common.authentication.psk)."
     returns:
       - name: "result[0][].volume"
         type: "integer"
@@ -1604,14 +1339,9 @@ commands:
     action: "Playing Content Info"
     headers:
       Content-Type: "application/json"
-      X-Auth-PSK: "{psk}"
+    auth: ["psk", "pin_cookie"]
     body: '{"method": "getPlayingContentInfo", "params": [], "id": 1, "version": "1.0"}'
     example_body: '{"method": "getPlayingContentInfo", "params": [], "id": 1, "version": "1.0"}'
-    parameters:
-      psk:
-        type: "string"
-        source: "credential:psk"
-        description: "The pre-shared key typed into the TV's IP control settings (bravia_common.authentication.psk)."
     returns:
       - name: "result[0].title"
         type: "string"

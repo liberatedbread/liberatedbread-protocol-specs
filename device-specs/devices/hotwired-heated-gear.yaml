@@ -37,8 +37,8 @@ device:
     HeatSync/AddHeat line and other MEC Addheat white-labels, not just
     HOTWIRED.
   identification:
-    service_uuids:
-      - "0000ffb0-0000-1000-8000-00805f9b34fb"
+    # No service UUID: 0xFFB0 is the GATT service after connect, and whether
+    # it is also advertised is not established (discovery.methods notes).
     # Whole-string names: the advertised local name is the BLE module's
     # model number, not a prefix a serial is appended to.
     local_names:
@@ -205,14 +205,17 @@ services:
           ffb2 during service discovery BEFORE enabling notifications
           (per the app's BLE service).
           Also check fallback: 0000fee1-0000-1000-8000-00805f9b34fb.
-          FRAME SELECTION: the format block below describes the CC status
-          report only. Check byte 0 == 0xCC before using it; an AA-prefixed
-          notification is the echo of the last write and its bytes mean
-          something else. Offsets are from the app's status parser (six
+          FRAME SELECTION: `format` describes the CC status report only, and
+          `format_match` says so: an AA-prefixed notification is the echo of
+          the last write and its bytes mean something else. Offsets are from the app's status parser (six
           bytes, one field each); the app decodes the battery byte as two
           bit groups and reads nothing from the temperature byte, so the
           temperature scaling is a hypothesis. Nothing here has been read
           back from hardware by this project.
+        format_match:
+          offset: 0
+          value: 0xCC
+          notes: "CC = status report. AA = echo of the last write, not decoded."
         format:
           - offset: 0
             length: 1
@@ -238,14 +241,22 @@ services:
             length: 1
             name: "battery_status"
             type: "uint8"
+            mask: 0x07
             device_class: "battery"
             notes: >
-              A packed byte, not a level: the upper nibble is a
-              battery-present / charger flag (0 = no battery shown) and the
-              low three bits are a five-step gauge, 0 = empty, 1 = 25 %,
-              2 = 50 %, 3 = 75 %, 4 = 100 % — 0x14 is "present, full". The
-              format vocabulary has no bit mask, so a consumer masks the
-              low bits itself.
+              The low three bits of a packed byte: a five-step gauge, 0 =
+              empty, 1 = 25 %, 2 = 50 %, 3 = 75 %, 4 = 100 %. The upper
+              nibble (battery_present below) is a battery-present / charger
+              flag, so the raw byte 0x14 reads "present, full".
+          - offset: 3
+            length: 1
+            name: "battery_present"
+            type: "uint8"
+            mask: 0xF0
+            notes: >
+              Upper nibble of the battery byte: 0 = no battery shown,
+              non-zero = present. The app treats it as a flag; which values
+              mean "charging" is not established.
           - offset: 4
             length: 1
             name: "internal_temp_raw"
@@ -418,12 +429,10 @@ entities:
       3: 75
       4: 100
     notes: >
-      Binds the packed battery byte of the CC status report. The code table
-      maps the low three bits (0-4) to a nominal percent; the raw byte also
-      carries a present/charger flag in its upper nibble (0x14 = present,
-      full), which the vocabulary cannot mask off, so a consumer that reads
-      the raw field must mask it before looking the step up. Only valid on
-      CC-prefixed notifications — see the characteristic notes.
+      Binds the gauge bits of the CC status report's battery byte (the
+      field's `mask` strips the present flag) and maps steps 0-4 to a
+      nominal percent. AA echoes are excluded by the characteristic's
+      `format_match`.
 
   - platform: "sensor"
     name: "Internal Temperature"
@@ -436,7 +445,7 @@ entities:
     notes: >
       Scale and offset unconfirmed — requires bench testing. The field is
       declared as whole degrees C as a hypothesis; see the format block.
-      Only valid on CC-prefixed notifications.
+      AA echoes are excluded by the characteristic's `format_match`.
 
 helpful_urls:
   - title: "ADDHEAT app on Google Play"
@@ -460,14 +469,8 @@ helpful_urls:
 
 remaining_unknowns:
   - >
-    The Status Notify characteristic carries both the CC status report and
-    the AA write echo, and the format block only describes the former; the
-    schema has no frame selector, so a consumer must check byte 0 itself.
-  - >
-    The battery byte packs a present/charger flag (upper nibble) with a
-    five-step gauge (low three bits) and the format vocabulary has no bit
-    mask, so the Battery Level entity's 0-4 code table only matches once
-    the consumer masks the raw byte.
+    Which values of the battery byte's upper nibble mean "charging" as
+    opposed to merely "present".
   - >
     The internal temperature byte's unit and scale are a hypothesis (the
     app never displays it); bench-test against a thermometer before

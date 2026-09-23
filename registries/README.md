@@ -48,3 +48,26 @@ covered by `scripts/test_registries.py`: it must parse, every row must be
 fully qualified, and no type may appear twice. Adding a row is a spec-pack
 refresh for consumers, not an app release — which is the point of it being a
 file rather than a list in code.
+
+## Maintained here — `dfu-signatures.tsv`
+
+The signatures of each firmware-update stack: service and characteristic
+UUIDs and default bootloader names. A scanner uses it to recognise a device
+sitting in its bootloader, including a device no spec covers, and to keep
+update services out of product identification.
+
+```
+signature	kind	mechanism	meaning	source
+0000fe59-0000-1000-8000-00805f9b34fb	service_uuid	nordic_secure_dfu	Nordic Secure DFU ...	https://...
+DfuTarg	local_name	nordic_secure_dfu	nRF5 SDK bootloader default name ...	https://...
+```
+
+- `signature`: a lowercase 128-bit UUID, or an exact advertised name.
+- `kind`: `service_uuid`, `characteristic_uuid` or `local_name`.
+- `mechanism`: one value of the schema's `features[].dfu.mechanisms` enum.
+- `meaning`: what the signature is for, including any entry opcode.
+- `source`: the documentation or reference code the row comes from.
+
+Sorted by `kind`, then `signature`. The per-stack behaviour behind the rows
+is in `docs/protocols/firmware-update.md`. `scripts/test_registries.py`
+checks the format and that every `mechanism` is in the schema's enum.
