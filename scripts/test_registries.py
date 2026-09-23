@@ -13,6 +13,8 @@ Freshness against upstream is a separate, network-bound concern:
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from fetch_registries import BUILDERS, MIN_ENTRIES, REGISTRY_DIR, _clean, _render
@@ -186,3 +188,85 @@ def test_committed_registries_use_lf_endings() -> None:
     for filename in BUILDERS:
         raw = (REGISTRY_DIR / filename).read_bytes()
         assert b"\r" not in raw, f"{filename} contains CR bytes"
+
+
+# ---------------------------------------------------------------------------
+# shared-service-types.tsv -- hand-maintained, not fetched
+# ---------------------------------------------------------------------------
+#
+# The mDNS types and SSDP targets that prove nothing on their own (every
+# HomeKit accessory, every web server, every DLNA renderer). It is the Wi-Fi
+# twin of "a SIG-assigned service UUID never identifies a BLE product", and it
+# is a file rather than a list in consumer code so that a new ecosystem type is
+# a registry refresh, not an app release. Different shape from the fetched
+# tables (a header row, three columns), so it gets its own checks.
+
+SHARED_SERVICE_TYPES = "shared-service-types.tsv"
+SHARED_SERVICE_TYPES_HEADER = ["type", "kind", "reason"]
+# One or more underscore-led labels before the protocol: the enumeration
+# meta-type `_services._dns-sd._udp.local.` has two.
+MDNS_TYPE = re.compile(r"^(_[A-Za-z0-9_-]+\.)+_(tcp|udp)\.local\.$")
+
+
+def _shared_service_rows() -> list[tuple[str, str, str]]:
+    lines = _lines(SHARED_SERVICE_TYPES)
+    assert lines, f"{SHARED_SERVICE_TYPES} is empty"
+    assert lines[0].split("\t") == SHARED_SERVICE_TYPES_HEADER, (
+        f"{SHARED_SERVICE_TYPES}: first line must be the header "
+        f"{chr(9).join(SHARED_SERVICE_TYPES_HEADER)!r}"
+    )
+    rows = []
+    for number, line in enumerate(lines[1:], start=2):
+        parts = line.split("\t")
+        assert len(parts) == 3, (
+            f"{SHARED_SERVICE_TYPES}:{number}: expected 3 tab-separated "
+            f"columns, got {len(parts)}"
+        )
+        rows.append((parts[0], parts[1], parts[2]))
+    return rows
+
+
+def test_shared_service_types_parses_with_every_row_filled() -> None:
+    for service_type, kind, reason in _shared_service_rows():
+        assert service_type, "empty type"
+        assert kind in {"mdns", "ssdp"}, f"{service_type}: kind {kind!r} is not mdns|ssdp"
+        assert reason.strip(), f"{service_type}: a shared type needs a reason"
+
+
+def test_shared_service_types_are_fully_qualified() -> None:
+    # An mDNS type spelled `_http._tcp` never compares equal to a spec's
+    # `_http._tcp.local.` -- the same silent miss the schema's pattern on
+    # `identification.mdns_service_type` exists to prevent. SSDP targets are
+    # the ST header as the wire carries it.
+    for service_type, kind, _ in _shared_service_rows():
+        if kind == "mdns":
+            assert MDNS_TYPE.match(service_type), (
+                f"{service_type!r} is not a fully qualified, trailing-dotted "
+                "DNS-SD type (`_name._tcp.local.`)"
+            )
+        else:
+            assert service_type in {"upnp:rootdevice", "ssdp:all"} or (
+                service_type.startswith("urn:") and service_type.count(":") >= 4
+            ), f"{service_type!r} is not a search target as an ST header spells it"
+
+
+def test_shared_service_types_are_unique_and_sorted() -> None:
+    rows = _shared_service_rows()
+    keys = [(kind, service_type) for service_type, kind, _ in rows]
+    assert len(keys) == len(set(keys)), "duplicate shared service type"
+    assert keys == sorted(keys), "rows must be sorted by kind, then type"
+
+
+def test_shared_service_types_carries_the_types_the_catalogue_leans_on() -> None:
+    # The entries that exist because a spec got it wrong once: a Hisense set
+    # is a MediaRenderer, an ESPHome node is an _http server, and neither may
+    # promote a match by itself.
+    types = {service_type for service_type, _, _ in _shared_service_rows()}
+    assert "urn:schemas-upnp-org:device:MediaRenderer:1" in types
+    assert "_http._tcp.local." in types
+    assert "_hap._tcp.local." in types
+
+
+def test_shared_service_types_ends_with_lf_newline() -> None:
+    raw = (REGISTRY_DIR / SHARED_SERVICE_TYPES).read_bytes()
+    assert raw.endswith(b"\n") and b"\r" not in raw

@@ -39,9 +39,32 @@ device:
   identification:
     service_uuids:
       - "0000ffb0-0000-1000-8000-00805f9b34fb"
-    advertisement_names:
+    # Whole-string names: the advertised local name is the BLE module's
+    # model number, not a prefix a serial is appended to.
+    local_names:
       - "BT-912"
       - "BT-712"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            values: ["BT-912", "BT-712"]
+        notes: >
+          The vendor app applies no scan filter of any kind -- no name, no
+          service UUID -- it lists everything and the user picks; a paired
+          controller is re-found by its stored address. "BT-912" and
+          "BT-712" are the advertised device names the app reads back after
+          a scan to colour its UI, i.e. the generic BLE module's model
+          number, so any product built on the same module advertises one of
+          them. Whether 0xFFB0 appears in the advertisement or only in the
+          GATT table after connect is not established.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
 
   setup:
     required: false
@@ -182,6 +205,62 @@ services:
           ffb2 during service discovery BEFORE enabling notifications
           (per the app's BLE service).
           Also check fallback: 0000fee1-0000-1000-8000-00805f9b34fb.
+          FRAME SELECTION: the format block below describes the CC status
+          report only. Check byte 0 == 0xCC before using it; an AA-prefixed
+          notification is the echo of the last write and its bytes mean
+          something else. Offsets are from the app's status parser (six
+          bytes, one field each); the app decodes the battery byte as two
+          bit groups and reads nothing from the temperature byte, so the
+          temperature scaling is a hypothesis. Nothing here has been read
+          back from hardware by this project.
+        format:
+          - offset: 0
+            length: 1
+            name: "frame_type"
+            type: "uint8"
+            values:
+              0xCC: "status_report"
+              0xAA: "command_echo"
+            notes: "Only the status report is laid out below."
+          - offset: 1
+            length: 1
+            name: "power_state"
+            type: "uint8"
+            values:
+              0: "off"
+              1: "on"
+          - offset: 2
+            length: 1
+            name: "heat_level"
+            type: "uint8"
+            notes: "0-10, the current heat step."
+          - offset: 3
+            length: 1
+            name: "battery_status"
+            type: "uint8"
+            device_class: "battery"
+            notes: >
+              A packed byte, not a level: the upper nibble is a
+              battery-present / charger flag (0 = no battery shown) and the
+              low three bits are a five-step gauge, 0 = empty, 1 = 25 %,
+              2 = 50 %, 3 = 75 %, 4 = 100 % — 0x14 is "present, full". The
+              format vocabulary has no bit mask, so a consumer masks the
+              low bits itself.
+          - offset: 4
+            length: 1
+            name: "internal_temp_raw"
+            type: "uint8"
+            unit: "C"
+            device_class: "temperature"
+            notes: >
+              Device internal temperature. The app never displays it, so
+              the unit and scale are inferred (0x20 = 32 reads plausibly as
+              whole degrees C) — hypothesis until bench-tested.
+          - offset: 5
+            length: 1
+            name: "control_state"
+            type: "uint8"
+            notes: "Unused by the app; meaning unknown."
 
   # Fallback service for older hardware variant
   - uuid: "0000ffb0-0000-1000-8000-00805f9b34fb"
@@ -327,22 +406,37 @@ entities:
 
   - platform: "sensor"
     name: "Battery Level"
+    device_class: "battery"
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     value_template: "{{ value[3:4] | int(base=16) | binary }}"
     unit: "%"
     state_mapping:
+      value: "battery_status"
       0: 0
       1: 25
       2: 50
       3: 75
       4: 100
+    notes: >
+      Binds the packed battery byte of the CC status report. The code table
+      maps the low three bits (0-4) to a nominal percent; the raw byte also
+      carries a present/charger flag in its upper nibble (0x14 = present,
+      full), which the vocabulary cannot mask off, so a consumer that reads
+      the raw field must mask it before looking the step up. Only valid on
+      CC-prefixed notifications — see the characteristic notes.
 
   - platform: "sensor"
     name: "Internal Temperature"
+    device_class: "temperature"
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     value_template: "{{ value[4:5] | int(base=16) }}"
     unit: "C"
-    notes: "Scale and offset unconfirmed — requires bench testing"
+    state_mapping:
+      value: "internal_temp_raw"
+    notes: >
+      Scale and offset unconfirmed — requires bench testing. The field is
+      declared as whole degrees C as a hypothesis; see the format block.
+      Only valid on CC-prefixed notifications.
 
 helpful_urls:
   - title: "ADDHEAT app on Google Play"
@@ -363,3 +457,18 @@ helpful_urls:
   - title: "MEC Addheat"
     url: "https://www.addheat.com/"
     description: "The ODM behind the hardware, and the mec in com.hotwired.mec."
+
+remaining_unknowns:
+  - >
+    The Status Notify characteristic carries both the CC status report and
+    the AA write echo, and the format block only describes the former; the
+    schema has no frame selector, so a consumer must check byte 0 itself.
+  - >
+    The battery byte packs a present/charger flag (upper nibble) with a
+    five-step gauge (low three bits) and the format vocabulary has no bit
+    mask, so the Battery Level entity's 0-4 code table only matches once
+    the consumer masks the raw byte.
+  - >
+    The internal temperature byte's unit and scale are a hypothesis (the
+    app never displays it); bench-test against a thermometer before
+    trusting the reading.

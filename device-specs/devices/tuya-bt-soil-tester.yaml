@@ -496,11 +496,20 @@ services:
           chunked at the 20-byte default MTU; the full framing spec lives in
           python-tuya-ble and is not restated here.
         commands:
+          # No `template`/`value` on any of these, deliberately: every
+          # frame is encrypted under the per-session key the pair exchange
+          # derives from the device uuid and the cloud-issued local_key,
+          # which are `device.setup.credentials` this spec cannot hold and
+          # which change on every re-pair. Constant bytes would be wrong
+          # bytes. See remaining_unknowns for what a byte-level
+          # transcription would need.
           pair:
             description: >
               Pairing handshake (function code 0x0001): exchanges keys
               derived from the device uuid + cloud-issued local_key.
-              Prerequisite for everything else.
+              Prerequisite for everything else. Not expressible as fixed
+              bytes -- the frame carries a random nonce and is encrypted
+              with a key derived from the two credentials.
             verification: "reported"
           device_info:
             description: "Query device info (function code 0x0000): device id, product id, firmware version."
@@ -527,15 +536,12 @@ services:
           and command responses. Subscribe after pairing; sensor readings
           only ever arrive here, never in advertisements.
 
-commands:
-  pair:
-    description: "GATT write of PAIR frames (0x0001) to characteristic 0x2B11; establishes the encrypted session from device uuid + local key."
-    transport: "ble"
-    verification: "reported"
-  dp_query:
-    description: "GATT write of a DPS request (0x0002) to 0x2B11; the report arrives as a 0x8001 notification on 0x2B10."
-    transport: "ble"
-    verification: "reported"
+# No top-level `commands` block: the GATT writes live on the 0x2B11
+# characteristic above (`pair`, `dp_query`, ...), which is where a BLE
+# command has a UUID to go to. The entities' `state_command: dp_query`
+# names that characteristic command. A top-level `transport: ble` entry
+# used to duplicate two of them here; no transport arm handles that value
+# and the schema no longer admits it.
 
 entities:
   - platform: "sensor"
@@ -561,6 +567,20 @@ entities:
     state_command: "dp_query"
     state_field: "dps.15"
     notes: "Plus the coarse enum in DP 14 (low/normal/high). No battery DP documented for tv6peegl."
+
+remaining_unknowns:
+  - >
+    The byte-level form of the 0x2B11 writes. Every frame after (and
+    including) the PAIR exchange is AES-encrypted under a session key
+    derived from the device uuid and the cloud-issued local_key, with a
+    per-frame sequence number and a nonce, so no `template` can state the
+    bytes: they depend on credentials this spec cannot hold and on state a
+    client accumulates. python-tuya-ble implements the derivation and
+    framing; a transcription into this spec would need the schema to carry
+    a key-derivation step and an encryption layer that a consumer executes,
+    which it does not today. Until then the characteristic commands name
+    the function codes and the executable reference, and nothing here is
+    sendable from the YAML alone.
 
 cloud:
   required: true

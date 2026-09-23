@@ -89,8 +89,15 @@ device:
           manufacturer_data:
             company_id: 21076
             match: "prefix"
-            pattern: "54520027"
-            description: "Manufacturer-specific advertising data starts with 0x54 0x52 0x00 0x27."
+            pattern: "0027"
+            description: >
+              The manufacturer-data AD structure (type 0xFF) starts
+              0x54 0x52 0x00 0x27. The first two bytes are the company id
+              21076 (0x5254, "TR" in wire order), matched by `company_id`;
+              `pattern` is the two bytes after them, 0x00 0x27, the product
+              id that separates this display from the other "TR" products
+              (shining-glasses 0x0041, shining-mask 0x004E, ideal-led
+              0x0061). App-derived; no public capture confirms it.
     identity:
       stable_keys: ["address"]
       display: "service_uuid"
@@ -165,6 +172,9 @@ features:
     format: "1bit-bitmap"
     max_width: 64
     max_height: 16
+    # 1 bit per pixel: the palette is on/off. Stated so an editor does not
+    # quantize to some other device's 16-colour ceiling.
+    max_palette_colors: 2
 
 services:
   - uuid: "0000fee9-0000-1000-8000-00805f9b34fb"
@@ -173,6 +183,7 @@ services:
       - uuid: "d44bc439-abfd-45a2-b575-925416129600"
         name: "Command (WRITE1)"
         properties: ["write"]
+        role: "command"
         encryption:
           algorithm: "aes-128-ecb"
           key_derivation: "static"
@@ -348,21 +359,39 @@ services:
             description: "Address this unit as the second of a daisy chain (LEDSECOND)."
             value: [0x09, 0x4C, 0x45, 0x44, 0x53, 0x45, 0x43, 0x4F, 0x4E, 0x44]
           data_transfer_start:
-            description: "Start bulk data transfer. hi/lo = big-endian 16-bit data length."
+            description: >
+              Start bulk data transfer (DATS). hi/lo = big-endian 16-bit
+              length of the data that will follow on WRITE2 (role: bulk).
+              The device answers DATSOK on the notify characteristic; the
+              app only starts writing data after it. The trailing byte is
+              the linked-display flag — the app sets it from its
+              "LED link" setting, which is on when two displays are
+              daisy-chained (the N-suffixed STYPE sizes: 5X36N, 12X48N)
+              and off for a single unit.
+            verification: "reported"
             template: [0x08, 0x44, 0x41, 0x54, 0x53, "{len_hi}", "{len_lo}", 0x00, "{link_flag}"]
             parameters:
               len_hi:
                 type: "uint8"
                 min: 0
                 max: 255
+                description: "High byte of the big-endian 16-bit data length."
               len_lo:
                 type: "uint8"
                 min: 0
                 max: 255
+                description: "Low byte of the big-endian 16-bit data length."
               link_flag:
                 type: "uint8"
-                min: 0
-                max: 1
+                allowed: [0, 1]
+                labels: ["single display", "linked pair (daisy-chained N-size display)"]
+                default: 0
+                description: >
+                  0 = one display; 1 = the data is for a linked pair of
+                  displays (the app's LED-link setting, used with the
+                  N-suffixed STYPE sizes). Read from the vendor app's image,
+                  text and DIY upload builders, which all pick between the
+                  same two DATS frames on that one boolean.
           data_transfer_complete:
             description: "Signal bulk data transfer complete"
             value: [0x05, 0x44, 0x41, 0x54, 0x43, 0x50]
@@ -383,10 +412,15 @@ services:
       - uuid: "d44bc439-abfd-45a2-b575-925416129601"
         name: "Notification"
         properties: ["notify"]
+        role: "notify"
 
       - uuid: "d44bc439-abfd-45a2-b575-92541612960a"
         name: "Bulk Data (WRITE2)"
         properties: ["write"]
+        # The channel an image_upload streams on between data_transfer_start
+        # and data_transfer_complete — declared as a role so a consumer picks
+        # it by contract, not by the "WRITE2" in the name.
+        role: "bulk"
         encryption:
           algorithm: "aes-128-ecb"
           key_derivation: "static"
@@ -407,6 +441,9 @@ services:
       - uuid: "d44bc439-abfd-45a2-b575-92541612960b"
         name: "Auxiliary (WRITE3)"
         properties: ["write"]
+        # Live data outside any DATS/DATCP session: DIY sync-draw pixels and
+        # music-visualizer level frames. Not the upload channel.
+        role: "stream"
         encryption:
           algorithm: "aes-128-ecb"
           key_derivation: "static"
