@@ -303,6 +303,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **DIAL is a shared identifier.** `registries/shared-service-types.tsv` now
+  lists both DIAL search targets. Every smart TV and streaming stick answers
+  them, and sony-bravia and vizio-smartcast each claimed one, so a consumer
+  treating them as vendor identifiers tied every Roku TV with a Sony and a
+  Vizio, and named a Chromecast a Sony Bravia.
+- **Labels only beside the values they name.** aranet4's history `param` and
+  aurora-led-shoes' `state` carried `labels` without `allowed`, which gives
+  the labels nothing to pair with; both now state `allowed`, and the schema
+  requires `allowed` wherever a BLE command parameter carries `labels`.
 - **Wrong bytes and wrong matchers found while checking the review.**
   - iKettle's `boil`/`stop` bodies were decimal command IDs written as
     hex (`21`/`22`, which are other real commands). They are now
