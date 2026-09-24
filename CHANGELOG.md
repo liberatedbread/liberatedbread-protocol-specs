@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
+  `power_toggle` (the raw power key beside a stateful Power switch), the
+  discrete transport keys `play`, `previous`, `next`, `record` (`pause` and
+  `stop` are shared with the treadmill card), `num_0`…`num_9` and the colour
+  keys `red`, `green`, `yellow`, `blue`. The Sony, Vizio, Samsung, Hisense,
+  LG, Panasonic, Philips and Android TV specs key their Power Key / Standby,
+  transport, digit and colour buttons with them, so a consumer lays out a
+  keypad and a transport row without matching display names.
+
 - **Firmware update, declared.** `features[type: firmware_update]` now
   requires a `dfu` block covering the update stack(s) (closed enum:
   Nordic Secure/legacy DFU, MCUboot SMP, TI OAD, Telink, Silicon Labs,

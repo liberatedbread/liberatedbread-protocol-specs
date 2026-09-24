@@ -1295,6 +1295,17 @@ ENTITY_KEY_VOCABULARY = frozenset(
         "search", "find_remote", "keyboard",
         "input_hdmi1", "input_hdmi2", "input_hdmi3", "input_hdmi4",
         "input_av", "input_tuner",
+        # The raw power key beside a stateful Power switch (which owns
+        # `power`): a keypress that toggles, not a direction.
+        "power_toggle",
+        # Discrete transport keys, for remotes that have them apart from (or
+        # instead of) play_pause. `pause` and `stop` are shared with the
+        # treadmill card below: the same verb on a different surface.
+        "play", "previous", "next", "record",
+        # The number pad and the four colour keys.
+        "num_0", "num_1", "num_2", "num_3", "num_4",
+        "num_5", "num_6", "num_7", "num_8", "num_9",
+        "red", "green", "yellow", "blue",
         # Treadmill / fitness cards.
         "start", "pause", "stop", "speed",
     }
