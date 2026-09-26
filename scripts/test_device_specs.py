@@ -1854,6 +1854,14 @@ def test_ble_write_parameters_enumerate_with_allowed_and_labels(specs):
                     )
                     allowed = parameter.get("allowed")
                     labels = parameter.get("labels")
+                    if allowed is not None and len(allowed) >= 2:
+                        ordered = sorted(allowed)
+                        assert ordered != list(range(ordered[0], ordered[-1] + 1)), (
+                            f"{device_id}: {name}.{key} lists `allowed: {allowed}`, "
+                            "a contiguous run -- write it as `min: "
+                            f"{ordered[0]}, max: {ordered[-1]}` (labels pair with the "
+                            "range the same way); `allowed` is for sets with gaps"
+                        )
                     if labels is None:
                         continue
                     # Labels name the list when there is one, else the

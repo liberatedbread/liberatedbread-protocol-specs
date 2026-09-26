@@ -322,8 +322,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   its contiguous `min`..`max` range, one per value, `min` first — so a
   two-position switch is `min: 0, max: 1, labels: [off, on]`, and `allowed` is
   kept for sets with gaps. The schema rejects `labels` with neither, and the
-  test suite checks the count matches. (aranet4's history `param` and
-  aurora-led-shoes' `state` were already written this way.)
+  test suite checks the count matches. Every contiguous `allowed` list in the
+  catalogue (57 parameters across 18 specs, e.g. `allowed: [0, 1]` beside
+  `labels: [off, on]`) is now written as `min`/`max`, and the test suite
+  rejects a contiguous list, so `allowed` only ever means a set with gaps.
 - **Wrong bytes and wrong matchers found while checking the review.**
   - iKettle's `boil`/`stop` bodies were decimal command IDs written as
     hex (`21`/`22`, which are other real commands). They are now
