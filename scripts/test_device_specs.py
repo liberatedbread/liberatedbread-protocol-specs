@@ -1854,11 +1854,25 @@ def test_ble_write_parameters_enumerate_with_allowed_and_labels(specs):
                     )
                     allowed = parameter.get("allowed")
                     labels = parameter.get("labels")
-                    if allowed is not None and labels is not None:
+                    if labels is None:
+                        continue
+                    # Labels name the list when there is one, else the
+                    # contiguous min..max range, one per value, min first.
+                    if allowed is not None:
                         assert len(allowed) == len(labels), (
                             f"{device_id}: {name}.{key} has {len(allowed)} allowed "
                             f"values but {len(labels)} labels"
                         )
+                        continue
+                    lo, hi = parameter.get("min"), parameter.get("max")
+                    assert lo is not None and hi is not None, (
+                        f"{device_id}: {name}.{key} has labels but neither an "
+                        "`allowed` list nor a min..max range for them to name"
+                    )
+                    assert hi - lo + 1 == len(labels), (
+                        f"{device_id}: {name}.{key} labels {len(labels)} values "
+                        f"but its range {lo}..{hi} holds {hi - lo + 1}"
+                    )
 
 
 def test_locate_commands_are_never_advanced(specs):

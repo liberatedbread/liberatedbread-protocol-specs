@@ -317,10 +317,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   them, and sony-bravia and vizio-smartcast each claimed one, so a consumer
   treating them as vendor identifiers tied every Roku TV with a Sony and a
   Vizio, and named a Chromecast a Sony Bravia.
-- **Labels only beside the values they name.** aranet4's history `param` and
-  aurora-led-shoes' `state` carried `labels` without `allowed`, which gives
-  the labels nothing to pair with; both now state `allowed`, and the schema
-  requires `allowed` wherever a BLE command parameter carries `labels`.
+- **Labels name a range as well as a list.** A BLE command parameter's
+  `labels` pair with its `allowed` list when it has one, and otherwise with
+  its contiguous `min`..`max` range, one per value, `min` first — so a
+  two-position switch is `min: 0, max: 1, labels: [off, on]`, and `allowed` is
+  kept for sets with gaps. The schema rejects `labels` with neither, and the
+  test suite checks the count matches. (aranet4's history `param` and
+  aurora-led-shoes' `state` were already written this way.)
 - **Wrong bytes and wrong matchers found while checking the review.**
   - iKettle's `boil`/`stop` bodies were decimal command IDs written as
     hex (`21`/`22`, which are other real commands). They are now
