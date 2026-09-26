@@ -416,7 +416,8 @@ confirmed against $15 hardware.
 | Public RE | [bogd/anova-oven-api](https://github.com/bogd/anova-oven-api) (documents the oven API), [awgneo/anova-homeassistant](https://github.com/awgneo/anova-homeassistant) (local WebSocket control), [andr83/hacs-anova-oven](https://github.com/andr83/hacs-anova-oven), [kmdm/hass_anova_cooker](https://github.com/kmdm/hass_anova_cooker) |
 | Cheap unit | Oven: **$50 parts-only** · $300–$400 faulty · **$783–$850** working/new. Wi-Fi circulator: **$25.99** |
 
-Do the Wi-Fi *circulator* here, not the oven. The oven is the one genuinely
+*Superseded by the correction below: Gen 3 has no local path, so neither
+unit is worth buying for a spec.* Do the Wi-Fi *circulator* here, not the oven. The oven is the one genuinely
 expensive item surveyed, and several 1.0 listings report the same
 "temperature runaway" fault — poor value as a verification unit when the same
 WebSocket API can be exercised on a $26 Wi-Fi cooker.
@@ -447,7 +448,8 @@ Two specs, roughly **$35** of hardware:
 2. **`anova-precision-cooker-nano.yaml`** — Gen 2 COBS+protobuf/BLE, verified
    on a $15 Nano. Brings a new framing pattern into the repo.
 
-Gen 3 can wait for the `$26` Wi-Fi circulator; skip the oven.
+Skip Gen 3 entirely, circulator and oven alike: its WebSocket is a cloud endpoint
+(see the correction above), so no hardware buys an in-scope local spec.
 
 ---
 
