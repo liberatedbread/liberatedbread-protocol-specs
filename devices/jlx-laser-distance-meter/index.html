@@ -5794,14 +5794,18 @@ frame carries a single scalar distance, so angle is likely on-device only
 <p>A BlueZ-based client — <code>bleak</code>, <code>flutter_blue_plus</code> on Linux, anything layered
 on <code>bluetoothd</code> — connects to this meter, negotiates an MTU, and then discovers
 <strong>no services at all</strong>. That is this device, not your code.</p>
-<p><code>bluetoothd</code> (BlueZ ≥ 5.62, reproduced on 5.85) reads the Database Hash
-(<code>0x2b2a</code>) by type during GATT client init. The meter answers that particular
-read with silence rather than an error, so <code>bluetoothd</code> waits out the 30 s ATT
-transaction timeout, abandons init, and reports the device "resolved" with an
-empty database — about 32.5 s in, with the ATT channel left dead. A client that
-gives up sooner (the app retries discovery for ~6 s) just sees the empty result
-earlier; waiting longer does not help, because the database is still empty when
-<code>bluetoothd</code> finally answers.</p>
+<p>On a first connection, right after the MTU exchange, <code>bluetoothd</code> sends a Read
+By Type for Server Supported Features (<code>0x2b3a</code>) and queues primary discovery
+behind it (<code>src/shared/gatt-client.c</code>, unchanged from BlueZ 5.66 through master;
+reproduced on 5.72 and 5.85). The meter answers that read with silence rather
+than an error, so <code>bluetoothd</code> waits out the 30 s ATT transaction timeout,
+abandons init, and reports the device "resolved" with an empty database — about
+32.5 s in, with the ATT channel left dead. A client that gives up sooner (the
+app retries discovery for ~6 s) just sees the empty result earlier; waiting
+longer does not help, because the database is still empty when <code>bluetoothd</code>
+finally answers. (An earlier version of this page blamed the Database Hash,
+<code>0x2b2a</code>; <code>bluetoothd</code> reads that before discovery only when a cached database
+already contains one, never on a first contact.)</p>
 <p>What still works: plain Read Requests <strong>by handle</strong> (every Device Information
 string and the battery level read fine), Exchange MTU, and — over a raw ATT
 channel — discovery, writes and notifications. Android and iOS are unaffected.</p>
@@ -5809,13 +5813,16 @@ channel — discovery, writes and notifications. Android and iOS are unaffected.
 every Read By Type it received (29 by-type and 9 by-group-type requests, 38
 responses, no silences), including correct <code>Attribute Not Found</code> (<code>0x0a</code>) errors
 for by-type reads of UUIDs it does not carry. The handler is not broken in
-general; what that capture never contains is a read of <code>0x2b2a</code>. Robust caching
-is the one thing <code>bluetoothd</code> does that the vendor app does not.</p>
-<p><strong>Untested, and worth trying before writing Linux off:</strong> set <code>Cache = no</code> under
-<code>[GATT]</code> in <code>/etc/bluetooth/main.conf</code> and restart <code>bluetoothd</code>. If that skips
-the Database Hash read, Linux clients work after a config change rather than not
-at all. Otherwise use a raw ATT path (<code>gatttool</code>, or a custom L2CAP CID 4
-client), or drive the meter from Android or iOS.</p>
+general; what that capture never contains is a read of <code>0x2b3a</code>. Android skips
+it for a peer like this one, which reports LL version <code>0x01</code> and no LE features.</p>
+<p><strong>No <code>bluetoothd</code> setting fixes it.</strong> <code>Cache = no</code> under <code>[GATT]</code> in
+<code>/etc/bluetooth/main.conf</code> suppresses only the cached hash read, and no key
+skips the <code>0x2b3a</code> read. What works on Linux is a client that owns the ATT fixed
+channel (L2CAP CID 4) itself and never sends <code>0x2b3a</code>: <code>gatttool</code>, or an app
+that opens the channel directly. The spec records this as
+<code>device.host_compatibility</code> (<code>stack: bluez</code>, <code>status: incompatible</code>,
+<code>workaround: raw_att</code>), so such a client can go direct from the first
+connection. Otherwise, drive the meter from Android or iOS.</p>
 <h2 id="family-survey-bluetooth-laser-distance-meters">Family survey (Bluetooth laser distance meters)<a class="headerlink" href="#family-survey-bluetooth-laser-distance-meters" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
