@@ -1,7 +1,7 @@
 # Generic IPP Network Printer (status)
 
 > **Status**: Status only (discovery signature and IPP status from public standards; untested — no hardware)
-> **Protocol**: mDNS / DNS-SD (Bonjour printing)
+> **Protocol**: mDNS / DNS-SD (Bonjour printing) + IPP (RFC 8010/8011)
 > **Manufacturer**: Various (IPP Everywhere / AirPrint printers)
 > **Manufacturer Status**: Active — status read over IPP; printing left to the OS print system
 

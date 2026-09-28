@@ -284,7 +284,8 @@ services:
       8. SetPrintQuantity (0x15) — copies of this page, u16 big-endian
       9. PrintBitmapRow (0x85) / PrintBitmapRowIndexed (0x83) / PrintEmptyRow (0x84)
       10. PageEnd (0xE3) — end page
-      11. Poll PrintStatus (0xA3) until the page count reaches the pages sent
+      11. Poll PrintStatus (0xA3) until its counter reaches the copies sent
+          so far in the job (the running total of SetPrintQuantity values)
       12. PrintEnd (0xF3) — finish job
       Every control packet is acknowledged; rows are not. See
       protocol_details.niimbot_print_task.
@@ -304,6 +305,10 @@ services:
         # values from MultiMote/niimbluelib's packet generator and command
         # map (MIT), not run by this project. Rows (0x83/0x84/0x85) vary in
         # length and live in protocol_details.niimbot_print_task.
+        # These are the D110 task's packets (1-byte print_start, 4-byte
+        # set_page_size, a 96-dot head); the B21 and other variants run
+        # different tasks, and the schema cannot scope a command to a
+        # variant, so a client drives them only for the D110.
         commands:
           connect:
             description: "0xC1 handshake, the one packet sent with a leading 0x03. Replies 0xC2."
@@ -569,10 +574,13 @@ protocol_details:
       byte] — see remaining_unknowns.
     status_reply: >
       0xB3 data: [page u16 BE][print_progress u8][feed_progress u8], at least
-      4 bytes (8 or 10 on some firmware). The page counter is the number of
-      pages finished. A client polls print_status about every 300 ms after
-      page_end and sends print_end only when page equals the pages sent;
-      niimbluelib gives up after 5 s without a reply.
+      4 bytes (8 or 10 on some firmware). The counter is the number of
+      COPIES finished in the job so far — cumulative across pages, not a
+      page index. After each page's page_end a client polls print_status
+      about every 300 ms until the counter equals the running total of the
+      set_print_quantity values it has sent, before the next print_clear or
+      the final print_end; niimbluelib gives up after 5 s without a reply.
+      (One page at quantity 3 is done at 3, not 1.)
     print_direction: >
       niimbluelib's D110 model prints "left": a label designed landscape
       (long side along the feed) is sent with canvas column x as wire row x
@@ -601,6 +609,11 @@ helpful_urls:
       Vendor quick start covering the indicator-light meanings this spec's status decoding relies on.
 
 remaining_unknowns:
+  - >
+    niimbluelib also runs this D110 task for D11 units on protocol v1/v2
+    (96-dot head), but whether a given D11 is one of those is only known
+    from its firmware reply; the print surface is scoped to the D110 until
+    a D11 has been identified that way.
   - >
     The whole print task is reported from niimbluelib, not run here: reply
     timing, whether rows need pacing between writes over BLE, and what the

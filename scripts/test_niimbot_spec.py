@@ -143,7 +143,8 @@ def test_the_documented_indexed_row_is_reproduced(spec: dict) -> None:
     head = next(f for f in spec["features"] if f["type"] == "image_upload")["print_geometry"][
         "head_dots"
     ]
-    # Black dots 39-42 on row 126: bits 7..2 of byte 4 and 5 hold dots 32-47.
+    # Black dots 39-42 on row 126: dot 39 is the LSB of byte 4, dots 40-42
+    # the top three bits of byte 5 (MSB of byte 0 is dot 0).
     row = bytearray(head // 8)
     for dot in (39, 40, 41, 42):
         row[dot // 8] |= 0x80 >> (dot % 8)
