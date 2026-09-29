@@ -131,4 +131,28 @@ and address each outlet by wrapping a command in
 `{"context":{"child_ids":["<deviceId>0N"]}}`. That is a separate spec; this one
 covers single-relay plugs only.
 
+## Keeping it off the internet
+
+The local protocol needs no cloud; the reason to cut the cloud off is that a
+firmware update is how HS100 hardware v4 lost port 9999. The spec's
+`cloud.egress` lists what the device phones and what blocking each name
+costs:
+
+- **Update images** come from `download.tplinkcloud.com` over plain HTTP —
+  block it to stop updates while keeping off-LAN control through the app.
+- **The cloud link** is `n-devs.tplinkcloud.com` on current firmware
+  (`devs.tplinkcloud.com`, TCP 50443, on 2016-era units). Ask the unit which:
+  `{"cnCloud":{"get_info":null}}` returns it as `server` (bulbs: the
+  `smartlife.iot.common.cloud` module). Some 2023 builds rejoin Wi-Fi every
+  ten minutes when this is blocked; **unbind first**, while it is still
+  online — `{"cnCloud":{"unbind":null}}` fails with `err_code -24` once the
+  cloud is unreachable.
+- **Time** comes from `pool.ntp.org` and `time.nist.gov`. Redirect them to a
+  LAN NTP server rather than blocking them: schedules run on the device's
+  clock, which has no battery backup.
+
+Ready-made lists for Pi-hole, AdGuard Home, dnsmasq, Unbound, RouterOS and
+RPZ, and the full walk-through, are in
+[Blocking Vendor Updates and the Cloud](../blocking-vendor-updates.md#tp-link-kasa-worked-through).
+
 Machine-readable spec: `device-specs/devices/tplink-kasa-smart-plug.yaml`

@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **What a device phones home to, and what blocking it costs.**
+  `cloud.egress` records each name (or literal address) a device's traffic
+  leaves the LAN for: who opens it (`device`, `app`, `both`), what for
+  (`device_cloud`, `firmware_check`, `firmware_download`, `time`,
+  `telemetry`, `advertising` …), and `when_blocked` — `impact` on local
+  operation, the `effect`, and a `workaround` where one is known — with
+  `verification` and a required `basis` for anything unconfirmed. It is the
+  structured successor to the free-form `cloud.hosts` strings, which stay
+  valid. `scripts/generate_blocklists.py` renders it into DNS lists for
+  Pi-hole, AdGuard Home, dnsmasq/OpenWrt, Unbound (OPNsense, pfSense),
+  RouterOS and RPZ, in an `updates` profile (firmware hosts only) and a
+  `cloud` profile (everything the device contacts); the docs build publishes
+  them under `/api/v1/blocklists/`, per device and combined. App hosts are
+  never listed, NTP names are redirected to a LAN time server rather than
+  blocked, and a name whose spec says blocking `breaks` the device is left
+  out and named in the header. First filled in for TP-Link Kasa (update
+  images from `download.tplinkcloud.com`, the cloud link the device reports
+  via the new `get_cloud_info` command, the 2023 reconnect loop and the
+  unbind-first workaround), LG webOS (the four Homebrew Channel update
+  names; the SDP names that carry the TV's clock and must stay reachable),
+  the June oven's OTA hosts, and iRobot's published hosts — which turn out
+  to be the account route's, not the robot's, so no list is generated for
+  it. New page: Blocking Vendor Updates and the Cloud.
+
 - **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
   `power_toggle` (the raw power key beside a stateful Power switch), the
   discrete transport keys `play`, `previous`, `next`, `record` (`pause` and
