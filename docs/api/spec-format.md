@@ -1423,10 +1423,13 @@ The fields a consumer acts on, and why each is required:
   `connectivity_check`, `content`, `other`. A device's standing cloud link
   is `device_cloud` even though updates are usually *ordered* over it; tag
   it `firmware_check` only when the offer genuinely cannot be separated
-  from it, because that puts the relay on the updates-only list.
+  from it, because that puts the relay on the updates-only list. An entry
+  carrying `time` is never blocked, whatever else it serves: plain NTP
+  (UDP 123, or no `ports`) is redirected to a LAN time server, and any
+  other clock is left reachable — so record `ports`.
 - **`when_blocked.impact`** is the effect on *local* operation. `breaks`
   keeps a name off every generated list (LG's `lgtvsdp.com` is the TV's
-  clock); `degraded` and `unknown` are listed with their `effect` and
+  clock), including a combined list where another spec calls it safe; `degraded` and `unknown` are listed with their `effect` and
   `workaround` printed in the list's header, before anyone applies it.
   Anything but `none` needs an `effect`. An entry with the `time` role is
   never `none`.
@@ -1435,7 +1438,7 @@ The fields a consumer acts on, and why each is required:
   on a parent the vendor's app also lives under.
 - **`address`** replaces `host` for a literal IP or CIDR the device dials
   without a DNS lookup. DNS cannot touch these; the generator lists them as
-  firewall rules.
+  firewall rules (except a hardcoded time server, which stays reachable).
 - **`verification`** and **`basis`**: an entry not `confirmed` by this
   project cites where it came from, as a `host_compatibility` verdict does.
 

@@ -126,8 +126,8 @@ Firmware updates come from `snu.lge.com` (the check) and `su.lge.com` /
 system updates" option points at localhost. Blocking them, and LG's ad and
 telemetry names, is safe. Blocking the **Service Delivery Platform**
 (`<country>.lgtvsdp.com`, and `nextlgsdp.com` on newer sets) is not: the TV
-takes its clock from it, not from NTP, and apps fail certificate checks once
-the clock resets. The spec's `cloud.egress` records each name and its cost;
+takes its clock from it (it is not known to use NTP), and apps fail
+certificate checks once the clock resets. The spec's `cloud.egress` records each name and its cost;
 the generated lists leave the clock out. See
 [Blocking Vendor Updates and the Cloud](../blocking-vendor-updates.md#lg-webos-what-not-to-block).
 

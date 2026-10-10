@@ -146,7 +146,8 @@ costs:
   `smartlife.iot.common.cloud` module). Some 2023 builds rejoin Wi-Fi every
   ten minutes when this is blocked; **unbind first**, while it is still
   online — `{"cnCloud":{"unbind":null}}` fails with `err_code -24` once the
-  cloud is unreachable.
+  cloud is unreachable. That stopped the loop for one owner, though not on
+  every unit.
 - **Time** comes from `pool.ntp.org` and `time.nist.gov`. Redirect them to a
   LAN NTP server rather than blocking them: schedules run on the device's
   clock, which has no battery backup.

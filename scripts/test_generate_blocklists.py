@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import ipaddress
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -257,6 +258,39 @@ def test_a_clock_that_is_not_ntp_is_left_reachable():
     assert [e.host for e in sel.excluded] == ["clock.example.com"]
 
 
+def test_a_clock_is_never_blocked_whatever_else_it_serves():
+    """The `time` role protects the whole entry: LG's SDP is the TV's clock AND
+    its Content Store, and a `degraded` there must not put it on a list."""
+    entries = [E("sdp.example.com", roles=("time", "content", "api"), match="subdomains",
+                 impact="degraded", effect="The clock resets and the store goes.")]
+    for profile in gb.PROFILES:
+        sel = gb.select(entries, profile)
+        assert sel.block == [] and sel.time == []
+        assert [e.host for e in sel.excluded] == ["sdp.example.com"]
+
+
+def test_a_hardcoded_time_server_is_left_reachable_not_firewalled():
+    entries = [E(None, address="203.0.113.123", roles=("time",), ports=((123, "udp"),),
+                 impact="degraded", effect="Schedules drift.")]
+    sel = gb.select(entries, "cloud")
+    assert sel.firewall == [] and [e.address for e in sel.excluded] == ["203.0.113.123"]
+
+
+def test_a_name_one_spec_says_breaks_is_not_blocked_on_anothers_say_so():
+    """In a combined list, one device's harmless block is another's broken store."""
+    entries = [
+        E("shared.example.com", device="dev-a", roles=("telemetry",)),
+        E("shared.example.com", device="dev-b", roles=("content",), impact="breaks",
+          effect="dev-b's store stops."),
+        E("ntp.example.com", device="dev-a", roles=("telemetry",)),
+        E("ntp.example.com", device="dev-b", roles=("time",), impact="degraded", effect="Drift."),
+    ]
+    sel = gb.select(entries, "cloud")
+    assert sel.block == []
+    assert [r.host for r in sel.time] == ["ntp.example.com"]
+    assert "dev-b's store stops." in gb.render_hosts(sel, gb.Options())
+
+
 def test_a_literal_address_becomes_a_firewall_note_not_a_dns_line():
     entries = [E(None, address="203.0.113.7", ports=((8080, "tcp"),))]
     sel = gb.select(entries, "updates")
@@ -349,10 +383,30 @@ def test_unbound_gives_each_redirect_its_own_zone(mixed):
 
 def test_routeros_replaces_its_previous_import(mixed):
     lines = _rules(gb.render_routeros(mixed, REDIRECT))
-    assert lines[:2] == ["/ip dns static", 'remove [find where comment~"^liberatedbread"]']
+    assert lines[:2] == ["/ip dns static", 'remove [find where comment~"^liberatedbread:all:"]']
     assert lines[2].startswith("add name=exact.example.com type=NXDOMAIN ")
     assert lines[3].startswith("add name=tree.example.com match-subdomain=yes type=NXDOMAIN ")
     assert lines[4].startswith("add name=time.example.com type=A address=192.168.1.53 ")
+    assert all('comment="liberatedbread:all: ' in ln for ln in lines[2:])
+
+
+def test_routeros_imports_for_different_devices_leave_each_other_alone():
+    """Per-device lists are the recommended ones, so importing Kasa's and then
+    LG's must not delete Kasa's -- including when one id prefixes another."""
+    def script(device: str) -> list[str]:
+        sel = gb.select([E("fw.example.com", device=device)], "updates", slug=device)
+        return _rules(gb.render_routeros(sel, gb.Options()))
+
+    def remove_pattern(lines: list[str]) -> str:
+        return re.search(r'comment~"([^"]+)"', lines[1]).group(1)
+
+    def comments(lines: list[str]) -> list[str]:
+        return [re.search(r'comment="([^"]+)"', ln).group(1) for ln in lines[2:]]
+
+    short, long = script("lg-webos"), script("lg-webos-2019")
+    for own, other in ((short, long), (long, short)):
+        assert all(re.search(remove_pattern(own), c) for c in comments(own))
+        assert not any(re.search(remove_pattern(own), c) for c in comments(other))
 
 
 def test_rpz_is_a_loadable_zone(mixed):

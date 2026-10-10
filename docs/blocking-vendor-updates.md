@@ -43,11 +43,14 @@ facts rather than a list of names:
    the router breaks the app for every phone in the house and does nothing to
    the device.
 2. **Time is redirected, never blocked.** A device that loses its clock loses
-   its schedules. NTP names go to a LAN NTP server when you name one; a clock
-   that is not NTP (a webOS TV reads its time from an HTTPS API) is left alone.
+   its schedules, so no entry carrying the `time` role is ever blocked,
+   whatever else it serves. NTP names go to a LAN NTP server when you name one;
+   any other clock (a webOS TV reads its time from the same HTTPS API as its
+   Content Store) is left alone.
 3. **Anything whose spec says blocking `breaks` the device is left out**, and
-   named in the list's header with the reason. Many public smart-TV blocklists
-   carry LG's `lgtvsdp.com`; it is where the TV's clock comes from.
+   named in the list's header with the reason — even in a combined list where
+   another spec calls the same name safe. Many public smart-TV blocklists carry
+   LG's `lgtvsdp.com`; it is where the TV's clock comes from.
 
 ## The published lists
 
@@ -63,7 +66,7 @@ Two profiles:
 
 | Profile | Blocks | For |
 |---------|--------|-----|
-| `updates` | Only names with a `firmware_check` or `firmware_download` role | Keeping the vendor app working away from home while stopping the update. Weakest: it stops the update hosts the specs *name*, and vendors move update traffic without notice. |
+| `updates` | Only names with a `firmware_check` or `firmware_download` role | Stopping the update while the vendor app usually keeps working away from home (where a device's update offer rides its main cloud link, that link is listed too). Weakest: it stops the update hosts the specs *name*, and vendors move update traffic without notice. |
 | `cloud` | Every name the device itself contacts, except time | Cutting the device off. The DNS companion to the firewall rule. |
 
 Formats, by what you run:
@@ -74,11 +77,12 @@ Formats, by what you run:
 | AdGuard Home | `<profile>.adguard.txt` | Add as a blocklist by URL, or paste into custom rules. |
 | OpenWrt, or anything on dnsmasq | `<profile>.dnsmasq.conf` | Drop into dnsmasq's conf-dir. |
 | OPNsense, pfSense, or Unbound | `<profile>.unbound.conf` | Paste under `server:` in the custom options. |
-| MikroTik RouterOS 7.5+ | `<profile>.routeros.rsc` | `/import`; re-importing replaces the previous import. |
+| MikroTik RouterOS 7.5+ | `<profile>.routeros.rsc` | `/import`. Re-importing a list replaces its previous import; lists for different devices coexist. |
 | BIND, PowerDNS Recursor, Knot, Unbound `rpz:` | `<profile>.rpz.zone` | A response-policy zone. |
 | Anything else | `<profile>.hosts.txt` | Exact names only — a hosts file cannot express subdomains. |
 
-The published lists answer blocked names with NXDOMAIN or a null address and
+The published lists answer blocked names with NXDOMAIN or a null address (on
+Pi-hole and AdGuard Home, whatever your blocking mode returns) and
 **do not redirect time**, because they cannot know your LAN's NTP server; the
 time names are listed in each header instead. For a redirect, generate your
 own.
@@ -117,7 +121,7 @@ There are two cases where pointing names at a local machine does something:
 - **Time.** Point NTP names at an NTP server on your LAN — most routers run
   one (OpenWrt, RouterOS, OPNsense and pfSense all can), as does `chrony` on
   any always-on machine, including the one running Home Assistant. That is
-  what `--time-server` writes. Kasa devices are reported to ignore the NTP
+  what `--time-server` writes. Kasa devices are not known to honour the NTP
   server DHCP offers, so the DNS redirect is what reaches them.
 - **A device that misbehaves when refused.** Some 2023 Kasa builds drop and
   rejoin Wi-Fi every ten minutes when they cannot reach their cloud. A Home
@@ -153,8 +157,9 @@ which cloud name it uses.
 
 2. **Unbind it while it is still online**, unless you want the Kasa app to
    keep working away from home. Unbinding needs the cloud reachable (a
-   blocked device answers `err_code -24`, "no reply from server") and is
-   reported to stop the reconnect loop above. The request is in the spec's
+   blocked device answers `err_code -24`, "no reply from server"). It stopped
+   the reconnect loop above for one owner, though an HS220 on 1.0.10 kept
+   looping until TP-Link's fixed build. The request is in the spec's
    `protocol_details.tplink_smarthome_protocol.cloud_module`.
 
 3. **Keep the clock.** Schedules, timers and away mode run on the device's
@@ -173,9 +178,9 @@ which cloud name it uses.
 ## LG webOS: what not to block
 
 The [LG webOS spec](devices/lg-webos.md) is the case for recording costs
-rather than names. The firmware update names are safe to block — they are the
-four the webOS Homebrew Channel's own "Block system updates" option points at
-localhost — and so are LG's ad and telemetry names. But the TV's clock comes
+rather than names. The firmware update names are safe to block — they include
+the four the webOS Homebrew Channel's own "Block system updates" option points
+at localhost — and so are LG's ad and telemetry names. But the TV's clock comes
 from the Service Delivery Platform (`<country>.lgtvsdp.com`, and the newer
 `nextlgsdp.com`), not from NTP: block those and the clock resets after a cold
 boot, apps fail their certificate checks, and the Content Store goes with

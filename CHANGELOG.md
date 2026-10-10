@@ -21,9 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   RouterOS and RPZ, in an `updates` profile (firmware hosts only) and a
   `cloud` profile (everything the device contacts); the docs build publishes
   them under `/api/v1/blocklists/`, per device and combined. App hosts are
-  never listed, NTP names are redirected to a LAN time server rather than
-  blocked, and a name whose spec says blocking `breaks` the device is left
-  out and named in the header. First filled in for TP-Link Kasa (update
+  never listed; no entry carrying the `time` role is blocked (NTP names are
+  redirected to a LAN time server, any other clock left reachable); and a
+  name whose spec says blocking `breaks` the device is left out and named in
+  the header, even where another spec calls it safe. First filled in for TP-Link Kasa (update
   images from `download.tplinkcloud.com`, the cloud link the device reports
   via the new `get_cloud_info` command, the 2023 reconnect loop and the
   unbind-first workaround), LG webOS (the four Homebrew Channel update

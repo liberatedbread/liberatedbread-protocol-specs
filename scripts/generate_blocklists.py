@@ -19,15 +19,17 @@ Two profiles:
 ``cloud``
     Everything the device itself contacts. The DNS half of cutting it off.
 
-Neither profile blocks a ``time`` host. A device that loses its clock loses
-its schedules, so NTP hosts are REDIRECTED to a LAN NTP server when one is
-given (``--time-server``) and otherwise listed in the header, never sinkholed;
-a time source that is not NTP (an HTTPS API that also sets the clock) is left
-reachable and named in the header. Hosts only the vendor's app contacts are
+Neither profile blocks an entry carrying the ``time`` role, whatever else it
+serves. A device that loses its clock loses its schedules, so NTP hosts are
+REDIRECTED to a LAN NTP server when one is given (``--time-server``) and
+otherwise listed in the header, never sinkholed; any other clock (an HTTPS API
+that also sets the time, a hardcoded time server's address) is left reachable
+and named in the header. Hosts only the vendor's app contacts are
 never listed: blocking them at the router breaks the app for every phone on
 the network and does nothing to the device.
 Entries whose ``when_blocked.impact`` is ``breaks`` are left out and named in
-the header, and literal addresses (which DNS cannot touch) are listed there as
+the header — and veto the name in a combined list, where another spec may list
+it as safe — and literal addresses (which DNS cannot touch) are listed there as
 firewall rules instead.
 
 A DNS list is the second layer, never the only one — see
@@ -51,6 +53,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import re
 import sys
 import zlib
 from dataclasses import dataclass, field
@@ -71,9 +74,10 @@ DEVICE_SIDE = frozenset({"device", "both"})
 
 PROFILES = {
     "updates": (
-        "Firmware update hosts only. Leaves the vendor cloud otherwise reachable, so the "
-        "vendor app keeps working away from home. It stops the update hosts the specs NAME; "
-        "vendors move update traffic without notice, so this is the weakest list here."
+        "Firmware update hosts only, so the rest of the vendor cloud, and the vendor app away "
+        "from home, usually keeps working; where a device's update offer rides its main cloud "
+        "link, that link is listed too. It stops the update hosts the specs NAME; vendors move "
+        "update traffic without notice, so this is the weakest list here."
     ),
     "cloud": (
         "Every host the device itself contacts, except time sources. The DNS half of cutting "
@@ -152,6 +156,7 @@ class Selection:
 
     profile: str
     scope: str
+    slug: str = "all"  # machine form of the scope; tags what a RouterOS import owns
     devices: list[tuple[str, str]] = field(default_factory=list)
     block: list[Rule] = field(default_factory=list)
     time: list[Rule] = field(default_factory=list)
@@ -241,22 +246,24 @@ def _merge(entries: Iterable[Entry]) -> list[Rule]:
     return rules
 
 
-def select(entries: list[Entry], profile: str, scope: str = "all devices") -> Selection:
+def select(
+    entries: list[Entry], profile: str, scope: str = "all devices", slug: str = "all"
+) -> Selection:
     """Apply a profile: which names to block, redirect, leave out or firewall."""
     if profile not in PROFILES:
         raise ValueError(f"unknown profile {profile!r}; expected one of {sorted(PROFILES)}")
     device_side = [e for e in entries if e.contacted_by in DEVICE_SIDE]
-    sel = Selection(profile=profile, scope=scope)
+    sel = Selection(profile=profile, scope=scope, slug=re.sub(r"[^a-z0-9,-]", "-", slug))
 
     wanted: list[Entry] = []
     time: list[Entry] = []
     for e in device_side:
-        if e.is_ntp:
-            time.append(e)
-        elif e.is_time_only:
-            # A clock that is not NTP cannot be redirected to an NTP server and
-            # must not be blocked: leave it reachable, and say so.
-            sel.excluded.append(e)
+        if "time" in e.roles:
+            # Never blocked, whatever else the entry serves: a device that loses
+            # its clock loses its schedules. Plain NTP by name can be pointed at
+            # a LAN NTP server; any other clock (an HTTPS API that also sets the
+            # time, a hardcoded server's address) is left reachable, and said so.
+            (time if e.is_ntp and e.host else sel.excluded).append(e)
         elif profile == "cloud" or FIRMWARE_ROLES & set(e.roles):
             wanted.append(e)
 
@@ -265,9 +272,12 @@ def select(entries: list[Entry], profile: str, scope: str = "all devices") -> Se
             sel.excluded.append(e)
         elif e.address:
             sel.firewall.append(e)
-    sel.block = _merge(e for e in wanted if e.host and e.impact != "breaks")
-    sel.time = _merge(e for e in time if e.host)
-    sel.firewall.extend(e for e in time if e.address)
+    # A name some spec says must stay reachable is not blocked on another
+    # spec's say-so: in a combined list, one device's harmless block is
+    # another's broken clock or store.
+    vetoed = {e.host for e in sel.excluded if e.host} | {e.host for e in time}
+    sel.block = _merge(e for e in wanted if e.host and e.impact != "breaks" and e.host not in vetoed)
+    sel.time = _merge(time)
     # Name only the devices this list actually says something about: a header
     # claiming a device the rules never touch reads as coverage it lacks.
     involved = {d for r in sel.block + sel.time for d in r.devices}
@@ -404,9 +414,9 @@ def render_adguard(sel: Selection, opts: Options) -> str:
     """AdGuard Home filter rules: |name^ (exact), ||name^ (with subdomains), $dnsrewrite."""
     out = _header(
         sel, opts, "!", "adguard",
-        "Add as a blocklist by URL, or paste into Custom filtering rules. $dnsrewrite works "
-        "in both on AdGuard Home (not in AdGuard's hosted DNS lists). Not for Pi-hole, which "
-        "rejects |name^ and $ modifiers; use the pihole list there.",
+        "Add as a blocklist by URL, or paste into Custom filtering rules: AdGuard Home honours "
+        "$dnsrewrite in both (Private AdGuard DNS only in custom rules). Not for Pi-hole, "
+        "which rejects |name^ and $ modifiers; use the pihole list there.",
     )
 
     def pattern(r: Rule) -> str:
@@ -428,8 +438,8 @@ def render_dnsmasq(sel: Selection, opts: Options) -> str:
         sel, opts, "#", "dnsmasq",
         "Exact names use host-record= and answer a null address; names with subdomains use "
         "address=/name/, which answers NXDOMAIN for the name and everything under it. A time "
-        "redirect answers A only: AAAA still comes from upstream, which is harmless for a "
-        "time server you are not blocking.",
+        "redirect answers A only, so an AAAA lookup for that name still goes upstream: an "
+        "IPv6-capable device can still find the real server, and reaches yours over IPv4.",
     )
     for r in sel.block:
         out.append(f"# {r.describe()}")
@@ -483,18 +493,21 @@ ROUTEROS_TAG = "liberatedbread"
 
 def render_routeros(sel: Selection, opts: Options) -> str:
     """MikroTik RouterOS 7 /ip dns static script. Re-importing replaces, not duplicates."""
+    tag = f"{ROUTEROS_TAG}:{sel.slug}:"
     out = _header(
         sel, opts, "#", "routeros",
         f"RouterOS 7.5 or later (match-subdomain). Import with /import. Every entry is tagged "
-        f"'{ROUTEROS_TAG}' and the first command removes the previous import, so re-running "
-        "it replaces rather than duplicates. A time redirect answers A only; AAAA still comes "
-        "from upstream.",
+        f"'{tag}' and the first command removes that tag's previous import, so re-running "
+        "this list replaces it, and lists for different devices coexist. A time redirect "
+        "answers A only; AAAA still comes from upstream.",
     )
-    out += ["/ip dns static", f'remove [find where comment~"^{ROUTEROS_TAG}"]']
+    # The tag ends in a delimiter, so one device's id that prefixes another's
+    # (lg-webos, lg-webos-2019) can never remove the other's entries.
+    out += ["/ip dns static", f'remove [find where comment~"^{tag}"]']
 
     def add(host: str, subdomains: bool, kind: str, note: str) -> str:
         sub = " match-subdomain=yes" if subdomains else ""
-        return f'add name={host}{sub} {kind} comment="{ROUTEROS_TAG}: {note}"'
+        return f'add name={host}{sub} {kind} comment="{tag} {note}"'
 
     for r in sel.block:
         note = ", ".join(r.devices)
@@ -607,13 +620,13 @@ def build_site(
     """Every published file, as {relative path: content}. Pure; writes nothing."""
     out: dict[str, str] = {}
     files: dict[str, list[str]] = {}
-    scopes: list[tuple[str, str, list[Entry]]] = [("", "all devices", entries)]
+    scopes: list[tuple[str, str, str, list[Entry]]] = [("", "all devices", "all", entries)]
     for dev in sorted({e.device for e in entries}):
-        scopes.append((f"devices/{dev}/", f"device '{dev}'", [e for e in entries if e.device == dev]))
+        scopes.append((f"devices/{dev}/", f"device '{dev}'", dev, [e for e in entries if e.device == dev]))
     opts = Options()
-    for prefix, scope, subset in scopes:
+    for prefix, scope, slug, subset in scopes:
         for profile in PROFILES:
-            sel = select(subset, profile, scope)
+            sel = select(subset, profile, scope, slug)
             if sel.empty:
                 continue
             for _fmt, (ext, render) in FORMATS.items():
@@ -659,7 +672,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    entries = load_entries()
+    specs = load_specs()
+    entries = load_entries(specs=specs)
     if args.device:
         known = {e.device for e in entries}
         unknown = sorted(set(args.device) - known)
@@ -669,7 +683,7 @@ def main(argv: list[str] | None = None) -> int:
         entries = [e for e in entries if e.device in args.device]
 
     if args.coverage:
-        with_egress, without = coverage()
+        with_egress, without = coverage(specs=specs)
         print(f"{len(with_egress)} spec(s) with cloud.egress: {', '.join(with_egress) or '-'}")
         print(f"{len(without)} spec(s) with a cloud block but no egress yet:")
         for dev in without:
@@ -678,13 +692,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.format:
         scope = f"device(s) {', '.join(args.device)}" if args.device else "all devices"
-        sel = select(entries, args.profile, scope)
+        slug = ",".join(sorted(set(args.device))) if args.device else "all"
+        sel = select(entries, args.profile, scope, slug)
         _, render = FORMATS[args.format]
         sys.stdout.write(render(sel, Options(time_server=args.time_server, sinkhole=args.sinkhole)))
         return 0
 
     if args.check:
-        site = build_site(entries)
+        site = build_site(entries, covered=coverage(specs=specs))
         print(f"blocklists OK: {len(site)} file(s) from {len(entries)} egress entr(y/ies)")
         return 0
 
