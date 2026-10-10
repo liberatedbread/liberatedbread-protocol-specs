@@ -13,6 +13,10 @@
 #   - jaymzh/concordance (libconcord, GPL-3.0) — the Hub's USB product ID
 #     and the MyHarmony USB protocol; see
 #     targets/logitech-harmony-usb-remotes.md.
+#   - captivus/harmony-hub-setup (MIT, 2026) — the Bluetooth first-run over
+#     RFCOMM and the pre-account setup probes on port 8088.
+#   - Ripthulhu/harmony-hub-root (2026) — Wi-Fi, factory reset and firmware
+#     over the Hub's USB port.
 
 device:
   name: "Logitech Harmony Hub"
@@ -26,8 +30,11 @@ device:
       integration; the WebSocket envelope, command strings and params in
       `websocket`/`commands` were transcribed from aioharmony's source
       (hubconnector_websocket.py, const.py, harmonyclient.py) rather than
-      captured, so they are `reported`. The two first-run routes and the
-      reset procedure are Logitech's own documentation, not replayed here.
+      captured, so they are `reported`. The two first-run routes are
+      Logitech's documentation; their wire formats are transcribed from
+      harmony-hub-setup (Bluetooth) and harmony-hub-root (USB), both of which
+      their authors ran against hubs and neither of which this project has
+      replayed.
   protocol: "wifi"
   category: "hub"
   # The control surface is the port-8088 WebSocket (root `websocket` block);
@@ -66,10 +73,17 @@ device:
     author it, so keep the hub's current configuration working and note what
     it contains while the service still answers.
 
-    USB: the hub's micro-USB port enumerates as 046d:c129, which libconcord
-    lists among the MyHarmony-protocol devices (with the 200, 300, Link and
-    Touch). That is the protocol behind the USB first-run route below; the
-    byte-level description is in targets/logitech-harmony-usb-remotes.md.
+    SETUP CHANNELS: besides the LAN, the hub takes one packet format over two
+    links. Over USB (micro-USB, 046d:c129, HID) it is the MyHarmony file
+    protocol libconcord documents for the 200, 300, Link and Touch, and it
+    works on a configured hub as well as a fresh one. Over Bluetooth a hub in
+    setup mode takes the same format's JSON requests on an RFCOMM channel --
+    Bluetooth Classic, not GATT: the Android app's path, which the open
+    client was derived from. Logitech's guides say Bluetooth LE, and whether
+    the iOS app reaches the hub over a GATT service instead is not known.
+    Both links carry Wi-Fi setup; USB also carries factory reset and
+    firmware. protocol_details.setup_channel has the frames; the byte-level
+    file protocol is in targets/logitech-harmony-usb-remotes.md.
 
   openness:
     status: "undocumented"
@@ -116,54 +130,144 @@ device:
 
   setup:
     required: true
-    confidence: "low"
+    confidence: "medium"
     notes: >
       Getting a hub from the box to local control is three things in order:
       put it on Wi-Fi, give it a configuration (activities and devices) through
       a Harmony account, then fetch its remoteId locally. Logitech documents
       two ways to do the first -- Bluetooth from the Harmony app, or USB from a
-      computer -- and those are the two routes below. The account step is the
-      same in both and needs Logitech's service; nothing documented can author
-      a configuration locally. Once configured, local control needs no
-      pairing: any LAN client fetches the remoteId with the port-8088 POST and
-      opens the WebSocket. Confidence is low because neither Wi-Fi handover
-      has been captured: the Bluetooth exchange is not publicly documented at
-      all, and the USB one is known only by analogy with the Harmony Link.
+      computer -- and those are the two routes below. Each now has an open
+      implementation: harmony-hub-setup does the Bluetooth half from Linux and
+      harmony-hub-root the USB half, so the Wi-Fi step no longer needs
+      Logitech's software. The account step, the same in both routes, still
+      does: nothing documented can author a configuration locally. Once
+      configured, local control needs no pairing: any LAN client fetches the
+      remoteId with the port-8088 POST and opens the WebSocket. Confidence is
+      medium rather than high because the account step's local half is
+      encrypted and not fully described, and nothing here has been replayed
+      by this project.
     methods:
       - type: "ble_provisioning"
-        name: "Harmony app: Wi-Fi over Bluetooth, then a Harmony account"
+        name: "Bluetooth (app or RFCOMM client) for Wi-Fi, then a Harmony account"
         role: "primary"
         verified: false
         description: >
-          The route Logitech's quick start guide leads with. The Harmony app
-          finds the hub over Bluetooth LE, hands it the home Wi-Fi
-          credentials, then creates or signs in to a Harmony account in which
-          the activities and devices are set up and synced down to the hub.
+          The route Logitech's quick start guide leads with. The Android
+          Harmony app -- or any host with Bluetooth Classic -- hands the hub
+          the Wi-Fi credentials over RFCOMM (the iOS app's transport is not
+          established); the app then signs in to a Harmony account and the
+          activities and devices are set up and synced down to the hub.
+          The method type is the nearest the schema has: the credentials
+          cross Bluetooth, but on an RFCOMM channel, not a GATT service.
         stages:
           - type: "ble_provisioning"
-            name: "Join Wi-Fi from the phone over Bluetooth"
+            name: "Join Wi-Fi over Bluetooth RFCOMM"
             verified: false
             description: >
-              The phone must be on the Wi-Fi network the hub is to join, with
-              Bluetooth on. The app's setup flow asks for the hub's Pair/Reset
-              button, pairs with the hub over Bluetooth LE, offers the phone's
-              own network and sends the hub its password. The hub takes 2.4 GHz
-              802.11 b/g/n networks secured with WPA, WPA2-AES or 64/128-bit
-              WEP. The GATT service, characteristics and message format are
-              not publicly documented; Logitech's guides are the only source.
+              A new or factory-reset hub waits in Bluetooth setup mode. A host
+              connects to RFCOMM channel 1 and exchanges JSON requests framed
+              as `SetupFrame` below; each reply is a JSON object carrying the
+              request's `id`, a `code` (200 on success) and `data`. The
+              sequence is the Android app's, as harmony-hub-setup replays it.
+              The hub takes 2.4 GHz 802.11 b/g/n networks secured with WPA,
+              WPA2-AES or 64/128-bit WEP (Logitech's Smart Control guide). The
+              Wi-Fi password travels as plain JSON inside the frame.
             ble:
-              protocol: "Harmony app hub first-run (undocumented)"
+              protocol: "Harmony setup JSON over Bluetooth Classic RFCOMM channel 1 (not GATT)"
             steps:
-              - action: "Power the hub; put the phone on the target 2.4 GHz Wi-Fi network with Bluetooth enabled."
+              - action: "Power a hub that is new or has just been factory reset; it enters Bluetooth setup mode once the reset's red flicker stops. In the Harmony app the equivalent is: when the app asks, wait 30 seconds, then press Pair/Reset on the back of the hub."
                 actor: "user"
-              - action: "In the Harmony app start setting up a new hub or remote."
-                actor: "user"
-              - action: "When the app asks, wait 30 seconds, then press the Pair/Reset button on the back of the hub."
-                actor: "user"
-                expect: "The app finds the hub and shows its Wi-Fi setup screen with the phone's network."
-              - action: "Confirm the network (or choose another), enter its password and join."
-                actor: "user"
-                expect: "The hub joins the network and the app continues to account setup."
+              - action: "Find the hub in a Bluetooth Classic inquiry and open an RFCOMM connection to channel 1."
+                actor: "client"
+                request:
+                  service: "Bluetooth Classic RFCOMM, channel 1"
+                expect: "The connection opens. harmony-hub-setup accepts any device whose name contains 'harmony' or 'logitech' (case-insensitive); its example shows 'Harmony Hub'."
+                timeout_seconds: 10
+              - action: "Send connect.ping."
+                actor: "client"
+                request:
+                  service: "Harmony setup JSON (SetupFrame)"
+                  action: "connect.ping"
+                expect: "code 200; data.uuid is the hub's UID."
+              - action: "Scan for networks with wifi.networks."
+                actor: "client"
+                request:
+                  service: "Harmony setup JSON (SetupFrame)"
+                  action: "wifi.networks"
+                expect: "code 200; data is a list (or {networks: [...]}) of {ssid, signal, encryption, channel}. `channel` carries the frequency in MHz (2422), not a channel number; `encryption` may be a string or a list."
+                timeout_seconds: 90
+              - action: "Fetch the Bluetooth nonce with bt.nonce and keep it."
+                actor: "client"
+                request:
+                  service: "Harmony setup JSON (SetupFrame)"
+                  action: "bt.nonce"
+                expect: "code 200; data.nonce, 32 characters. Not used by the Wi-Fi join; after account provisioning the hub's setup endpoint wants encrypted requests, and this nonce is one of the two keys for them (protocol_details.setup_endpoint)."
+              - action: "Send wifi.connect with the network."
+                actor: "client"
+                request:
+                  service: "Harmony setup JSON (SetupFrame)"
+                  action: "wifi.connect"
+                  arguments:
+                    - name: "ssid"
+                      type: "string"
+                      required: true
+                    - name: "password"
+                      type: "string"
+                      required: true
+                      description: "Plain text."
+                    - name: "encryption"
+                      type: "string"
+                      required: true
+                      description: "The open clients send WPA2-PSK; use what wifi.networks reports for the network."
+                expect: "code 200. A first attempt answering code 500 has been seen; send it again."
+                timeout_seconds: 90
+              - action: "Poll wifi.connect with no data every 10 seconds until the hub reports the join."
+                actor: "client"
+                request:
+                  service: "Harmony setup JSON (SetupFrame)"
+                  action: "wifi.connect"
+                expect: "data.connect_status is \"connected\" and data.ip_address is set. harmony-hub-setup re-sends the join and keeps polling for up to 180 s."
+                timeout_seconds: 180
+              - action: "Send setup.account?provision with the pre-account provisionInfo (mode \"2\")."
+                actor: "client"
+                request:
+                  service: "Harmony setup JSON (SetupFrame)"
+                  action: "setup.account?provision"
+                  arguments:
+                    - name: "provisionInfo"
+                      type: "object"
+                      required: true
+                      description: >
+                        {"authToken": "", "discoveryServer":
+                        "https://svcs.myharmony.com/Discovery/Discovery.svc",
+                        "susChannel": "production", "email": "", "name":
+                        "Harmony Hub", "mode": "2"} -- the Android app's
+                        placeholder before an account exists.
+                expect: "code 200; setup.account?getProvisionInfo then reports mode 2 with accountId, authToken, email, username and activeRemoteId empty, and the hub answers the pre-account probes on port 8088 (protocol_details.setup_endpoint)."
+                timeout_seconds: 120
+            payload_formats:
+              SetupFrame:
+                description: >
+                  One request on the Bluetooth setup channel, and also the
+                  JSON request form on the USB channel (where the bytes are
+                  cut into 64-byte HID reports). In the MyHarmony packet
+                  format it is command 0x08 with one parameter -- a packet
+                  count of 2, one more than the single data packet that
+                  follows -- and a data packet carrying the JSON.
+                parse_rules:
+                  - "Request = FF 08 00 01 01 02 01, then the payload length, then the UTF-8 JSON {\"cmd\": <command>, \"data\": <object, omitted when there is none>, \"id\": <integer>}."
+                  - "Payload length up to 63 bytes: one byte, 0x80 | length. Longer: two bytes, 0xC0 | (length >> 8), then length & 0xFF. A reader tells them apart by bit 0x40 of the first byte. harmony-hub-setup already switches to the two-byte form above 62; both forms decode. Maximum 16383."
+                  - "Replies arrive as a byte stream with framing bytes around JSON objects. Scan for each '{', decode one JSON object from there, and take the one whose id matches the request."
+                example: |
+                  connect.ping, id 1 (37 bytes):
+                  FF 08 00 01 01 02 01 9D {"cmd":"connect.ping","id":1}
+                  wifi.connect, 109-byte payload: FF 08 00 01 01 02 01 C0 6D <payload>
+            timing:
+              wifi_networks_timeout_s: 90
+              wifi_connect_timeout_s: 90
+              wifi_status_poll_interval_s: 10
+              wifi_join_max_wait_s: 180
+              provision_timeout_s: 120
           - type: "cloud_account"
             name: "Configure activities and devices in a Harmony account"
             verified: false
@@ -171,20 +275,25 @@ device:
               Activities and devices are authored in the Harmony app (or
               MyHarmony) against Logitech's device database; the service
               compiles the configuration and the hub syncs it. This is the
-              step no local path replaces.
+              step no local path replaces. Restoring a reset hub from an
+              account: partway through ("Preparing your hub") the app asks
+              for the Pair/Reset button again, and that is expected. Leave the
+              hub powered for at least two minutes after the app reports
+              success; unplugging sooner has been seen to roll it back to
+              unprovisioned (harmony-hub-setup's notes).
             cloud:
               local_alternative: &harmony_local_alternative >
                 Yes for CONTROL -- once the hub is configured, the local
                 WebSocket API on port 8088 drives it with no cloud. No for
                 AUTHORING: adding or changing devices and activities needs
                 Logitech's service, which still runs for the Hub as of
-                2026-09 but has already been withdrawn from the older
+                2026-10 but has already been withdrawn from the older
                 remotes. Keep a hub's working configuration rather than
                 resetting it.
             steps:
-              - action: "Create or sign in to a Harmony account and add the devices and activities."
+              - action: "Create or sign in to a Harmony account and add the devices and activities (or restore them)."
                 actor: "user"
-                expect: "The hub syncs the configuration; get_config returns the activities and devices."
+                expect: "The hub syncs the configuration; get_config returns the activities and devices, and getProvisionInfo reports mode 3 with an accountId."
           - type: "none"
             name: "Fetch the remoteId for local control"
             verified: false
@@ -208,36 +317,43 @@ device:
                   action: "POST / on port 8088"
                 expect: "JSON reply whose data.activeRemoteId is the hub's remoteId."
       - type: "wired"
-        name: "MyHarmony on a computer: Wi-Fi over the USB cable, then a Harmony account"
+        name: "USB (MyHarmony or HID client) for Wi-Fi, then a Harmony account"
         role: "alternative"
         verified: false
         description: >
-          Logitech's fallback for a phone without Bluetooth LE, and the route
-          for setting up from a PC or Mac. The Hub quick start sends such
-          users to setup.myharmony.com on a computer to put the hub on Wi-Fi;
-          Logitech's Smart Control guide shows MyHarmony reaching the hub over
-          a USB cable plugged straight into the computer (its micro-USB port
-          is also the hub's power connector). The same account step follows.
+          Logitech's fallback for a phone without Bluetooth, and the route for
+          setting up from a PC or Mac. The Hub quick start sends such users to
+          setup.myharmony.com on a computer; Logitech's Smart Control guide
+          shows MyHarmony reaching the hub over a USB cable plugged straight
+          into the computer (the micro-USB port is also the hub's power
+          connector). harmony-hub-root does the same Wi-Fi write without
+          Logitech's software. The same account step follows.
         stages:
           - type: "wired"
             name: "Write the Wi-Fi credentials over USB"
             verified: false
             description: >
-              Over USB the hub is 046d:c129, a HID device in libconcord's
-              MyHarmony-protocol family: 64-byte reports carrying a small file
-              read/write protocol. libconcord puts the Harmony Link on Wi-Fi by
-              writing the text file /sys/wifi/connect ("ssid,<ssid>",
-              "encryption,<type>", "user,", "password,<passphrase>", one per
-              line) and reads /sys/wifi/networks for a scan. That the Hub
-              accepts the same files is a hypothesis nobody has tested. Framing,
-              handshake and file transfer are in
-              targets/logitech-harmony-usb-remotes.md.
+              Over USB the hub is 046d:c129, a HID device with 64-byte reports
+              (65 with the report-ID byte a host API adds). It speaks the
+              MyHarmony file protocol libconcord documents for the 200, 300
+              and Link: open a path for read or write, move data packets,
+              close. Wi-Fi is two text files of `key,value` lines.
+              harmony-hub-root reports this working on Windows; its Linux and
+              macOS paths are marked untested by its author. Framing,
+              handshake and transfer are in targets/logitech-harmony-usb-remotes.md.
             steps:
               - action: "Connect the hub's micro-USB port to a USB port on the computer itself, not through a USB hub (Logitech's troubleshooting advice)."
                 actor: "user"
-              - action: "Write the Wi-Fi credentials to the hub over USB (MyHarmony does this; an independent client would write /sys/wifi/connect if the Hub behaves like the Link)."
+              - action: "Open the HID device 046d:c129 and read /sys/wifi/networks for a scan."
                 actor: "client"
-                expect: "Reading /sys/wifi/connect back reports a connect_status; the hub joins the network."
+                expect: "Blocks beginning `item,<n>` with `ssid`, `encryption`, `channel` (a frequency in MHz) and `signal_strength`, one `key,value` per line."
+              - action: "Write /sys/wifi/connect with the network as `key,value` lines: `ssid,<ssid>`, `password,<passphrase>`, `encryption,<type>`, each ending in a newline. Add `nosave,true` for a join that is not remembered."
+                actor: "client"
+                expect: "The write is acknowledged with the file handle echoed back; the hub may drop off and rejoin while it connects. harmony-hub-root sends encryption WPA2-PSK by default and allows NONE or OPEN without a password."
+                timeout_seconds: 100
+              - action: "Read /sys/wifi/connect back."
+                actor: "client"
+                expect: "connect_status is \"connected\", error_code is none or empty, and ip_address is set. The read also returns the stored password in plain text."
           - type: "cloud_account"
             name: "Configure activities and devices in a Harmony account"
             verified: false
@@ -245,7 +361,7 @@ device:
             cloud:
               local_alternative: *harmony_local_alternative
             steps:
-              - action: "Sign in to the Harmony account in MyHarmony (or the app) and add the devices and activities."
+              - action: "Sign in to the Harmony account in MyHarmony (or the app) and add or restore the devices and activities."
                 actor: "user"
                 expect: "The hub syncs the configuration; get_config returns the activities and devices."
           - type: "none"
@@ -258,16 +374,16 @@ device:
       applicable: true
       confidence: "medium"
       effect: >
-        Logitech says the reset erases the hub's account information, which
-        takes the synced activities and devices with it; the hub has to go
-        through first-run and be configured from the account again. That it
-        also forgets the Wi-Fi network is expected from "back to first-run"
-        but not stated in the article.
+        Erases the hub's account information and with it the synced
+        activities and devices, and returns the hub to Bluetooth setup mode,
+        so it has to go through first-run and be configured from the account
+        again. Logitech's article states the account part; harmony-hub-setup
+        describes the return to Bluetooth setup mode.
       procedures:
         - name: "Pair/Reset held while power is applied"
           verified: false
-          basis: "Logitech support article 'Reset the Harmony Hub' (see helpful_urls); not replayed here."
-          indicator: "The LED flickers red until the reset has finished."
+          basis: "Logitech support article 'Reset the Harmony Hub' (see helpful_urls), with the duration and end state from harmony-hub-setup's README; not replayed here."
+          indicator: "The LED flickers red for about 30 seconds, then the hub enters Bluetooth setup mode."
           steps:
             - action: "Unplug the hub's power adapter."
               actor: "user"
@@ -275,32 +391,46 @@ device:
               actor: "user"
             - action: "Keep holding it and plug the power adapter back in."
               actor: "user"
-              expect: "The LED flickers red; Logitech's article gives no hold time and does not say when to release."
-            - action: "Wait until the LED stops flickering."
+              expect: "The LED flickers red. Neither source gives a hold time or says exactly when to release."
+            - action: "Wait until the LED stops flickering, about 30 seconds."
               actor: "user"
-              expect: "The hub is back at first-run."
+              expect: "The hub is back in Bluetooth setup mode."
+        - name: "Factory reset over USB"
+          verified: false
+          basis: "harmony-hub-root's factory-reset action (see helpful_urls); not replayed here."
+          steps:
+            - action: "Over the USB file protocol, write the single byte '1' to /sys/factoryreset and close it."
+              actor: "client"
+              notes: "harmony-hub-root sends this write and the next with sequence 0 throughout and the data packet's length byte as 0x00, copying the vendor software's template; whether the ordinary form is accepted is not stated."
+            - action: "Write the text 'reboot' to /sys/reboot and close it."
+              actor: "client"
+              expect: "The hub reboots unprovisioned and must go through first-run again."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
       notes: >
-        Wi-Fi can be reconfigured from the app while the hub is reachable, or
-        over USB from MyHarmony. Local control resumes once the hub rejoins the
-        LAN; rediscover it by UDN rather than by its old address.
+        Wi-Fi can be changed while the hub is configured: from the app, or
+        over USB by writing /sys/wifi/connect (harmony-hub-root documents
+        doing this to an already set-up hub). Local control resumes once the
+        hub rejoins the LAN; rediscover it by UDN rather than by its old
+        address.
     credentials:
-      wifi_passphrase_protection: unknown
+      wifi_passphrase_protection: plaintext
       stored_on_device:
         - "Wi-Fi credentials"
         - "Activity and device configuration"
         - "Harmony account binding"
       issued_to_client:
         - "remoteId (retrieved from the hub over the port-8088 POST; gates the WebSocket session)"
+        - "Bluetooth nonce (from bt.nonce during first-run; one of the two keys for the setup endpoint's encrypted requests after account provisioning)"
       notes: >
         The remoteId is retrievable by any LAN client — it is not a secret so
         much as a session parameter. Local control is otherwise unauthenticated
-        on the LAN. How the passphrase crosses to the hub is unknown on the
-        Bluetooth route; on the USB route, if the Hub works like the Link, it
-        is plain text inside the /sys/wifi/connect file and reads back the
-        same way.
+        on the LAN. The Wi-Fi passphrase is plain text on both setup links: a
+        JSON field on the Bluetooth channel, and a `password,` line in
+        /sys/wifi/connect over USB, which reads back the same way. Whether the
+        RFCOMM link itself is encrypted by Bluetooth pairing is not
+        established.
 
 http_endpoints:
   - method: "POST"
@@ -394,16 +524,80 @@ protocol_details:
       trigger for the cloud, not a local configuration surface: it does
       nothing useful once the service is unreachable, and no local command is
       known that adds or edits a device or activity.
-  usb:
+  setup_channel:
     verification: "reported"
-    id: "046d:c129 (Logitech), HID"
-    protocol: >
-      libconcord's MyHarmony family: 64-byte HID reports carrying a file
-      read/write protocol (/sys/sysinfo identity, /sys/wifi/networks scan,
-      /sys/wifi/connect join on the Harmony Link). The Hub's product ID is in
-      libconcord's MyHarmony list but concordance does not list the Hub as a
-      supported model, so which files the Hub serves is untested. Byte-level
-      detail: targets/logitech-harmony-usb-remotes.md.
+    links: >
+      USB: HID 046d:c129, 64-byte reports with no report ID (a host API that
+      wants one gets 0x00 first). Bluetooth: RFCOMM channel 1, a byte
+      stream. Both carry the MyHarmony packet format libconcord documents for
+      its USB remotes -- command packets FF <command> <sequence> <parameter
+      count> <parameters>, data packets <sequence> <length> <data> -- with
+      the details in targets/logitech-harmony-usb-remotes.md.
+    commands: >
+      01 opens a file (path, then "R" or "W", then for a write the size as a
+      big-endian 32-bit parameter); the reply carries a one-byte file handle,
+      which every later message for that file repeats. 03 and 04 are write
+      and read flow control, 05 commits a written file, 06 checks it (handle,
+      01, checksum type as a string, seed, offset, length, expected value)
+      and 07 closes it. 08 is a JSON request: one parameter, a packet
+      count of 2, then one data packet holding the JSON -- the SetupFrame of
+      the Bluetooth setup method, and the form harmony-hub-root uses for JSON
+      commands over USB. FF with a one-byte parameter is a device control:
+      0x66 resets the firmware staging area (observed to answer FF FF 81 00
+      rather than echoing the request's sequence), 0x00 reboots.
+    files: >
+      /rf/deviceinfo -- identity (harmony-hub-root reads this, not the
+      /sys/sysinfo the older MyHarmony remotes serve).
+      /sys/wifi/networks -- scan, `key,value` lines in blocks starting
+      `item,<n>`: ssid, encryption, channel (MHz), signal_strength.
+      /sys/wifi/connect -- write ssid, password, encryption and optionally
+      nosave,true to join; read for connect_status, ssid, encryption,
+      ip_address, error_code and the password.
+      /sys/factoryreset -- write "1" to reset; /sys/reboot -- write
+      "reboot" to restart. /fw/otaupdate -- firmware (features[0]).
+    json_commands: >
+      On the Bluetooth channel, harmony-hub-setup sends connect.ping (data.uuid),
+      wifi.networks, bt.nonce (data.nonce), wifi.connect with and without
+      {ssid, password, encryption}, setup.account?getProvisionInfo,
+      setup.account?provision, setup.firmware?status (data.currentVersion),
+      rf.info and connect.statedigest?get. Replies are JSON objects with the
+      request's id, a code and data.
+  setup_endpoint:
+    verification: "reported"
+    description: >
+      The same port 8088 that serves the WebSocket answers JSON POSTs to "/"
+      during setup. harmony-hub-setup replays the Android app's pre-account
+      probes there with Origin http://localhost.nebula.myharmony.com, a
+      Referer under the same host, Content-Type application/json and body
+      {"id": "<id>", "cmd": "<command>", "params": {...}}:
+      connect.ping, connect.sysinfo?get, setup.account?getProvisionInfo,
+      connect.discoveryinfo?get, setup.firmware?check and connect.rf?info.
+      aioharmony's get_provision_info sends a different Origin
+      (http://sl.dhg.myharmony.com) and also works, so the hub accepts at
+      least these two values; which Origins it rejects is not known.
+    provision_modes: >
+      setup.account?getProvisionInfo reports `mode`: "2" after the Bluetooth
+      first-run's placeholder provisioning (no account fields set), "3" once
+      the hub is provisioned to an account (accountId and activeRemoteId set,
+      `se` true).
+    encryption_boundary: >
+      Once a hub is in mode 3, the setup endpoint answers many plain-JSON
+      commands with HTTP 417; getProvisionInfo still works in the clear. The
+      app then sends its setup requests encrypted: the request JSON (id, cmd,
+      optional params, timeout) under AES-CBC with an all-zero IV, keyed by
+      the account's hub secret when the app has one and otherwise by the
+      Bluetooth nonce, sent as hex text with Content-Type
+      application/octet-stream. How the key bytes are derived from the
+      32-character nonce, and the padding, are not stated by the source
+      (harmony-hub-setup's provisioning notes). The WebSocket control API in
+      this spec is not affected.
+  community_root:
+    verification: "reported"
+    description: >
+      harmony-hub-root also offers root SSH on a hub over the LAN. Not
+      investigated here; noted because with root the hub's synced
+      configuration could be copied off, which nothing else documented can
+      do.
 
 # Where the socket is and how a command becomes a frame. Placeholders:
 # {remote_id} is the stored `remote_id` credential (issued by
@@ -581,30 +775,81 @@ commands:
     example_notes: "Worked case: the release matching the send_command example."
     verification: "reported"
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom", "vendor_cloud"]
+      transport: ["usb", "cloud"]
+      image:
+        signing: "unknown"
+        source: "user_supplied"
+        format: >
+          A Logitech .hfw2 bundle: a zip whose Description.xml lists each
+          image (NAME, target PATH, OPERATIONTYPE) with a CHECKSUM element
+          (TYPE MD5, SEED 0, OFFSET, LENGTH, EXPECTEDVALUE), the intended skin
+          and an ORDER with a RESET flag -- the same descriptor shape as a
+          MyHarmony config backup. The image itself is ota-update.EzHex,
+          written to /fw/otaupdate; the zip is never written as a whole.
+        notes: >
+          Inside the update are a kernel (uImage.bin) and a squashfs root
+          filesystem, which the hub's boot updater checks by SHA-1 before
+          applying, per the log harmony-hub-root reads back. That is an
+          integrity check; whether anything checks a vendor signature is not
+          known. No public source of .hfw2 files is documented here.
+      enter:
+        how: "in_place"
+        notes: >
+          The running firmware takes the file over the USB file protocol and a
+          reboot hands it to the boot updater. harmony-hub-root's order: FF
+          device control 0x66 (reset the staging area); open /fw/otaupdate for
+          writing with the image size; send the data in bursts of up to 500
+          packets; send the checksum message from the descriptor (a result
+          'm' means accepted); commit (05) only on 'm'; close (07); FF
+          device control 0x00 (reboot). A result 'u' has been seen on an update that the
+          boot updater nevertheless applied after the reboot.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The update is staged and applied by a separate boot updater, which
+          suggests an interrupted upload leaves the old system in place, but
+          no source states what an interrupted apply leaves behind.
+      verification: "reported"
+      notes: >
+        Normally the hub updates itself from Logitech's service; the 2018
+        firmware that removed the local API arrived that way. The USB path is
+        what harmony-hub-root implements and what makes a hub recoverable
+        without the service. Flashing is a deliberate act: keep the hub
+        powered throughout, and have the bundle the hub was running if one
+        can be found.
+
 local_access:
   status: "native"
   summary: >
     Control is local as shipped: the port-8088 WebSocket starts and stops
-    activities and sends device commands with no account and no cloud.
-    Configuration is not: the hub runs a configuration compiled by Logitech's
-    service and nothing documented can author one locally.
+    activities and sends device commands with no account and no cloud. Wi-Fi
+    setup is local too, over Bluetooth or USB, with open implementations of
+    both. Configuration is not: the hub runs a configuration compiled by
+    Logitech's service and nothing documented can author one locally.
   covers:
     - "Discovering the hub (SSDP) and fetching its remoteId"
     - "Reading the configured activities, devices and their command names"
     - "Starting and stopping activities; pressing and holding device commands"
-    - "Wi-Fi first-run over USB, if the Hub takes the Harmony Link's files (untested)"
+    - "Joining or changing Wi-Fi over Bluetooth RFCOMM or over USB"
+    - "Factory reset over USB"
+    - "Writing a Logitech .hfw2 firmware bundle over USB"
   not_covered:
     - "Adding, removing or editing devices and activities -- compiled by Logitech's service"
-    - "Wi-Fi first-run over Bluetooth -- the exchange is undocumented"
-    - "Firmware updates"
+    - "Account provisioning and restore, whose local requests are encrypted and need Logitech's service"
     - "Voice-assistant and remote-app integrations, which go through Logitech's service"
 
 remaining_unknowns:
-  - "The Bluetooth LE first-run: advertised name, GATT service and characteristics, and how the Wi-Fi credentials are framed. Nothing public describes it; one HCI snoop of the Harmony app's hub setup would."
-  - "Whether the Hub over USB (046d:c129) serves the Harmony Link's /sys/wifi/networks and /sys/wifi/connect files, and what else it serves (/sys/sysinfo is the first thing to try)."
-  - "Whether a factory reset clears the Wi-Fi network as well as the account information; how long Pair/Reset must be held."
+  - "Whether the iOS Harmony app sets the hub up over a GATT service, as Logitech's 'Bluetooth LE' wording suggests, instead of the RFCOMM channel the Android app and harmony-hub-setup use."
+  - "Whether the RFCOMM setup link requires Bluetooth pairing, and so whether the plain-JSON Wi-Fi password is protected by link encryption over the air."
+  - "How the setup endpoint's AES key is derived from the 32-character Bluetooth nonce or the account hub secret, and the padding; needed to drive account provisioning without the app."
+  - "Which other paths the hub serves over USB beyond /rf/deviceinfo, the Wi-Fi files, /sys/factoryreset, /sys/reboot and /fw/otaupdate -- in particular whether its synced configuration can be read out the way an MH remote's /cfg/usercfg can."
+  - "How long Pair/Reset must be held for a factory reset, and when to release it."
+  - "What an interrupted firmware apply leaves behind, and whether the boot updater checks a signature."
   - "The rest of the connect.discoveryinfo record beyond friendlyName."
-  - "Whether any local surface can write a configuration, or whether the hub's synced configuration can be exported and re-imported. None is known; the configuration is compiled by Logitech's service."
 
 helpful_urls:
   - title: "Harmony Hub quick start guide (PDF, vendor-hosted)"
@@ -633,6 +878,23 @@ helpful_urls:
     description: >
       The 28 May 2025 end of the older remotes' configuration service, with
       the list of affected models. The Hub is not on it.
+  - title: "captivus/harmony-hub-setup"
+    url: "https://github.com/captivus/harmony-hub-setup"
+    kind: "implementation"
+    description: >
+      MIT-licensed Linux tool (2026) that puts a factory-reset hub on Wi-Fi
+      over Bluetooth RFCOMM and checks the pre-account state on port 8088;
+      the source for the Bluetooth setup stage, the setup endpoint and the
+      reset's end state. Its notes describe the encrypted account phase.
+  - title: "Ripthulhu/harmony-hub-root"
+    url: "https://github.com/Ripthulhu/harmony-hub-root"
+    kind: "implementation"
+    description: >
+      2026 tool that drives the hub's USB port with the MyHarmony file
+      protocol -- Wi-Fi scan and join, factory reset, .hfw2 firmware -- and
+      offers root SSH over the LAN. Source for the USB setup stage, the USB
+      reset and the firmware feature. Its README marks Linux and macOS USB
+      untested.
   - title: "jaymzh/concordance (libconcord)"
     url: "https://github.com/jaymzh/concordance"
     kind: "implementation"

@@ -21,7 +21,7 @@ table; models not listed there are not claimed):
 | Classic HID | 745; 748, 768; 6xx; 720, 785, 88x, Monster AV-100, Harman Kardon TC-30; 36x, 51x, 52x, 55x; One; 700 | Any HID interface at `046d:c110`–`046d:c14f` not claimed below, or `0400:c359`; model from the identity reply | read/write | yes | 748/768, 6xx, 88x, 5xx family only |
 | Z-Wave over HID | 890, 890 Pro, 895, Monster AVL-300 | `046d:c112`–`046d:c115` | read/write | no | no |
 | Z-Wave over USB networking | 900, 1000, 1000i, 1100, the Xbox 360 edition listed with them | CDC Ethernet (`046d:c11f`); the remote answers at `169.254.1.2` | read/write | no | no |
-| MyHarmony ("MH") HID | 200, 300, Harmony Link, Harmony Hub, Harmony Touch / Ultimate | `046d:c125`, `046d:c124`, `046d:c126`, `046d:c129`, `046d:c12b` | read/write (not the Link or Touch, which hold no config file) | yes | no |
+| MyHarmony ("MH") HID | 200, 300, Harmony Link, Harmony Hub, Harmony Touch / Ultimate | `046d:c125`, `046d:c124`, `046d:c126`, `046d:c129`, `046d:c12b` | read/write on the 200 and 300; the Link and Touch hold no config file; not established for the Hub | yes | Hub only (`.hfw2`, via harmony-hub-root) |
 
 `0400` is National Semiconductor's vendor ID; libconcord's architecture table
 records a National USBN9603/9604 USB controller on the oldest boards, which is
@@ -66,10 +66,12 @@ What still works for every remote, and is the point of this document:
 3. **Learn IR** from an original remote, as raw timings, for use by anything
    that can transmit them.
 4. **Set the clock.**
-5. **Put a Hub on Wi-Fi over USB — untested.** Logitech documents a USB
-   first-run for the Hub; libconcord implements the Wi-Fi files for the Link,
-   and lists the Hub's product ID in the same protocol family. Whether the Hub
-   takes the same files is the first experiment below.
+5. **Put a Hub on Wi-Fi over USB**, and factory-reset or reflash it.
+   Logitech documents a USB first-run for the Hub; libconcord implements the
+   Wi-Fi files for the Link, and harmony-hub-root (2026) does the same to the
+   Hub itself, with the small differences noted under *Known files*. The Hub
+   also takes the same packets over Bluetooth RFCOMM; the Hub spec has that
+   route.
 
 The Harmony Hub's *local control* API, which works without any of this, is in
 `device-specs/devices/logitech-harmony-hub.yaml`.
@@ -252,20 +254,29 @@ Every report is either a **command** or a **data** packet.
 | `01` | Open a file | path (string); `R` or `W` (string); for a write, length (4 bytes BE) |
 | `03` | Write flow control | `01 <P>`, `01 <K>` |
 | `04` | Read flow control | `01 <P>`, `01 <K>` |
-| `05` | Sent after a config write | `01 05`, `01 00` |
-| `06` | Config checksum | see *Writing the configuration* |
-| `07` | End of transfer / reset sequence | `01 <P>` |
+| `05` | Commit a written file | `01 <P>`, `01 00` |
+| `06` | Checksum of a written file | `01 <P>`, `01 01`, type (string), seed, offset, length, expected — see *Writing the configuration* |
+| `07` | Close a file | `01 <P>` |
+| `08` | JSON request (Harmony Hub) | `01 02` — a packet count of 2 — then one data packet holding the JSON |
+| `FF` | Device control | `01 66` reset the firmware staging area; `01 00` reboot |
 
-`P` is a session byte: the remote returns it at offset 5 of its reply to the
-open, and it goes back in every flow-control and end message of that
-transfer. `K` is **the number of data packets still to come, plus one, capped
-at `0x33`**; the remote acknowledges every 50 packets and the host answers
-each acknowledgement with a fresh `K`.
+`P` is the **file handle**: the remote returns it at offset 5 of its reply to
+the open, and it goes back in every flow-control and close message for that
+file (harmony-hub-root names it; libconcord only reuses it). `K` is **the
+number of data packets still to come, plus one, capped at `0x33`**; the remote
+acknowledges every 50 packets and the host answers each acknowledgement with a
+fresh `K`.
 
 **Waking it.** Send `FF 00 00 01 01` five times without reading (the vendor
 software does, and libconcord found it necessary), then `FF FF 01 01 01 66`
-and read one reply, then `FF 00 02` and read one reply. A reset is the
-sequence-less `FF FF 02 01 01`.
+and read one reply, then `FF 00 02` and read one reply. libconcord's notes call
+the `FF FF …` messages sequence-less special commands. Read against
+harmony-hub-root's Hub traffic they are command `FF` with a sequence and a
+one-byte parameter: the second message resets the firmware staging area, and
+libconcord's "reset" `FF FF 02 01 01` is sequence 2 with parameter `00` (the
+report's zero padding) — reboot. That the remotes mean the same by them is
+assumed, not shown. On the Hub the `66` control is observed to answer
+`FF FF 81 00` whatever sequence it was sent with.
 
 **Reading a file.** Open it: `FF 01 <seq> 02 80 <path> 00 80 52 00`. The reply
 carries `P` at offset 5 and the file length, 32-bit big-endian, at offsets
@@ -293,8 +304,11 @@ fresh `K`. After the last packet, read the reply (up to 20 s), then end with
 | `/cfg/usercfg` | The compiled configuration. Ends with the four bytes `50 54 59 59` ("PTYY"); the 200 returns padding after them and the 300 returns the config without them, so a reader appends them if absent and cuts at the first occurrence. The Link and Touch (arch 17) have no such file. |
 | `/ir/ir_cap` | IR learning (below) |
 | `/cfg/properties` | Link: `host_name,<v>`, `account_email,<v>`, `discovery_service_link,<v>`, one per line |
-| `/sys/wifi/networks` | Link: a scan — repeated blocks beginning `item,` with `ssid`, `signal_strength`, `channel`, `encryption`, as `key,value` lines |
-| `/sys/wifi/connect` | Link: write `ssid,<v>` `encryption,<v>` `user,` `password,<v>`, one per line, to join a network; read it back for `connect_status` and `error_code` |
+| `/sys/wifi/networks` | Link and Hub: a scan — repeated blocks beginning `item,` with `ssid`, `signal_strength`, `channel`, `encryption`, as `key,value` lines. On the Hub `channel` holds the frequency in MHz. |
+| `/sys/wifi/connect` | Link: write `ssid,<v>` `encryption,<v>` `user,` `password,<v>`, one per line, to join a network. Hub (harmony-hub-root): `ssid,<v>` `password,<v>` `encryption,<v>`, plus `nosave,true` for a join it should not remember; `WPA2-PSK` is the default it sends, `NONE` or `OPEN` without a password. Read it back for `connect_status`, `error_code`, `ip_address` — and the stored password, in clear. |
+| `/rf/deviceinfo` | Hub: identity (harmony-hub-root reads this rather than `/sys/sysinfo`) |
+| `/sys/factoryreset` | Hub: write `1` to factory-reset, then write `reboot` to `/sys/reboot`. harmony-hub-root sends both with sequence 0 and a zero data-length byte, as the vendor software does |
+| `/fw/otaupdate` | Hub: firmware image from a `.hfw2` bundle, checked with command `06` and an MD5 from the bundle's `Description.xml`; see the Hub spec's firmware feature |
 | `/sys/time` | Arch 17 clock: year (16-bit BE), month, day, hour, minute, second, day of week, eight zero bytes, then a POSIX TZ string. The vendor software is reported to send US Eastern (`EST5EDT,M3.2.0,M11.1.0`) whatever the user's zone. |
 
 Joining a Link to a network called ExampleNet: the 61-byte body
@@ -306,17 +320,21 @@ values was found.
 
 **Writing the configuration** (`/cfg/usercfg`) differs from a plain file write
 in five places, all transcribed from libconcord:
-1. It starts `FF FF 00 01 01 66` (read a reply), not the five-fold wake-up.
+1. It starts `FF FF 00 01 01 66` — reset the staging area — and reads a reply,
+   instead of the five-fold wake-up.
 2. The open uses sequence 1: `FF 01 01 03 80 2F 63 66 67 2F 75 73 65 72 63 66
    67 00 80 57 00 04 <length>` (read a reply).
-3. Flow control is `FF 03 03 02 01 05 01 33` — sequence 3 and `P` fixed at
-   `05` — with no reply; data packets then start at sequence 4.
+3. Flow control is `FF 03 03 02 01 05 01 33` — sequence 3 and the handle
+   `P` taken to be `05` — with no reply; data packets then start at sequence
+   4. libconcord assumes that handle here and in step 5 rather than reading
+   it from the open's reply; a careful client uses the handle it was given.
 4. After the data, a lone `7E` report marks the end of the stream (read a
    reply). `K` counts it.
 5. Then the checksum, `FF 06 <seq> 07`, seven parameters: `01 05`, `01 01`,
    `80 "XOR" 00`, `02 <seed BE>`, `04 00 00 00 00`, `04 <length BE>`, `02
-   <expected BE>`; read a reply. Then `FF 05 <seq> 02 01 05 01 00`, read a
-   reply; then `FF 07 <seq> 01 01 05`, read a reply.
+   <expected BE>`; read a reply. The first parameter is the handle. Then
+   commit with `FF 05 <seq> 02 01 05 01 00`, read a reply; then close the
+   file with `FF 07 <seq> 01 01 05`, read a reply.
 
 **The checksum.** XOR of the config taken as **little-endian** 16-bit words,
 seeded with `0x4321`, over the first *length − 6* bytes, where length includes
@@ -417,24 +435,25 @@ primary source and should be read alongside this summary.
    dump and compare with what concordance wrote into the backup's XML.
 4. On a sacrificial remote of the same model, restore the backup and confirm
    every activity still works — the one test that proves the repair story.
-5. Plug in a Harmony Hub (`046d:c129`) and see whether it answers the MH
-   wake-up and serves `/sys/sysinfo`, `/sys/wifi/networks` and
-   `/sys/wifi/connect` like the Link. If it does, a Hub can be put on a new
-   network with no app and no Logitech account.
+5. On a Harmony Hub (`046d:c129`), repeat harmony-hub-root's Wi-Fi scan and
+   status reads from Linux (its author tested Windows only), then try opening
+   `/cfg/usercfg` for reading. If a Hub serves its synced configuration the way
+   an MH remote does, a Hub's setup can be backed up like a remote's.
 6. Learn one known IR code (a TV power key whose NEC or RC-5 code is public)
    and check the decoded timings against it.
 
 ## Protocol hypotheses (to validate)
-- The Harmony Hub speaks the Link's Wi-Fi files over USB. Only its product ID
-  in libconcord's MH list supports this; concordance's supported-model table
-  does not list the Hub.
+- Whether a Hub serves `/cfg/usercfg`, or any other path holding its synced
+  configuration, over USB.
 - The identity reply's protocol byte: libconcord's use of byte 7 when the
   length code is 7, and of the architecture when it is 8, reads backwards
   against concordance's own notes.
 - What the two fixed bytes before `PTYY` in an MH config are (they fall
   outside the checksum).
-- What the MH command `05` after a config write does, and what the `66` in the
-  wake-up and config-write preambles means. Both are replayed as observed.
+- Two earlier open questions are settled by harmony-hub-root's Hub firmware
+  path, which uses the same commands: `05` after a write is the commit, and
+  the `66` preamble resets the staging area. Whether a classic MH remote
+  treats them identically is assumed, not shown.
 - How long MyHarmony and the Harmony app keep compiling configs for the
   remotes the May 2025 notice did not list. No end date has been announced;
   this document does not rely on either service.
@@ -446,8 +465,8 @@ primary source and should be read alongside this summary.
 - Restore that file to a matching remote, verify it, reboot, set the clock.
 - Set the clock on its own.
 - Learn IR and export the timings (carrier + pulse/space list, microseconds).
-- Hub (if confirmed; the Link is documented but its service is gone): scan
-  Wi-Fi networks, join one, report the connection status.
+- Hub: scan Wi-Fi networks, join one, report the connection status; factory
+  reset. (The Link uses the same files, but its service is gone.)
 - Firmware backup and write, behind a deliberate confirmation.
 
 ## Evidence checklist
@@ -457,7 +476,8 @@ primary source and should be read alongside this summary.
 - [ ] A usbmon (Linux) or USBPcap (Windows) capture of a vendor-software
       session, for anything the notes describe as "unknown" — kept out of the
       repository (`*.pcap` is gitignored)
-- [ ] Hub over USB: does it answer the MH wake-up?
+- [ ] Hub over USB from Linux: harmony-hub-root's Wi-Fi reads reproduced, and
+      whether `/cfg/usercfg` exists
 
 ## Why this is not a YAML spec yet
 The schema has no home for USB: `device.protocol` has no `usb` value and the
@@ -476,6 +496,10 @@ programming targets are for theirs.
 - https://github.com/jaymzh/concordance/blob/master/specs/protocol_z.txt
 - https://github.com/jaymzh/concordance/blob/master/SupportedModels.md
 - https://github.com/congruity/congruity
+- https://github.com/Ripthulhu/harmony-hub-root (the Hub over USB: Wi-Fi,
+  factory reset, firmware)
+- https://github.com/captivus/harmony-hub-setup (the Hub's Bluetooth RFCOMM
+  setup, the same packet format)
 - https://members.harmonyremote.com/ (Logitech's discontinuation notice and
   affected-model list)
 - https://support.logi.com/hc/en-us/articles/360023255354-Reset-the-Harmony-Hub
