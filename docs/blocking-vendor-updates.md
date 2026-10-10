@@ -49,8 +49,8 @@ facts rather than a list of names:
    Content Store) is left alone.
 3. **Anything whose spec says blocking `breaks` the device is left out**, and
    named in the list's header with the reason — even in a combined list where
-   another spec calls the same name safe. Many public smart-TV blocklists carry
-   LG's `lgtvsdp.com`; it is where the TV's clock comes from.
+   another spec calls the same name safe. Some public smart-TV blocklists have
+   carried LG's `lgtvsdp.com`; it is where the TV's clock comes from.
 
 ## The published lists
 
