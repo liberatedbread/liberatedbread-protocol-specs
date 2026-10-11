@@ -199,6 +199,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
 | [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
 | [Kano Coding Wand](kano-coding-wand.md) | BLE | Spec Available | None needed (connect and subscribe) | Kano Computing (in administration 2023) |
+| [Enel X Way JuiceBox](enel-x-juicebox.md) | WiFi (UDP, charger-initiated; telnet 2000) | Spec Available | Setup AP + DNS/NAT/telnet re-point (medium) | Enel X Way (shutdown 2024-10-11) |
 
 ## Not everything here was liberated
 
