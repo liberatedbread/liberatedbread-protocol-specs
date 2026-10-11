@@ -9,9 +9,10 @@ rule with nothing but the standard library and holds every fixed frame,
 every template and every published reply example to it — the same contract
 `test_wemo_spec.py` keeps for the Wemo crypto.
 
-Four of the frames are also pinned to their literal spelling in am43-ctrl
-(the open-source client they were checked against), so a spec that drifts
-from the wire fails here rather than at a window.
+Six of the frames are also pinned to their literal spelling in am43-ctrl
+(the open-source client they were checked against) -- four fixed frames and
+the two position frames its "open" and "close" send -- so a spec that
+drifts from the wire fails here rather than at a window.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ PUBLISHED = {
     "get_light": "00ff00009aaa010130",
     "get_status": "00ff00009aa701013d",
 }
+# am43-ctrl's "open" and "close" are set_position 0 and 100, not 0x0a dd/ee.
+PUBLISHED_POSITIONS = {0: "00ff00009a0d010096", 100: "00ff00009a0d0164f2"}
 
 
 def xor(data: list[int]) -> int:
@@ -88,6 +91,8 @@ def test_templates_render_to_the_documented_examples(commands):
     start = position["parameters"]["checksum"]["checksum_start"]
     assert render(position["template"], {"position": 50}, start) == request(0x0D, [50])
     assert bytes(render(position["template"], {"position": 50}, start)).hex() == "00ff00009a0d0132a4"
+    for pos, wire in PUBLISHED_POSITIONS.items():
+        assert bytes(render(position["template"], {"position": pos}, start)).hex() == wire
 
     login = commands["login"]
     start = login["parameters"]["checksum"]["checksum_start"]

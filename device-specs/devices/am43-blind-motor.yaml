@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Sources (all public; clean-room — derived facts only, no vendor app code):
-#   - buxtronix/am43 (ESP32 client): AM43Client.h/.cpp
+#   - buxtronix/am43 (ESP32 client): src/AM43Client.h/.cpp
 #   - ESPHome am43 component (esphome/components/am43)
 #   - openHAB bluetooth.am43 binding (command and data classes)
 #   - renssies/homebridge-am43-blinds (archived): lib/AM43Device.js
@@ -21,8 +21,8 @@ device:
     notes: >
       Not driven against hardware by this project. Every frame below is
       computed from the documented algorithm, and six of them match frames
-      that appear literally in am43-ctrl (status also in the openHAB forum); the sample
-      notifications decode with a valid checksum.
+      that appear literally in am43-ctrl; the sample notifications decode
+      with a valid checksum.
   protocol: "ble"
   transport: "ble-gatt"
   category: "motor"
@@ -36,10 +36,11 @@ device:
 
     The motors that matter here are the A-OK firmware family (AM43 and its
     Zemismart and unbranded rebadges). Some look-alike motors sold under the
-    same AM43 name run Tuya BLE firmware instead — they advertise service
-    0x1910 rather than 0xfe50, are set up with Smart Life / Tuya, and speak
-    a different protocol entirely. This spec does not cover them; see
-    tuya-generic-device.
+    same AM43 name run Tuya BLE firmware instead — their GATT table has
+    service 0x1910 rather than 0xfe50 (ESPHome detects them after
+    connecting, by that service's 0x2b11 characteristic), they are set up
+    with Smart Life / Tuya, and they speak a different protocol entirely.
+    This spec does not cover them; see tuya-generic-device.
 
     Positions are percent CLOSED: 0 = fully open (rolled up), 100 = fully
     closed. Home Assistant style "percent open" is 100 minus the wire value.
@@ -57,7 +58,9 @@ device:
     notes: >
       No vendor publication. Six independent open-source clients agree on the
       GATT layout, framing and core command set; the less-used commands
-      (speed, settings write, clock, limit reset) rest on openHAB alone.
+      (speed, settings write, clock, limit reset) rest on openHAB's command
+      classes alone, and of those only the settings write is ever sent by
+      the binding.
 
   identification:
     service_uuids:
@@ -73,7 +76,8 @@ device:
           Match on the 0xfe50 service UUID in the advertisement, which is how
           buxtronix/am43 finds motors. The local name is set by the owner in
           the vendor app and has no fixed default worth matching on. A motor
-          advertising 0x1910 instead is the incompatible Tuya look-alike.
+          whose GATT table carries 0x1910 instead is the incompatible Tuya
+          look-alike; whether those advertise it is not shown.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -179,8 +183,10 @@ services:
     notes: >
       One characteristic, 0xfe51, carries both directions. Requests are
       written to it; replies and unsolicited updates arrive as notifications
-      on it, so notifications must be enabled before the first write — the
-      motor answers nothing through reads.
+      on it, so notifications must be enabled before the first write. The
+      properties listed are how the clients use it, not a GATT dump: all six
+      write without response, and one gates its polling on the READ property
+      being present, so the characteristic may also be readable.
     characteristics:
       - uuid: "0000fe51-0000-1000-8000-00805f9b34fb"
         name: "Command / reply"
@@ -190,17 +196,18 @@ services:
           data[len] | chk, where chk is the XOR of every byte from 9a
           through the last data byte (the 00 ff 00 00 prefix is excluded;
           equivalently, the XOR of the whole frame XORed with 0xff). One
-          client (A-OK's own sample) omits the prefix and reports that it
-          still works; every other client sends it, and so do these
-          commands.
+          client (TheBazeman's Python script) omits the prefix and is
+          presented as working; every other client sends it, and so do
+          these commands.
 
           REPLY FRAME (motor to client): 9a | cmd | len | data[len] | chk,
           with no prefix; the XOR of every byte including chk is 0. Replies
           echo the request's cmd byte, which is how a client tells them
-          apart. For the commands that act (0x0a, 0x0d, 0x17, 0x11, 0x14,
-          0x22) the first data byte (frame offset 3) is 0x5a for accepted
-          and 0xa5 for rejected — a rejected move usually means the PIN
-          login was not sent or was wrong.
+          apart. For move (0x0a), set position (0x0d) and login (0x17) the
+          first data byte (frame offset 3) is 0x5a for accepted and 0xa5 for
+          rejected — a rejected move usually means the PIN login was not
+          sent or was wrong. What the 0x11, 0x14 and 0x22 replies carry is
+          not documented by any client.
 
           The status layout below is the 0xa7 reply. The battery reply
           (0xa2) and light reply (0xaa) have their own layouts, in the
@@ -368,20 +375,22 @@ services:
             value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xaa, 0x01, 0x01, 0x30]
             verification: "reported"
           get_speed:
-            description: "Request the speed reply (cmd 0xa3; rpm at frame offset 4). openHAB only."
+            description: "Request the speed reply (cmd 0xa3; rpm at frame offset 4). Defined by openHAB's command classes but never sent by the binding, so no client has exercised it."
             encoding: "bytes"
             value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xa3, 0x01, 0x01, 0x39]
-            verification: "reported"
+            verification: "hypothesis"
           reset_limits:
             description: >
               Clear the travel limits (cmd 0x22, data 00 00 01). The motor
               then needs its limits set again with the buttons or the vendor
-              app before positions mean anything. openHAB only.
+              app before positions mean anything. Defined by openHAB's
+              command classes but never sent by the binding, so no client
+              has exercised it.
             encoding: "bytes"
             value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0x22, 0x03, 0x00, 0x00, 0x01, 0xba]
             advanced: true
             advanced_reason: "Clears the travel limits; the blind will not position correctly until they are set again at the motor."
-            verification: "reported"
+            verification: "hypothesis"
 
 payload_formats:
   BatteryReply:
@@ -400,8 +409,8 @@ payload_formats:
         description: "Frame offset 4: a small step count from the light/solar sensor, roughly 0-10."
     parse_rules:
       - "Accept only a frame whose byte 0 is 0x9a and byte 1 is 0xaa, and whose bytes XOR to 0."
-      - "Byte 4 is the raw light step. Clients disagree on scaling it to a percent (x12.5, x100/9, or raw), so report the raw step."
-    example: "9a aa 02 00 01 33"
+      - "Byte 4 is the raw light step. Clients disagree on scaling it to a percent (x12.5, x100/9, or raw), so report the raw step. The example (step 0) is a literal frame in am43-ctrl."
+    example: "9a aa 02 00 00 32"
   StatusReply:
     description: "Reply to get_status (cmd 0xa7); the same layout as the 0xfe51 characteristic's format block, with a worked decode."
     parse_rules:
@@ -433,19 +442,23 @@ protocol_details:
     ack_byte: "frame offset 3: 0x5a accepted, 0xa5 rejected"
     settings_write: >
       cmd 0x11 writes six bytes [flags, speed, 0x00, length_hi, length_lo,
-      diameter] (openHAB only). openHAB packs direction and mode one bit
-      higher here than where it reads them in the 0xa7 reply, so either the
-      two layouts differ or that client has a bug; not declared as a command
-      until someone checks it on hardware.
+      diameter], the flags byte carrying direction, mode and the roller
+      type in its high nibble (openHAB only, and the one openHAB-only
+      command the binding actually sends). openHAB packs direction and mode
+      one bit higher here than where it reads them in the 0xa7 reply, so
+      either the two layouts differ or that client has a bug; not declared
+      as a command until someone checks it on hardware.
     set_clock: >
       cmd 0x14 with four bytes [day of week 0 = Sunday, hour 0-23, minute,
-      second], for the motor's on-board schedule (openHAB only).
+      second], for the motor's on-board schedule (defined by openHAB's
+      command classes, never sent by the binding).
     position_notify: >
-      cmd 0xa1 is the motor's UNSOLICITED position notification (position %
-      at frame offset 4), pushed while the blind moves. It is not a request:
-      ESPHome names 0xa7 the position query and 0xa1 the notification, and
-      openHAB's practice of sending 0xa1 as a poll is not corroborated. Poll
-      with get_status (0xa7) instead.
+      cmd 0xa1 carries a position (percent closed at frame offset 4, one
+      byte earlier than in the 0xa7 reply). buxtronix, ESPHome and
+      homebridge decode it as a notification (ESPHome names 0xa7 the
+      position query and 0xa1 the position notify); openHAB sends it as a
+      poll, which no other client corroborates; and no client documents
+      when the motor emits it unsolicited. Poll with get_status (0xa7).
     unknown_replies: "0xa8 and 0xa9 replies are seen and logged by clients; meaning unknown."
   tuya_lookalike:
     service: "00001910-0000-1000-8000-00805f9b34fb"
@@ -456,12 +469,14 @@ evidence:
   documentation_review: >
     Six open-source clients read on 2026-10-11: buxtronix/am43, the ESPHome
     am43 component, the openHAB bluetooth.am43 binding,
-    homebridge-am43-blinds, am43-ctrl and A-OK's own Python sample. All six
-    agree on the service, characteristic and frame shape. Every frame above is computed from the XOR rule; stop, battery, light and
-    status are identical to literal frames in am43-ctrl, as are the 0 % and
-    100 % position frames.
+    homebridge-am43-blinds, am43-ctrl and TheBazeman's Python script. All
+    six agree on the service and characteristic, and five on the frame
+    shape (the Python script omits the prefix). Every frame above is
+    computed from the XOR rule; stop, battery, light and status are
+    identical to literal frames in am43-ctrl, as are the 0 % and 100 %
+    position frames.
   open_questions: >
-    Whether the 00 ff 00 00 prefix is needed (A-OK's sample omits it);
+    Whether the 00 ff 00 00 prefix is needed (one Python client omits it);
     which firmware enforces the PIN; whether 0xa1 is pushed while moving or
     only returned when polled; the light-level scale; the settings-write bit
     layout; and any BLE command that SETS a travel limit.
@@ -476,13 +491,13 @@ remaining_unknowns:
 helpful_urls:
   - title: "buxtronix/am43 (ESP32 client)"
     url: "https://github.com/buxtronix/am43"
-    description: "ESP32 MQTT bridge; its client header documents the status flags and the PIN login."
+    description: "ESP32 MQTT bridge; its client source documents the status flags and the PIN login."
   - title: "ESPHome AM43 cover component"
     url: "https://esphome.io/components/cover/am43/"
-    description: "ESPHome's docs; notes the Tuya look-alikes and that limits cannot be set over BLE."
+    description: "ESPHome's docs; notes the Tuya look-alikes and that the component does not set speed, direction or limits (set them with the app or buttons first)."
   - title: "openHAB AM43 binding"
     url: "https://www.openhab.org/addons/bindings/bluetooth.am43/"
-    description: "The only client that implements speed, settings, clock and limit-reset commands."
+    description: "The only client that defines speed, settings, clock and limit-reset commands; of those, only the settings write is sent by the binding."
   - title: "binsentsu/am43-ctrl"
     url: "https://github.com/binsentsu/am43-ctrl"
     description: "Node client whose literal frames the test vectors were checked against."
