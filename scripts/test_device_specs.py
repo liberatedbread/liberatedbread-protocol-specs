@@ -1546,6 +1546,27 @@ def test_command_parameters_are_closed(network):
     )
 
 
+@pytest.mark.parametrize("network", [False, True], ids=["ble", "network"])
+def test_a_bytes_parameter_bounds_its_length_not_its_value(network):
+    """`min`/`max` on a `bytes` parameter is refused on both transports.
+
+    Fardriver's `{type: bytes, min: 1, max: 26}` meant 1-26 bytes; a consumer
+    read a value range, rejected the parameter and dropped the spec. BLE had
+    the rule; network parameters, which gained `min_length`/`max_length`,
+    did not, so the same misreading validated there.
+    """
+    validator = Draft202012Validator(_schema())
+    spec, parameter = _first_command_parameter(network=network)
+    parameter.clear()
+    parameter.update({"type": "bytes", "min_length": 1, "max_length": 26})
+    assert not list(validator.iter_errors(spec)), "length bounds must validate"
+
+    parameter.update({"min": 1, "max": 26})
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted min/max on a {'network' if network else 'BLE'} bytes parameter"
+    )
+
+
 def test_ble_name_matcher_regexes_compile(specs):
     """A `match: regex` needle is a regular expression a consumer can run.
 
