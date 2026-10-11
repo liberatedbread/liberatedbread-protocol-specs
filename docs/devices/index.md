@@ -198,6 +198,7 @@ spec's `device.setup` block; the patterns are explained in
 | [TiVo Network Remote](tivo-network-remote.md) | LAN (TCP 31339) | Spec Available | Enable Network Remote Control (medium) | TiVo / Xperi |
 | [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
 | [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
+| [Kano Coding Wand](kano-coding-wand.md) | BLE | Spec Available | None needed (connect and subscribe) | Kano Computing (in administration 2023) |
 
 ## Not everything here was liberated
 
