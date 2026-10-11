@@ -43,7 +43,9 @@ red, `0x8240` relayout…), protected capacity in bytes, thresholds, and one
 yellow, `1` red, `0x80` empty, `0x86` failed), drive make, serial and size. It
 repeats every 10–20 s while the socket is open.
 
-The header layout has been checked on one 5N2 only.
+The 16-byte header layout comes from one owner's reading of a single 5N2,
+with no published capture; the two exporters skip the header by searching
+for the XML start.
 
 See `device-specs/devices/drobo-nasd-status.yaml` for the full spec.
 
