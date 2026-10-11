@@ -1493,6 +1493,59 @@ def test_initialization_steps_are_closed(mutation):
         )
 
 
+def _first_command_parameter(*, network: bool) -> tuple[dict, dict]:
+    """A real spec and one of its command parameters, for mutation.
+
+    BLE parameters live under a characteristic's `commands`; network ones
+    under the root `commands`. Returns the deep-copied spec and the parameter
+    object inside it, so the caller mutates the copy in place.
+    """
+    for path in SPEC_PATHS:
+        spec = copy.deepcopy(load(path))
+        if network:
+            commands = [spec.get("commands") or {}]
+        else:
+            commands = [
+                characteristic.get("commands") or {}
+                for service in spec.get("services") or []
+                for characteristic in service.get("characteristics") or []
+            ]
+        for table in commands:
+            for command in table.values():
+                if not isinstance(command, dict):
+                    continue
+                for parameter in (command.get("parameters") or {}).values():
+                    if isinstance(parameter, dict) and "min" in parameter:
+                        return spec, parameter
+    raise AssertionError(f"no spec has a bounded {'network' if network else 'BLE'} parameter")
+
+
+@pytest.mark.parametrize("network", [False, True], ids=["ble", "network"])
+def test_command_parameters_are_closed(network):
+    """A misspelt bound is a validation error, not a vanished bound.
+
+    `min`/`max` limit the value a client sends. With the parameter object open,
+    `mx: 100` validated, every consumer read no maximum, and nothing anywhere
+    said the bound was gone.
+    """
+    validator = Draft202012Validator(_schema())
+    spec, parameter = _first_command_parameter(network=network)
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    # The number-semantics keys arrive through an allOf `$ref`; closing the
+    # object must still see them as declared.
+    parameter["scale"] = 0.5
+    assert not list(validator.iter_errors(spec)), (
+        "closing the parameter object rejected a number_semantics key"
+    )
+
+    parameter["mx"] = 100
+    errors = [e.message for e in validator.iter_errors(spec)]
+    assert any("mx" in message for message in errors), (
+        f"schema accepted a misspelt bound on a {'network' if network else 'BLE'} parameter"
+    )
+
+
 def test_ble_name_matcher_regexes_compile(specs):
     """A `match: regex` needle is a regular expression a consumer can run.
 

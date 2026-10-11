@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import jsonschema
 import yaml
@@ -80,11 +80,28 @@ def load_yaml(path: Path) -> Dict[str, Any]:
     return data
 
 
+# One checked validator per schema object. `check_schema` validates the whole
+# schema against its metaschema and was run once PER SPEC: about 0.4 s each,
+# which made `--check` and the tests that sweep the catalogue spend minutes
+# re-proving the same schema 200 times. Keyed by identity, with the schema
+# held so its id cannot be reused; a schema dict is never mutated after
+# load_schema() returns it.
+_VALIDATORS: Dict[int, Tuple[Dict[str, Any], Any]] = {}
+
+
+def _validator_for(schema: Dict[str, Any]) -> Any:
+    cached = _VALIDATORS.get(id(schema))
+    if cached is None or cached[0] is not schema:
+        validator_cls = jsonschema.validators.validator_for(schema)
+        validator_cls.check_schema(schema)
+        cached = (schema, validator_cls(schema))
+        _VALIDATORS[id(schema)] = cached
+    return cached[1]
+
+
 def validate_spec(spec: Dict[str, Any], schema: Dict[str, Any], path: Path) -> None:
     """Validate *spec* against *schema*; raise on failure."""
-    validator_cls = jsonschema.validators.validator_for(schema)
-    validator_cls.check_schema(schema)
-    errors = list(validator_cls(schema).iter_errors(spec))
+    errors = list(_validator_for(schema).iter_errors(spec))
     if errors:
         lines = [f"Validation failed for {path.relative_to(REPO_ROOT)}:"]
         for err in errors:
