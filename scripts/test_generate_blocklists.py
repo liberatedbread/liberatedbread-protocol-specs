@@ -291,6 +291,59 @@ def test_a_name_one_spec_says_breaks_is_not_blocked_on_anothers_say_so():
     assert "dev-b's store stops." in gb.render_hosts(sel, gb.Options())
 
 
+def test_a_parent_rule_is_vetoed_by_a_protected_name_under_it():
+    """A `subdomains` rule on example.com answers for clock.example.com too.
+    The veto is DNS containment, not spelling: one spec's clock (NTP or not)
+    takes another spec's parent rule off the list, and the header says so."""
+    entries = [
+        E("example.com", device="dev-a", match="subdomains", roles=("telemetry",)),
+        E("clock.example.com", device="dev-b", roles=("time",), ports=((443, "tcp"),),
+          impact="degraded", effect="The clock resets."),
+        E("example.net", device="dev-a", match="subdomains", roles=("telemetry",)),
+        E("ntp.example.net", device="dev-b", roles=("time",), impact="degraded", effect="Drift."),
+        E("other.example.org", device="dev-a", match="subdomains", roles=("telemetry",)),
+    ]
+    sel = gb.select(entries, "cloud")
+    assert [r.host for r in sel.block] == ["other.example.org"]
+    assert [(e.host, guard.host) for e, guard in sel.vetoed] == [
+        ("example.com", "clock.example.com"),
+        ("example.net", "ntp.example.net"),
+    ]
+    for _, render in gb.FORMATS.values():
+        text = render(sel, gb.Options(time_server="192.168.1.53"))
+        rules = _rules(text, text[0])
+        assert not any("example.com" in ln or "example.net" in ln and "ntp." not in ln for ln in rules), render.__name__
+        assert "example.com and subdomains (dev-a) would cover clock.example.com (dev-b)." in text
+
+
+def test_a_name_under_another_specs_protected_parent_is_vetoed_but_a_carve_out_stands():
+    """LG lists lgtvsdp.com (clock, breaks) and rdx2.lgtvsdp.com (telemetry,
+    safe) side by side: the same spec's more specific entry is a deliberate
+    carve-out. Another spec's name under that parent is not."""
+    entries = [
+        E("sdp.example.com", device="dev-a", match="subdomains", roles=("time", "content"),
+          impact="breaks", effect="The clock resets."),
+        E("rdx2.sdp.example.com", device="dev-a", match="subdomains", roles=("telemetry",)),
+        E("us.sdp.example.com", device="dev-b", roles=("telemetry",)),
+    ]
+    sel = gb.select(entries, "cloud")
+    assert [r.host for r in sel.block] == ["rdx2.sdp.example.com"]
+    assert [(e.host, guard.host) for e, guard in sel.vetoed] == [("us.sdp.example.com", "sdp.example.com")]
+
+
+def test_a_device_with_only_exclusions_still_publishes_a_header_only_list():
+    """The names that must NOT be blocked are the whole message for a device
+    with nothing blockable; an empty selection would never publish them."""
+    entries = [E("clock.example.com", roles=("time",), ports=((443, "tcp"),),
+                 impact="degraded", effect="The clock resets.")]
+    sel = gb.select(entries, "cloud")
+    assert not sel.empty and sel.block == [] and sel.time == []
+    text = gb.render_pihole(sel, gb.Options())
+    assert _rules(text) == [] and "The clock resets." in text
+    site = gb.build_site(entries, covered=([], []))
+    assert "devices/dev-a/cloud.pihole.txt" in site
+
+
 def test_a_literal_address_becomes_a_firewall_note_not_a_dns_line():
     entries = [E(None, address="203.0.113.7", ports=((8080, "tcp"),))]
     sel = gb.select(entries, "updates")

@@ -1435,7 +1435,11 @@ The fields a consumer acts on, and why each is required:
   never `none`.
 - **`match`** is `exact` (the default) or `subdomains`. Use `subdomains` for
   a vendor that rotates regional or numbered names under one parent, never
-  on a parent the vendor's app also lives under.
+  on a parent the vendor's app also lives under. A `subdomains` rule is
+  vetoed by any protected name beneath it (a `breaks` entry or a clock in
+  any spec), because the rule would answer for that name too; a spec's own
+  more specific entry under its own `breaks` parent is a carve-out and
+  stands (LG's `rdx2.lgtvsdp.com` under `lgtvsdp.com`).
 - **`address`** replaces `host` for a literal IP or CIDR the device dials
   without a DNS lookup. DNS cannot touch these; the generator lists them as
   firewall rules (except a hardcoded time server, which stays reachable).

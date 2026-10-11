@@ -29,8 +29,11 @@ never listed: blocking them at the router breaks the app for every phone on
 the network and does nothing to the device.
 Entries whose ``when_blocked.impact`` is ``breaks`` are left out and named in
 the header — and veto the name in a combined list, where another spec may list
-it as safe — and literal addresses (which DNS cannot touch) are listed there as
-firewall rules instead.
+it as safe. The veto is by DNS containment, not spelling: a ``subdomains`` rule
+on a parent is dropped when a protected clock or store lives under it. Literal
+addresses (which DNS cannot touch) are listed in the header as firewall rules
+instead. A device whose every entry is an exclusion still gets a list: one with
+no rules, whose header says what must stay reachable and why.
 
 A DNS list is the second layer, never the only one — see
 https://liberatedbread.com/firewall/ for the firewall rule it backs up.
@@ -162,10 +165,16 @@ class Selection:
     time: list[Rule] = field(default_factory=list)
     firewall: list[Entry] = field(default_factory=list)
     excluded: list[Entry] = field(default_factory=list)
+    # (entry, the protected entry that vetoed it): a name that would have been
+    # blocked, but whose rule would answer for a name some spec needs reachable.
+    vetoed: list[tuple[Entry, Entry]] = field(default_factory=list)
 
     @property
     def empty(self) -> bool:
-        return not (self.block or self.time or self.firewall)
+        """Nothing to say at all. A list with no rules but an exclusion still
+        gets published: the names that must NOT be blocked, and why, are the
+        part of this a device with nothing blockable most needs written down."""
+        return not (self.block or self.time or self.firewall or self.excluded)
 
 
 _TRUST = {"confirmed": 0, "reported": 1, "hypothesis": 2}
@@ -226,6 +235,37 @@ def coverage(specs_dir: Path = SPECS_DIR, specs: dict[str, dict] | None = None) 
     return with_egress, without
 
 
+def _covers(rule: Entry, name: str) -> bool:
+    """Whether a DNS rule written for *rule* answers for *name*."""
+    assert rule.host
+    return name == rule.host or (rule.match == "subdomains" and name.endswith("." + rule.host))
+
+
+def _protector(candidate: Entry, protected: list[Entry]) -> Entry | None:
+    """The protected entry that forbids blocking *candidate*, if any.
+
+    Two shapes. The candidate's rule would answer for a protected name (the
+    same name, or a `subdomains` parent above it): vetoed, because the rule
+    takes the protected name with it. Or the candidate sits under a protected
+    `subdomains` parent: vetoed when another spec wrote the parent, since that
+    spec said everything under it must stay reachable, but allowed when the
+    same spec wrote both, because a more specific entry from the same hand is
+    a deliberate carve-out (LG's rdx2.lgtvsdp.com telemetry under the
+    lgtvsdp.com clock), and the resolver's most-specific-wins makes it one.
+    """
+    assert candidate.host
+    for p in protected:
+        if _covers(candidate, p.host or ""):
+            return p
+        if (
+            p.match == "subdomains"
+            and p.device != candidate.device
+            and _covers(p, candidate.host)
+        ):
+            return p
+    return None
+
+
 def _merge(entries: Iterable[Entry]) -> list[Rule]:
     by_host: dict[str, list[Entry]] = {}
     for e in entries:
@@ -274,9 +314,17 @@ def select(
             sel.firewall.append(e)
     # A name some spec says must stay reachable is not blocked on another
     # spec's say-so: in a combined list, one device's harmless block is
-    # another's broken clock or store.
-    vetoed = {e.host for e in sel.excluded if e.host} | {e.host for e in time}
-    sel.block = _merge(e for e in wanted if e.host and e.impact != "breaks" and e.host not in vetoed)
+    # another's broken clock or store. The comparison is DNS containment, not
+    # string equality: a `subdomains` rule on a parent answers for every name
+    # under it, so it is vetoed by a protected child it would cover.
+    protected = [e for e in sel.excluded if e.host] + time
+    blockable: list[Entry] = []
+    for e in wanted:
+        if not e.host or e.impact == "breaks":
+            continue
+        guard = _protector(e, protected)
+        (sel.vetoed.append((e, guard)) if guard else blockable.append(e))
+    sel.block = _merge(blockable)
     sel.time = _merge(time)
     # Name only the devices this list actually says something about: a header
     # claiming a device the rules never touch reads as coverage it lacks.
@@ -338,6 +386,11 @@ def _header(sel: Selection, opts: Options, c: str, fmt: str, caveat: str | None 
         out += [c, f"{c} Left out, because blocking them breaks the device or its clock:"]
         for e in sel.excluded:
             out += _bullet(c, f"{e.name} ({e.device}): {' '.join((e.effect or 'see the spec').split())}")
+    if sel.vetoed:
+        out += [c, f"{c} Not listed: the rule would answer for a name listed above as one to keep reachable:"]
+        for e, guard in sel.vetoed:
+            sub = " and subdomains" if e.match == "subdomains" else ""
+            out += _bullet(c, f"{e.name}{sub} ({e.device}) would cover {guard.name} ({guard.device}).")
     cautions = [text for r in sel.block for text in r.cautions]
     if cautions:
         out += [c, f"{c} Read before applying. Blocking these has a cost on some units:"]
