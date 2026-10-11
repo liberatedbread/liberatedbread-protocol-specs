@@ -20,8 +20,8 @@ device:
     status: untested
     notes: >
       Not driven against hardware by this project. Every frame below is
-      computed from the documented algorithm and six of them match frames
-      that appear literally in am43-ctrl or the openHAB forum; the sample
+      computed from the documented algorithm, and six of them match frames
+      that appear literally in am43-ctrl (status also in the openHAB forum); the sample
       notifications decode with a valid checksum.
   protocol: "ble"
   transport: "ble-gatt"
@@ -367,15 +367,6 @@ services:
             encoding: "bytes"
             value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xaa, 0x01, 0x01, 0x30]
             verification: "reported"
-          get_position:
-            description: >
-              Request the short position reply (cmd 0xa1; position at frame
-              offset 4). Most clients treat 0xa1 as an unsolicited
-              notification sent while moving; openHAB polls it with this
-              frame. get_status also carries position.
-            encoding: "bytes"
-            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xa1, 0x01, 0x01, 0x3b]
-            verification: "reported"
           get_speed:
             description: "Request the speed reply (cmd 0xa3; rpm at frame offset 4). openHAB only."
             encoding: "bytes"
@@ -434,15 +425,6 @@ entities:
       (percent open) shows 100 minus it and sends 100 minus its target. The
       state arrives in the 0xa7 status reply, so poll get_status after a
       move rather than waiting for a push.
-  - platform: "sensor"
-    name: "Battery"
-    device_class: "battery"
-    unit: "%"
-    state_characteristic: "0000fe51-0000-1000-8000-00805f9b34fb"
-    notes: >
-      From the 0xa2 reply (payload_formats.BatteryReply, byte 7) after a
-      get_battery write. Not decoded by the characteristic's format block,
-      which describes the 0xa7 status reply only.
 
 protocol_details:
   am43_framing:
@@ -458,6 +440,12 @@ protocol_details:
     set_clock: >
       cmd 0x14 with four bytes [day of week 0 = Sunday, hour 0-23, minute,
       second], for the motor's on-board schedule (openHAB only).
+    position_notify: >
+      cmd 0xa1 is the motor's UNSOLICITED position notification (position %
+      at frame offset 4), pushed while the blind moves. It is not a request:
+      ESPHome names 0xa7 the position query and 0xa1 the notification, and
+      openHAB's practice of sending 0xa1 as a poll is not corroborated. Poll
+      with get_status (0xa7) instead.
     unknown_replies: "0xa8 and 0xa9 replies are seen and logged by clients; meaning unknown."
   tuya_lookalike:
     service: "00001910-0000-1000-8000-00805f9b34fb"
@@ -469,10 +457,9 @@ evidence:
     Six open-source clients read on 2026-10-11: buxtronix/am43, the ESPHome
     am43 component, the openHAB bluetooth.am43 binding,
     homebridge-am43-blinds, am43-ctrl and A-OK's own Python sample. All six
-    agree on the service, characteristic and frame shape. The open, close,
-    stop, 0 % and 100 % position, battery, light and status frames above are
-    either computed and identical to literal frames in am43-ctrl or the
-    openHAB forum, or computed by the same rule.
+    agree on the service, characteristic and frame shape. Every frame above is computed from the XOR rule; stop, battery, light and
+    status are identical to literal frames in am43-ctrl, as are the 0 % and
+    100 % position frames.
   open_questions: >
     Whether the 00 ff 00 00 prefix is needed (A-OK's sample omits it);
     which firmware enforces the PIN; whether 0xa1 is pushed while moving or
@@ -482,6 +469,7 @@ evidence:
 remaining_unknowns:
   - "No public source documents a BLE command that sets a travel limit; the vendor app presumably jogs the motor and confirms, but the sequence is not known. Limits can be read (status flags bits 2-3) and reset (0x22)."
   - "Whether the PIN login is enforced on default-PIN motors. Four of six clients never send it."
+  - "Battery level (0xa2 reply, byte 7) has no entity: the schema binds a characteristic to one frame layout through `format_match`, and 0xfe51 multiplexes the 0xa7 status, 0xa2 battery and 0xaa light replies. payload_formats.BatteryReply documents it until the schema can declare per-opcode formats."
   - "The light-level scale (raw 0-~10 steps); clients disagree on the multiplier."
   - "Whether the vendor app is still listed in the app stores (unconfirmed either way, 2026-10)."
 

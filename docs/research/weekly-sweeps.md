@@ -20,7 +20,7 @@ Four of the survey's [Do these next](missing-devices.md#do-these-next) picks:
 
 | Spec | Survey item | Notes |
 |---|---|---|
-| [AM43 / A-OK Blind Motor](../devices/am43-blind-motor.md) | #2 | Thirteen test frames, six matching literal frames in am43-ctrl; `scripts/test_am43_spec.py`. No BLE command to *set* travel limits is public. |
+| [AM43 / A-OK Blind Motor](../devices/am43-blind-motor.md) | #2 | Every frame checked against the XOR rule; six match literal frames in am43-ctrl; `scripts/test_am43_spec.py`. No BLE command to *set* travel limits is public. |
 | [Instant Pot Smart Bluetooth](../devices/instant-pot-smart-bluetooth.md) | #1 | Follows OpenPot's code where its README disagrees; every disagreement is in `remaining_unknowns`. `scripts/test_instant_pot_spec.py`. |
 | [TiVo Network Remote](../devices/tivo-network-remote.md) | #17 | TCP 31339 remote only; Mind RPC is out of scope. TiVo's own PDF is offline, so facts come from openHAB and McBrine's client. |
 | [Drobo NAS Status Daemon](../devices/drobo-nasd-status.md) | #15 | Read-only. Header layout checked on one 5N2. |
