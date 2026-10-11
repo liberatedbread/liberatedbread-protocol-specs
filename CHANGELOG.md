@@ -33,6 +33,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   to be the account route's, not the robot's, so no list is generated for
   it. New page: Blocking Vendor Updates and the Cloud.
 
+- **Printing: the NIIMBOT D110 print task, BLE print geometry, IPP status.**
+  `niimbot-d110` now declares the whole D110 print task as commands a
+  generic encoder can render — the `55 55 … AA AA` envelope with its XOR
+  checksum, SetDensity, SetLabelType, the one-byte PrintStart, PrintClear,
+  PageStart, the four-byte SetPageSize, SetPrintQuantity, PageEnd, the
+  PrintStatus poll and PrintEnd, each with its reply id — and
+  `protocol_details.niimbot_print_task` carries the three row encodings
+  (blank, indexed, bitmap) with a worked example row;
+  `scripts/test_niimbot_spec.py` rebuilds every fixed packet and that row
+  from the YAML alone. The three BLE raster printers (NIIMBOT D110, cat
+  printer, Fichero D11) declare `print_geometry` (dpi, head dots, bytes per
+  row) so a label composer reads the canvas by key. `ipp-network-printer`
+  moves from identify-only to a status read: one RFC 8010
+  Get-Printer-Attributes request for state, reasons, marker levels and
+  loaded media, with the wire encoding in `protocol_details.ipp_status`.
+
 - **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
   `power_toggle` (the raw power key beside a stateful Power switch), the
   discrete transport keys `play`, `previous`, `next`, `record` (`pause` and

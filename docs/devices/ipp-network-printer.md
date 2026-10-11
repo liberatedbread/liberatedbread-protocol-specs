@@ -20,7 +20,9 @@ no vendor software.
 
 `POST http://<ip>:<port>/<rp>` with `Content-Type: application/ipp`, where
 `<port>` is the one the service advertises (631 by default) and `<rp>` the TXT
-`rp` key (an empty `rp` is `/`; no `rp` at all falls back to `ipp/print`). TLS
+`rp` key (the Bonjour default is empty, so a missing or empty `rp` is `/`;
+IPP Everywhere printers advertise one, conventionally `ipp/print`, which is
+the second guess when `/` answers not-found). TLS
 on the same port for `_ipps._tcp`, self-signed — pin on first use. The body is an
 RFC 8010 Get-Printer-Attributes request (operation `0x000B`) asking for
 `printer-state`, `printer-state-reasons`, `printer-state-message`,
