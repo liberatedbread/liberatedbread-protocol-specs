@@ -202,6 +202,8 @@ spec's `device.setup` block; the patterns are explained in
 | [Enel X Way JuiceBox](enel-x-juicebox.md) | WiFi (UDP, charger-initiated; telnet 2000) | Spec Available | Setup AP + DNS/NAT/telnet re-point (medium) | Enel X Way (shutdown 2024-10-11) |
 | [Bose Sleepbuds II](bose-sleepbuds-ii.md) | BLE | Spec Available | None needed (connect per bud) | Bose (Sleep app withdrawn 2025-07-21) |
 | [QardioArm (A100) Blood Pressure Monitor](qardio-arm.md) | BLE (standard BP service + vendor command) | Spec Available | BLE bonding; pinhole clears bond (medium) | Qardio (bankrupt; cloud down 2025-04-29) |
+| [Yummly Smart Thermometer](yummly-smart-thermometer.md) | BLE | Spec Available | None needed (answer a one-byte challenge) | Yummly / Whirlpool (shutdown 2024-12) |
+| [Sengled Wi-Fi Smart Bulbs](sengled-wifi-bulb.md) | WiFi (UDP 9080 JSON / MQTT) | Spec Available | SoftAP UDP re-provisioning to own broker (medium) | Sengled (cloud failing since 2025-06) |
 
 ## Not everything here was liberated
 
