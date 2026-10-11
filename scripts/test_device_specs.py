@@ -3704,6 +3704,33 @@ def _allowed_addresses_for(path: Path, parsed_specs=None) -> frozenset:
     return allowed
 
 
+def test_no_mapping_key_reads_as_a_yaml_1_1_boolean(specs):
+    """An unquoted `on:`/`off:`/`yes:`/`no:` key is two different keys.
+
+    PyYAML (YAML 1.1, every script here) reads it as the boolean True/False;
+    the app's YAML 1.2 parser reads the string "on". So the published JSON API
+    said `{"True": "state.on"}` where the app read `{"on": ...}`, and no schema
+    rule could see it: an open map has no key vocabulary to fail. Quote it.
+    """
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(key, bool):
+                    yield "/".join(map(str, path)), key
+                yield from walk(value, (*path, key))
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                yield from walk(value, (*path, index))
+
+    found = [
+        f"{device_id}: {where or '<root>'} has key {key!r}"
+        for device_id, spec in specs.items()
+        for where, key in walk(spec, ())
+    ]
+    assert not found, "quote these keys:\n" + "\n".join(found)
+
+
 def test_lan_addresses_are_placeholders_or_product_facts(specs):
     """No researcher-network address may reach a published file again.
 
