@@ -197,6 +197,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Instant Pot Smart Bluetooth](instant-pot-smart-bluetooth.md) | BLE | Spec Available | BLE bond via Adjust button (medium) | Instant Brands (app withdrawn) |
 | [TiVo Network Remote](tivo-network-remote.md) | LAN (TCP 31339) | Spec Available | Enable Network Remote Control (medium) | TiVo / Xperi |
 | [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
+| [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
 
 ## Not everything here was liberated
 
