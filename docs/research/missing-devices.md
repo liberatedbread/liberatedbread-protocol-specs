@@ -13,6 +13,10 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     status moves too: a shutdown date given here can slip, get reversed (Anova
     did exactly that), or arrive early.
 
+    Progress against this list, and new finds since it was written, are logged
+    week by week in [Weekly Device Sweeps](weekly-sweeps.md). Done so far from
+    *Do these next*: #1 Instant Pot, #2 AM43, #15 Drobo, #17 TiVo.
+
 This page answers one question: **which locally-controllable devices does the
 catalogue still lack, and which of them should be written up next?** It follows
 the older [candidates survey](device-candidates.md), which was checked against

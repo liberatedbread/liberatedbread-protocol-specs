@@ -193,6 +193,10 @@ spec's `device.setup` block; the patterns are explained in
 | [Wyze Cam (docker-wyze-bridge)](wyze-bridge-camera.md) | WiFi (RTSP via bridge) | Spec Available | Wyze API key, then local (low) | Wyze Labs |
 | [Bambu Lab 3D Printer (LAN)](bambu-lab-lan.md) | WiFi (MQTT 8883 + FTPS + RTSPS) | Spec Available | Enable LAN mode + access code (low) | Bambu Lab |
 | [PrusaLink (MK4 / XL / Mini)](prusalink-local-api.md) | WiFi (HTTP /api/v1) | Spec Available | Enable PrusaLink; API key (low) | Prusa Research |
+| [AM43 / A-OK Blind Motor](am43-blind-motor.md) | BLE | Spec Available | None needed (limits set at the motor) | A-OK / Zemismart |
+| [Instant Pot Smart Bluetooth](instant-pot-smart-bluetooth.md) | BLE | Spec Available | BLE bond via Adjust button (medium) | Instant Brands (app withdrawn) |
+| [TiVo Network Remote](tivo-network-remote.md) | LAN (TCP 31339) | Spec Available | Enable Network Remote Control (medium) | TiVo / Xperi |
+| [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
 
 ## Not everything here was liberated
 
