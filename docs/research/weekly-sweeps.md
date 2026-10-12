@@ -110,11 +110,14 @@ Every spec is `testing: untested`; byte-level facts from client code are
 | [Bose Sleepbuds II](../devices/bose-sleepbuds-ii.md) | last pass's candidate | One peripheral per bud: 12-byte Audio Data frame (play, stop, volume, timer), stored-sound list, clock sync, Settings flags and phone-free toggle, battery, Control Point opcodes (play-in-future, alarms, firmware queries). Sound upload and firmware activation under `out_of_scope` only. Link-layer security `unknown` at low confidence; the name matcher is low-confidence because no source recorded the factory name. Facts only from the unlicensed community client. |
 | [QardioArm (A100)](../devices/qardio-arm.md) | graduated from `research-notes/qardio-arm.md` | SIG Blood Pressure service with a full SFLOAT, flags and status decode; vendor control bytes for start and cancel; Just-Works bond with the four ATT error codes that mean re-bond; pinhole bond reset as `factory_reset` and unpair. Medical `safety_advisory`. The original note's dates were loose: the app vanished about 2024-09-21 and returned, servers were intermittent from 2025-03-12 and down for good 2025-04-29. The research note stays as the dated trail. `scripts/test_qardio_arm_spec.py`. |
 
-Three schema gaps surfaced while writing them, each noted in the spec's
-`remaining_unknowns`: `format.type` has no float (Hot Wheels speed, Yummly
-XW3), the BLE command vocabulary cannot express RGB565 packing (Kano
-`set_color` is unbound), and `advanced` is not a declared key on network
-`commands` (JuiceBox). Candidates for
+Three schema gaps surfaced while writing them. One was closed in the same
+PR after review: `advanced` was not a declared key on network `commands`,
+so the JuiceBox current-limit flag validated only because command objects
+are open; the schema now carries the same `advanced` / `advanced_reason`
+contract there as on BLE commands and HTTP endpoints. Two remain, noted in
+the specs' `remaining_unknowns`: `format.type` has no float (Hot Wheels
+speed, Yummly XW3), and the BLE command vocabulary cannot express RGB565
+packing (Kano `set_color` is unbound). Candidates for
 [spec-evolution](../contributing/spec-evolution.md).
 
 ### Tracked for later (new `targets/` stubs)

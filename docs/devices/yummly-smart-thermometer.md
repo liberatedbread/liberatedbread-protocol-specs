@@ -38,7 +38,7 @@ channel is the probe *body*, not the oven air. The spec carries a
 | Property | Value |
 |----------|-------|
 | Setup required | No (the vendor's web activation is gone and was never needed by the hardware) |
-| Method | `ble_direct` — connect to the dock, answer the challenge, listen |
+| Method | `ble_direct`, one route per generation — XW2: connect to the dock, answer the challenge, listen; XW3: subscribe to the six telemetry characteristics and query the dock (untested) |
 | Advertised | Exact names `Yummly T1`, `Yummly T3`, `Meat D2`; manufacturer data company id 711 (`0x02c7`, read as `0xc702` by the vendor app) |
 | Passphrase protection | not_applicable |
 | Confidence | medium (one open-source client, one unit) |

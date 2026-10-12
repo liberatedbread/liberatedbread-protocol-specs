@@ -172,17 +172,17 @@ device:
       one-byte challenge, and the temperature stream starts on its own.
     methods:
       - type: "ble_direct"
-        name: "Connect to the dock and answer the challenge"
+        name: "XW2 (T1 + P1): connect to the dock and answer the challenge"
+        role: "variant"
         verified: false
         description: >
-          XW2 (T1 + P1): connect to the dock, enable notifications on the
+          For the T1 dock with a P1 probe (XW2; local name "Yummly T1" or
+          "Meat D2"). Connect to the dock, enable notifications on the
           6e40aa03 characteristic, wait for the dock's challenge ping (01 ab,
           repeated about every 2 s), write the three-byte reply on 6e40aa02,
           then read what you need with request frames. Probe temperature
           frames arrive unrequested about every 2 s once the challenge is
-          answered. XW3 (T3 + P3): connect, enable notifications on the six
-          f84c... characteristics and read; there is no challenge
-          (reported from the app, untested).
+          answered. Run against hardware by the source project.
         ble:
           pairing_required: false
           service_uuid: "6e40abcd-b5a3-f393-e0a9-e50e4159414d"
@@ -207,6 +207,40 @@ device:
           - action: "Listen. Probe frames 07 07 <addr> 04 01 <3 bytes> (core) and 07 07 <addr> 03 02 <2 bytes> (body) arrive about every 2 s. Decode with protocol_details.xw2_rotation_packing."
             actor: "client"
             expect: "A core reading near room temperature with the probe out of food (the source project saw 79.8 F against a 79 F reference)."
+      - type: "ble_direct"
+        name: "XW3 (T3 + P3): connect to the dock and subscribe"
+        role: "variant"
+        verified: false
+        description: >
+          For the T3 dock with a P3 probe (XW3; local name "Yummly T3").
+          There is no challenge: connect, enable notifications on the six
+          telemetry characteristics, query the dock with one-byte commands
+          on 6f2f0100, and read the probe through the address the dock
+          reports. The whole sequence is the vendor app's as read by the
+          source project; nobody known to this project has run it.
+        ble:
+          pairing_required: false
+          service_uuid: "f84cbbbb-b8bb-494e-86c5-01fd7341f217"
+          write_characteristic: "6f2f0100-a6b6-4571-8bfd-5fe8a70600f0"
+          read_characteristic: "f84c1001-b8bb-494e-86c5-01fd7341f217"
+        steps:
+          - action: "Fit the dock's cells and seat the probe in the dock to charge it before first use."
+            actor: "user"
+          - action: "Wake the dock: lift the probe out, or wait until the dock's Bluetooth LED blinks. It does not advertise while asleep."
+            actor: "user"
+            expect: "A scan shows the dock as Yummly T3."
+          - action: "Connect to the dock and enable notifications on f84c1001-b8bb-494e-86c5-01fd7341f217, f84c1002-b8bb-494e-86c5-01fd7341f217, f84c2000-b8bb-494e-86c5-01fd7341f217, f84c3001-b8bb-494e-86c5-01fd7341f217, f84c3002-b8bb-494e-86c5-01fd7341f217 and f84c3003-b8bb-494e-86c5-01fd7341f217. The vendor app refused a dock missing any of them."
+            actor: "client"
+          - action: "Write the dock queries one at a time on 6f2f0100-a6b6-4571-8bfd-5fe8a70600f0: 14 (firmware), 11 (model), 13 (production date), 50 (connected probes). Write with response."
+            actor: "client"
+            expect: "Replies on f84c1001 with the command byte first; the 50 reply carries a flag and the probe address, least-significant byte first (payload_formats.Xw3Reply)."
+            timeout_seconds: 6
+          - action: "With the probe address, write the probe queries a0 <address reversed> <cmd> for cmd 11, 13 and 14 (model, production date, firmware), retrying until each reply arrives."
+            actor: "client"
+            expect: "Replies a0 <address> <cmd> <UTF-8> on f84c1001."
+          - action: "Read f84c1002 for the dock battery, then listen: core, body and tip temperatures arrive on f84c3001, f84c3002 and f84c3003 as int16 little-endian tenths of a degree Celsius at offset 6."
+            actor: "client"
+            expect: "Readings near room temperature with the probe out of food. Untested: no one has reported a value from a T3."
     factory_reset:
       applicable: "unknown"
       confidence: low

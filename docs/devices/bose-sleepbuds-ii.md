@@ -22,9 +22,12 @@ app did.
 
 This page covers choosing a stored sound, volume, start/stop and the sleep
 timer, battery, the phone-free flag, and the alarm and synchronised-start
-opcodes as far as they are known. **Sound-file upload and firmware update are
-out of scope** — both are documented in the community repo, both write to the
-buds' storage, and neither has been checked beyond one author's bench.
+opcodes as far as they are known. **Sound-file upload is out of scope** — it
+is documented in the community repo, writes to the buds' storage, and has not
+been checked beyond one author's bench. Firmware update is declared as a
+`firmware_update` feature so a client keeps generic controls away from it: the
+activation opcode is an `advanced` command, and the image transfer itself is
+undocumented.
 
 Everything byte-level rests on a single source, chillee151/SleepBuds2Revival
 (derived from the Sleep app and tested on firmware 11.9.0, "Kingsley"
@@ -100,8 +103,8 @@ Bluetooth; case the buds until the lights blink white, take them out, connect.
 | `00002a00-0000-1000-8000-00805f9b34fb` | Device Name | Writable name |
 | `c76e1666-e7c3-4432-a995-049d09cb9e90` | Update / control service | |
 | `e81359e0-9f35-483a-a46f-7c6d686daa06` | Control Point | `[opcode][sub-module][payload]`, replies `[status][opcode][sub-module]` |
-| `86d60053-6f4a-409c-9a81-93f16c4e15a0` | Binary Packet | Firmware data — out of scope |
-| `4b25c5ad-978d-467c-b598-155247b9e774` | Legacy OTA service | Out of scope |
+| `86d60053-6f4a-409c-9a81-93f16c4e15a0` | Binary Packet | Firmware data — the update path (`firmware_update` feature); transfer format undocumented |
+| `4b25c5ad-978d-467c-b598-155247b9e774` | Legacy OTA service | Update path (`firmware_update` feature); not exercised by any source |
 
 **Audio Data frame** (little-endian): `state` (bit 0 playing) | `volume`
 (0–255, app uses 0–100) | `file_id` u16 | `masking_timeout` u16 s |

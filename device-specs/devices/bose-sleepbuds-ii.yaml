@@ -148,8 +148,6 @@ device:
           the current file ID, which `set_volume` needs. Repeat for the
           other bud. Nothing is written during this flow except an optional
           connection-interval request.
-        ble:
-          pairing_required: false
         steps:
           - action: "Close or force-stop the Bose Sleep app if it is still installed, and disconnect any other client; each bud accepts one connection."
             actor: "user"
@@ -845,6 +843,50 @@ services:
                 unit: "s"
                 description: "Fade-out duration."
             verification: "hypothesis"
+          activate_firmware:
+            description: >
+              Activate a firmware image already transferred to the bud
+              (opcode 0x08, sub-module 0x01). Payload: a component mask, then
+              the major, minor and patch of the image to activate, one byte
+              each. Mask bits: 0x01 bud, 0x02 case, 0x04 radio, 0x40 set
+              version only, 0x80 clear. With nothing pending the bud answers
+              status 0x43 (activate error) followed by per-component status
+              bytes; the community client saw 43 08 01 00 8d 01 40 02 40 from
+              both buds, read as bud 0x8d (bad CRC / nothing pending), case
+              0x40 and radio 0x40 (idle). The image transfer that precedes
+              this write (Binary Packet characteristic) is not documented by
+              any source, and no success reply has been recorded.
+            encoding: "bytes"
+            template: [0x08, 0x01, "{component_mask}", "{major}", "{minor}", "{patch}"]
+            parameters:
+              component_mask:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Bit mask of components: 0x01 bud, 0x02 case, 0x04 radio; 0x40 sets the version record only; 0x80 clears."
+              major:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Major version of the image to activate."
+              minor:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Minor version of the image to activate."
+              patch:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Patch version of the image to activate."
+            advanced: true
+            advanced_reason: >
+              Switches the bud onto whatever firmware image has been
+              transferred to it. With a bad or partial image the bud may stop
+              working, and no recovery path is documented; with nothing
+              pending it only returns an error. Never send it to a bud you
+              want to keep unless you have transferred a known-good image.
+            verification: "reported"
           query_system_firmware:
             description: "System firmware version query (opcode 0x3d, sub-module 0x00). Reply layout not recorded; the Firmware Revision String is the easier read."
             encoding: "bytes"
@@ -870,19 +912,67 @@ services:
         properties: ["write_without_response"]
         role: "bulk"
         notes: >
-          Carries firmware image data during an update. OUT OF SCOPE: this
-          spec does not document the update flow and nothing should be
-          written here. Listed so a reader knows what the characteristic
-          is.
+          Carries firmware image data during an update: the update path
+          declared in features[type: firmware_update]. The transfer format
+          over it is not documented by any source, so nothing should be
+          written here outside an update you understand. Listed so a reader
+          knows what the characteristic is.
 
   - uuid: "4b25c5ad-978d-467c-b598-155247b9e774"
     name: "Legacy OTA service"
     notes: >
       An older over-the-air update service the vendor app still knows
       (command, state, image-block, status and image-info characteristics;
-      UUIDs in protocol_details.out_of_scope). Not exercised by any
-      source and out of scope for the same reason as the Binary Packet
-      characteristic; no characteristic is documented here.
+      UUIDs in protocol_details.out_of_scope). Part of the update path
+      declared in features[type: firmware_update]; not exercised by any
+      source, so no characteristic is documented here and a generic client
+      lists it read-only.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The Bose Sleep app fetched images from Bose; the app is withdrawn
+          and no public image URL is known, so in practice no image is
+          obtainable. Whether the bud checks a signature is not established:
+          the activation error table has a bad-CRC code, which is an
+          integrity check, not authentication.
+      enter:
+        how: "in_place"
+        command: "activate_firmware"
+        notes: >
+          The running application takes the image itself: data is written
+          to the Binary Packet characteristic 86d60053-6f4a-409c-9a81-93f16c4e15a0
+          inside the normal control service, then the advanced command
+          activate_firmware (Control Point opcode 0x08, sub-module 0x01)
+          switches to it. The transfer format over Binary Packet is not
+          documented by any source; the community client only exercised
+          the activation query and received the no-image error.
+      dfu_mode:
+        notes: >
+          No separate bootloader advertisement is known: the bud stays in
+          its application GATT while receiving an image, and what it
+          advertises during or after activation has not been observed.
+      services: ["4b25c5ad-978d-467c-b598-155247b9e774"]
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Nothing published. The control service c76e1666 is NOT listed
+          under services above because it also carries the Control Point
+          used for ordinary playback control; only the Binary Packet
+          characteristic inside it belongs to the update path.
+      verification: "reported"
+      notes: >
+        Declared so a consumer knows the bud takes firmware over BLE and
+        keeps generic controls away from the Binary Packet and legacy OTA
+        characteristics. From the community reference derived from Sleep
+        app 3.0.11; the legacy OTA service 4b25c5ad is listed because the
+        app still knew it, with no evidence of which firmware uses it.
 
 payload_formats:
   AudioFrame:
@@ -1084,18 +1174,18 @@ protocol_details:
       CRC-32. Audio is raw 8192 Hz 24-bit little-endian mono PCM, one file
       per bud. Documented in SleepBuds2Revival; not covered here.
     firmware_update: >
-      Control Point opcode 0x08 on sub-module 0x01 activates a transferred
-      firmware image (payload: component mask, major, minor, patch); with
-      nothing pending the bud answers 0x43 with per-component status
-      bytes. Image data goes to the Binary Packet characteristic
+      The activation frame is declared as the advanced command
+      activate_firmware and the path as features[type: firmware_update];
+      what stays out of scope is the image transfer itself, which no source
+      documents. Image data goes to the Binary Packet characteristic
       86d60053-6f4a-409c-9a81-93f16c4e15a0. The legacy OTA service
       4b25c5ad-978d-467c-b598-155247b9e774 carries command
       7ee6acc4-884c-4d97-ab3a-26c99459c030, state
       b7488798-dd0d-40d2-8372-96524b495b47, image block
       47bbaf32-049e-44d2-ac33-a131fc73f8bd, status
       2c54d3b1-aedc-47ec-82c7-27bb68b6a0e6 and image info
-      43246004-5173-4f20-96e2-d594472d828b. None of it is covered; do not
-      send the activation frame to a bud you want to keep.
+      43246004-5173-4f20-96e2-d594472d828b. None of the transfer is
+      covered; do not send the activation frame to a bud you want to keep.
 
 evidence:
   artifacts:
@@ -1139,6 +1229,7 @@ evidence:
     buds or because of macOS; whether Battery Level notifies.
 
 remaining_unknowns:
+  - "Firmware: the image transfer format over the Binary Packet characteristic, whether images are signed, and what a bud advertises during an update are unknown; only the activation opcode and its no-image error reply are recorded."
   - "Link-layer security: no source has watched the pairing exchange. iOS lists the buds (suggesting a bond) but the community client never mentions pairing from macOS. pairing.required is therefore 'unknown'."
   - "The factory advertised local name; the identification matcher is a low-confidence guess from the community scanner's substrings, and a renamed pair will not match it."
   - "Volume cannot be set without re-sending the current file ID, and this schema has no BLE read-back source, so the Volume number entity is not drivable by a generic consumer — the same gap AM43's battery reply hit."
