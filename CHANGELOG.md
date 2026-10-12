@@ -353,6 +353,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A misspelt command-parameter key is a validation error.** BLE and network
+  command `parameters` objects are closed (`unevaluatedProperties: false`, so
+  the `number_semantics` keys still count): `mx: 100` used to validate while
+  the bound silently vanished. Network parameters gain `min_length` /
+  `max_length`, which osram-lightify-gateway already used undeclared.
+- **YAML 1.1 boolean keys.** PyYAML reads an unquoted `on:` key as `True`, so
+  the JSON API published wled-controller's state mapping as `{"True": ...}`
+  while YAML 1.2 consumers read `on`. Quoted there and in lg-webos, and a
+  convention test refuses any boolean key.
+- **Rabbit Air's BLE example frame** is `1200` (18 bytes), not `0d00`; a test
+  derives it from the payload.
+- **`build_index.py` checks the schema once, not once per spec.** `--check`
+  goes from ~90 s to ~7 s and the test suite from ~8.5 min to ~2 min.
 - **DIAL is a shared identifier.** `registries/shared-service-types.tsv` now
   lists both DIAL search targets. Every smart TV and streaming stick answers
   them, and sony-bravia and vizio-smartcast each claimed one, so a consumer
