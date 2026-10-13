@@ -792,10 +792,16 @@ that pairs a rich service type with a poorer one for the same hardware:
 a device advertising both `_hap._tcp` and a vendor type, where only the
 vendor type carries the local API.
 
-**Proposal.** One additive key, allowed on `protocol_handler`'s siblings
-that render a surface:
+**Proposal.** One additive key, `requires_discovery`, on each entry of
+`entities` and `http_endpoints`, and a top-level sibling for the handler,
+because `protocol_handler` is a plain string and can carry no key of its
+own:
 
 ```yaml
+protocol_handler: "ipp_status"
+protocol_handler_requires_discovery:  # same shape as below
+  - service_type: "_ipp._tcp.local."
+  - service_type: "_ipps._tcp.local."
 entities:
   - platform: "sensor"
     name: "Printer State"
@@ -809,10 +815,10 @@ http_endpoints:
 ```
 
 A consumer that matched the device through a method not listed hides the
-entity or endpoint, as it hides an entity whose `variants` exclude the
-unit. `protocol_handler` gains the same key at the top level. The IPP
-spec's `protocol_details.ipp_status.requires_service_types` is the interim
-form and would move into these keys unchanged.
+entity, endpoint or handler, as it hides an entity whose `variants` exclude
+the unit. The IPP spec's `protocol_details.ipp_status.requires_service_types`
+is the interim form: its two values would move into these keys, in the
+object shape above.
 
 **Compatibility.** Additive. A consumer that ignores the key behaves as
 today (the surface is offered everywhere); one that reads it stops

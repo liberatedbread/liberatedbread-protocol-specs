@@ -315,12 +315,13 @@ def select(
     # A name some spec says must stay reachable is not blocked on another
     # spec's say-so: in a combined list, one device's harmless block is
     # another's broken clock or store. The protectors are EVERY device-side
-    # entry that breaks or keeps time, whatever the profile: an `updates` list
-    # never selects a `content` host, but a `content` host another spec marks
-    # `breaks` still forbids blocking the same name as a firmware host. The
-    # comparison is DNS containment, not string equality: a `subdomains` rule
-    # on a parent answers for every name under it, so it is vetoed by a
-    # protected child it would cover.
+    # entry that breaks or keeps time, whatever the profile and whichever
+    # spec: an `updates` list never selects a `content` host, but a `content`
+    # host marked `breaks` (by another spec, or by this one) still forbids
+    # blocking a firmware rule that would answer for it. The comparison is
+    # DNS containment, not string equality: a `subdomains` rule on a parent
+    # answers for every name under it, so it is vetoed by a protected child
+    # it would cover.
     protected = [e for e in device_side if e.host and (e.impact == "breaks" or "time" in e.roles)]
     blockable: list[Entry] = []
     for e in wanted:
@@ -341,6 +342,7 @@ def select(
     # claiming a device the rules never touch reads as coverage it lacks.
     involved = {d for r in sel.block + sel.time for d in r.devices}
     involved |= {e.device for e in sel.firewall + sel.excluded}
+    involved |= {e.device for e, _ in sel.vetoed}
     sel.devices = sorted({(e.device, e.device_name) for e in device_side if e.device in involved})
     return sel
 
@@ -398,10 +400,14 @@ def _header(sel: Selection, opts: Options, c: str, fmt: str, caveat: str | None 
         for e in sel.excluded:
             out += _bullet(c, f"{e.name} ({e.device}): {' '.join((e.effect or 'see the spec').split())}")
     if sel.vetoed:
-        out += [c, f"{c} Not listed: the rule would answer for a name listed above as one to keep reachable:"]
+        out += [c, f"{c} Not listed, because of a name listed above as one to keep reachable:"]
         for e, guard in sel.vetoed:
             sub = " and subdomains" if e.match == "subdomains" else ""
-            out += _bullet(c, f"{e.name}{sub} ({e.device}) would cover {guard.name} ({guard.device}).")
+            if _covers(e, guard.host or ""):
+                why = f"would cover {guard.name} ({guard.device})"
+            else:
+                why = f"sits under {guard.name} and subdomains, which {guard.device} keeps reachable"
+            out += _bullet(c, f"{e.name}{sub} ({e.device}) {why}.")
     cautions = [text for r in sel.block for text in r.cautions]
     if cautions:
         out += [c, f"{c} Read before applying. Blocking these has a cost on some units:"]

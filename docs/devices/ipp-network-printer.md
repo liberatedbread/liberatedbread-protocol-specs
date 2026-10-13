@@ -22,7 +22,7 @@ no vendor software.
 `<port>` is the one the service advertises (631 by default) and `<rp>` the TXT
 `rp` key (the Bonjour default is empty, so a missing or empty `rp` is `/`;
 IPP Everywhere printers advertise one, conventionally `ipp/print`, which is
-the second guess when `/` answers not-found). TLS
+the second guess when the advertised path answers not-found). TLS
 on the same port for `_ipps._tcp`, self-signed — pin on first use. The body is an
 RFC 8010 Get-Printer-Attributes request (operation `0x000B`) asking for
 `printer-state`, `printer-state-reasons`, `printer-state-message`,
@@ -34,7 +34,8 @@ Only `_ipp._tcp` / `_ipps._tcp` carry this surface; a printer seen only as
 `_pdl-datastream` or `_printer` is linked to its admin page, nothing more. The
 spec states that by key (`protocol_details.ipp_status.requires_service_types`)
 because the schema cannot yet tie a handler or an entity to one discovery
-method; that field is proposed as P16 in the spec-evolution notes.
+method; that field is proposed as
+[Spec Evolution P16](../contributing/spec-evolution.md#p16).
 
 ## Discovery Summary
 

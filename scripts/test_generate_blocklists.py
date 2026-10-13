@@ -233,7 +233,7 @@ def test_a_breaking_entry_is_left_out_and_named():
     sel = gb.select(entries, "cloud")
     assert sel.block == [] and [e.host for e in sel.excluded] == ["store.example.com"]
     text = gb.render_hosts(sel, gb.Options())
-    assert "store.example.com" not in _rules(text)
+    assert not any("store.example.com" in ln for ln in _rules(text))
     assert "The store dies." in text
 
 
@@ -288,6 +288,8 @@ def test_a_name_one_spec_says_breaks_is_not_blocked_on_anothers_say_so():
     sel = gb.select(entries, "cloud")
     assert sel.block == []
     assert [r.host for r in sel.time] == ["ntp.example.com"]
+    # The NTP guard is explained in the time section, never also as an exclusion.
+    assert [e.host for e in sel.excluded] == ["shared.example.com"]
     assert "dev-b's store stops." in gb.render_hosts(sel, gb.Options())
 
 
@@ -306,8 +308,36 @@ def test_a_breaking_entry_outside_the_profile_still_vetoes():
     assert [(e.device, guard.device) for e, guard in sel.vetoed] == [("dev-a", "dev-b")]
     assert [e.host for e in sel.excluded] == ["shared.example.com"]
     text = gb.render_hosts(sel, gb.Options())
-    assert "shared.example.com" not in _rules(text) and "dev-b's store stops." in text
+    assert not any("shared.example.com" in ln for ln in _rules(text))
+    assert "dev-b's store stops." in text
     assert [d for d, _ in sel.devices] == ["dev-a", "dev-b"]
+
+
+def test_a_device_with_only_a_vetoed_entry_is_still_named_in_the_header():
+    """The header explains the veto, so the vetoed device is one the list
+    says something about, even with no rule of its own."""
+    entries = [
+        E("shared.example.com", device="dev-a", roles=("firmware_download",)),
+        E("shared.example.com", device="dev-b", roles=("content",), impact="breaks",
+          effect="dev-b's store stops."),
+        E("fw.example.com", device="dev-b", roles=("firmware_download",)),
+    ]
+    sel = gb.select(entries, "updates")
+    assert [d for d, _ in sel.devices] == ["dev-a", "dev-b"]
+
+
+def test_a_devices_own_breaking_host_under_its_own_firmware_parent_vetoes_it():
+    """The protectors are profile-independent within one spec too: a store
+    the spec marks `breaks` under its own firmware `subdomains` parent keeps
+    that parent off the updates list, where before only the cloud list saw it."""
+    entries = [
+        E("example.com", match="subdomains", roles=("firmware_download",)),
+        E("store.example.com", roles=("content",), impact="breaks", effect="The store dies."),
+    ]
+    sel = gb.select(entries, "updates", scope="device 'dev-a'", slug="dev-a")
+    assert sel.block == []
+    assert [(e.host, guard.host) for e, guard in sel.vetoed] == [("example.com", "store.example.com")]
+    assert [e.host for e in sel.excluded] == ["store.example.com"]
 
 
 def test_a_parent_rule_is_vetoed_by_a_protected_name_under_it():
@@ -328,6 +358,9 @@ def test_a_parent_rule_is_vetoed_by_a_protected_name_under_it():
         ("example.com", "clock.example.com"),
         ("example.net", "ntp.example.net"),
     ]
+    # A guard already excluded (the non-NTP clock) or redirected (the NTP
+    # name) is listed once, not again for having vetoed something.
+    assert [e.host for e in sel.excluded] == ["clock.example.com"]
     for _, render in gb.FORMATS.values():
         text = render(sel, gb.Options(time_server="192.168.1.53"))
         rules = _rules(text, text[0])
@@ -348,6 +381,9 @@ def test_a_name_under_another_specs_protected_parent_is_vetoed_but_a_carve_out_s
     sel = gb.select(entries, "cloud")
     assert [r.host for r in sel.block] == ["rdx2.sdp.example.com"]
     assert [(e.host, guard.host) for e, guard in sel.vetoed] == [("us.sdp.example.com", "sdp.example.com")]
+    # The header wraps long bullets, so compare against the unwrapped text.
+    header = " ".join(ln.lstrip("# ") for ln in gb.render_hosts(sel, gb.Options()).splitlines())
+    assert "us.sdp.example.com (dev-b) sits under sdp.example.com and subdomains, which dev-a keeps reachable." in header
 
 
 def test_a_device_with_only_exclusions_still_publishes_a_header_only_list():
