@@ -314,16 +314,27 @@ def select(
             sel.firewall.append(e)
     # A name some spec says must stay reachable is not blocked on another
     # spec's say-so: in a combined list, one device's harmless block is
-    # another's broken clock or store. The comparison is DNS containment, not
-    # string equality: a `subdomains` rule on a parent answers for every name
-    # under it, so it is vetoed by a protected child it would cover.
-    protected = [e for e in sel.excluded if e.host] + time
+    # another's broken clock or store. The protectors are EVERY device-side
+    # entry that breaks or keeps time, whatever the profile: an `updates` list
+    # never selects a `content` host, but a `content` host another spec marks
+    # `breaks` still forbids blocking the same name as a firmware host. The
+    # comparison is DNS containment, not string equality: a `subdomains` rule
+    # on a parent answers for every name under it, so it is vetoed by a
+    # protected child it would cover.
+    protected = [e for e in device_side if e.host and (e.impact == "breaks" or "time" in e.roles)]
     blockable: list[Entry] = []
     for e in wanted:
         if not e.host or e.impact == "breaks":
             continue
         guard = _protector(e, protected)
-        (sel.vetoed.append((e, guard)) if guard else blockable.append(e))
+        if guard is None:
+            blockable.append(e)
+            continue
+        sel.vetoed.append((e, guard))
+        # The header explains every name it keeps reachable, so a protector
+        # the profile would otherwise never have mentioned is listed too.
+        if guard not in sel.excluded and guard not in time:
+            sel.excluded.append(guard)
     sel.block = _merge(blockable)
     sel.time = _merge(time)
     # Name only the devices this list actually says something about: a header

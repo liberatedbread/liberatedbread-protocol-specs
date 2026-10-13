@@ -121,6 +121,12 @@ device:
                 key: "hostname"
             display:
               source: "name"
+        notes: >
+          Raw socket (JetDirect) only. A printer found through this type and
+          not through _ipp/_ipps has no IPP resource: it is identified and
+          linked to its admin page, and the IPP status surface
+          (protocol_handler, http_endpoints, entities) does not apply to it;
+          see protocol_details.ipp_status.requires_service_types.
       - type: "mdns"
         mdns:
           service_type: "_printer._tcp.local."
@@ -133,6 +139,9 @@ device:
                 key: "hostname"
             display:
               source: "name"
+        notes: >
+          LPD only. As for _pdl-datastream: identification and the admin
+          link, no IPP status.
     identity:
       stable_keys: ["uuid", "hostname"]
       display: "name"
@@ -188,30 +197,42 @@ local_access:
 
 # The IPP status surface: an RFC 8010 binary request in the body of an HTTP
 # POST. Encoding and the attributes read are in protocol_details.ipp_status.
+# It exists only for a printer found through _ipp._tcp or _ipps._tcp: the
+# schema cannot tie a handler or an entity to one discovery method, so the
+# condition is stated by key in protocol_details.ipp_status.requires_service_types
+# (and proposed as a field in docs/contributing/spec-evolution.md, P16). A
+# printer seen only as _pdl-datastream or _printer gets no status.
 protocol_handler: "ipp_status"
 
 http_endpoints:
   - method: "POST"
-    path: "/ipp/print"
+    path: "/{rp}"
     name: "Get-Printer-Attributes"
     status: "active"
     description: >
-      IPP operation 0x000B on the printer's IPP resource. The path is the TXT
-      `rp` key ("/" + rp). The Bonjour Printing Specification's default for
-      rp is the empty string, so a record with no rp key, like one with an
-      empty value, means the root resource "/". IPP Everywhere printers
-      always advertise rp (conventionally "ipp/print"); a client whose
-      request to "/" answers client-error-not-found (0x0406) may try
-      "/ipp/print" as a second guess. The port is the one the service's SRV
-      record advertises (631 by default). Plain HTTP for _ipp._tcp; TLS on
-      the advertised port for _ipps._tcp, where printers present a self-signed
-      certificate, so a client pins it on first use rather than trusting a
-      CA. Read-only: nothing about the printer changes.
+      IPP operation 0x000B on the printer's IPP resource. `{rp}` is the
+      discovery record's TXT `rp` value (txt:rp, listed in the IPP methods'
+      txt_record_keys), with no leading slash of its own. The Bonjour
+      Printing Specification's default for rp is the empty string, so a
+      record with no rp key, like one with an empty value, means the root
+      resource "/". IPP Everywhere printers always advertise rp
+      (conventionally "ipp/print"); a client whose request answers
+      client-error-not-found (0x0406) may try "/ipp/print" as a second guess
+      (protocol_details.ipp_status.resource_path_fallback). The port is the
+      one the service's SRV record advertises (631 by default). Plain HTTP
+      for _ipp._tcp; TLS on the advertised port for _ipps._tcp, where
+      printers present a self-signed certificate, so a client pins it on
+      first use rather than trusting a CA. Only for a printer found through
+      those two service types. Read-only: nothing about the printer
+      changes.
     request_body:
       content_type: "application/ipp"
     response_body:
       content_type: "application/ipp"
 
+# All three readings come from the IPP request above, so all three apply
+# only to a printer found through _ipp._tcp or _ipps._tcp
+# (protocol_details.ipp_status.requires_service_types).
 entities:
   - platform: "sensor"
     name: "Printer State"
@@ -219,7 +240,7 @@ entities:
       printer-state (enum): 3 idle, 4 processing, 5 stopped; with
       printer-state-reasons (keywords, e.g. media-empty, toner-low) and
       printer-state-message (text). Read from the Get-Printer-Attributes
-      reply; see protocol_details.ipp_status.
+      reply; see protocol_details.ipp_status. IPP-discovered printers only.
   - platform: "sensor"
     name: "Supply Levels"
     notes: >
@@ -235,6 +256,15 @@ entities:
 
 protocol_details:
   ipp_status:
+    # The discovery methods whose match carries this surface. A printer
+    # matched only by another of this spec's service types (raw socket, LPD)
+    # has no IPP resource to ask, so the handler and the entities do not
+    # apply to it. The schema has no field for this yet; see P16 in
+    # docs/contributing/spec-evolution.md.
+    requires_service_types: ["_ipp._tcp.local.", "_ipps._tcp.local."]
+    # Where the request goes: "/" + the TXT rp value (empty when absent).
+    resource_path: "txt:rp"
+    resource_path_fallback: "/ipp/print"
     standards: >
       RFC 8010 (IPP/1.1 encoding and transport), RFC 8011 (model and
       semantics), PWG 5100.13 (the marker-* supply attributes), PWG 5100.14

@@ -291,6 +291,25 @@ def test_a_name_one_spec_says_breaks_is_not_blocked_on_anothers_say_so():
     assert "dev-b's store stops." in gb.render_hosts(sel, gb.Options())
 
 
+def test_a_breaking_entry_outside_the_profile_still_vetoes():
+    """The `updates` profile never selects a `content` host, but a `content`
+    host one spec marks `breaks` still forbids blocking the same name as
+    another spec's firmware host, and the header says why."""
+    entries = [
+        E("shared.example.com", device="dev-a", roles=("firmware_download",)),
+        E("shared.example.com", device="dev-b", roles=("content",), impact="breaks",
+          effect="dev-b's store stops."),
+        E("fw.example.com", device="dev-a", roles=("firmware_download",)),
+    ]
+    sel = gb.select(entries, "updates")
+    assert [r.host for r in sel.block] == ["fw.example.com"]
+    assert [(e.device, guard.device) for e, guard in sel.vetoed] == [("dev-a", "dev-b")]
+    assert [e.host for e in sel.excluded] == ["shared.example.com"]
+    text = gb.render_hosts(sel, gb.Options())
+    assert "shared.example.com" not in _rules(text) and "dev-b's store stops." in text
+    assert [d for d, _ in sel.devices] == ["dev-a", "dev-b"]
+
+
 def test_a_parent_rule_is_vetoed_by_a_protected_name_under_it():
     """A `subdomains` rule on example.com answers for clock.example.com too.
     The veto is DNS containment, not spelling: one spec's clock (NTP or not)

@@ -31,7 +31,10 @@ RFC 8010 Get-Printer-Attributes request (operation `0x000B`) asking for
 `protocol_details.ipp_status`.
 
 Only `_ipp._tcp` / `_ipps._tcp` carry this surface; a printer seen only as
-`_pdl-datastream` or `_printer` is linked to its admin page, nothing more.
+`_pdl-datastream` or `_printer` is linked to its admin page, nothing more. The
+spec states that by key (`protocol_details.ipp_status.requires_service_types`)
+because the schema cannot yet tie a handler or an entity to one discovery
+method; that field is proposed as P16 in the spec-evolution notes.
 
 ## Discovery Summary
 
