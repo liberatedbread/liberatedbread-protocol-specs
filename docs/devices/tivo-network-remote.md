@@ -23,7 +23,8 @@ tune channels, and it reports the channel back as text.
 | Passphrase protection | not_applicable — the socket has no authentication |
 | Confidence | medium |
 
-**Enabling**: Settings, then Remote, CableCARD & Devices, then Network Remote
+**Enabling**: TiVo Central, Messages & Settings, Settings, then Remote, CableCARD
+& Devices, then Network Remote
 Control, Enabled. On Virgin Media boxes: Help & Settings, Settings, Devices.
 
 **Factory reset**: Help, then Restart or Reset — never needed for this protocol,
@@ -48,7 +49,8 @@ disconnect. Pause 100–200 ms between commands.
 | `CH_FAILED NO_LIVE` | Not on Live TV; also `RECORDING`, `MISSING_CHANNEL`, `MALFORMED_CHANNEL`, `INVALID_CHANNEL` |
 | `LIVETV_READY`, `INVALID_COMMAND`, `COMMAND_TIMEOUT` | Informational; `COMMAND_TIMEOUT` is harmless |
 
-TiVo's own protocol PDF is no longer online; the facts come from the openHAB
+TiVo's own protocol PDF is gone from tivo.com (a 2008 edition survives in the
+Internet Archive, unread here); the facts come from the openHAB
 binding and McBrine's Network Remote, which agree. Whether a Mini accepts
 `SETCH` is unknown.
 

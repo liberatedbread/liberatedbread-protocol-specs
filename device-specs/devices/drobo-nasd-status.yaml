@@ -5,7 +5,8 @@
 # Sources (all public; clean-room — derived facts only):
 #   - droboports wiki: "NASD XML format" and "Port assignments" (DroboFS, 5N)
 #   - jerimiah797/drobo-nas-protocol: frame header layout (one 5N2, fw 4.3.1)
-#   - cosmouser/drobo_exporter (Prometheus exporter; 5N, B800fs)
+#   - cosmouser/drobo_exporter (Prometheus exporter; 5N, B800fs; archived
+#     read-only since 2026-03)
 #   - andrewmobbs/drobomon (5N)
 #   - Drobo 5N2 user manual (Dashboard discovery behaviour)
 
@@ -18,7 +19,9 @@ device:
     notes: >
       Not read from hardware by this project. The XML element set comes from
       the droboports wiki and agrees with two exporters; the 16-byte frame
-      header rests on one 5N2 write-up.
+      header rests on one 5N2 write-up that itself publishes no capture or
+      hex dump (the two exporters skip the header by searching for the
+      XML start).
   protocol: "lan"
   transport: "tcp"
   category: "other"
@@ -41,9 +44,10 @@ device:
     any Drobo software.
 
     This spec is READ-ONLY on purpose. nasd also listens on TCP 5001 and UDP
-    5002. Strings in the daemon show a command set on one of them that
-    includes destructive drive-management verbs alongside status getters;
-    nothing about it is publicly documented and it is left out.
+    5002. Strings in the daemon binary show a command set that includes
+    destructive drive-management verbs alongside status getters, presumably
+    reachable on one of those ports; nothing about it is publicly
+    documented and it is left out.
 
   openness:
     status: "undocumented"
@@ -82,7 +86,7 @@ device:
             actor: "user"
           - action: "Open a TCP connection to port 5000. Send nothing."
             actor: "client"
-            expect: "Within about 20 seconds a frame arrives beginning DRINASD."
+            expect: "A frame beginning DRINASD arrives at once (the reference script allows up to 20 seconds)."
           - action: "Read 16 header bytes, then the body length from bytes 12-15 (big-endian), then the body; close the socket or keep it open for updates."
             actor: "client"
     factory_reset:
@@ -117,6 +121,9 @@ protocol_details:
     body: "UTF-8 XML of exactly `length` bytes. The last byte is 0x00 and is counted in the length; strip it before parsing."
     cadence: "Pushed once on connect and then every 10-20 s while the socket stays open."
     other_ports: "TCP 5001 and UDP 5002 also belong to nasd; undocumented, out of scope, and possibly destructive."
+  # A constructed illustration of the layout above (magic, version 01 01 00
+  # 00, length 0x1a2b = 6699 bytes, the size of a typical frame), not a
+  # capture: no cited source publishes a hex dump of the header.
   header_example_hex: "4452494e41534400 01010000 00001a2b"
 
 payload_formats:
@@ -132,7 +139,7 @@ payload_formats:
       - name: "mVersion"
         description: "Firmware version."
       - name: "mModel"
-        description: "Model name; present on 5N firmware 3.2.0 and later."
+        description: "Model name, when present. The droboports prose calls it empty and FS-only, but the wiki's own 5N firmware 3.2.0 sample carries 'Drobo 5N' and a 5N2 reports it; treat it as optional."
       - name: "mStatus"
         description: "Overall array status; see ArrayStatus."
       - name: "mTotalCapacityProtected"
@@ -157,7 +164,7 @@ payload_formats:
       - name: "mFirmwareFeatureStates"
         description: "Redundancy mode: 6 single, 7 dual; 4 seen, meaning unknown."
       - name: "mSlotCountExp"
-        description: "Number of slot records (8 on FS; 6 on 5N/5N2, the sixth being the mSATA accelerator bay)."
+        description: "Reported slot count: 8 on the FS and 6 on the 5N/5N2 (the sixth being the mSATA accelerator bay). Not always the number of <nX> records: FS firmware 1.2.6 reports 8 here but sends five records, so count the records themselves."
     parse_rules:
       - "Read the frame per protocol_details.nasd_frame, drop the trailing NUL, then parse the XML."
       - "Slots are under <mSlotsExp> as <n0>, <n1>, ... ; n0 is the top bay. Each slot record is a SlotRecord."
@@ -175,12 +182,13 @@ payload_formats:
     values:
       "32768": "OK (0x8000)"
       "32772": "Over the yellow capacity threshold (0x8004)"
-      "32774": "Over the red capacity threshold (0x8006)"
+      "32774": "Over the red capacity threshold, with empty slots (0x8006)"
       "32784": "Bad drive (0x8010)"
       "32838": "Drive removed (0x8046)"
       "33344": "Data protection (relayout) in progress (0x8240)"
       "98304": "Unknown; Dashboard shows OK (0x18000)"
       "98310": "Over red threshold with no empty slots (0x18006)"
+      "98320": "Has bad drives (0x18010; from drobo_exporter's table)"
       "98880": "Relayout with redundancy critical; do not remove any drive (0x18240)"
   SlotRecord:
     description: "One <nX> under <mSlotsExp>."
@@ -201,6 +209,7 @@ payload_formats:
         description: "Drive size; 0 when the bay is empty."
       - name: "SSDLifeRemaining"
         unit: "%"
+        description: "Read as a percentage, which is an assumption: the wiki records it as 100 for HDDs and SSDs alike and 0 for an empty bay, and 5N and later only."
   SlotStatus:
     description: "Per-bay mStatus, with the colour the bay LED shows."
     values:
@@ -247,11 +256,14 @@ evidence:
     The droboports wiki pages and three community tools (jerimiah797's
     protocol notes and script, drobo_exporter, drobomon) were read on
     2026-10-11. They agree on port 5000, the push behaviour and the XML
-    element names. The status tables are from droboports alone.
+    element names. The status tables are from droboports, plus one array
+    code from drobo_exporter.
   open_questions: >
-    The header layout has been checked on one 5N2 only; the FS, 5N and
-    B810n are unverified. The UDP 5002 discovery payload and the TCP 5001
-    command channel are undocumented.
+    The 16-byte header layout rests on one source, jerimiah797's reading of
+    one 5N2 (firmware 4.3.1), which publishes no capture; the FS, 5N and
+    B810n are unverified, and the 10-20 s repeat cadence is the wiki's
+    (FS/5N era) and unobserved on a 5N2. The UDP 5002 discovery payload and
+    the TCP 5001 command channel are undocumented.
 
 remaining_unknowns:
   - "Frame header layout confirmed on a single 5N2 (firmware 4.3.1); other models and older firmware may differ (older markers DRINASD9 / DRINASDa)."
@@ -269,7 +281,7 @@ helpful_urls:
     description: "Frame header layout and a reader script, from one 5N2."
   - title: "cosmouser/drobo_exporter"
     url: "https://github.com/cosmouser/drobo_exporter"
-    description: "Prometheus exporter reading the same document from 5N and B800fs units."
+    description: "Prometheus exporter reading the same document from 5N and B800fs units; archived read-only in 2026-03."
   - title: "Drobo files Chapter 7 (Slashdot, May 2023)"
     url: "https://hardware.slashdot.org/story/23/05/16/2013226/drobo-having-stopped-sales-and-support-reportedly-files-chapter-7-bankruptcy"
     description: "StorCentric's June 2022 Chapter 11, the conversion to Chapter 7 in April 2023, and the end of sales on 27 January 2023."

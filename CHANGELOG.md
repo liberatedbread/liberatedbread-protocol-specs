@@ -8,6 +8,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **What a device phones home to, and what blocking it costs.**
+  `cloud.egress` records each name (or literal address) a device's traffic
+  leaves the LAN for: who opens it (`device`, `app`, `both`), what for
+  (`device_cloud`, `firmware_check`, `firmware_download`, `time`,
+  `telemetry`, `advertising` …), and `when_blocked` — `impact` on local
+  operation, the `effect`, and a `workaround` where one is known — with
+  `verification` and a required `basis` for anything unconfirmed. It is the
+  structured successor to the free-form `cloud.hosts` strings, which stay
+  valid. `scripts/generate_blocklists.py` renders it into DNS lists for
+  Pi-hole, AdGuard Home, dnsmasq/OpenWrt, Unbound (OPNsense, pfSense),
+  RouterOS and RPZ, in an `updates` profile (firmware hosts only) and a
+  `cloud` profile (everything the device contacts); the docs build publishes
+  them under `/api/v1/blocklists/`, per device and combined. App hosts are
+  never listed; no entry carrying the `time` role is blocked (NTP names are
+  redirected to a LAN time server, any other clock left reachable); and a
+  name whose spec says blocking `breaks` the device is left out and named in
+  the header, even where another spec calls it safe. First filled in for TP-Link Kasa (update
+  images from `download.tplinkcloud.com`, the cloud link the device reports
+  via the new `get_cloud_info` command, the 2023 reconnect loop and the
+  unbind-first workaround), LG webOS (the four Homebrew Channel update
+  names; the SDP names that carry the TV's clock and must stay reachable),
+  the June oven's OTA hosts, and iRobot's published hosts — which turn out
+  to be the account route's, not the robot's, so no list is generated for
+  it. New page: Blocking Vendor Updates and the Cloud.
+
+- **Printing: the NIIMBOT D110 print task, BLE print geometry, IPP status.**
+  `niimbot-d110` now declares the whole D110 print task as commands a
+  generic encoder can render — the `55 55 … AA AA` envelope with its XOR
+  checksum, SetDensity, SetLabelType, the one-byte PrintStart, PrintClear,
+  PageStart, the four-byte SetPageSize, SetPrintQuantity, PageEnd, the
+  PrintStatus poll and PrintEnd, each with its reply id — and
+  `protocol_details.niimbot_print_task` carries the three row encodings
+  (blank, indexed, bitmap) with a worked example row;
+  `scripts/test_niimbot_spec.py` rebuilds every fixed packet and that row
+  from the YAML alone. The three BLE raster printers (NIIMBOT D110, cat
+  printer, Fichero D11) declare `print_geometry` (dpi, head dots, bytes per
+  row) so a label composer reads the canvas by key. `ipp-network-printer`
+  moves from identify-only to a status read: one RFC 8010
+  Get-Printer-Attributes request for state, reasons, marker levels and
+  loaded media, with the wire encoding in `protocol_details.ipp_status`.
 - **`advanced` on network commands.** Top-level `commands` entries (UDP,
   HTTP, MQTT, SOAP, CoAP and TCP-JSON invocations) now declare `advanced` and
   `advanced_reason` under the same contract as a BLE characteristic's command
