@@ -48,6 +48,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   moves from identify-only to a status read: one RFC 8010
   Get-Printer-Attributes request for state, reasons, marker levels and
   loaded media, with the wire encoding in `protocol_details.ipp_status`.
+- **`advanced` on network commands.** Top-level `commands` entries (UDP,
+  HTTP, MQTT, SOAP, CoAP and TCP-JSON invocations) now declare `advanced` and
+  `advanced_reason` under the same contract as a BLE characteristic's command
+  and an `http_endpoints` entry: an advanced invocation must carry its
+  reason, and the schema rejects one that does not. The JuiceBox
+  current-limit commands were the case: the flag validated only because
+  command objects are open, so a schema-driven consumer could have drawn a
+  one-tap control for a write that sets more current than the wiring
+  carries.
 
 - **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
   `power_toggle` (the raw power key beside a stateful Power switch), the

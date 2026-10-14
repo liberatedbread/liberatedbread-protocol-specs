@@ -197,6 +197,13 @@ spec's `device.setup` block; the patterns are explained in
 | [Instant Pot Smart Bluetooth](instant-pot-smart-bluetooth.md) | BLE | Spec Available | BLE bond via Adjust button (medium) | Instant Brands (app withdrawn) |
 | [TiVo Network Remote](tivo-network-remote.md) | LAN (TCP 31339) | Spec Available | Enable Network Remote Control (medium) | TiVo / Xperi |
 | [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
+| [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
+| [Kano Coding Wand](kano-coding-wand.md) | BLE | Spec Available | None needed (connect and subscribe) | Kano Computing (in administration 2023) |
+| [Enel X Way JuiceBox](enel-x-juicebox.md) | WiFi (UDP, charger-initiated; telnet 2000) | Spec Available | Setup AP + DNS/NAT/telnet re-point (medium) | Enel X Way (shutdown 2024-10-11) |
+| [Bose Sleepbuds II](bose-sleepbuds-ii.md) | BLE | Spec Available | None needed (connect per bud) | Bose (Sleep app withdrawn 2025-07-21) |
+| [QardioArm (A100) Blood Pressure Monitor](qardio-arm.md) | BLE (standard BP service + vendor command) | Spec Available | BLE bonding; pinhole clears bond (medium) | Qardio (bankrupt; cloud down 2025-04-29) |
+| [Yummly Smart Thermometer](yummly-smart-thermometer.md) | BLE | Spec Available | None needed (answer a one-byte challenge) | Yummly / Whirlpool (shutdown 2024-12) |
+| [Sengled Wi-Fi Smart Bulbs](sengled-wifi-bulb.md) | WiFi (UDP 9080 JSON / MQTT) | Spec Available | SoftAP UDP re-provisioning to own broker (medium) | Sengled (cloud failing since 2025-06) |
 
 ## Not everything here was liberated
 

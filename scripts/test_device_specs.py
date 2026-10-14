@@ -2007,6 +2007,27 @@ def test_the_schema_rejects_an_advanced_locator():
     )
 
 
+def test_the_schema_requires_a_reason_on_an_advanced_network_command():
+    """`advanced` on a top-level network command carries the BLE contract.
+
+    The JuiceBox current-limit commands carried `advanced: true` that the
+    schema did not declare; the key validated only because command objects
+    are open, so a consumer could have drawn a one-tap control for a write
+    that sets more current than the wiring carries.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "enel-x-juicebox.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+    command = spec["commands"]["set_online_current"]
+    assert command["advanced"] is True and command["advanced_reason"]
+
+    bare = copy.deepcopy(spec)
+    del bare["commands"]["set_online_current"]["advanced_reason"]
+    assert list(validator.iter_errors(bare)), (
+        "an advanced network command must carry `advanced_reason`"
+    )
+
+
 def test_the_schema_enforces_the_button_contract():
     """A button binds exactly `press`, and carries no state binding.
 

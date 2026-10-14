@@ -1060,6 +1060,12 @@ live. So the two blocks divide as:
 | `http_endpoints` | What actions exist, what they take, what they return | `SetBinaryState` takes a `BinaryState` of 0 or 1 |
 | `commands` | One invocation of one action, arguments already chosen | `plug_turn_on` is that action with `1` |
 
+`advanced` and `advanced_reason` mean the same on a top-level command as on a
+BLE characteristic's command: a signpost, not a gate, that a consumer puts
+behind a deliberate action with the reason shown there. The schema requires
+the reason wherever the flag is true; the JuiceBox current-limit commands are
+the worked case.
+
 One role deserves its own sentence: **`toggle`** declares that the bound
 command *flips* power rather than setting it, so a consumer must establish
 the current state before sending — a blind toggle turns a sleeping device on.
