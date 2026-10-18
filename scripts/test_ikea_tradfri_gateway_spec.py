@@ -201,3 +201,30 @@ def test_no_real_secret_or_address_in_the_spec():
     text = SPEC_PATH.read_text(encoding="utf-8")
     assert "<psk>" in text and "<security-code>" in text
     assert not re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text)
+
+
+def test_blind_position_encodes_percent_open_as_percent_closed(commands):
+    """A percent-open UI value must reach the wire as percent closed."""
+    command = commands["blind_set_position"]
+    parameter = command["parameters"]["position"]
+    scale, offset = parameter["scale"], parameter["value_offset"]
+
+    def encode(percent_open: float) -> int:
+        return round((percent_open - offset) / scale)
+
+    assert encode(75) == 25
+    assert encode(100) == parameter["min"]  # fully open
+    assert encode(0) == parameter["max"]  # fully closed
+    rendered = render(command["body"], {"position": encode(75)}, command["parameters"])
+    assert rendered == command["example_body"]
+
+
+def test_the_enrolment_identity_is_a_stored_credential(spec, commands):
+    stage = next(
+        stage
+        for method in spec["device"]["setup"]["methods"]
+        for stage in method.get("stages") or []
+        if "issues_credentials" in stage
+    )
+    assert {"identity", "psk"} <= set(stage["issues_credentials"])
+    assert commands["request_psk"]["parameters"]["identity"]["source"] == "credential:identity"

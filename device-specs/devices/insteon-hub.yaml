@@ -528,11 +528,15 @@ commands:
         source: "instance:address"
         description: "The device's 3-byte Insteon address as six uppercase hex digits without dots (1A.2B.3C is 1A2B3C), from its label or the hub's All-Link Database."
       level:
-        type: "integer"
+        type: "string"
         required: true
-        min: 0
-        max: 255
-        description: "On-level, 0-255 (255 full on). Sent as exactly two uppercase hex digits (128 is 80)."
+        min_length: 2
+        max_length: 2
+        description: >
+          On-level as exactly two uppercase hex digits, 00 to FF (FF full on;
+          128 is "80", 5 is "05"). Declared as a string because the schema
+          has no parameter encoding for fixed-width hex: a client converts
+          its 0-255 level before substituting it.
       hub_username:
         type: "string"
         source: "credential:hub_username"
@@ -755,39 +759,6 @@ commands:
     verification: "reported"
 
 entities:
-  - platform: "light"
-    name: "Insteon Dimmer"
-    variants: ["2245-222"]
-    instances:
-      keyed_by: "address"
-    commands:
-      turn_on: "light_on_full"
-      turn_off: "light_off"
-      set_brightness: "light_on"
-    notes: >
-      A template stamped out once per dimmer linked to the hub. The hub
-      has no JSON enumeration: the child addresses come from walking the
-      All-Link Database (get_first_link, then get_next_link until NAK, each
-      0x57 record's address) and the device type from the record's link
-      data or an ID request. State is not a request/response read either:
-      send status_request and take cmd2 of the device's 0x50 ACK from the
-      buffer, or watch the buffer for the 0x50 broadcasts a device sends
-      when someone uses it at the wall. set_brightness is 0-255 on the
-      wire, the same scale Home Assistant uses. Hub v1 carries the same
-      frames as raw bytes on TCP 9761, which no command transport here
-      can express, so this binding is Hub v2 only.
-  - platform: "switch"
-    name: "Insteon On/Off Device"
-    variants: ["2245-222"]
-    instances:
-      keyed_by: "address"
-    commands:
-      turn_on: "light_on_full"
-      turn_off: "light_off"
-    notes: >
-      Relays (on/off switches, appliance modules, outlets) take the same
-      0x11/0x13 commands; status_request answers 0x00 or 0xFF. Enumeration
-      and state as for the dimmer.
   - platform: "button"
     name: "Start Linking"
     variants: ["2245-222"]
@@ -829,7 +800,8 @@ evidence:
 remaining_unknowns:
   - "Hub v1 HTTP: the developer guide describes a /3? HTTP interface with a 100-character buffer on the 2242-222, but no current client uses it and its port is not stated; this spec binds Hub v1 only through TCP 9761 (protocol_details.hub_v1_tcp)."
   - "Post-2022 firmware: Insteon Technologies ships hubs again (insteon.com, 2026). Whether newer firmware keeps the 25105 API unchanged is not confirmed by a dated source; HA/openHAB users report it working."
-  - "Schema gaps: no command transport carries raw binary over TCP (Hub v1), no parameter encoding says 'two uppercase hex digits' (the level in light_on), and `instances` assumes a JSON enumeration where this hub's children come from walking binary ALDB records. Each is stated in prose on the field it affects."
+  - "Schema gaps: no command transport carries raw binary over TCP (Hub v1), and no parameter encoding says 'two uppercase hex digits', so light_on's level is a two-character string a client must format itself."
+  - "No dimmer or switch entities are declared. `instances` needs a state_command whose JSON reply is keyed by child id, and this hub's children come from walking binary All-Link Database records (get_first_link, then get_next_link until NAK, one 0x57 record per link) while state arrives as cmd2 of a 0x50 ACK in the buffer. Until the schema can express that, a per-device light (light_on_full, light_off, light_on, status_request with the device address) is something a client builds by hand from the commands above."
   - "The extended-settings reply layout (0x2E 0x00 response data bytes) differs by device category and is not transcribed; see pyinsteon's per-device operating-flag and property tables."
   - "The 16-bit CRC used by the 2441TH thermostat and iMeter in place of the D14 checksum is only described, not given test vectors."
   - "Whether a factory reset restores the label username/password if they were changed in the app is inferred from Home Assistant's recovery instructions, not stated by Insteon."
