@@ -204,6 +204,9 @@ spec's `device.setup` block; the patterns are explained in
 | [QardioArm (A100) Blood Pressure Monitor](qardio-arm.md) | BLE (standard BP service + vendor command) | Spec Available | BLE bonding; pinhole clears bond (medium) | Qardio (bankrupt; cloud down 2025-04-29) |
 | [Yummly Smart Thermometer](yummly-smart-thermometer.md) | BLE | Spec Available | None needed (answer a one-byte challenge) | Yummly / Whirlpool (shutdown 2024-12) |
 | [Sengled Wi-Fi Smart Bulbs](sengled-wifi-bulb.md) | WiFi (UDP 9080 JSON / MQTT) | Spec Available | SoftAP UDP re-provisioning to own broker (medium) | Sengled (cloud failing since 2025-06) |
+| [IKEA TRÅDFRI Gateway (E1526)](ikea-tradfri-gateway.md) | LAN (CoAP over DTLS, UDP 5684) | Spec Available | PSK enrolment with the label security code (medium) | IKEA (no new features since 2024-04) |
+| [Hörmann BiSecur Gateway](hormann-bisecur-gateway.md) | LAN (UDP 4001 discovery, TCP 4000) | Spec Available | Log in as a gateway user (medium) | Hörmann (replaced by homee) |
+| [Insteon Hub (2245-222 / 2242-222)](insteon-hub.md) | LAN (HTTP 25105 / TCP 9761) | Spec Available | Label credentials, Basic auth (medium) | Insteon (cloud outage 2022; revived) |
 
 ## Not everything here was liberated
 

@@ -162,3 +162,82 @@ Not in the repo or the survey before this pass.
 ### No local path
 
 Google Fit's APIs end in late 2026 (a platform, not a device). Fox Sports' smart-TV app closed 2026-05-07. Nothing else new.
+
+## 2026-10-18
+
+The first scheduled sweep. Both 2026-10-11 passes had merged, so the backlog
+was re-read against main before picking.
+
+### Added this week
+
+Three more of the survey's [Do these next](missing-devices.md#do-these-next)
+picks, all LAN hubs, one of them a graduated research note. Every spec is
+`testing: untested`; wire facts from client code are `reported`.
+
+| Spec | Survey item | Notes |
+|---|---|---|
+| [IKEA TRÅDFRI Gateway (E1526)](../devices/ikea-tradfri-gateway.md) | #19 | CoAP over DTLS-PSK on UDP 5684: mDNS `_coap._udp`, PSK enrolment with the label security code (`/15011/9063`), and the resource and key numbers for lights, outlets, blinds, groups and scenes, plus observe. Reboot and factory reset are `advanced`. Follows pytradfri and node-tradfri-client, which agree. Open: the DTLS cipher suite, the PSK idle-expiry rule and the blind stop value (the two clients send different values). `scripts/test_ikea_tradfri_gateway_spec.py`. |
+| [Hörmann BiSecur Gateway](../devices/hormann-bisecur-gateway.md) | #6 | UDP 4001 discovery, then hex-ASCII frames on TCP 4000 with a packet checksum and a transport checksum. The rule reproduces all 30 frames in halacs/BiSecur's tests, and every example in the spec was rebuilt from it with a placeholder MAC and an invented token. Scope is login, door list, position and status, and the impulse. The impulse is `advanced` and carries a `safety_advisory`. SEC Consult's 2020 finding (clear-text logins, takeover of a session from the LAN) is the `security_advisory`. User, port and Wi-Fi management are left out. `scripts/test_hormann_bisecur_gateway_spec.py`. |
+| [Insteon Hub (2245-222 / 2242-222)](../devices/insteon-hub.md) | #22, graduated from `research-notes/insteon-hub.*` | Hub v2: HTTP on 25105 with the label's Basic auth, the send / buffer-read / buffer-clear endpoints and the 200-character ring buffer's read rules. Hub v1: raw modem frames on TCP 9761. Standard and extended frames, with the extended-message checksum, cmd1 values, link-database walk and linking. IM reset is `advanced`. The Talos 2018 advisories on firmware 1012 are the `security_advisory`. Insteon Technologies still sells the 2245-222 (2026-10-18). The research note stays as the dated trail. `scripts/test_insteon_hub_spec.py`. |
+
+Corrections to the survey's rows, found while writing them:
+
+- **TRÅDFRI.** IKEA did not stop updating the gateway in July 2024. Its FAQ
+  says no new products or features after April 2024, because the gateway hit
+  its memory limit, and promises support at least until June 2026. Gateway
+  firmware kept coming after that: 1.21.44 (2025-07-01), 1.21.51 (2026-02-10)
+  and 1.21.57 (2026-05-04), which IKEA's update feed still offered on
+  2026-10-18. July 2024 matches only bulb-firmware releases.
+- **BiSecur.** No Hörmann source dates the end of support. "End of 2023 /
+  beginning of 2024" comes from halacs's README and nothing is cited behind
+  it. A dealer says the gateway has not been sold since December 2020, and
+  users saw an in-app change-over notice in October 2023.
+
+Schema gaps that came up: `udp_broadcast.response_format` has no XML value
+(BiSecur's discovery reply). No command envelope fits a hex-ASCII frame with
+two checksums (BiSecur) or raw binary over TCP (Insteon v1). And no
+`instances` shape fits a collection that returns a bare array of ids
+(TRÅDFRI). Each spec notes its gap in `remaining_unknowns`.
+
+### New candidates — orphaned or dying, with a local path
+
+| Device | Status | Risk | Local path | Public work | Catch |
+|---|---|---|---|---|---|
+| **Withings Body+ scale** (and likely other Withings scales) | New paywall. Accounts created on or after 2026-10-13 need Withings+ (US$99.50/yr) for automatic sync to Apple Health, Health Connect and any third-party app, the developer API included. Older accounts are unaffected ([MacRumors, 2026-10-15](https://macrumors.com/2026/10/15/withings-plus-apple-health-syncing); Android Authority would not load). | B | Phone-direct over **Bluetooth Classic**, not BLE: the scale pushes each weigh-in with a per-user ID after an association step. One owner has it reporting to an original ESP32, with the scale's Wi-Fi removed ([didac.dev, 2026-09-03](https://didac.dev/blog/i-made-my-withings-scale-sync-to-home-assistant-without-the-cloud)). | The write-up only. Code "not uploaded yet" and no licence. Protocol details not published. | **Research target.** Classic BT is a shape the schema may not cover well. One unit, two profiles, AI-assisted reverse engineering. The survey's Withings row covers only the Steel HR watch, through Gadgetbridge. |
+
+Nothing else qualifies. Sony's mocopi link app (leaves the stores 2026-10-28)
+and Casio's GSW SYSTEM app (support ends 2026-10-31) are under *No local
+path*.
+
+### New candidates — new or popular, with a local path
+
+| Device | Status | Risk | Local path | Public work | Catch |
+|---|---|---|---|---|---|
+| **Keto-Mojo GK+ glucose and ketone meter** | New HACS integration announced 2026-10-17 ([HA community](https://community.home-assistant.io/t/new-integration-keto-mojo-gk-glucose-ketone-meter-over-bluetooth/1029313)). Vendor active. | C | Phone-direct BLE on a vendor service `0003cdd0-0000-1000-8000-00805f9b0131` (not the SIG Glucose 0x1808). Commands go to `cdd2` and replies come on `cdd1`: unit, serial and all stored records as 9-byte records (time, value, meal flag, meal type). Control-solution results are flagged. One connection at a time. No pairing step is described. | [ha-keto-mojo](https://github.com/gjg4000-debug/ha-keto-mojo) (MIT; README says it was worked out independently and contains no vendor code) | Read-only and small, so a clean first spec. It is a medical device, so add a `safety_advisory`. Tested on one meter in mg/dL only. Frame bytes are only in the code. |
+| **Easee wall chargers** (Charge Max tested; others claimed) | Community BLE integration first posted 2026-09-13, still active on 2026-10-07 ([HA community](https://community.home-assistant.io/t/easee-ev-charger-ble-integration/1024958)). The company is stable: new majority owner May 2026 and back in profit. | C | Phone-direct BLE with a PIN handshake. The PIN is on the label, not the app password. Errors are named `JPakeError`, which suggests J-PAKE (*unverified*). State, Config and Debug channels. Writes cover current limits, phase mode (1/auto/3), cable lock, LED, reboot and local RFID keys. One BLE connection; the charger must be advertising ("always on", or a 5 s button press). | [ha-easee-ble](https://github.com/parrel/ha-easee-ble) and [easee-ble](https://github.com/parrel/easee-ble) (both MIT) | No protocol doc; everything is in code. Current and phase writes need `advanced` plus a wiring-limit `safety_advisory`. Settings sync both ways with the cloud. Very large European installed base. |
+| **Bluetooth SIG Mesh lights and plugs** (generic; tested on a Tuya tunable-white bulb) | New HACS integration posted 2026-10-15 ([HA community](https://community.home-assistant.io/t/aoi-bluetooth-sig-mesh-local-control-of-bluetooth-mesh-lights-and-plugs-no-hub-or-cloud/1029038)). | C | Standard SIG Mesh through a GATT proxy node: provisioning (no-OOB only), Generic OnOff, Light Lightness and Light CTL. | [ha-aoi-sig-mesh](https://github.com/pratikthorat/ha-aoi-sig-mesh) (MIT, forked from tuya-ble-mesh, MIT) | The Bluetooth SIG publishes the protocol: a profile-style spec (like `bthome-v2` / `matter-device`) that links to it, not a reverse-engineering effort. Covers the many no-name Tuya "BLE mesh" devices. Telink proprietary mesh (survey #13, AwoX) is a separate protocol. Network keys must be placeholdered. |
+
+Considered and left out: `hlmblue` / `helium-air-ble` (a BLE air conditioner
+whose brand the README does not name; GPL-3.0, 0 stars, control blocked on a
+per-unit passkey). Thin until the brand is known.
+
+### Status changes to items already listed
+
+- **Orbit B-hyve** (survey row): a new, broader MIT integration was announced on 2026-10-10 ([HA community](https://community.home-assistant.io/t/local-only-orbit-b-hyve-integration-for-home-assistant-over-bluetooth-le/1028201); [orbit-bhyve-ble](https://github.com/ljmerza/orbit-bhyve-ble), 125 commits). It actuates HT25, HT25G2 and HT25A (Gen2, verified 2026-09-14), HT31 and HT32A, and decodes HT34A; some families use protobuf. AES-128-ECB keystream with a `sum(plaintext)+magic+len` trailer. The per-mesh key is fetched from the cloud once, at setup. This makes the survey's "one 12-star repo" caveat out of date and makes B-hyve a stronger spec pick.
+- **Lexie / Eargo**: Eargo's app removal and cloud deactivation on **2026-10-22** still stands ([BBB](https://www.bbb.org/losangelessiliconvalley/quote/request-eargo-inc-415118)), four days from now. No source confirms that the Lexie removal on 2026-10-08 happened (*unverified*). Nothing new on the protocol.
+- **Tesla Powerwall**: pypowerwall (MIT) now says that from firmware **25.10.0** Tesla no longer supports routed access to the TEDAPI endpoint at the gateway's fixed address, so a client must join the gateway's own Wi-Fi AP ([pypowerwall](https://github.com/jasonacox/pypowerwall)). The README gives no date for this. It matches the 2026-09-17 Powerwall 3 report and is not new this week.
+- **Senec**: this adds detail to the existing target, not news from this week. New-customer business stopped 2026-07-14, E4/P4 orders closed end of August 2026, and installs must be done by 2026-12-31. Service and warranties continue. The article says nothing about the app or cloud ([pv magazine, 2026-07-14](https://www.pv-magazine.de/2026/07/14/enbw-findet-keinen-investor-neukundengeschaeft-von-senec-wird-eingestellt/)).
+- **Samsung SmartThings**: no source yet confirms that billing actually started in October. The latest coverage is from June.
+- **TiVo SkipMode**: no change. It still ends 2026-11-02, and the price of Premium Auto Commercial Skip is unpublished ([Cord Cutters News](https://cordcuttersnews.com/tivo-plans-to-end-free-automatic-commercial-skipping-in-november-tests-paid-premium-replacement-service/)).
+- **No news found this week** on Enphase firmware, Sleep Number / SleepIQ, Petlibro, the VanMoof key server or the Fossil Hybrid key server.
+
+### No local path
+
+Sony mocopi link app: it leaves the stores 2026-10-28, but the sensors still
+work with the main mocopi app and PCs move to Sensor Data Receiver
+([Sony](https://xyn.sony.net/en/news/20251028)). Casio G-SQUAD PRO GSW-H1000:
+support for the GSW SYSTEM app ends 2026-10-31. It is a Wear OS watch
+([Casio](https://world.casio.com/support/info/2026/0406/)). Execulink Smart
+Home (Canada): the app and self-monitoring end 2026-12-30, and the operator
+says the devices keep working locally (operator platform, *unverified*
+detail). Zeabur: a cloud host, not a device.
