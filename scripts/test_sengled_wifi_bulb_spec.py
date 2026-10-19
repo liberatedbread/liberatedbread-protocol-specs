@@ -153,19 +153,29 @@ def test_discovery_probe_is_the_state_read(spec):
     assert method["udp_broadcast"]["port"] == spec["device"]["identification"]["default_port"] == 9080
 
 
-def test_mqtt_bodies_are_arrays_of_attribute_objects(spec):
-    for name, command in spec["commands"].items():
-        if command.get("transport") != "mqtt":
-            continue
-        body = command["body"]
-        params = command.get("parameters") or {}
-        for placeholder in PLACEHOLDER.findall(body):
-            assert placeholder in params, f"{name}: {{{placeholder}}} undeclared"
-            sample = "AA:BB:CC:DD:EE:FF" if placeholder == "mac" else str(_sample_value(params[placeholder]))
-            body = body.replace("{" + placeholder + "}", sample)
+def _mqtt_requests(node):
+    """Every MQTT request the spec writes out, wherever it sits."""
+    if isinstance(node, dict):
+        if node.get("protocol") == "mqtt" and "message" in node:
+            yield node
+        for value in node.values():
+            yield from _mqtt_requests(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _mqtt_requests(value)
+
+
+def test_mqtt_messages_are_arrays_of_attribute_objects(spec):
+    """The spec has no MQTT commands; its MQTT messages are written out in its
+    reset steps. Each must follow the envelope the mqtt section describes."""
+    seen = 0
+    for request in _mqtt_requests(spec):
+        assert re.fullmatch(r"wifielement/<MAC>/update", request["action"]), request["action"]
+        body = request["message"].replace("<MAC>", "AA:BB:CC:DD:EE:FF").replace("<epoch ms>", "0")
         message = json.loads(body)
-        assert isinstance(message, list) and message, name
+        assert isinstance(message, list) and message
         for item in message:
-            assert set(item) == {"dn", "type", "value", "time"}, name
-            assert isinstance(item["value"], str), f"{name}: value must be a string"
-        assert command["path"] == "wifielement/{mac}/update"
+            assert set(item) == {"dn", "type", "value", "time"}
+            assert isinstance(item["value"], str), "value must be a string"
+        seen += 1
+    assert seen >= 1
