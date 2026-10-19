@@ -126,10 +126,12 @@ state. A short press just toggles the relay.
 
 ## Power strips
 
-Power strips (HS300 / KP303 / EP40) report a `children` array in `get_sysinfo`
-and address each outlet by wrapping a command in
-`{"context":{"child_ids":["<deviceId>0N"]}}`. That is a separate spec; this one
-covers single-relay plugs only.
+Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
+`get_sysinfo` and address each outlet by wrapping a command in
+`{"context":{"child_ids":["<deviceId>0N"]}}`. This spec handles them: the
+instanced "Outlets" switch enumerates the children, and `relay_on_child` /
+`relay_off_child` scope the write. A single-relay plug reports no `children`,
+so the plain "Outlet" switch covers it.
 
 ## Keeping it off the internet
 
