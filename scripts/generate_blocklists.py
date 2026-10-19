@@ -539,12 +539,19 @@ def render_unbound(sel: Selection, opts: Options) -> str:
         "them. Each time redirect carries its own local-zone, because Unbound ignores a bare "
         "local-data that sits under a blocking zone.",
     )
+    # Every zone this list opens. Unbound refuses a whole config holding a
+    # local-data below the apex of a redirect zone, so an exact name that
+    # falls under one -- a carve-out under a time redirect, or another spec's
+    # name under a --sinkhole parent -- gets a zone of its own.
+    zones = [r.host for r in sel.block if r.subdomains]
+    if opts.time_server:
+        zones += [r.host for r in sel.time if r.subdomains]
     for r in sel.block:
         out.append(f"# {r.describe()}")
         if r.subdomains and not opts.sinkhole:
             out.append(f'local-zone: "{r.host}." always_nxdomain')
             continue
-        if r.subdomains:
+        if r.subdomains or any(r.host.endswith("." + z) for z in zones):
             out.append(f'local-zone: "{r.host}." redirect')
         out += [f'local-data: "{r.host}. A {v4}"', f'local-data: "{r.host}. AAAA {v6}"']
     if opts.time_server:

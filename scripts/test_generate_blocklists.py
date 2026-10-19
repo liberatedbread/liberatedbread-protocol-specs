@@ -629,6 +629,38 @@ def test_unbound_accepts_the_generated_config(tmp_path, opts):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.fixture
+def nested() -> gb.Selection:
+    """An exact name under another spec's subdomains block, and an exact
+    carve-out under a time redirect: both put a name below a zone's apex."""
+    return gb.select(
+        [
+            E("vendor.example.com", match="subdomains"),
+            E("fw.vendor.example.com", device="other-device"),
+            E("ntp.example.com", match="subdomains", roles=("time",), impact="degraded", effect="Drift."),
+            E("rdx.ntp.example.com"),
+        ],
+        "updates",
+    )
+
+
+def test_unbound_gives_a_name_under_a_zone_its_own_zone(nested):
+    lines = _rules(gb.render_unbound(nested, gb.Options(sinkhole="192.168.1.52", time_server="192.168.1.53")))
+    for host in ("fw.vendor.example.com", "rdx.ntp.example.com"):
+        zone = lines.index(f'local-zone: "{host}." redirect')
+        assert lines[zone + 1] == f'local-data: "{host}. A 192.168.1.52"'
+
+
+@pytest.mark.skipif(shutil.which("unbound-checkconf") is None, reason="unbound not installed")
+@pytest.mark.parametrize("opts", [gb.Options(), REDIRECT, gb.Options(sinkhole="192.168.1.52"),
+                                  gb.Options(sinkhole="192.168.1.52", time_server="192.168.1.53")])
+def test_unbound_accepts_names_nested_under_a_zone(tmp_path, nested, opts):
+    conf = tmp_path / "unbound.conf"
+    conf.write_text("server:\n" + gb.render_unbound(nested, opts), encoding="utf-8")
+    result = subprocess.run(["unbound-checkconf", str(conf)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.skipif(shutil.which("named-checkzone") is None, reason="bind9-utils not installed")
 def test_bind_accepts_the_generated_rpz_zone(tmp_path):
     zone = tmp_path / "rpz.zone"
