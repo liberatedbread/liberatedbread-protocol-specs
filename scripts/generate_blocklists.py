@@ -324,11 +324,26 @@ def select(
     # it would cover.
     protected = [e for e in device_side if e.host and (e.impact == "breaks" or "time" in e.roles)]
     blockable: list[Entry] = []
+    held: list[tuple[Entry, Entry]] = []
     for e in wanted:
         if not e.host or e.impact == "breaks":
             continue
         guard = _protector(e, protected)
         if guard is None:
+            blockable.append(e)
+        else:
+            held.append((e, guard))
+    for e, guard in held:
+        # A veto is moot when the same name is blocked anyway, by a carve-out
+        # the protector's own spec wrote: the rule goes out whatever this
+        # entry says, so it joins that rule rather than be reported as "not
+        # listed" above a line that lists it. Only when the carve-out answers
+        # for everything this entry would: an exact carve-out does not block
+        # the subdomains a `subdomains` entry asks for.
+        if any(
+            b.host == e.host and (b.match == "subdomains" or e.match != "subdomains")
+            for b in blockable
+        ):
             blockable.append(e)
             continue
         sel.vetoed.append((e, guard))
