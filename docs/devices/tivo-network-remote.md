@@ -38,14 +38,14 @@ disconnect. Pause 100–200 ms between commands.
 | Command | Meaning |
 |---------|---------|
 | `IRCODE <key>` | Press a remote button (`UP`, `SELECT`, `TIVO`, `PLAY`, `NUM0`…) |
-| `KEYBOARD <key>` | Type a key (software 12.0+) |
+| `KEYBOARD <key>` | Type a key (Premiere and later; TiVo publishes no minimum software) |
 | `TELEPORT TIVO\|LIVETV\|GUIDE\|NOWPLAYING` | Jump to a screen |
 | `SETCH <n>` / `SETCH <major> <minor>` | Tune (must be on Live TV) |
 | `FORCECH <n>` | Tune, cancelling a recording if needed |
 
 | Reply | Meaning |
 |-------|---------|
-| `CH_STATUS 0702 LOCAL` | Current channel; sent on connect and on every change |
+| `CH_STATUS 0702 LOCAL` | Current channel; sent on connect (whether later changes are pushed is undocumented) |
 | `CH_FAILED NO_LIVE` | Not on Live TV; also `RECORDING`, `MISSING_CHANNEL`, `MALFORMED_CHANNEL`, `INVALID_CHANNEL` |
 | `LIVETV_READY`, `INVALID_COMMAND`, `COMMAND_TIMEOUT` | Informational; `COMMAND_TIMEOUT` is harmless |
 
