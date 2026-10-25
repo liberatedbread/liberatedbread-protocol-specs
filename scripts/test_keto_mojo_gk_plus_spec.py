@@ -182,6 +182,14 @@ def test_unit_reply_examples(spec):
     assert bytes.fromhex(spec["payload_formats"]["UnitReply"]["example"]) == frames[0]
 
 
+def test_unit_reply_check_annotations_match_the_frames(spec):
+    for rule in spec["payload_formats"]["UnitReply"]["parse_rules"]:
+        stated = re.search(r"check 0x([0-9a-f]{4})", rule)
+        if stated:
+            (f,) = hexes(rule)
+            assert crc16_modbus(f[1:10]) == int(stated.group(1), 16), rule
+
+
 def test_serial_reply_example_is_an_invented_serial(spec):
     raw = bytes.fromhex(spec["payload_formats"]["SerialReply"]["example"])
     parts = split_frame(raw)
