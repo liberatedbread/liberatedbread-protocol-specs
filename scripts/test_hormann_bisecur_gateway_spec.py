@@ -4,7 +4,7 @@
 
 `device-specs/devices/hormann-bisecur-gateway.yaml` says a frame is hex ASCII
 of `src(6) dst(6) len(2) tag token(4) cmd payload chk`, where the packet
-checksum is the byte sum of the length and everything up to it, and a final
+checksum is the length value plus the byte sum of tag through payload, and a final
 transport checksum is the sum of the ASCII codes of the hex text before it.
 This module transcribes that rule with the standard library alone and holds
 every example frame in the spec to it, so a frame that drifts from the rule
@@ -78,6 +78,33 @@ def test_impulse_is_advanced(spec):
 def test_discovery_probe_is_the_documented_text(spec):
     probe = spec["device"]["discovery"]["methods"][0]["udp_broadcast"]["probe_hex"]
     assert bytes.fromhex(probe) == b'<Discover target="Gateway" />'
+
+
+def test_safety_facts_are_pinned(spec):
+    """PORT_ERROR after an impulse does not mean the door stayed put; never resend on it."""
+    impulse = " ".join(spec["commands"]["send_impulse"]["description"].split())
+    assert "PORT_ERROR" in impulse
+    assert "Do not retry on PORT_ERROR" in impulse
+    detail = " ".join(spec["device"]["safety_advisory"]["detail"].split())
+    assert "PORT_ERROR reply does not mean the door did not move" in detail
+    assert "never resend automatically" in detail
+    udp = spec["device"]["discovery"]["methods"][0]["udp_broadcast"]
+    assert udp["port"] == 4001
+    assert udp["listen_port"] == 4002
+
+
+def test_packet_checksum_adds_the_length_value_not_its_bytes():
+    """With a payload of 247+ bytes the length passes 255 and the two readings diverge."""
+    payload = b'{"CMD":"GET_GROUPS","PAD":"' + b"x" * 230 + b'"}'
+    assert len(payload) >= 247
+    frame = build(CLIENT, GATEWAY, 9, TOKEN, 0x06, payload)
+    check(frame)
+    packet = bytes.fromhex(frame[:-2])[12:]
+    length = int.from_bytes(packet[:2], "big")
+    assert length == 9 + len(payload) > 0xFF
+    body_sum = sum(packet[2:-1])  # tag through payload
+    assert packet[-1] == (length + body_sum) & 0xFF
+    assert packet[-1] != (packet[0] + packet[1] + body_sum) & 0xFF
 
 
 def test_transition_example_decodes_as_documented(spec):
