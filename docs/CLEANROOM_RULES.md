@@ -101,7 +101,14 @@ basis — and `scripts/validate_glyphs.py` accepts no other origin. See
 [Instruction Glyphs](contributing/glyphs.md).
 
 ## Scope limitations
-- Exclude safety-critical medical devices.
+- Exclude safety-critical medical devices: anything whose output feeds a treatment decision
+  or whose control keeps someone alive (insulin pumps, CGMs that drive one, CPAP, infusion
+  equipment, implant programmers). Consumer health gadgets whose readings are a personal
+  log — a fingerstick meter's history, a blood-pressure cuff, a fingertip oximeter — are in
+  scope as read paths, and every `category: health` spec carries a `device.safety_advisory`
+  stating that a reading which arrived through it is not a basis for a dose or a diagnosis
+  (`scripts/test_device_specs.py` enforces the block). Nothing in this repository is fit for
+  a life-or-death decision; the advisory is where a client will show that sentence.
 - Exclude tobacco/vape devices except PAX (explicitly allowed by project policy).
 - Prefer local-first control; if a device is cloud-only, document that and deprioritize.
 
