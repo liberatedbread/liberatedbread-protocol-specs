@@ -5717,7 +5717,7 @@
 <h1 id="hormann-bisecur-gateway">Hörmann BiSecur Gateway<a class="headerlink" href="#hormann-bisecur-gateway" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p><strong>Status</strong>: Spec Available (unverified)
-<strong>Protocol</strong>: LAN (UDP 4001 discovery, TCP 4000 hex-ASCII frames)
+<strong>Protocol</strong>: LAN (UDP 4001 discovery with replies on UDP 4002, TCP 4000 hex-ASCII frames)
 <strong>Manufacturer</strong>: Hörmann
 <strong>Manufacturer Status</strong>: Unsupported — replaced by the homee hub; no sales since December 2020</p>
 </blockquote>
@@ -5730,7 +5730,10 @@ the doors, read each door's position and status, and send the same impulse a
 hand transmitter sends.</p>
 <blockquote>
 <p><strong>Safety</strong>: an impulse moves a heavy door or gate. Send one only as a
-deliberate action with the door in view. <strong>Security</strong>: the protocol is not
+deliberate action with the door in view. A <code>PORT_ERROR</code> reply does not mean
+the door stayed put: halacs reports that on ports added by copying a hand
+transmitter's code, <code>SET_STATE</code> answers <code>PORT_ERROR</code> (10) although the door
+moves. Never resend an impulse automatically. <strong>Security</strong>: the protocol is not
 encrypted and sessions can be taken over from the LAN (SEC Consult, 2020),
 so keep the gateway on a trusted segment and never expose TCP 4000.</p>
 </blockquote>
@@ -5753,7 +5756,7 @@ so keep the gateway on a trusted segment and never expose TCP 4000.</p>
 </tr>
 <tr>
 <td>Discovery</td>
-<td>UDP broadcast <code>&lt;Discover target="Gateway" /&gt;</code> to port 4001</td>
+<td>UDP broadcast <code>&lt;Discover target="Gateway" /&gt;</code> to port 4001; the reply goes to UDP 4002 on the sender, so bind 4002 first. bisdk and pysecur3 send <code>target="LogicBox"</code> instead</td>
 </tr>
 <tr>
 <td>Credentials</td>
@@ -5805,7 +5808,7 @@ so keep the gateway on a trusted segment and never expose TCP 4000.</p>
 </tr>
 <tr>
 <td>1</td>
-<td>Packet checksum: byte sum of length through payload</td>
+<td>Packet checksum: length value + byte sum of tag through payload, mod 256</td>
 </tr>
 <tr>
 <td>1</td>
@@ -5819,6 +5822,14 @@ read a port's position (0–200, halve it for percent) and status bits,
 <code>SET_STATE</code> (0x33) to send a port's impulse, and <code>LOGOUT</code> (0x11). Errors come
 back as command 0x01 with a one-byte code. User, port and Wi-Fi management
 commands exist but are left out of the spec.</p>
+<p>Session behaviour reported by halacs from one gateway: a token lasts about
+30 minutes, then commands get <code>PERMISSION_DENIED</code> (12). If a connection closed
+without <code>LOGOUT</code>, the next <code>LOGIN</code> is preceded by one <code>LOGOUT</code> frame (tag
+0xFF) per stale session, which a client skips. <code>LOGOUT</code> gets no reply. Leave
+about 100 ms between commands and poll <code>HM_GET_TRANSITION</code> no faster than
+every 2 s, or the gateway resets the connection. Ports added by copying a hand
+transmitter's code return <code>PORT_ERROR</code> instead of a position, and about 20 %
+of polls on other ports return a transient <code>PORT_ERROR</code>.</p>
 <p><code>scripts/test_hormann_bisecur_gateway_spec.py</code> rebuilds every example frame
 from the rule. The rule also reproduces all 30 frames in halacs/BiSecur's
 tests.</p>
