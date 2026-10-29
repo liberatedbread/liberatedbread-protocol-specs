@@ -207,6 +207,9 @@ spec's `device.setup` block; the patterns are explained in
 | [IKEA TRÅDFRI Gateway (E1526)](ikea-tradfri-gateway.md) | LAN (CoAP over DTLS, UDP 5684) | Spec Available | PSK enrolment with the label security code (medium) | IKEA (no new features since 2024-04) |
 | [Hörmann BiSecur Gateway](hormann-bisecur-gateway.md) | LAN (UDP 4001 discovery, TCP 4000) | Spec Available | Log in as a gateway user (medium) | Hörmann (replaced by homee) |
 | [Insteon Hub (2245-222 / 2242-222)](insteon-hub.md) | LAN (HTTP 25105 / TCP 9761) | Spec Available | Label credentials, Basic auth (medium) | Insteon (cloud outage 2022; revived) |
+| [Keto-Mojo GK+ Glucose & Ketone Meter](keto-mojo-gk-plus.md) | BLE | Spec Available | None needed (connect and request records) | Keto-Mojo (active) |
+| [Orbit B-hyve Bluetooth Hose Timers](orbit-bhyve-ble.md) | BLE (encrypted) | Spec Available | Export the network key once from the Orbit account (medium) | Orbit (active) |
+| [LIVISI SmartHome (SHC 1 / SHC 2)](livisi-smarthome.md) | LAN (HTTP 8080, WebSocket events) | Spec Available | Local SmartHome on; local password, token login (medium) | LIVISI (servers off 2024-03-01) |
 
 ## Not everything here was liberated
 
