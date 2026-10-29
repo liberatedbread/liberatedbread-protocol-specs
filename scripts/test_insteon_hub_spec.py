@@ -90,7 +90,8 @@ def spec() -> dict:
 # -- checksum ---------------------------------------------------------------
 
 
-def test_checksum_makes_the_covered_bytes_sum_to_zero():
+def test_checksum_helper_matches_the_stated_rule():
+    """The helper itself, not the spec: the spec-facing checks are below."""
     for cmd1, cmd2, data in [
         (0x2E, 0x00, bytes([0x01]) + bytes(12)),
         (0x2E, 0x00, bytes(range(1, 14))),
@@ -105,7 +106,6 @@ def test_checksum_known_values():
     # Extended get-settings for button 1: 2E 00, D1 = 01 -> -(0x2F) = 0xD1.
     assert checksum(0x2E, 0x00, bytes([0x01]) + bytes(12)) == 0xD1
     assert checksum(0x00, 0x00, bytes(13)) == 0x00
-    assert checksum(0x2E, 0x00, bytes(range(1, 14))) == (-(0x2E + 91)) & 0xFF
 
 
 def test_extended_example_carries_a_valid_checksum(spec):
@@ -122,6 +122,23 @@ def test_extended_command_path_carries_a_valid_checksum(spec):
     path = spec["commands"]["extended_get_settings"]["path"]
     frame = bytes.fromhex(SEND_PATH.match(fill(path, address="1A2B3C")).group(1))
     assert frame == extended(DEVICE, 0x2E, 0x00, bytes([0x01]) + bytes(12))
+
+
+# Modem commands that address no device: each path is a fixed frame, and the
+# reset among them erases the modem's link database, so a typo must fail here.
+@pytest.mark.parametrize(
+    "name,frame_hex",
+    [
+        ("get_im_info", "0260"),
+        ("get_first_link", "0269"),
+        ("get_next_link", "026A"),
+        ("start_all_linking", "02640100"),
+        ("cancel_all_linking", "0265"),
+        ("reset_im", "0267"),
+    ],
+)
+def test_fixed_modem_command_paths(spec, name, frame_hex):
+    assert SEND_PATH.match(spec["commands"][name]["path"]).group(1) == frame_hex
 
 
 # -- standard frame layout --------------------------------------------------
@@ -199,4 +216,9 @@ def test_buffer_wraparound_and_clear():
     data, cursor = new_data(bs, start)
     assert data == new and cursor == 2
     assert new_data("0" * RING + "00", 120) == ("", 0)
+    # A tail of zeros past the cursor is a ring the hub cleared, not a wrap:
+    # only what was written from the start counts.
+    head = "0262" + "1A2B3C0F1100" + "06"
+    cleared = head + "0" * (RING - len(head))
+    assert new_data(cleared + f"{len(head):02X}", 150) == (head, len(head))
     assert new_data(bs, cursor) == ("", cursor)

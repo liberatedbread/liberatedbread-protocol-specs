@@ -8,7 +8,8 @@ template with nothing but the standard library, checks that it parses, that
 it agrees with the command's own `example_body`, and that the key numbers it
 uses mean what the community clients say they mean. The payload shapes in
 PUBLISHED are the ones the glenndehaan/ikea-tradfri-coap-docs walk-through
-and pytradfri send, so a spec that drifts from the wire fails here rather
+and pytradfri send (the blind stop is node-tradfri-client's `0`; pytradfri
+writes `true`), so a spec that drifts from the wire fails here rather
 than at a lamp.
 """
 
@@ -217,6 +218,30 @@ def test_blind_position_encodes_percent_open_as_percent_closed(commands):
     assert encode(0) == parameter["max"]  # fully closed
     rendered = render(command["body"], {"position": encode(75)}, command["parameters"])
     assert rendered == command["example_body"]
+
+
+def test_the_cover_reads_percent_closed_but_sets_percent_open(spec, commands):
+    """The two directions differ, and only the notes can say so: the state is
+    the raw wire value while the set command's parameter already inverts. A
+    client that inverts both ways sends 75 % open as 75 % closed."""
+    cover = next(e for e in spec["entities"] if e["platform"] == "cover")
+    assert "scale" not in cover and "value_offset" not in cover
+    assert cover["commands"]["set_cover_position"] == "blind_set_position"
+    parameter = commands["blind_set_position"]["parameters"]["position"]
+    assert (parameter["scale"], parameter["value_offset"]) == (-1, 100)
+    notes = " ".join(cover["notes"].split())
+    assert "RAW percent closed" in notes and "must not invert it a second time" in notes
+
+
+def test_discovery_narrows_the_generic_coap_service_type(spec):
+    """`_coap._udp` is every CoAP device on the link; the schema requires a
+    TXT condition on a shared service type, in both places it lives."""
+    ident = spec["device"]["identification"]
+    method = next(m for m in spec["device"]["discovery"]["methods"] if m["type"] == "mdns")
+    assert ident["mdns_service_type"] == method["mdns"]["service_type"] == "_coap._udp.local."
+    wanted = [{"key": "version", "match": "present"}]
+    assert ident["mdns_txt_match"] == wanted
+    assert [{k: c[k] for k in ("key", "match")} for c in method["mdns"]["txt_match"]] == wanted
 
 
 def test_the_enrolment_identity_is_a_stored_credential(spec, commands):

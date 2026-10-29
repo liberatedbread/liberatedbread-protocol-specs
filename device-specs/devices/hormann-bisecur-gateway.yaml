@@ -4,7 +4,9 @@
 #
 # Sources (all public; clean-room — derived facts only):
 #   - bisdk/sdk: protocol notes (discovery, frame layout, both checksums)
-#   - halacs/BiSecur: Go SDK and CLI, its test vectors, its end-of-support note
+#   - halacs/BiSecur: Go SDK and CLI, its test vectors, its protocol notes
+#     (docs/PROTOCOL.md: session, rate-limit and PORT_ERROR behaviour), its
+#     end-of-support note
 #   - skelsec/pysecur3: command-id and error-code tables
 #   - SEC Consult advisory "Hörmann: opening doors for everyone" (2020-10-28)
 #   - Hörmann quick guide TR20N001-B (07.2015)
@@ -74,10 +76,15 @@ device:
       guide warns of unintended travel while teaching radio codes. A client
       must make the impulse a deliberate action, show the door's reported
       state and position first, and never send it on a schedule or from an
-      automation that runs without someone watching. The gateway's
-      position feedback depends on the operator: ports added by copying a
-      hand transmitter's code report nothing, so the client may not know
-      which way the door will move.
+      automation that runs without someone watching. Position feedback
+      depends on how the port was taught. halacs reports that on ports added
+      by copying a hand transmitter's code (ADD_PORT), HM_GET_TRANSITION
+      returns PORT_ERROR instead of a position, so the client may not know
+      which way the door will move, and SET_STATE also replies PORT_ERROR
+      although the impulse went out and the door moves. A PORT_ERROR reply
+      does not mean the door did not move; never resend automatically.
+      Re-read the door, or ask the person watching it, before any second
+      impulse, which may stop or reverse it.
 
   openness:
     status: "undocumented"
@@ -95,15 +102,24 @@ device:
       - type: "udp_broadcast"
         udp_broadcast:
           port: 4001
+          listen_port: 4002
           probe_hex: "3c446973636f766572207461726765743d224761746577617922202f3e"
           passive_ok: false
         notes: >
-          Broadcast the ASCII text <Discover target="Gateway" /> (the
-          probe_hex above) to 255.255.255.255 port 4001; halacs repeats it
-          every 5 s. Each gateway answers with one XML element, e.g.
+          Bind UDP 4002 first, then broadcast the ASCII text
+          <Discover target="Gateway" /> (the probe_hex above) to
+          255.255.255.255 port 4001; halacs repeats it every 5 s. The
+          gateway sends its reply to port 4002 on the sender's address, not
+          back to the probe's source port: bisdk's README says so, and the
+          discovery listeners in bisdk, halacs and pysecur3 all bind 4002.
+          Each gateway answers with one XML element, e.g.
           <LogicBox swVersion="2.5.0" hwVersion="1.0.0"
           mac="54:10:EC:00:00:01" protocol="MCP V3.0"/> (placeholder MAC),
-          from its own address. The reply is XML, which the schema's
+          from its own address. The probe's target differs between the
+          SDKs: halacs (tested against a gateway) sends target="Gateway",
+          while bisdk (which reports its discovery working) and pysecur3 send
+          target="LogicBox". Whether the gateway checks the target at all is
+          not established. The reply is XML, which the schema's
           response_format vocabulary does not name, so it is left unset;
           read the mac attribute for identity. Gateways on another subnet
           or behind a VPN are added by address.
@@ -131,12 +147,18 @@ device:
         steps:
           - action: "Connect the gateway to the router by Ethernet, or use the Wi-Fi it was given in the app. The LED is steady green once it is on the network."
             actor: "user"
-          - action: "Broadcast the discovery probe to UDP 4001, or take the gateway's address from the user."
+          - action: "Bind UDP 4002, then broadcast the discovery probe to UDP 4001, or take the gateway's address from the user."
             actor: "client"
-            expect: "A LogicBox reply carrying the gateway's MAC and protocol version."
+            expect: "A LogicBox reply on UDP 4002 carrying the gateway's MAC and protocol version."
           - action: "Open TCP 4000 and send LOGIN (0x10) with the user name and password, token 0."
             actor: "client"
-            expect: "A LOGIN reply (0x90) carrying a sender id and a 4-byte session token, or ERROR (0x01) with LOGIN_FAILED."
+            expect: >
+              A LOGIN reply (0x90) carrying a sender id and a 4-byte session
+              token, or ERROR (0x01) with LOGIN_FAILED. If earlier sessions
+              were dropped without LOGOUT, halacs reports the gateway first
+              sends one LOGOUT frame (command 0x11, tag 0xFF) per stale
+              session, possibly in the same read as the reply; split the
+              stream by the length field and skip them.
           - action: "Send GET_GROUPS through JMCP to list the doors, then poll HM_GET_TRANSITION per port for state."
             actor: "client"
     factory_reset:
@@ -170,7 +192,7 @@ protocol_details:
       frame is plain text such as "0000000000065410EC000001000A05...". No
       terminator; the length field says where the frame ends.
     transport_header:
-      - "offset 0, 6 bytes: source address. Frames from the gateway carry its MAC; a client sends a small id of its own choosing (the SDKs use 00 00 00 00 00 00 before login and 00 00 00 00 00 06 after)."
+      - "offset 0, 6 bytes: source address. Frames from the gateway carry its MAC. A client sends an address of its own, and the SDKs differ on which while all reporting it works: bisdk sends 00 00 00 00 00 00 until LOGIN and afterwards adopts the destination address the gateway used in its LOGIN reply; halacs's test frames carry 00 00 00 00 00 00 before login and 00 00 00 00 00 06 after, while its CLI sends a fixed 00 00 00 00 00 09 throughout; pysecur3 takes the address as an argument and notes the iPhone app sends 00 00 00 00 00 06. No source shows the gateway rejecting any of these."
       - "offset 6, 6 bytes: destination address. A client puts the gateway's MAC here; replies carry the client's id."
       - "offset 12, 2 bytes: packet length, unsigned 16-bit big-endian. Counts the packet from its own first byte through the packet checksum, i.e. 2 + 1 + 4 + 1 + payload + 1 = 9 + payload length."
     packet:
@@ -186,20 +208,33 @@ protocol_details:
     session: >
       One TCP connection carries one logged-in session. The SDKs send one
       request and wait for its reply before the next. halacs reports the
-      vendor app sends GET_MAC every 30 s as a keep-alive; send LOGOUT
-      (0x11) when done. Whether the gateway serves more than one session at
-      once is not established.
+      vendor app sends GET_MAC every 30 s as a keep-alive. halacs's protocol
+      notes, from testing one gateway, add the rest of this paragraph. A
+      token expires after about 30 minutes; commands then get ERROR
+      PERMISSION_DENIED (12), and the client logs in again on a fresh
+      connection. A session whose connection closed without LOGOUT lingers
+      for those 30 minutes, and on the next LOGIN the gateway first sends
+      one LOGOUT frame (command 0x11, tag 0xFF) per stale session, then the
+      real LOGIN reply; the frames can arrive coalesced, so split the stream
+      by the length field and skip them. LOGOUT (0x11) gets no reply. Send
+      it before closing the connection: enough stale sessions make that
+      drain reset the connection. Leave about 100 ms between any two
+      commands, and poll HM_GET_TRANSITION no faster than about every 2 s,
+      or the gateway resets the TCP connection. bisdk separately reports
+      the gateway stops answering after 2-3 minutes and reconnects and logs
+      in again on a timeout. Whether the gateway serves more than one
+      session at once is not established.
     commands:
       "0x00 PING": "Empty payload. Reply 0x80, empty."
       "0x01 ERROR": "Gateway to client only: payload is one error code; see payload_formats.ErrorCode."
       "0x02 GET_MAC": "Empty payload. Reply 0x82 carries the six-byte MAC."
       "0x06 JMCP": "Payload is a JSON object as ASCII bytes, e.g. {\"CMD\":\"GET_GROUPS\"}. Reply 0x86 carries JSON. Known requests: GET_GROUPS, GET_USERS, GET_VALUES (key case differs between the SDKs; both seen working)."
-      "0x10 LOGIN": "Payload: one byte user-name length, the user name, then the password (the rest of the payload). Reply 0x90: one byte sender id, then the 4-byte token."
-      "0x11 LOGOUT": "Empty payload; ends the session token."
+      "0x10 LOGIN": "Payload: one byte user-name length, the user name, then the password (the rest of the payload). Reply 0x90: one byte sender id, then the 4-byte token. Stale-session LOGOUT frames may come first; see session."
+      "0x11 LOGOUT": "Empty payload; ends the session token. The gateway sends no reply (halacs), so do not wait for one. The gateway also sends this frame itself, with tag 0xFF, ahead of a LOGIN reply, one per stale session; see session."
       "0x26 GET_NAME": "Empty payload. Reply 0xA6 carries the gateway's name as ASCII (default 'BiSecur Gateway')."
-      "0x31 GET_TYPE": "Payload: port id. Reply carries the port type; see payload_formats.PortType."
-      "0x33 SET_STATE": "Payload: port id, then 0xFF. Sends that port's radio impulse. The gateway answers with an HM_GET_TRANSITION reply (0xF0), not 0xB3."
-      "0x70 HM_GET_TRANSITION": "Payload: port id. Reply 0xF0 carries the door's position and status; see payload_formats.Transition."
+      "0x31 GET_TYPE": "Payload: port id. Reply 0xB1: the port id, then one byte of port type; see payload_formats.PortType."
+      "0x33 SET_STATE": "Payload: port id, then 0xFF (the only state value halacs saw work; others timed out). Sends that port's radio impulse. halacs reports, from a ProMatic 3 operator: on a port taught with INHERIT_PORT the gateway answers with an HM_GET_TRANSITION reply (0xF0), not 0xB3; on a port added by copying a hand transmitter's code (ADD_PORT) it answers ERROR PORT_ERROR (10) although the impulse was sent and the door moves. A PORT_ERROR reply to SET_STATE does not mean the door stayed put; never resend on it."
+      "0x70 HM_GET_TRANSITION": "Payload: port id. Reply 0xF0 carries the door's position and status; see payload_formats.Transition. halacs reports PORT_ERROR (10) on ADD_PORT ports, a transient PORT_ERROR on about 20 % of polls even on supported ports, and a TCP reset when polled faster than about every 2 s."
     management_commands: >
       The tables also name user management (0x20-0x28: list, add, remove,
       rename users, set rights), group and port management (0x29 ADD_PORT
@@ -241,7 +276,7 @@ payload_formats:
   Transition:
     description: >
       Payload of the HM_GET_TRANSITION reply (0xF0), 16 bytes. Also the reply
-      to SET_STATE.
+      to SET_STATE on ports that give position feedback.
     fields:
       - name: "state"
         offset: 0
@@ -331,6 +366,9 @@ payload_formats:
       "14": "Group not found"
       "15": "Invalid payload"
       "16": "Out of range"
+      "17": "Add port failed (no radio code received)"
+      "18": "No empty port slot"
+      "19": "Radio adapter busy"
 
 http_endpoints:
   - method: "GET"
@@ -365,7 +403,13 @@ commands:
     example_notes: "Tag 4, invented token 1A2B3C4D."
     verification: "reported"
   get_transition:
-    description: "Read a port's door position and status (HM_GET_TRANSITION). Poll this; the gateway pushes nothing."
+    description: >
+      Read a port's door position and status (HM_GET_TRANSITION). Poll this;
+      the gateway pushes nothing. halacs reports: poll no faster than about
+      every 2 s, or the gateway resets the TCP connection; about 20 % of
+      polls return a transient ERROR PORT_ERROR (10) even on ports that give
+      feedback, so treat one as a missed reading, not a fault; ports added by
+      copying a hand transmitter's code (ADD_PORT) always return PORT_ERROR.
     body: "{frame:HM_GET_TRANSITION 0x70, payload port}"
     parameters:
       port:
@@ -381,7 +425,13 @@ commands:
     description: >
       Send a port's radio impulse (SET_STATE): the same as pressing that
       button on a hand transmitter. What the door does depends on the port
-      type and its state. The reply is a Transition.
+      type and its state. On ports that give position feedback the reply is
+      a Transition. On ports added by copying a hand transmitter's code
+      (ADD_PORT) the gateway replies ERROR PORT_ERROR (10) although the
+      impulse went out and the door moves (halacs, ProMatic 3). Do not retry
+      on PORT_ERROR: a second impulse may stop or reverse the door. Re-read
+      it with get_transition where the port supports it, or ask the user,
+      before sending another.
     body: "{frame:SET_STATE 0x33, payload port 0xFF}"
     parameters:
       port:
@@ -398,7 +448,7 @@ commands:
       a deliberate action with the door in view; see device.safety_advisory.
     verification: "reported"
   logout:
-    description: "End the session."
+    description: "End the session. The gateway sends no reply (halacs). Send it before closing the connection, or the session lingers for about 30 minutes and is drained at the next LOGIN."
     body: "{frame:LOGOUT 0x11}"
     example_body: "0000000000065410EC0000010009081A2B3C4D11F096"
     verification: "reported"
@@ -408,13 +458,15 @@ entities:
     name: "Door Position"
     unit: "%"
     icon: "mdi:garage-variant"
-    notes: "Transition.state halved, read by polling get_transition. Ports added by copying a hand transmitter's code report no position."
+    notes: "Transition.state halved, read by polling get_transition no faster than every 2 s. halacs reports that ports added by copying a hand transmitter's code return PORT_ERROR instead of a position, and that about 20 % of polls on other ports return a transient PORT_ERROR."
 
 evidence:
   documentation_review: >
     bisdk/sdk's protocol notes, halacs/BiSecur's Go SDK with its test
     suite, and pysecur3's command and error tables were read on
-    2026-10-18. The frame layout and both checksum rules reproduce all 30
+    2026-10-18; halacs's docs/PROTOCOL.md (session, rate limits, PORT_ERROR
+    on ADD_PORT ports) and the three SDKs' discovery code on 2026-10-26.
+    The frame layout and both checksum rules reproduce all 30
     frames in halacs's tests (checked by a script; none is copied here).
     Hörmann's quick guide (TR20N001-B, 07.2015) gives the LED behaviour and
     the radio-teach warning. Status: Hörmann's homee page, a dealer note
@@ -431,9 +483,10 @@ remaining_unknowns:
   - "JMCP key case: the SDKs send both {\"CMD\":...} and {\"cmd\":...}; whether firmware versions differ is not known."
   - "Transition fields: the drive_time unit, the gk word and the last eight bytes."
   - "The LOGIN reply's sender id."
-  - "Whether the gateway accepts more than one session at a time, and how long a token lives without traffic."
+  - "Whether the gateway accepts more than one session at a time, and how many stale sessions it holds. The 30-minute token lifetime, the stale-session LOGOUT drain and the rate limits come from halacs's testing of one gateway (firmware EE001425-14) alone."
   - "The factory-reset procedure; no source found."
-  - "Reports of SET_STATE failing on some ports have no known cause."
+  - "PORT_ERROR on ADD_PORT ports, for both SET_STATE and HM_GET_TRANSITION, rests on halacs's testing with one ProMatic 3 operator; whether other operators give feedback on such ports is not established, and neither is the cause of the transient PORT_ERROR on about 20 % of polls."
+  - "Whether the gateway checks the discovery probe's target attribute: halacs sends target=\"Gateway\", bisdk and pysecur3 send target=\"LogicBox\"."
   - "No door button entity is declared. A door is a port from the JMCP GET_GROUPS reply, which is a JSON array of groups each holding a ports array, while `instances` needs a reply object keyed by child id; a button bound to send_impulse could not supply its port. A client that offers the impulse builds the per-port control itself, behind the safety advisory."
   - "The schema's response_format vocabulary has no XML value for the discovery reply, and the command vocabulary has no envelope for a hex-ASCII frame with two checksums, so `body` describes the frame and protocol_handler names the encoder."
 

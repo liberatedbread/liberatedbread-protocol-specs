@@ -31,7 +31,9 @@ device:
       Not driven against hardware by this project. Every resource path, key
       number and payload is transcribed from open-source clients
       (pytradfri, node-tradfri-client) and the community coap-client
-      walk-through, which agree on them.
+      walk-through, which agree on the paths and key numbers; where they
+      differ (the blind stop value, the xy scale, the dimmer minimum) is in
+      value_ranges and remaining_unknowns.
   protocol: "lan"
   transport: "udp"
   category: "hub"
@@ -85,6 +87,9 @@ device:
   identification:
     default_port: 5684
     mdns_service_type: "_coap._udp.local."
+    mdns_txt_match:
+      - key: "version"
+        match: "present"
 
   discovery:
     methods:
@@ -93,6 +98,13 @@ device:
           service_type: "_coap._udp.local."
           port: 5684
           txt_record_keys: ["version"]
+          txt_match:
+            - key: "version"
+              match: "present"
+              description: >
+                node-tradfri-client reads the gateway firmware from TXT
+                `version`. A weak narrowing on a generic CoAP service type
+                (see remaining_unknowns); it is what the schema can say.
           identity_mapping:
             stable_keys:
               - source: "name"
@@ -901,9 +913,12 @@ entities:
       set_cover_position: "blind_set_position"
     notes: >
       One per blind (5750 = 7; FYRTUR, KADRILJ, PRAKTLYSING, TREDANSEN).
-      Position on the wire is percent CLOSED; a percent-open cover shows
-      100 minus it and sends 100 minus its target. Battery is under
-      3."9".
+      Position on the wire is percent CLOSED, and the two directions
+      differ: the state read here (5536) is RAW percent closed, so a
+      percent-open cover shows 100 minus it, but set_cover_position already
+      takes percent OPEN (its parameter declares scale -1 / value_offset
+      100), so the client sends the UI value as-is and must not invert it a
+      second time. Battery is under 3."9".
   - platform: "light"
     name: "TRÅDFRI Group"
     state_command: "get_group"
@@ -930,8 +945,9 @@ entities:
 evidence:
   documentation_review: >
     pytradfri (master, read 2026-10-18), node-tradfri-client (master) and
-    glenndehaan/ikea-tradfri-coap-docs agree on every path, key number and
-    payload shape used here; Home Assistant's integration source confirms
+    glenndehaan/ikea-tradfri-coap-docs agree on every path and key number
+    used here (they differ on the blind stop value, the xy scale and the
+    dimmer minimum; see remaining_unknowns); Home Assistant's integration source confirms
     the identity scheme and the cover inversion, and openHAB's binding docs
     the code-then-discard enrolment. IKEA's release notes and OTA feed
     (fetched 2026-10-18) give the gateway firmware history; the latest
@@ -954,6 +970,8 @@ remaining_unknowns:
   - "Identity rules: maximum length, permitted characters, how many identities the gateway keeps, and what POSTing an already-enrolled identity returns are undocumented."
   - "Blind stop: node-tradfri-client writes 5523 = 0.0, pytradfri writes true; which the gateway requires (or whether any write to 5523 stops it) is not established."
   - "Whether firmware 1.21.57 (May 2026) or any later release changes the API, and whether IKEA will keep the OTA feed online after the June 2026 support floor."
+  - "Discovery narrowing: `_coap._udp` is every CoAP device that advertises itself, and the TXT `version` key the method requires is a weak signal. The decisive check is the instance name (`gw-` followed by twelve hex digits), which the schema has no matcher for; a client should apply it before treating a hit as this gateway."
+  - "Cover position: the entity's state (5536) is raw percent closed while blind_set_position takes percent open; entity-level `scale` cannot carry the offset that would make the two agree."
   - "Codes for 9054 (OTA state), 9066 (OTA type), 9071 (time source) and device-info 6 (power source) are not documented by the clients."
   - "The `instances` block cannot express a hub whose collection GET answers an array of ids (each child read separately), so the entities rely on `instance:id` without `instances`; a schema field for two-step enumeration would fix this."
   - "The schema has no CoAP transport block, so commands carry `transport: coap` with `method`/`path`/`body` and the DTLS session rules live in protocol_details.tradfri_coap; the placeholder http_endpoints entry exists only to satisfy the access-surface rule."

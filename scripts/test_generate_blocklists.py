@@ -386,6 +386,37 @@ def test_a_name_under_another_specs_protected_parent_is_vetoed_but_a_carve_out_s
     assert "us.sdp.example.com (dev-b) sits under sdp.example.com and subdomains, which dev-a keeps reachable." in header
 
 
+def test_a_name_another_spec_carved_out_is_blocked_not_reported_as_vetoed():
+    """When the protector's own spec carves a name out, the name is blocked
+    whoever else lists it: the header must not call it "not listed" above a
+    rule that lists it, and the rule names every device that asked."""
+    entries = [
+        E("sdp.example.com", device="dev-a", match="subdomains", roles=("time", "content"),
+          impact="breaks", effect="The clock resets."),
+        E("us.sdp.example.com", device="dev-a", roles=("telemetry",)),
+        E("us.sdp.example.com", device="dev-b", device_name="Device B", roles=("telemetry",)),
+    ]
+    sel = gb.select(entries, "cloud")
+    assert [(r.host, r.devices) for r in sel.block] == [("us.sdp.example.com", ("dev-a", "dev-b"))]
+    assert sel.vetoed == []
+    header = " ".join(ln.lstrip("# ") for ln in gb.render_hosts(sel, gb.Options()).splitlines())
+    assert "sits under" not in header
+
+
+def test_an_exact_carve_out_does_not_answer_for_a_subdomains_entry():
+    """The carve-out blocks one name; the other spec asked for everything
+    under it too, which the protector still forbids."""
+    entries = [
+        E("sdp.example.com", device="dev-a", match="subdomains", roles=("time", "content"),
+          impact="breaks", effect="The clock resets."),
+        E("us.sdp.example.com", device="dev-a", roles=("telemetry",)),
+        E("us.sdp.example.com", device="dev-b", match="subdomains", roles=("telemetry",)),
+    ]
+    sel = gb.select(entries, "cloud")
+    assert [(r.host, r.subdomains, r.devices) for r in sel.block] == [("us.sdp.example.com", False, ("dev-a",))]
+    assert [(e.device, guard.host) for e, guard in sel.vetoed] == [("dev-b", "sdp.example.com")]
+
+
 def test_a_device_with_only_exclusions_still_publishes_a_header_only_list():
     """The names that must NOT be blocked are the whole message for a device
     with nothing blockable; an empty selection would never publish them."""
