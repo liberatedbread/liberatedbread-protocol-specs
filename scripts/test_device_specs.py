@@ -4075,8 +4075,9 @@ def test_health_devices_carry_a_safety_advisory(specs):
     """Every `category: health` spec says its readings are not a basis for a
     treatment decision.
 
-    Nothing in this repository is fit for a life-or-death decision, and a
-    health device is where that is most easily forgotten: a glucose,
+    Everything in this repository warrants caution and nothing in it is fit
+    for a safety-critical decision, and a health device is where that is most
+    easily forgotten: a glucose,
     blood-pressure or SpO2 value that arrived through a reverse-engineered
     spec looks exactly like one read off the device. `device.safety_advisory`
     is the block a client shows before the controls, so it is where the
