@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **BiSecur discovery replies are machine-readable.** `response_format` gains
+  `xml`, with `xml:<attribute>` identity sources. The BiSecur gateway declares
+  its LogicBox MAC and MCP protocol attributes and the `hormann-bisecur` LAN
+  token, so a generic UDP listener can distinguish its XML replies from
+  Govee's JSON traffic on the same ports.
+
 - **Elgato classic-HTTP lights.** New `elgato-key-light` spec covering mDNS
   discovery, CCT/HSV/scene capability selection, power, brightness, native
   mired white-point control, HSV writes, Key Light Mini battery telemetry,
