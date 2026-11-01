@@ -32,7 +32,7 @@
     "manufacturer_status": "abandoned",
     "model": "FXB53",
     "name": "Hot Wheels id Race Portal (FXB53)",
-    "notes": "A rechargeable piece of Hot Wheels track with an NFC reader in the floor and a BLE radio. Each Hot Wheels id car carries an NFC tag; the portal reads the tag when a car is placed on it or rolls through, and pushes the car's identity (NFC UID, a serial number and the tag's NDEF record) and a speed figure to a connected phone over GATT indications. The vendor app turned those events into speeds, lap counts and a car collection, then synced everything to Mattel's cloud.\nMattel discontinued the whole Hot Wheels id system on 31 December 2023: the apps were delisted, support ended and the cloud data was deleted (vendor FAQ). Community projects give the date as 2024-01-01, the first day the app no longer worked. Mattel itself is in business, so the status is \"abandoned\" (product and app dropped, hardware still in homes) rather than \"shutdown\" (company gone). The portal still boots, advertises and reports cars without any cloud, which is what this spec documents: it is READ-ONLY. The portal has writable characteristics (an authentication service, a data-transfer service, a control register and a command channel) and nothing published says what to write to them, so no command is declared here.\nScope: car detection, car identity and the per-pass speed/timing value as they arrive on the control service. Out of scope: the authentication handshake and bulk-data channels (wire facts only, below), and anything the retired cloud did with the data (collections, car names, the official ID-to-model tables).\n",
+    "notes": "A rechargeable piece of Hot Wheels track with an NFC reader in the floor and a BLE radio. Each Hot Wheels id car carries an NFC tag; the portal reads the tag when a car is placed on it or rolls through, and pushes the car's identity (NFC UID, a serial number and the tag's NDEF record) and a speed figure to a connected phone over GATT indications. The vendor app turned those events into speeds, lap counts and a car collection, then synced everything to Mattel's cloud.\nMattel discontinued the whole Hot Wheels id system on 31 December 2023: the apps were delisted, support ended and the cloud data was deleted (vendor FAQ). Community projects give the date as 2024-01-01, the first day the app no longer worked. Mattel itself is in business, so the status is \"abandoned\" (product and app dropped, hardware still in homes) rather than \"shutdown\" (company gone). The portal still boots, advertises and reports cars without any cloud, which is what this spec documents: it is READ-ONLY. Its writable MPID session, signed-image OTA, control register and command channels are recorded, but no complete command sequence is offered.\nScope: car detection, car identity and the per-pass speed/timing value as they arrive on the community control service. Out of scope: the official MPID session, OTA writes and the richer protobuf command layer, plus anything the retired cloud did with the data (collections, car names, the official ID-to-model tables).\n",
     "openness": {
       "license": "MIT",
       "notes": "No vendor publication. One open-source client (MIT) documents the GATT layout and event payloads from captures against its author's own portal; no second independent source was found (2026-10-11), so every byte-level fact here rests on that one project.\n",
@@ -41,23 +41,23 @@
       "status": "undocumented"
     },
     "pairing": {
-      "bonding": "none",
+      "bonding": "unknown",
       "confidence": "medium",
       "enter_pairing_mode": {
         "required": false
       },
-      "notes": "No link-layer pairing or bonding: the open client connects with a plain GATT connection, reads the firmware, serial and 148-byte key characteristics and receives every car and speed indication without pairing. The portal does expose an \"authentication\" service (two write+indicate channels and the readable 148-byte value), so an application-layer handshake exists for SOMETHING — presumably the data-transfer service or the command channel — but it is not needed to read cars and speeds, and its messages are unpublished. Whether the portal serves one central at a time is not recorded.\n",
+      "notes": "The read-only community path connects with no link-layer pairing, reads the firmware and receives every car and speed indication. The separate official path uses an MPID application-layer session after reading the manufacturing token. That session is not needed for the event stream. Whether the portal serves one central at a time, and whether MPID creates a persistent bond, is not established.\n",
       "required": false,
-      "security_mode": "none"
+      "security_mode": "app_layer"
     },
     "protocol": "ble",
     "setup": {
       "confidence": "medium",
       "credentials": {
         "issued_to_client": [],
-        "notes": "Nothing is issued to the client. The 148-byte value is readable on a bare connection and is never used by the open client, so whatever it protects is not the event stream documented here.\n",
+        "notes": "Nothing is issued to the read-only community client. MPID setup parses that token and exchanges session keys; per-unit token and session material must never be committed.\n",
         "stored_on_device": [
-          "A 148-byte readable value on the authentication service (af0a6ec7-0003-000a-84a0-91559fc6f0de), which the open client labels a device key or certificate; its role is unknown"
+          "A variable-length per-unit manufacturing token on the MPID service (af0a6ec7-0003-000a-84a0-91559fc6f0de)"
         ],
         "wifi_passphrase_protection": "not_applicable"
       },
@@ -65,7 +65,7 @@
         "applicable": "unknown",
         "confidence": "low",
         "description": "No instruction sheet for FXB53 could be found on Mattel's service site or elsewhere (2026-10), so the buttons and LED behaviour are undocumented here. Do not invent a button sequence; a power cycle is the only thing known to be safe.\n",
-        "effect": "Not established. No public source describes a reset, and it is not clear the portal holds any owner state to clear: the open client found no pairing, no bond and no account on the device. The only candidate is the 148-byte value on the authentication service, whose role is unknown.\n"
+        "effect": "Not established. The recovered application model includes clear bonding and reset commands, but their outer envelope and safety sequence are unknown. Do not treat either as a proven factory reset or issue it on the community control channel.\n"
       },
       "methods": [
         {
@@ -162,7 +162,7 @@
     {
       "icon": "mdi:speedometer",
       "name": "Pass Speed (raw)",
-      "notes": "The little-endian float32 as sent, undecoded by the generic field types (no float type in the schema). A consumer decodes it per payload_formats.SpeedEvent. No unit is claimed: the source could not settle m/s versus seconds, and the \"scale mph\" its dashboard shows is raw x 64 with a label, not a conversion.\n",
+      "notes": "The little-endian float32 as sent, decoded as a number by the generic float32 field type. No unit is claimed: the source could not settle m/s versus seconds, and the \"scale mph\" its dashboard shows is raw x 64 with a label, not a conversion.\n",
       "platform": "sensor",
       "state_characteristic": "af0a6ec7-0006-000c-84a0-91559fc6f0de",
       "state_mapping": {
@@ -184,9 +184,14 @@
     "artifacts": [
       {
         "artifact": "mtxmiller/hotwheels-portal, main branch as read 2026-10-11 (PROTOCOL.md, README.md, hwportal/constants.py, hwportal/portal.py, dashboard.py)",
-        "description": "MIT-licensed Python/Bleak client. Source of every UUID, property, payload layout, the control-register patterns, the event order, the three float examples and the x64 display scaling. Its own notes hedge the speed unit and leave the authentication and data services undecoded.\n",
+        "description": "MIT-licensed Python/Bleak client. Source of the community control service's properties, payload layouts, control-register patterns, event order, three float examples and x64 display scaling. Its own notes hedge the speed unit and leave MPID and OTA unused.\n",
         "type": "public_implementation",
         "url": "https://github.com/mtxmiller/hotwheels-portal"
+      },
+      {
+        "artifact": "Recovered official Hot Wheels id app 3.9.0, read 2026-10-31",
+        "description": "Establishes the MPID session service, variable-length manufacturing tokens, signed-image OTA service and a richer protobuf application model. It does not establish the complete outer official command envelope or prove that the community control service is the MPID path. No session secrets were recovered or included.\n",
+        "type": "static_app_analysis"
       },
       {
         "artifact": "Mattel, Hot Wheels id System Discontinuation FAQs (shop.mattel.com), read 2026-10-11",
@@ -201,8 +206,8 @@
         "url": "https://service.mattel.com/us/productDetail.aspx?prodno=FXB53"
       }
     ],
-    "documentation_review": "All facts were read from the one open-source client on 2026-10-11 and cross-checked internally: the UUIDs in its constants module agree with its protocol notes, the characteristics it subscribes to are the ones whose payloads it documents, and the NDEF payload length, URI text and token length are arithmetically consistent (40 = 1 + 11 + 28; 28 base64 chars = 21 bytes). The float examples decode with struct '<f' to the values the source prints. No second independent capture, teardown or FCC filing was found; GitHub and web searches for other Hot Wheels id portal work returned nothing.\n",
-    "open_questions": "The physical unit of the speed float; the authentication handshake and what it gates; the data-transfer service; the meaning of control-register bytes 1-3 and of any write to the register or command channel; the layout of the record(s) after the URI record; whether the portal advertises its service UUIDs; whether its address is public; the power/charge button and LED behaviour (no manual found).\n"
+    "documentation_review": "The community client's control-service facts were checked on 2026-10-11; the recovered official app was independently reviewed on 2026-10-31. They are different evidence classes: a working unauthenticated read-only path and a richer official session/OTA layer. The NDEF payload length, URI text and token length are arithmetically consistent (40 = 1 + 11 + 28; 28 base64 chars = 21 bytes). No new hardware capture was made, and the speed unit remains unresolved by both sources.\n",
+    "open_questions": "The physical unit of the speed float; the complete MPID state machine and official outer command envelope; OTA compatibility; control-register bytes 1-3 and writes to it or the command channel; the record(s) after the URI record; advertised service UUIDs and address type; buttons and LED behaviour (no manual found).\n"
   },
   "helpful_urls": [
     {
@@ -349,7 +354,6 @@
     }
   },
   "protocol_details": {
-    "authentication_service": "Wire facts only: 148-byte readable value at af0a6ec7-0003-000a-..., write+indicate request channel at ...-0002-000a-..., write+indicate response channel at ...-0004-000a-.... No message has been published and the event stream does not depend on it.\n",
     "car_id_token_layout": "URL-safe base64, 28 chars -> 21 bytes: [0-1] version 01 00, [2-5] model id, [6-9] flags, [10-14] extra, [15-20] NFC UID. Checked: the URI payload length 0x28 is 1 + len(\"pid.mattel/\") + 28, and 28 base64 characters decode to exactly 21 bytes with no padding. Mattel's model id-to-name table is not reproduced; the open client's roadmap lists \"car name lookup from Mattel ID\" as unfinished.\n",
     "event_sequence": {
       "car_passes_through": "speed/timing float32 on af0a6ec7-0006-000c-84a0-91559fc6f0de",
@@ -358,6 +362,8 @@
       "notes": "Order as the source's protocol flow lists it; the capture does not say whether the order is guaranteed, so key on content, not position."
     },
     "lap_timing": "The portal emits no lap event. The open client counts a lap on every speed indication and computes the lap time as the wall-clock interval since the previous speed indication for the same car; best and average laps are client-side arithmetic. A client reproducing the vendor app's lap counter does the same.\n",
+    "mpid_session": "Read the manufacturing token on 0003, parse its version, serial, compressed public key, manufacturing key id, signature and salt, then write the phone's public key and salt on 0004. Later packets on 0002 are encrypted in both directions. Generation-one tokens are 136 bytes and other formats vary; do not apply the community note's fixed 148-byte assumption. The outer official command envelope and complete session state machine remain unimplemented, and the community read-only path does not perform this exchange.\n",
+    "ota_service": "Service 000b is the vendor-confirmed signed-image OTA path, with command and payload channels. The recovered protobuf application model also describes device information, speed and IR timing, accessory and offline race messages, but not a safe outer command envelope. Do not serialize those messages directly onto the community characteristics.\n",
     "speed_scaling": {
       "client_display": "raw x 64, labelled mph by the open client — the 1:64 scale factor applied to the raw number; no physical unit conversion is involved",
       "published_examples": [
@@ -407,15 +413,14 @@
         }
       ]
     },
-    "uuid_scheme": "Every UUID is af0a6ec7-XXXX-YYYY-84a0-91559fc6f0de with YYYY the service (000a authentication, 000b data transfer, 000c control) and XXXX 0001 for the service itself, 0002 upward for its characteristics.\n"
+    "uuid_scheme": "Every UUID is af0a6ec7-XXXX-YYYY-84a0-91559fc6f0de with YYYY the service (000a MPID session, 000b OTA, 000c community control) and XXXX 0001 for the service itself, 0002 upward for its characteristics.\n"
   },
   "remaining_unknowns": [
     "Speed unit: the raw float is either m/s or a passage time in seconds; the x64 'scale mph' figure is a display convention, not a measured conversion. Needs a timed run over a known distance.",
-    "Authentication service: a 148-byte readable value and two write+indicate channels with no published messages. Not needed for car and speed events; what it unlocks is unknown.",
-    "Data-transfer service: one write+indicate command and one write-without-response bulk characteristic, purpose unknown (firmware update is the obvious guess; unconfirmed, so no firmware_update feature is declared).",
+    "MPID: manufacturing tokens are variable-length (136-byte generation one, at least 182 bytes in another format), not a fixed 148-byte certificate. The complete session state machine and official command envelope remain unresolved.",
+    "OTA: service 000b is vendor-confirmed, but no image or version compatibility was tested and no update is offered.",
     "Control register bytes 1-3 (fe 00 fe vs 72 9b fe) and the effect of any write to it or to the command channel. Nothing should be written until a capture shows what the vendor app wrote.",
     "The record(s) following the URI record in the NDEF message — the source calls them a signature; the TNF, type and length are unpublished.",
-    "The float field is declared as 4 raw bytes because the schema's format types have no float32; a consumer needs the decode rule from payload_formats.SpeedEvent.",
     "No FXB53 instruction sheet could be found on Mattel's service site, the usual manual aggregators or an FCC filing (2026-10); buttons, LED states, charging indication and any reset are undocumented here.",
     "Whether the portal advertises any service UUID, and whether its BLE address is public or random-static.",
     "Only one unit (firmware 1.2.5) has been captured; whether other firmware changes the layouts is unknown."
@@ -424,8 +429,8 @@
     {
       "characteristics": [
         {
-          "name": "Auth command channel",
-          "notes": "Request direction of an unpublished handshake. No bytes known; do not write.",
+          "name": "MPID encrypted packets",
+          "notes": "Encrypted packets in both directions after session setup. Do not write an unencrypted command.",
           "properties": [
             "write",
             "indicate"
@@ -433,16 +438,16 @@
           "uuid": "af0a6ec7-0002-000a-84a0-91559fc6f0de"
         },
         {
-          "name": "Device key / certificate",
-          "notes": "148 bytes, readable on a bare connection. The source calls it a device key or certificate; its format is unpublished. Per-unit, so never commit a captured value.\n",
+          "name": "Manufacturing token",
+          "notes": "Reading starts MPID setup. Generation-one tokens are 136 bytes; other supported formats are variable-length and can be at least 182 bytes. The community client's fixed 148-byte device-key label is not a safe general parser rule. The token contains a protocol version, serial, compressed public key, manufacturing key id, signature and salt. Per-unit values stay out of the spec.\n",
           "properties": [
             "read"
           ],
           "uuid": "af0a6ec7-0003-000a-84a0-91559fc6f0de"
         },
         {
-          "name": "Auth response channel",
-          "notes": "Reply direction of the same handshake. No bytes known.",
+          "name": "Session public key and salt",
+          "notes": "The official client writes its session public key and salt here after processing the manufacturing token.",
           "properties": [
             "write",
             "indicate"
@@ -450,15 +455,15 @@
           "uuid": "af0a6ec7-0004-000a-84a0-91559fc6f0de"
         }
       ],
-      "name": "Authentication service",
-      "notes": "Wire facts only. Three characteristics: a write+indicate command channel, a 148-byte readable value the open client calls the device key or certificate, and a write+indicate response channel. No message on either channel has been published, the open client never writes to this service, and every event documented in the control service arrives without touching it. Whatever this service authorises is out of scope here.\n",
+      "name": "MPID session service",
+      "notes": "The recovered official app identifies this as the MPID session service, distinct from the community client's unauthenticated control service. Reading the manufacturing token starts session setup; the app then writes its session public key and salt and exchanges encrypted packets. The official state machine and session secrets are not implemented here and are not needed for the read-only community event stream.\n",
       "uuid": "af0a6ec7-0001-000a-84a0-91559fc6f0de"
     },
     {
       "characteristics": [
         {
-          "name": "Data command",
-          "notes": "Unpublished. Do not write.",
+          "name": "OTA commands and indications",
+          "notes": "Signed-image start and block/complete messages. Do not write without the complete OTA state machine.",
           "properties": [
             "write",
             "indicate"
@@ -466,16 +471,16 @@
           "uuid": "af0a6ec7-0002-000b-84a0-91559fc6f0de"
         },
         {
-          "name": "Data fast transfer",
-          "notes": "Unpublished bulk channel. Do not write.",
+          "name": "OTA payload",
+          "notes": "Signed-image chunks. Do not write without a validated image and transfer sequence.",
           "properties": [
             "write_without_response"
           ],
           "uuid": "af0a6ec7-0003-000b-84a0-91559fc6f0de"
         }
       ],
-      "name": "Data transfer service",
-      "notes": "Wire facts only: a write+indicate command characteristic and a write-without-response bulk characteristic, the shape of a firmware or data upload channel. Nothing is published about what travels on either, and the open client never uses them. Not needed to read cars and speeds.\n",
+      "name": "OTA service",
+      "notes": "Vendor evidence identifies this as OTA, not a generic data service. The app requests MTU 247, verifies an image signature before sending, and uses new-image, image request/response, block, chunk, transfer-complete, error and stop messages. No image or update is offered here because compatibility has not been tested.\n",
       "uuid": "af0a6ec7-0001-000b-84a0-91559fc6f0de"
     },
     {
@@ -620,15 +625,16 @@
         {
           "format": [
             {
+              "endianness": "little",
               "length": 4,
               "name": "speed_raw",
-              "notes": "IEEE 754 binary32, little-endian. Dimensionless here because the physical unit is unconfirmed; see payload_formats.SpeedEvent and protocol_details.speed_scaling.",
+              "notes": "IEEE 754 binary32, little-endian. No unit is declared because the physical unit is unconfirmed; see payload_formats.SpeedEvent and protocol_details.speed_scaling.",
               "offset": 0,
-              "type": "bytes"
+              "type": "float32"
             }
           ],
           "name": "Speed / timing",
-          "notes": "One indication per pass: 4 bytes, an IEEE 754 binary32 in LITTLE-ENDIAN byte order (b0 1c 14 3e decodes to about 0.1446). The schema's field types have no float, so the field is declared as 4 raw bytes; decode with payload_formats.SpeedEvent. UNITS ARE UNCONFIRMED: the source's protocol notes say the value may be metres per second or a sensor passage time in seconds, while its client multiplies it by 64 (Hot Wheels are 1:64 scale) and labels the result \"scale mph\". Report the raw value and say which convention you applied.\n",
+          "notes": "One indication per pass: 4 bytes, an IEEE 754 binary32 in LITTLE-ENDIAN byte order (b0 1c 14 3e decodes to about 0.1446). UNITS ARE UNCONFIRMED: the source's protocol notes say the value may be metres per second or a sensor passage time in seconds, while its client multiplies it by 64 (Hot Wheels are 1:64 scale) and labels the result \"scale mph\". The recovered official app establishes only that the field is a float named speed; it does not settle that conversion. Report the raw value and say which convention you applied.\n",
           "properties": [
             "indicate"
           ],
