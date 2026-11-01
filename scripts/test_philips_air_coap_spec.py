@@ -213,7 +213,9 @@ def test_control_bodies_carry_the_clients_wrapper(commands):
 
 
 def _sentinel(parameter: dict, name: str):
-    return f"__{name}__" if parameter["type"] == "string" else 987654321
+    if parameter["type"] == "string":
+        return f"__{name}__"
+    return 987654000 + sum(name.encode())  # distinct per parameter name
 
 
 def test_examples_render_from_their_templates(commands):
@@ -275,6 +277,18 @@ def test_key_sets_match_the_clients(commands):
     assert desired("compact_power_on")["D03102"] == 1
     assert desired("compact_child_lock_on")["D03103"] == 1
     assert desired("set_fan_speed", speed="t") == {**WRAPPER, "mode": "M", "om": "t"}
+    # Silent needs mode S, not M (the integration's AC2729 table).
+    assert "s" not in commands["set_fan_speed"]["parameters"]["speed"]["enum"]
+    assert desired("set_silent") == {**WRAPPER, "mode": "S", "om": "s"}
+    # AC0950 medium: D0310C 19 with companion D0310D 2.
+    assert desired("compact_set_mode_pair", mode=19, companion=2) == {
+        **WRAPPER, "D03102": 1, "D0310C": 19, "D0310D": 2
+    }
+
+
+def test_compact_mode_entity_is_read_only(spec):
+    (mode,) = [e for e in spec["entities"] if e["name"] == "Mode" and e["variants"] == ["compact-keys"]]
+    assert mode["platform"] == "sensor" and not mode.get("commands")
 
 
 def test_entities_are_bound_to_one_key_set_each(spec, commands):

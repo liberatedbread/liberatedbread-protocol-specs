@@ -563,7 +563,7 @@ commands:
     verification: "reported"
 
   set_fan_speed:
-    description: "Classic key set: manual fan speed. Most models need mode M in the same or an earlier write (AC2889 per py-air-control; the integration always sends mode with om)."
+    description: "Classic key set: manual fan speed. Most models need mode M in the same or an earlier write (AC2889 per py-air-control; the integration always sends mode with om). Silent is not a mode-M speed: use set_silent."
     transport: "coap"
     method: "POST"
     path: "/sys/dev/control"
@@ -572,9 +572,17 @@ commands:
       speed:
         type: "string"
         required: true
-        enum: ["1", "2", "3", "s", "t"]
-        description: "1-3 speeds, s silent, t turbo. (py-air-control also lists a for auto, which is mode P rather than mode M.)"
+        enum: ["1", "2", "3", "t"]
+        description: "1-3 speeds, t turbo. (py-air-control also lists s silent, which the integration's AC2729 table sends with mode S, and a for auto, which is mode P; neither goes with mode M.)"
     example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "mode": "M", "om": "2"}}}'
+    verification: "reported"
+
+  set_silent:
+    description: "Classic key set: silent / night speed. The integration's AC2729 table sends mode S with om s, not mode M."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "mode": "S", "om": "s"}}}'
     verification: "reported"
 
   child_lock_on:
@@ -736,10 +744,12 @@ commands:
 
   compact_set_mode:
     description: >
-      Compact key set: mode code (D0310C), sent with power on. Codes are
-      model-specific (protocol_details.key_sets.compact-keys.writable.D0310C);
-      the enum is their union. AC0950 and AC3420 also expect D0310D, which
-      this template does not send (see remaining_unknowns).
+      Compact key set, models that set mode with D0310C alone (the
+      integration's AC22xx/AC32xx/AC42xx, AC0850 Combo and HU classes):
+      mode code, sent with power on. Codes are model-specific
+      (protocol_details.key_sets.compact-keys.writable.D0310C); the enum is
+      their union. Not for AC0950/AC0951 or AC3420/AC3421, which need
+      compact_set_mode_pair.
     transport: "coap"
     method: "POST"
     path: "/sys/dev/control"
@@ -751,6 +761,31 @@ commands:
         enum: [0, 1, 2, 3, 4, 5, 17, 18, 19, 65]
         description: "0 auto, 1-5 manual speeds (AC22xx/AC32xx/AC42xx), 17 sleep, 18 turbo, 19 medium, 65 high (HU models)."
     example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": 18}}}'
+    verification: "reported"
+
+  compact_set_mode_pair:
+    description: >
+      Compact key set, AC0950/AC0951 and AC3420/AC3421: mode code D0310C and
+      its companion D0310D in one write, as the integration's tables send
+      them. AC0950: auto 0+1, sleep 17+1, medium 19+2, turbo 18+18. AC3420:
+      auto 0+3, sleep 17+1, medium 19+3, turbo 18+18, speeds 1-4 as n+n,
+      speed 5 as 5+18. Send only a listed pair.
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": {mode}, "D0310D": {companion}}}}'
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        enum: [0, 1, 2, 3, 4, 5, 17, 18, 19]
+        description: "D0310C, as in compact_set_mode."
+      companion:
+        type: "integer"
+        required: true
+        enum: [1, 2, 3, 4, 18]
+        description: "D0310D, the per-model companion value listed in this command's description."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": 19, "D0310D": 2}}}'
     verification: "reported"
 
   compact_child_lock_on:
@@ -845,11 +880,10 @@ entities:
         "1": "1"
         "2": "2"
         "3": "3"
-        "s": "silent"
         "t": "turbo"
     commands:
       select_option: "set_fan_speed"
-    notes: "Selecting a speed also sets mode M. In auto mode om reports the automatic speed (and may read a)."
+    notes: "Selecting a speed also sets mode M. Silent (om s) is left out because it needs mode S; it is commands.set_silent. In auto mode om reports the automatic speed (and may read a); in silent it reads s."
   - platform: "switch"
     name: "Child Lock"
     variants: ["classic-keys"]
@@ -1018,7 +1052,7 @@ entities:
     commands:
       turn_on: "compact_power_on"
       turn_off: "compact_power_off"
-  - platform: "select"
+  - platform: "sensor"
     name: "Mode"
     variants: ["compact-keys"]
     state_command: "get_status"
@@ -1035,9 +1069,12 @@ entities:
         "18": "turbo"
         "19": "medium"
         "65": "high"
-    commands:
-      select_option: "compact_set_mode"
-    notes: "Union of the per-model codes; offer only the ones the model lists in protocol_details.key_sets.compact-keys."
+    notes: >
+      Read-only on purpose. Setting the mode takes compact_set_mode on most
+      compact models but compact_set_mode_pair (with D0310D) on AC0950 and
+      AC3420, and the three key-set variants cannot tell those groups apart,
+      so one select binding would send an incomplete write to some units.
+      Union of the per-model codes.
   - platform: "switch"
     name: "Child Lock"
     variants: ["compact-keys"]
@@ -1183,7 +1220,7 @@ remaining_unknowns:
   - "Counter rules on the device side: whether it rejects a reused, skipped or out-of-order counter, whether it enforces the SHA-256 trailer on client envelopes, and what a write with a stale counter answers. Clients re-sync on any non-success."
   - "Counter edges: aioairctrl 0.3.1 wraps FFFFFFFF to 00000000 and zero-pads; py-air-control does not pad; device behaviour at either edge is untested."
   - "Wi-Fi provisioning of this generation over the PHILIPS Setup access point is not implemented by any open-source client; only the HTTP generation's /di/v1/products/0/wifi PUT is."
-  - "The compact-key mode table is per model and partly redundant (D0310C vs D0310D); compact_set_mode sends only D0310C, which the integration's AC22xx, AC0850 Combo and HU classes use alone, while AC0950 and AC3420 also send D0310D. A per-variant command table would need finer variants than the three key sets."
+  - "The compact-key mode table is per model: the integration's AC22xx, AC0850 Combo and HU classes send D0310C alone (compact_set_mode), while AC0950 and AC3420 also send D0310D (compact_set_mode_pair). The compact Mode entity is read-only until variants can be told apart by model value (a variant whose identification excludes a model, or a per-model command table); the schema has no such negative match today."
   - "Value types for classic writes are inconsistent between clients: py-air-control sends om, pwr, mode, uil and ddp as strings and rhset, aqil, dt as integers, matching what the status reports; which the firmware strictly requires is unverified."
   - "Wi-Fi passphrase protection during provisioning is unknown."
   - "The HTTP generation (SSDP, Diffie-Hellman, /di/v1) and the plain-CoAP generation are named in protocol_details.other_generations but not specified."

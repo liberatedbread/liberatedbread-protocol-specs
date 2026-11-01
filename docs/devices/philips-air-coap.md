@@ -149,7 +149,7 @@ write.
 |----------|---------|--------|---------|
 | Power | `pwr` `"1"`/`"0"` | `D03-02` `"ON"`/`"OFF"` | `D03102` 1/0 |
 | Mode | `mode` P/A/S/M/B/N/T/GT | `D03-12` "Auto General", "Sleep", "Turbo", … | `D0310C` 0 auto, 1-5, 17 sleep, 18 turbo, 19 medium, 65 high |
-| Fan speed | `om` 1/2/3/s/t (with mode M) | n/a | inside `D0310C` (`D0310D` on some) |
+| Fan speed | `om` 1/2/3/t with mode M; silent is `om` s with mode S | n/a | inside `D0310C`; AC0950 and AC3420 also need `D0310D` in the same write |
 | Child lock | `cl` true/false | n/a | `D03103` 1/0 |
 | Display light | `aqil` 0-100, `uil` "1"/"0" | `D03-05` 100/0 | `D0312D` / `D03105` |
 | Timer | `dt` hours 0-12 | n/a | `D03110` code 0-13 |
