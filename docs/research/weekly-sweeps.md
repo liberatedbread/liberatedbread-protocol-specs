@@ -354,3 +354,51 @@ Considered and left out:
 - **Arc browser** (ends 2026-12-22): not a device.
 - **Cambium cnMaestro Cloud** (enterprise APs, end of October 2026, *unverified*): there is an on-prem controller; enterprise gear, out of scope.
 - **wibutler** (DBT insolvency 2026-07-17, [Dr. Web](https://www.drweb.de/smart-home-plattform-wibutler-insolvenz/)): older than this window, and operations continue. EnOcean/Z-Wave devices behind it already have local paths. Worth a separate look only if the platform's servers are announced off.
+
+## 2026-11-01 (weekly sweep)
+
+The routine sweep for this date. A separate research pass on the same day is
+logged in [2026-11-01](#2026-11-01) above.
+
+### Added this week
+
+Two *Do these next* picks and one category-table row that this week's news
+made urgent. Every spec is `testing: untested`; wire facts from client code
+or vendor notes are `reported`.
+
+| Spec | Source | Notes |
+|---|---|---|
+| [SolarEdge Inverters (Modbus TCP / SunSpec)](../devices/solaredge-modbus-tcp.md) | category table (re-scoped from SetApp `/web/v1` to Modbus, as the 2026-10-11 entry asked); news below | Turning Modbus TCP on (SetApp: port 1502; display inverters: 502), unit id 1, the reported `_solaredge-modbus._tcp` announcement, the Modbus TCP header, the SunSpec common block at 40000 and inverter models 101/102/103 with scale factors, Synergy model 160 and meter models 201–204. Power-limit, export-limit and commit writes are `advanced`, with a `safety_advisory`. One client at a time and a 2-minute idle drop, per SolarEdge's own note. Five read-only sensors. `scripts/test_solaredge_modbus_tcp_spec.py`. |
+| [Apple AirPort Extreme / Time Capsule / Express (ACP)](../devices/apple-airport-acp.md) | #11 | Bonjour `_airport._tcp`, the 128-byte ACP header with both Adler-32 checksums, the legacy XOR password key, SRP-6a login with AES-128-CTR session keys, the property element framing and a property catalogue. Reads (name, status, WAN address, log); rename and reboot are `advanced`. A `security_advisory` (reported) for the legacy password encoding, citing airpyrt-tools. Flashing is left out. `scripts/test_apple_airport_acp_spec.py`; the rules were cross-checked against node-acp's own vectors, none of which are copied in. |
+| [Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP)](../devices/philips-air-coap.md) | #12 | CoAP on UDP 5683: `/sys/dev/sync` counter exchange, observed `/sys/dev/status`, `/sys/dev/control`. The envelope is AES-128-CBC with key and IV taken from the MD5 of a published constant plus the counter, and an unkeyed SHA-256 trailer (the survey row's "HMAC" wording is wrong). Three key sets as variants (classic names, `D03-xx`, compact `D03xxx`), with fan, mode, speed, child lock, display, timer, air quality, humidity, water and filter entities per set. Older HTTP and plain-CoAP generations are named, not specified. Which firmware removes local access is still unsourced. `scripts/test_philips_air_coap_spec.py`. |
+
+Schema gaps that came up, each in its spec's `remaining_unknowns`: no binary
+socket-frame or Modbus register block (SolarEdge, AirPort), no
+"register × 10^scale-factor" state mapping for entities, no field for a
+one-client-at-a-time device, no CoAP transport block or encrypted-CoAP body
+scheme (Philips), no DHCP discovery method, and no way to tie a command to a
+variant.
+
+### New candidates
+
+None worth a row this week. The searches turned up no new cloud shutdowns,
+bankruptcies or withdrawn apps dated since 2026-10-25.
+
+### Status changes to items already listed
+
+- **SolarEdge Monitoring API V1**: retired at the start of November. Forum
+  posts give 2026-11-01 (one quotes an API error reading "The V1 Monitoring
+  API is retired on 2026-11-01") or 2026-11-03; no SolarEdge page was
+  fetched. V2 uses OAuth through developer.solaredge.com. Home Assistant
+  users report the cloud integration broken during the deprecation window,
+  with local Modbus as the fallback (battery data reported missing on some
+  sites) ([HA community](https://community.home-assistant.io/t/solaredge-api-v2-uses-oauth-old-api-will-be-turned-off-in-november/1026150),
+  [HA community](https://community.home-assistant.io/t/solaredge-api-error/1028039)).
+  This is why SolarEdge was specced this week.
+- **Eargo / Lexie**: no new coverage after 2026-10-22. Whether the apps or
+  the cloud actually went off is still *unverified*.
+- **Samsung SmartThings API**: secondary coverage still says paid personal
+  plans start in October 2026 ($4.99/month) and that Home Assistant's
+  integration falls under them; no Samsung post confirming that billing
+  started was found. Cloud only, so no spec.
+- **SPAN**: nothing new beyond last week's entry.
