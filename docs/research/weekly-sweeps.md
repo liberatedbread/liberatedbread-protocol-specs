@@ -24,7 +24,7 @@ better evidence rather than a premature app claim.
 | Spec | Origin | Notes |
 |---|---|---|
 | [Artiphon Orba 2](../devices/artiphon-orba-2.md) | `research-notes/artiphon-orba.*` + new Orba 2 app/protocol research | Corrects the old note's Orba-1 scope: the capture-verified map is Orba 2, with the recovered `com.artiphon.kestrel` companion. Standard BLE-MIDI, LSB-first 7-bit SysEx packing, zero-init CRC-16 and fragmented writes. Transport, quantization, tempo and FX; destructive erase commands are advanced. `scripts/test_artiphon_orba_2_spec.py`. |
-| [Petronics Mousr](../devices/petronics-mousr.md) | `research-notes/mousr-cat-toy.*` + recovered 1.0.7 app | Fifteen-byte command envelope, decimal command IDs, Nordic UART and three-float32-LE drive vectors. STOP and CHIRP are fixed commands; movement is advanced and drive units/ranges stay unclaimed. Notifications and auto-mode layouts remain open. `scripts/test_petronics_mousr_spec.py`. |
+| [Petronics Mousr](../devices/petronics-mousr.md) | `research-notes/mousr-cat-toy.*` + recovered 1.0.7 app | Fifteen-byte command envelope, decimal command IDs (the second byte of a one-digit code is unresolved), Nordic UART and three-float32-LE drive vectors. Stop and chirp are fixed commands; movement is advanced and drive units/ranges stay unclaimed. Notifications and auto-mode layouts remain open. `scripts/test_petronics_mousr_spec.py`. |
 
 The schema now carries `float32` for fields and command parameters, closing
 the gap previously recorded for Hot Wheels and Mousr, and names the
