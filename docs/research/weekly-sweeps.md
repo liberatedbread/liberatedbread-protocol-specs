@@ -34,9 +34,10 @@ the gap previously recorded for Hot Wheels and Mousr, and names the
 
 - **Hot Wheels id Race Portal**: the recovered official app identifies the
   `000a` service as MPID session setup and `000b` as signed-image OTA. The
-  manufacturing token is variable-length (136-byte generation one, at least
-  182 bytes in another format), not the community note's fixed 148-byte
-  certificate. The read-only community control path remains valid and no
+  manufacturing token is variable-length per the app analysis (136-byte
+  generation one, at least 182 bytes in another format). The community
+  note's 148-byte read is kept as an observation from its unit; it matches
+  neither format and is unexplained. The read-only community control path remains valid and no
   official command write is offered. The speed field is now `float32`; its
   unit is still unresolved.
 - **Wilson X**: assigned to the `fa10` three-axis family, not 94Fifty or the
