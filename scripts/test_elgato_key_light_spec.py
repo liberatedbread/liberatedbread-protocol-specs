@@ -262,3 +262,15 @@ def test_firmware_source_names_the_public_host(spec):
 def test_obfuscated_provisioning_is_not_called_encrypted(spec):
     credentials = spec["device"]["setup"]["credentials"]
     assert credentials["wifi_passphrase_protection"] == "plaintext"
+
+
+def test_strip_white_brightness_keeps_the_white_point(spec: dict) -> None:
+    """A brightness write in white mode must carry the temperature, or the strip turns colour."""
+    commands = spec["commands"]
+    cmd = commands["set_strip_white_brightness"]
+    rendered = render(cmd, brightness=50, mireds=200)
+    assert rendered == json.loads(cmd["example_body"])
+    assert set(rendered["lights"][0]) == {"brightness", "temperature"}
+    strip = commands["set_strip_color_temperature"]["parameters"]["mireds"]
+    assert cmd["parameters"]["mireds"]["min"] == strip["min"]
+    assert cmd["parameters"]["mireds"]["max"] == strip["max"]
