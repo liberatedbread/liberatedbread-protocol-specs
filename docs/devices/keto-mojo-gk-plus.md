@@ -131,7 +131,9 @@ raw / 10 mmol/L on a meter set to mmol/L. Worked example:
 `7b 01 20 01 10 dd aa 00 09 1a 0a 11 07 1e 00 5f 10 11 0e 09 0b 07 7d` is a
 pre-meal glucose of 95 mg/dL taken on 2026-10-17 at 07:30. The integration
 does not check header bytes 5–6 or the length of a record frame. The example
-fills them in by analogy with the unit and serial replies.
+fills them in by analogy with the unit and serial replies. Parse a record by
+position and keep it if its type byte is known. The length and the check are
+unconfirmed, so log a mismatch rather than drop the record.
 
 GKI-mode pairs (`0x12` next to `0x56`) give a Glucose Ketone Index: glucose in
 mmol/L (mg/dL ÷ 18) divided by ketone in mmol/L, floored to one decimal.

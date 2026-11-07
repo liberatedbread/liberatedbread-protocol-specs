@@ -1,50 +1,49 @@
 # Petronics Mousr — Research Notes
 
-Robotic cat toy ("smart mouse") with BLE app control. Company dead; hardware and app fully local over BLE.
+## Current status (2026-11-01)
 
-## What it is
-- Mousr: app-enabled robotic cat toy by Petronics Inc. (Champaign, IL). Kickstarter 2014, shipped ~2018.
-- Autonomous play modes (Open Wander, Wall Hugger, Stationary) plus manual "drive it yourself" mode from the phone app.
-- Sensors: forward distance sensor, cat proximity sensor, orientation/IMU; swappable tails; charging dock; speaker.
-- Kickstarter FAQ confirms Bluetooth Low Energy as the control link ([Kickstarter FAQ](https://www.kickstarter.com/projects/525985345/mousr-the-robotic-mouse-that-plays-with-your-cat/faqs)).
+The validated spec is `device-specs/devices/petronics-mousr.yaml`; the owner
+guide is `docs/devices/petronics-mousr.md`. The recovered official 1.0.7 app
+contains all ordinary command builders, three application-firmware packages,
+a SoftDevice/bootloader package and the user guide. No account was found for
+ordinary BLE operation. No toy or HCI capture has verified the recovered wire
+facts.
 
-## Why it's abandoned (dated sources)
-- Petronics stopped production of Mousr — reported Sept 2020 ([consumeroutlook.info review update](https://consumeroutlook.info/2018/11/06/mousr/), 2018-11-06, updated 2020-09).
-- `petronics.io` no longer resolves in DNS (verified 2026-08-03). App support email `support@petronics.io` is therefore dead.
-- Android app `com.petronics.mousr` is delisted from Google Play; only mirrors (APKPure) still carry it (verified 2026-08-03).
+## GATT and command envelope
 
-## Local BLE feasibility — STRONG
-- Control path is phone ↔ toy over BLE only. No Wi-Fi on the device; reviews explicitly note remote play is impossible because "it's bluetooth only" (Amazon.ae review).
-- No account/login flow found in the app; network access appears used only for firmware-update checks and web links (strings: `netprob`, `checknetwork`, petronics.io URLs).
-- The app bundles Nordic DFU firmware images (`assets/fw_v0.0-44-gb24db8f.zip`, `fw_v0.1-1-gd4f09ac.zip`, `fw_v1.1-4-75e5717.zip`, `sd_bl12.zip`) — firmware payloads are recoverable for protocol study without any hardware.
-- No prior community RE found (searched GitHub/forums 2026-08-03). Greenfield but the UART service is standard.
+- Nordic UART service `6e400001-b5a3-f393-e0a9-e50e24dcca9e`; phone writes
+  `6e400002-…` and subscribes to `6e400003-…`.
+- `8ec90001-f315-4f60-9fb8-838830daea50` and `8ec90002-…` are the Nordic
+  Secure DFU control point and packet characteristics, under service
+  `0000fe59-0000-1000-8000-00805f9b34fb`. The August note's "Laird VSP"
+  label for them was a misidentification; Laird VSP is `569a1101-…`, which
+  was not recorded for this toy. The spec carries a `firmware_update`
+  feature with the `MousrDfu` update-mode name.
+- Commands are 15 bytes: ASCII `0`, a 12-byte payload, then two bytes for
+  the command code. A two-digit code is its two ASCII digits. For a one-digit
+  code the analysis gave two contradictory readings — ASCII `0` then the
+  digit, or the digit then NUL — and nothing observed settles it. The spec
+  records both and marks those commands `hypothesis`.
+- The move command carries three little-endian float32 values (speed, hold,
+  angle). These are app control values, not proven m/s, degrees or percent,
+  and valid ranges need a capture.
+- Codes: stop 0, spin 1, move 2, reset heading 3, enter bootloader mode 8,
+  turn off 9, sleep 10, configure autonomous play 15, chirp 18; the other
+  recovered codes are listed in the spec by role.
+- Discovery matches the exact name `Mousr` together with the Nordic UART
+  service. The service alone is shared by many products and is not a
+  match; a renamed toy is added by hand.
 
-## APK provenance
-- **Package**: `com.petronics.mousr` ("Mousr")
-- **Source**: apkeep, apk-pure. Versions available: 0.9.1 … 1.0.7; downloaded latest.
-- **SHA-256**: `ed89a8f181a33eccfec7e52db68614658ff9572855ef05e28521f8a8eef8e38d` (33 MB bare APK)
-- **App version**: embedded `assets/ver.txt` = `1.0.6(6ce8c10)`
-- **Framework**: Unity (C# metadata in `assets/bin/Data/Managed/Metadata/global-metadata.dat`) + a Unity BLE plugin; Nordic DFU library for firmware updates.
-- Play listing referenced in bundled user guide: `play.google.com/store/apps/details?id=com.petronics.mousr` (now dead).
+Notification IDs include auto-mode acknowledgement, firmware/hardware
+version, pose, battery voltage, stopped/stuck and negative acknowledgement.
+Their payload layouts are not recovered, so no battery or pose decoder is
+asserted.
 
-## BLE UUIDs (from Unity metadata)
-| UUID | Role |
-|------|------|
-| `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | Nordic UART service (primary control channel, expected) |
-| `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | UART RX (write to Mousr) |
-| `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | UART TX (notify from Mousr) |
-| `8ec90001-f315-4f60-9fb8-838830daea50` | Laird BL600 Virtual Serial Port service (legacy/alternate) |
-| `8ec90002-f315-4f60-9fb8-838830daea50` | Laird VSP characteristic |
-| `0000fe59-0000-1000-8000-00805f9b34fb` | Nordic Secure DFU (buttonless) service |
-| `ee799f41-cfa5-550b-bf2c-344747c1c668` | Unidentified custom UUID (possibly hash artifact — verify) |
+## Safety and remaining work
 
-- Hardware hypothesis: Laird BL600-series BLE module (`sd_bl12.zip` = SoftDevice image; `BL12` naming).
-- Advertising name: user-settable in-app ("Give Mousr a name"); factory default likely `Mousr` (unverified).
-
-## What needs cloud
-- Nothing for operation. Firmware update check pings petronics.io (dead) — DFU can still be driven manually with the bundled zip.
-
-## Open questions
-1. UART command byte format for drive/mode/sound/tail commands — needs HCI snoop or il2cpp decompile (`global-metadata.dat` + `libil2cpp.so`).
-2. Is the Nordic UART the live control channel, or the Laird VSP? Both appear; determine which the app actually subscribes to.
-3. Whether the app enforces any first-run network check (appears not, but untested on-device).
+This is a moving robot and tail assembly. Test stop and small movement in a
+clear area away from pets and cables. Tail calibration needs a flat surface.
+Do not test DFU until normal control and charging state are established.
+Auto-mode byte offsets, bonding requirements, drive scaling, the one-digit
+code byte and firmware compatibility remain open. Firmware recovered from the app is not committed
+to the protocol repository.
