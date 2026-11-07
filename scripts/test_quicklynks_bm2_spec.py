@@ -107,3 +107,17 @@ def test_malformed_legacy_data_is_rejected():
         decode_legacy(bytes([body[0] ^ 1]) + body[1:])
     with pytest.raises(ValueError):
         decode_legacy(body[:-1] + bytes([101]))
+
+
+def test_declared_voltage_field_and_entity_binding():
+    fields = SPEC["services"][0]["characteristics"][0]["format"]
+    voltage = next(field for field in fields if field["name"] == "voltage")
+    raw = int.from_bytes(decrypt(bytes.fromhex(VECTORS["active_gatt"]["ciphertext_hex"]))[1:3], "big")
+    mask = voltage["mask"]
+    shift = (mask & -mask).bit_length() - 1
+    assert (raw & mask) >> shift == 1288
+    assert ((raw & mask) >> shift) * voltage["scale"] == pytest.approx(12.88)
+    assert voltage["unit"] == "V"
+    entity = next(entity for entity in SPEC["entities"] if entity["name"] == "Battery Voltage")
+    assert entity["state_characteristic"] == SPEC["services"][0]["characteristics"][0]["uuid"]
+    assert entity["state_mapping"]["value"] == "voltage"

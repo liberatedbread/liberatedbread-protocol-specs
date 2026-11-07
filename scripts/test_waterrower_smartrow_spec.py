@@ -61,6 +61,7 @@ def keylock_response(challenge):
 
 def test_capture_power_vectors():
     first = decode_record(record("power_349"))
+    assert first["distance"] == 28
     assert first["instant_power"] == 0
     assert first["average_power"] == pytest.approx(34.9)
     second = decode_record(record("power_45"))
