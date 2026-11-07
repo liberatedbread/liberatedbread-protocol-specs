@@ -218,6 +218,9 @@ spec's `device.setup` block; the patterns are explained in
 | [SolarEdge Inverters (Modbus TCP / SunSpec)](solaredge-modbus-tcp.md) | WiFi/LAN (Modbus TCP 1502 / 502) | Spec Available | Turn Modbus TCP on in SetApp or the inverter menu (medium) | SolarEdge (active; cloud API V1 retired Nov 2026) |
 | [Apple AirPort Extreme / Time Capsule / Express (ACP)](apple-airport-acp.md) | LAN (ACP on TCP 5009, Bonjour) | Spec Available | Base-station admin password; SRP login (medium) | Apple (discontinued 2018) |
 | [Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP)](philips-air-coap.md) | WiFi (CoAP UDP 5683, encrypted) | Spec Available | Philips app joins it to Wi-Fi once; then no account (medium) | Philips / Versuni (active) |
+| [Quicklynks BM2 Battery Monitor](quicklynks-bm2.md) | BLE GATT + passive advertisements | Spec Available | None needed (read-only) | Quicklynks |
+| [WaterRower ComModule / SmartRow](waterrower-smartrow.md) | BLE FTMS + SmartRow ASCII | Spec Available | None needed (local telemetry) | WaterRower |
+| [Oral-B iO Smart Brush and iO Sense Charger](oral-b-io-smartbrush.md) | BLE GATT + manufacturer advertisements | Spec Available | None needed for brush reads; charger provisioning unresolved | Procter & Gamble |
 
 ## Not everything here was liberated
 
