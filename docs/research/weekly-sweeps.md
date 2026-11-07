@@ -426,3 +426,43 @@ bankruptcies or withdrawn apps dated since 2026-10-25.
   integration falls under them; no Samsung post confirming that billing
   started was found. Cloud only, so no spec.
 - **SPAN**: nothing new beyond last week's entry.
+
+## 2026-11-06 (research follow-up)
+
+A review of the newly consolidated research packs against the merged catalogue.
+Two uncovered read-only protocols were promoted, and one existing spec gained
+substantial corrections. Every new or updated spec remains `testing: untested`;
+upstream tests and public captures are not relabelled as hardware verification
+by this project.
+
+### Added this pass
+
+| Spec | Origin | Notes |
+|---|---|---|
+| [Quicklynks BM2](../devices/quicklynks-bm2.md) | Two public BM2 clients, 2026-11-03 | Active FFF4 encrypted voltage/percentage/status notifications, enhanced and legacy advertisements, strict validation and staleness rules. History, configuration and BM6 are excluded. `scripts/test_quicklynks_bm2_spec.py`. |
+| [WaterRower ComModule / SmartRow](../devices/waterrower-smartrow.md) | FTMS profile + V3.10 capture-backed SmartRow follow-up | ComModule stays on standard FTMS. SmartRow gets its actual 0x1234 service, checksummed ASCII telemetry, session commands, keylock transform and 24-point raw force curve. The ComModule f364 extension and calibrated force/work units remain unresolved. `scripts/test_waterrower_smartrow_spec.py`. |
+
+### Existing-device corrections
+
+- **Oral-B iO Smart Brush**: charger characteristics now live in the recovered
+  `a0f03e00` service rather than the brush service. Added the captured native
+  and 0x37 passthrough grammar, charger status bits, length-gated FF05,
+  protocol-7/8 FF29 retained-session record, ServiceDataA/B and V008+
+  SonosMetadata. Provisioning writes, protocol-6 FF29 and unresolved units stay
+  open. Added the missing user guide and `scripts/test_oral_b_io_smartbrush_spec.py`.
+
+### Evaluated but not promoted yet
+
+- **Big Ass Fans**: both legacy SenseME ASCII/UDP and newer clear-TCP
+  SLIP/protobuf exist in the recovered app, but model/firmware selection needs
+  hardware evidence. Do not send both protocols as a discovery probe.
+- **Furbo**: ongoing control is authenticated TUTK P2P, not simply cloud-only,
+  and some Furbo 2 units expose authenticated RTSP. An offline path using
+  account-exported credentials is not yet established, nor is a current-model
+  RTSP/ONVIF contract. A full local-control spec would overstate the evidence.
+- **Ecowitt gateways**: four local HTTP reads are well supported, but several
+  weather/rain/light field and unit mappings conflict between clients. A future
+  spec should preserve raw IDs and units rather than inventing normalization.
+- **Eye-Fi**: the consolidated receiver, credential and TAR findings improve
+  the existing research trail, but hardware discovery/retry and reset-card
+  provisioning still need validation. No outbound camera-client spec is added.
