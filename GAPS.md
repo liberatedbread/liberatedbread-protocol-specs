@@ -86,14 +86,6 @@ badge's speed nibble shares a byte with `mode`), and a raw-byte-stream
 transport arm for top-level `commands` (Brother's raster opcodes stay
 `payload_hex` prose).
 
-Open since 2026-11-02: a parameter filled from current state. An Elgato
-Light Strip in white mode needs its current `temperature` resent with every
-brightness write, or it switches to colour mode. The spec declares
-`set_strip_white_brightness` with both fields, but an entity's brightness
-role can only bind a one-parameter command, so the binding stays on
-`set_brightness` and the white-mode rule lives in the entity's notes.
-
-## Validation: 224/224 passing (223 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after
