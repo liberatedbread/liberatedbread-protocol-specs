@@ -213,6 +213,8 @@ spec's `device.setup` block; the patterns are explained in
 | [Keto-Mojo GK+ Glucose & Ketone Meter](keto-mojo-gk-plus.md) | BLE | Spec Available | None needed (connect and request records) | Keto-Mojo (active) |
 | [Orbit B-hyve Bluetooth Hose Timers](orbit-bhyve-ble.md) | BLE (encrypted) | Spec Available | Export the network key once from the Orbit account (medium) | Orbit (active) |
 | [LIVISI SmartHome (SHC 1 / SHC 2)](livisi-smarthome.md) | LAN (HTTP 8080, WebSocket events) | Spec Available | Local SmartHome on; local password, token login (medium) | LIVISI (servers off 2024-03-01) |
+| [Qingping / ClearGrass Sensors (stock BLE)](qingping-stock-ble.md) | BLE (passive 0xFDCD service data) | Spec Available | None needed (no connection) | Qingping / ClearGrass |
+| [Ecosense / FTLab RadonEye RD200](ecosense-radoneye-rd200.md) | BLE (two generations) | Spec Available | None needed (one central) | FTLab / Ecosense |
 
 ## Not everything here was liberated
 

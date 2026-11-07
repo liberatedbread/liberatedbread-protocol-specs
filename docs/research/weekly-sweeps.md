@@ -66,6 +66,29 @@ the gap previously recorded for Hot Wheels and Mousr, and names the
   **Pantelligent** still lacks a GATT map and **Lockitron Bolt** lacks a
   proven local pairing/key path; neither gains an invented spec.
 
+### Additional research integrations
+
+A second pass over the newly validated research packs added two receive/read
+protocols and corrected two existing specs. All four remain untested on
+hardware by this project; passing upstream or synthetic checks are not
+relabelled as physical verification.
+
+| Spec | Origin | Notes |
+|---|---|---|
+| [Qingping / ClearGrass stock BLE sensors](../devices/qingping-stock-ble.md) | `qingping-ble` 1.3.0 parser and fixtures, 2026-11-01 | Passive stock `0xFDCD` service data, 20 model IDs, complete TLV framing and units. Corrects two older assumptions: CGDK2 is supported, and TLV `0x18` is a capability bitmap rather than CO2. Event packets update motion without overwriting illuminance. `scripts/test_qingping_stock_ble_spec.py`. |
+| [Ecosense / FTLab RadonEye RD200](../devices/ecosense-radoneye-rd200.md) | `rd200v2` + `radonpy`, 2026-11-01 | Both RD200 generations: V1 float32 pCi/L with command/length framing, configuration and chunked history; V2 exact-length uint16 Bq/m³ responses. Generation selection requires name plus GATT shape, no V1 opcode is reused on V2, and history erase is advanced. `scripts/test_ecosense_radoneye_rd200_spec.py`. |
+
+- **QardioArm**: the standard Blood Pressure Measurement characteristic uses
+  indications. Enable the update mechanism the characteristic actually exposes
+  and wait for confirmation; the Android port's hard-coded notification CCCD
+  write is not a protocol requirement. Its incomplete SFLOAT handling likewise
+  remains a client limitation, not wire-format evidence.
+- **WeatherFlow Tempest**: completed the `obs_st`, legacy AIR/SKY, wind and
+  lightning layouts. Tempest index 12 is rain over the **previous minute**, not
+  a reporting-interval or daily total; short arrays and nulls stay unavailable.
+  Added sensor-status bits and the lightning energy/distance quirks from the
+  validated parser research.
+
 ## 2026-10-11
 
 ### Added this week
