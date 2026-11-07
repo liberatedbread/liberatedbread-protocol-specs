@@ -21,7 +21,10 @@ announced on 2026-10-17, and this spec is read from that integration.
 
 !!! warning "Medical device"
     Readings synced from the meter are a personal log. They must never be
-    used to decide an insulin or other medication dose. Control-solution
+    used to decide an insulin or other medication dose. Using them to see
+    which breakfast spikes you less is your call; dosing is the meter's own
+    display and your care team, never a number that came through this spec.
+    Control-solution
     tests (type bytes `0x22` and `0x66`) are strip and solution checks, not
     blood readings, and must never be shown as readings. The spec carries a
     `safety_advisory` that says so.
