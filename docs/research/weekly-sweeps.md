@@ -24,7 +24,7 @@ better evidence rather than a premature app claim.
 | Spec | Origin | Notes |
 |---|---|---|
 | [Artiphon Orba 2](../devices/artiphon-orba-2.md) | `research-notes/artiphon-orba.*` + new Orba 2 app/protocol research | Corrects the old note's Orba-1 scope: the capture-verified map is Orba 2, with the recovered `com.artiphon.kestrel` companion. Standard BLE-MIDI, LSB-first 7-bit SysEx packing, zero-init CRC-16 and fragmented writes. Transport, quantization, tempo and FX; destructive erase commands are advanced. `scripts/test_artiphon_orba_2_spec.py`. |
-| [Petronics Mousr](../devices/petronics-mousr.md) | `research-notes/mousr-cat-toy.*` + recovered 1.0.7 app | Fifteen-byte command envelope, decimal command IDs, Nordic UART and three-float32-LE drive vectors. STOP and CHIRP are fixed commands; movement is advanced and drive units/ranges stay unclaimed. Notifications and auto-mode layouts remain open. `scripts/test_petronics_mousr_spec.py`. |
+| [Petronics Mousr](../devices/petronics-mousr.md) | `research-notes/mousr-cat-toy.*` + recovered 1.0.7 app | Fifteen-byte command envelope, decimal command IDs (the second byte of a one-digit code is unresolved), Nordic UART and three-float32-LE drive vectors. Stop and chirp are fixed commands; movement is advanced and drive units/ranges stay unclaimed. Notifications and auto-mode layouts remain open. `scripts/test_petronics_mousr_spec.py`. |
 
 The schema now carries `float32` for fields and command parameters, closing
 the gap previously recorded for Hot Wheels and Mousr, and names the
@@ -34,9 +34,10 @@ the gap previously recorded for Hot Wheels and Mousr, and names the
 
 - **Hot Wheels id Race Portal**: the recovered official app identifies the
   `000a` service as MPID session setup and `000b` as signed-image OTA. The
-  manufacturing token is variable-length (136-byte generation one, at least
-  182 bytes in another format), not the community note's fixed 148-byte
-  certificate. The read-only community control path remains valid and no
+  manufacturing token is variable-length per the app analysis (136-byte
+  generation one, at least 182 bytes in another format). The community
+  note's 148-byte read is kept as an observation from its unit; it matches
+  neither format and is unexplained. The read-only community control path remains valid and no
   official command write is offered. The speed field is now `float32`; its
   unit is still unresolved.
 - **Wilson X**: assigned to the `fa10` three-axis family, not 94Fifty or the
@@ -65,6 +66,29 @@ the gap previously recorded for Hot Wheels and Mousr, and names the
   raw-BLE streaming but still needs the write sequence and capture evidence.
   **Pantelligent** still lacks a GATT map and **Lockitron Bolt** lacks a
   proven local pairing/key path; neither gains an invented spec.
+
+### Additional research integrations
+
+A second pass over the newly validated research packs added two receive/read
+protocols and corrected two existing specs. All four remain untested on
+hardware by this project; passing upstream or synthetic checks are not
+relabelled as physical verification.
+
+| Spec | Origin | Notes |
+|---|---|---|
+| [Qingping / ClearGrass stock BLE sensors](../devices/qingping-stock-ble.md) | `qingping-ble` 1.3.0 parser and fixtures, 2026-11-01 | Passive stock `0xFDCD` service data, 20 model IDs, complete TLV framing and units. Corrects two older assumptions: CGDK2 is supported, and TLV `0x18` is a capability bitmap rather than CO2. Event packets update motion without overwriting illuminance. `scripts/test_qingping_stock_ble_spec.py`. |
+| [Ecosense / FTLab RadonEye RD200](../devices/ecosense-radoneye-rd200.md) | `rd200v2` + `radonpy`, 2026-11-01 | Both RD200 generations: V1 float32 pCi/L with command/length framing, configuration and chunked history; V2 exact-length uint16 Bq/m³ responses. Generation selection requires name plus GATT shape, no V1 opcode is reused on V2, and history erase is advanced. `scripts/test_ecosense_radoneye_rd200_spec.py`. |
+
+- **QardioArm**: the standard Blood Pressure Measurement characteristic uses
+  indications. Enable the update mechanism the characteristic actually exposes
+  and wait for confirmation; the Android port's hard-coded notification CCCD
+  write is not a protocol requirement. Its incomplete SFLOAT handling likewise
+  remains a client limitation, not wire-format evidence.
+- **WeatherFlow Tempest**: completed the `obs_st`, legacy AIR/SKY, wind and
+  lightning layouts. Tempest index 12 is rain over the **previous minute**, not
+  a reporting-interval or daily total; short arrays and nulls stay unavailable.
+  Added sensor-status bits and the lightning energy/distance quirks from the
+  validated parser research.
 
 ## 2026-10-11
 
