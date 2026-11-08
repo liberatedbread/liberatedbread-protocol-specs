@@ -110,6 +110,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Quin / Daviky Smart Pill Boxes](quin-pillcalendar.md) | Bluetooth Classic SPP (BLE discovery) | Spec Available | None needed; wake box (medium) | ZHUHAI QUIN TECHNOLOGY / Daviky |
 | [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | None needed | Triumph Motorcycles |
 | [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | None needed | BMW Motorrad |
+| [Nissan Leaf Battery Data (ZE0 / AZE0 / ZE1)](nissan-leaf-obd2.md) | OBD-II (CAN, via BLE ELM327) | In Progress | Plug in an adapter (read-only) | Nissan (NissanConnect EV ended UK/EU 2026-03-30) |
 | [Fardriver ND-series Motor Controller](fardriver-controller.md) | BLE | Research | None needed | Nanjing Fardriver |
 | [Bafang BBS02 Mid-Drive](bafang-bbs02.md) | UART (BLE via bridge) | Research | None needed | Bafang |
 | [Tongsheng TSDZ2 Mid-Drive](tsdz2-tongsheng.md) | UART (9600 baud) | Research | None needed | Tongsheng |
@@ -201,6 +202,7 @@ spec's `device.setup` block; the patterns are explained in
 | [TiVo Network Remote](tivo-network-remote.md) | LAN (TCP 31339) | Spec Available | Enable Network Remote Control (medium) | TiVo / Xperi |
 | [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
 | [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
+| [Hasbro Furby Connect](hasbro-furby-connect.md) | BLE | Spec Available | None needed (connect, keep-quiet writes) | Hasbro (app deprecated; unsupported) |
 | [Kano Coding Wand](kano-coding-wand.md) | BLE | Spec Available | None needed (connect and subscribe) | Kano Computing (in administration 2023) |
 | [Artiphon Orba 2](artiphon-orba-2.md) | BLE-MIDI + SysEx | Spec Available | None needed (one central) | Artiphon (liquidated 2025) |
 | [Petronics Mousr](petronics-mousr.md) | BLE (Nordic UART) | Spec Available | None found (untested) | Petronics (consumer product abandoned) |
@@ -213,6 +215,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Hörmann BiSecur Gateway](hormann-bisecur-gateway.md) | LAN (UDP 4001 discovery, TCP 4000) | Spec Available | Log in as a gateway user (medium) | Hörmann (replaced by homee) |
 | [Insteon Hub (2245-222 / 2242-222)](insteon-hub.md) | LAN (HTTP 25105 / TCP 9761) | Spec Available | Label credentials, Basic auth (medium) | Insteon (cloud outage 2022; revived) |
 | [Keto-Mojo GK+ Glucose & Ketone Meter](keto-mojo-gk-plus.md) | BLE | Spec Available | None needed (connect and request records) | Keto-Mojo (active) |
+| [Yogasleep Dohm Connect](yogasleep-dohm-connect.md) | BLE | Spec Available | Bond after a top-button hold, read the device ID (medium) | Yogasleep / Marpac (active; app neglected) |
 | [Orbit B-hyve Bluetooth Hose Timers](orbit-bhyve-ble.md) | BLE (encrypted) | Spec Available | Export the network key once from the Orbit account (medium) | Orbit (active) |
 | [LIVISI SmartHome (SHC 1 / SHC 2)](livisi-smarthome.md) | LAN (HTTP 8080, WebSocket events) | Spec Available | Local SmartHome on; local password, token login (medium) | LIVISI (servers off 2024-03-01) |
 | [Qingping / ClearGrass Sensors (stock BLE)](qingping-stock-ble.md) | BLE (passive 0xFDCD service data) | Spec Available | None needed (no connection) | Qingping / ClearGrass |
