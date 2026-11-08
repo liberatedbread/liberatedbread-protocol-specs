@@ -283,3 +283,11 @@ def test_spec_status(spec):
     assert device["manufacturer_status"] == "active"
     assert device["setup"]["factory_reset"]["applicable"] == "unknown"
     assert device["pairing"]["bonding"] == "required"
+
+
+def test_initialization_subscribes_then_asks_for_the_device_id(spec):
+    steps = spec["initialization"]
+    uuid = "00005601-d102-11e1-9b23-00025b005aa5"
+    assert steps[0] == {**steps[0], "characteristic": uuid, "subscribe": True}
+    assert steps[1]["characteristic"] == uuid
+    assert bytes(steps[1]["write"]) == b"i$"
