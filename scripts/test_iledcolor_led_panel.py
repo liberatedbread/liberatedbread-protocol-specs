@@ -76,3 +76,14 @@ def test_vendor_native_animation_uses_raw_rgb_frames():
     assert "restored the old program" in upload["legacy_acknowledged_gif_example"][
         "caveat"
     ]
+
+
+def test_guide_default_password_checksum_matches_spec():
+    packet = _commands()["test_pass_default"]["value"]
+    _assert_big_endian_sum(packet)
+    guide = (ROOT / "docs" / "devices" / "iledcolor-led-panel.md").read_text(
+        encoding="utf-8"
+    )
+    expected = " ".join(f"{byte:02x}" for byte in packet)
+    assert expected in guide
+    assert "54 0f 00 08 00 00 00 00 00 00 00 6f" not in guide

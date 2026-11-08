@@ -115,3 +115,30 @@ def test_session_feedback_subscription_precedes_auth_writes():
                 for opcode in (8, 9, 60, 61, 62, 63, 68)
             ):
                 assert subscribed < index, action
+
+
+def test_saved_session_wire_exchange_and_success_gate():
+    auth = SPEC["protocol_details"]["session_authentication"]
+    existing = auth["verify_existing"]
+    assert existing["request"]["plaintext"] == "[0x3f][0x7f][user_id_utf8][n1_ascii]"
+    assert "ECDH" in existing["request"]["encryption"]
+    assert existing["success_response"]["type"] == 109
+    assert existing["success_response"]["inner_plaintext"] == (
+        "[n1_ascii][.][n2_ascii]"
+    )
+    assert "saved cloud-issued credential" in existing["authenticate"]["encryption"]
+    assert existing["authenticate"]["plaintext"] == "[0x09][0x7f][n2_ascii]"
+    assert existing["failure_and_completion"]["expired_type"] == 110
+    assert existing["failure_and_completion"]["invalid_type"] == 111
+    assert existing["failure_and_completion"]["timeout_seconds"] == 8
+    assert "no dedicated success reply" in existing["failure_and_completion"][
+        "notes"
+    ]
+    assert "version read" in existing["failure_and_completion"]["notes"]
+
+    fresh = auth["request_fresh"]
+    assert fresh["request"]["opcode"] == 62
+    assert fresh["request"]["plaintext"] == "[0x3e][0x7f][user_id_utf8][n1_ascii]"
+    assert fresh["robot_reply"]["plaintext"] == (
+        "[payloadKey][.][n2_ascii][.][payload]"
+    )

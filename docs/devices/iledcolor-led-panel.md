@@ -44,7 +44,7 @@ No provisioning, vendor account or Bluetooth bond is required.
 3. Write Connect (`54 0d 00 03 00 00 64`) to A951 without response. Expect
    `54 0d 00 04 00 00 00 65` on A953.
 4. Test the six-byte password. The factory-default request is
-   `54 0f 00 08 00 00 00 00 00 00 00 6f`. Response status 1 means accepted, 2 wrong
+   `54 0f 00 08 00 00 00 00 00 00 00 6b`. Response status 1 means accepted, 2 wrong
    password and 3 no password configured. The tested unit returned 3.
 5. Read panel width and height from the advertisement before rendering.
 

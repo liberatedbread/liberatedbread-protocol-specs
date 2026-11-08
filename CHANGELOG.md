@@ -17,7 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   not claimed to work offline, and crypto runtime behavior still needs hardware.
   Registration/session-feedback subscription now precedes authentication and
   session-key writes in both onboarding flows, so replies cannot be missed
-  during the eight-second feedback window.
+  during the eight-second feedback window. The saved-session exchange now
+  specifies both encryption layers, nonce encoding, request/response layouts,
+  failure types, and the subsequent read required because command 9 has no
+  dedicated success response. The iLEDColor guide's TestPass checksum is
+  corrected to 00 6b to match the additive packet sum and the spec.
 - **Finer categories and better ways to find the right device.** Optional
   `device.category_hierarchy` distinguishes LED displays from illumination,
   laser distance measurement from environmental sensing, and health
