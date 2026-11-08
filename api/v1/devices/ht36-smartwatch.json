@@ -1,0 +1,2005 @@
+{
+  "device": {
+    "category": "wearable",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "notes": "CoreBluetooth hides the address and hands out a per-host peripheral identifier instead; upstream resolves the watch by name on every run. Whether the address is public or random is not recorded; the device-info reply (tag 0x01) reports a six-byte MAC for the watch.\n",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "exact",
+              "value": "HT36"
+            }
+          },
+          "notes": "The watch advertises while awake. After connecting, confirm the protocol by finding 000034f1-0000-1000-8000-00805f9b34fb and 000034f2-0000-1000-8000-00805f9b34fb under 000056ff-0000-1000-8000-00805f9b34fb and getting a battery reply.\n",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "host_compatibility": [
+      {
+        "basis": "The open client (Bun + @stoprocent/noble) was built and run on macOS on Apple Silicon, through CoreBluetooth. Not run by this project.\n",
+        "notes": "Its README also names Linux as a target, but reports no Linux run, so no BlueZ verdict is given. See the MTU note in troubleshooting before sending 21-byte chunk frames from BlueZ or Android.\n",
+        "stack": "corebluetooth",
+        "status": "compatible",
+        "verification": "reported"
+      }
+    ],
+    "identification": {
+      "local_names": [
+        "HT36"
+      ],
+      "notes": "Scan by the exact advertised local name \"HT36\", which is what the open client matches. Whether the advertisement carries a service UUID or manufacturer data is not recorded (upstream wrote an advertisement dumper but published no output), so nothing here filters on either. The service/characteristic set is shared with other GloryFitPro watches sold under other names (Gadgetbridge issue #5541 shows the same table on a \"Stratos 2 Ultra\"), and at least one GloryFit device writes a different command dialect (frames starting eb 02) to 34f1 (Gadgetbridge issue #5505), so the GATT table alone does not identify this protocol. The one unit's public address, as the device-info reply reports it, sits in OUI 78:02:B7, registered to ShenZhen Ultra Easy Technology Co., Ltd.; one unit is not enough to declare a prefix matcher, and on macOS the address is not visible at all.\n"
+    },
+    "manufacturer": "Unbranded (YC nadal SDK platform)",
+    "manufacturer_status": "active",
+    "model": "HT36",
+    "name": "HT36 Smartwatch",
+    "notes": "A budget colour-screen smartwatch sold unbranded as \"HT36\" for use with the GloryFitPro app (Android package com.yc.gloryfitpro, still listed on Google Play in 2026-09). The app bundles a vendor SDK from YC (the SDK's own name is \"nadal\"), and the watch speaks that SDK's command set over a plain BLE GATT link. There is no Wi-Fi and nothing documented here needs the vendor cloud: the watch answers any central that connects and subscribes, with no pairing and no application-layer login.\n\nCOMMAND CHANNEL. Service 000056ff-0000-1000-8000-00805f9b34fb. Write commands without response to 000034f1-0000-1000-8000-00805f9b34fb; replies and spontaneous frames arrive as notifications on 000034f2-0000-1000-8000-00805f9b34fb. The service UUID is stated by the upstream README and by the nRF Connect GATT table in upstream's archived hand-off notes, and a sibling GloryFitPro watch shows the same service/characteristic pairing (Gadgetbridge issue #5541); upstream's own live GATT dump lists characteristics only. The watch also exposes service 0000ffd0-0000-1000-8000-00805f9b34fb (ffd1/ffd2/ffd3), service 000055ff-0000-1000-8000-00805f9b34fb (000035f1 write, 000035f2 notify), the SIG Device Information service 0000180a-0000-1000-8000-00805f9b34fb, and two 128-bit services on the e49aXXXX-f69a-11e8-8eb2-f2801f1b9fd1 base, one of which is the firmware update path. Never write e49a3002-f69a-11e8-8eb2-f2801f1b9fd1.\n\nFRAME. 01, a command group byte, a marker byte (AA query, AB set, AC device push or acknowledgement), an opcode byte, then, when there is a payload, a length byte and the payload. Bare queries carry no length byte at all (battery is 01 a4 aa 16). Replies echo the request's first four bytes and append length and payload (battery reply 01 a4 aa 16 06 01 01 58 02 01 00, level 0x58 = 88 % at byte 7). Set-time (group A3) does not follow the marker pattern: its bytes after the group read as tag-length-value entries (01 04 <time>, 10 02 <zone>). No checksum on single frames.\n\nCHUNKED TRANSFERS. A payload too long for one write is cut into slices of at most 16 bytes, each sent as <head hi> <head lo> <flag hi> <flag lo> <section index> <slice>, then a trailer <head> <flag> FD <xor8>, where xor8 is the XOR of every byte of every chunk frame (headers included, trailer excluded). Head is 01 plus the group, flag is the marker/opcode pair: notification switches 01b2/abab, notification push 01b0/abab, weather 01e0/abab. The watch answers multi-frame replies (device info, history) the same way. Notification and weather bodies are tag-length-value lists, ABxx <len> <value>; notification text is UTF-16BE. Full tables in protocol_details.\n\nWHAT WORKS UPSTREAM (reported): battery, device info, vibrate/find, find-state query, notification push (renders on the wrist once the notification switches have been written that session and the AB08 type tag is present), weather push, GPS position push, fitness history (steps, calories, distance, heart rate, SpO2, blood pressure per minute) and single-night sleep history. WHAT DOES NOT: set-time is acknowledged but the watch's clock does not change; on-demand heart-rate measurement is acknowledged but no result arrives; watch-face upload is refused once the watch's face slots are full, and no delete command is known.\n\nHARDWARE IDENTITY IS UNSETTLED. Upstream's early notes call the SoC a Telink TLSR8232/8258 because of the e49a... UUID base, but Telink's published OTA service is 00010203-0405-0607-0809-0a0b0c0d1912 and the e49a base is in no DFU registry this project holds; upstream's later watch-face notes instead name an Actions ATS3085-class part. The 240 x 296 colour screen and 400 kB watch-face slots fit the latter better. Treat the SoC as not established. The firmware identifies itself as \"AT364D\" followed by a V and a six-digit build (upstream's unit reported AT364DV002716), and as device type \"NAL-WB00\" in its device-info reply.\n\nEverything byte-level is `reported`: taken from the open client and its notes, whose author ran it against one watch. No capture exists in this project's research store and nothing here has been driven from this document.\n",
+    "openness": {
+      "notes": "Nothing about the protocol is published by the watch's maker or the SDK vendor. Everything here comes from an open client that was written from a decompile of the vendor app and then run against a watch by its author.\n",
+      "reverse_engineered": true,
+      "status": "undocumented"
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "Connectable whenever it is awake and no other central holds it.",
+        "required": false
+      },
+      "exclusivity": {
+        "recovery": "Close the GloryFitPro app, or turn Bluetooth off on the phone that normally talks to the watch, then scan again.\n",
+        "single_connection": "unknown"
+      },
+      "notes": "The open client connects with a plain GATT connection from macOS and never pairs or bonds, and every command documented here worked for it that way. The vendor SDK also carries application-layer pairing-request and authorization-code calls; upstream never needed them and their role on this watch is not known.\n",
+      "required": false,
+      "security_mode": "none"
+    },
+    "protocol": "ble",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No Wi-Fi and no issued secrets. Anything in radio range can connect, read the stored health history and push notifications; physical proximity is the only access control.\n",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "The vendor SDK has a factory-reset call, but its bytes were not mapped upstream and are not given here. No manual for the HT36 has been found, so no on-watch menu route can be cited. The 10-15 s button hold upstream mentions is for recovering a frozen watch (a forced restart), not a reset, and is itself unconfirmed on this model.\n",
+        "effect": "Not established. No reset has been performed or documented for this watch, and nothing is known about what one would clear.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false
+          },
+          "description": "Scan for \"HT36\", connect, subscribe to 000034f2-0000-1000-8000-00805f9b34fb, then write frames to 000034f1-0000-1000-8000-00805f9b34fb. Read a reply by matching its first four bytes against the request.\n",
+          "steps": [
+            {
+              "action": "Wake the watch (raise it or press its button) and make sure the GloryFitPro app is not connected to it.",
+              "actor": "user"
+            },
+            {
+              "action": "Scan for the exact local name HT36 and connect.",
+              "actor": "client",
+              "request": {
+                "protocol": "ble_gatt"
+              }
+            },
+            {
+              "action": "Discover services and enable notifications on 000034f2-0000-1000-8000-00805f9b34fb (service 000056ff-0000-1000-8000-00805f9b34fb).\n",
+              "actor": "client"
+            },
+            {
+              "action": "The watch shows a spinner and vibrates once, entering its connected-to-app state.",
+              "actor": "device"
+            },
+            {
+              "action": "Wait about 500 ms, then write commands without response to 000034f1-0000-1000-8000-00805f9b34fb, for example the battery query 01 a4 aa 16.\n",
+              "actor": "client",
+              "expect": "A notification on 34f2 starting 01 a4 aa 16, with the battery percentage at byte 7."
+            }
+          ],
+          "timing": {
+            "device_info_collect_window_ms": 3000,
+            "first_spontaneous_notification_s": 19,
+            "gap_between_chunk_frames_ms": 150,
+            "gap_between_notification_switches_and_push_ms": 400,
+            "notes": "All from the open client, which waits these times rather than gating on acknowledgements for the short transfers. The first spontaneous 34f2 frame arrives about 19 s after subscribing and then roughly every 10 s; a client listening for only a few seconds sees nothing and should not conclude the link is dead. Command replies arrive within a few hundred milliseconds.\n",
+            "settle_after_subscribe_ms": 500,
+            "spontaneous_notification_interval_s": 10
+          },
+          "troubleshooting": [
+            {
+              "causes": [
+                "The notification switches (enable_notifications, group B2) were not written earlier in this connection; upstream writes them before every push.",
+                "The AB08 message-type tag is missing. Without it the watch acknowledges the transfer and does not render it; upstream sends type 1."
+              ],
+              "symptom": "A notification push is acknowledged but nothing appears on the watch."
+            },
+            {
+              "causes": [
+                "Reported upstream after two tries with the A3 frame; the format this firmware wants has not been matched. The older A2 form has not been tried. Until it is, the clock is set by the vendor app."
+              ],
+              "symptom": "Set-time is acknowledged but the watch's clock does not change."
+            },
+            {
+              "causes": [
+                "Normal for about 19 s: spontaneous frames start late. Write a query (battery) to get an immediate answer.",
+                "The vendor app on a phone is connected and holding the watch; close it or turn the phone's Bluetooth off."
+              ],
+              "symptom": "Nothing arrives on 34f2 after subscribing."
+            },
+            {
+              "causes": [
+                "Wrong channel. 0000ffd1-0000-1000-8000-00805f9b34fb answers nothing (upstream calls it a decoy). 000035f1-0000-1000-8000-00805f9b34fb executes some set commands (vibrate) and answers the single-byte a1 query, but query replies only come back for frames written to 000034f1-0000-1000-8000-00805f9b34fb."
+              ],
+              "symptom": "Writes to 0000ffd1 or queries written to 000035f1 get no reply."
+            },
+            {
+              "causes": [
+                "A 16-byte slice makes a 21-byte write, one more than a default 23-byte ATT MTU allows. CoreBluetooth negotiates a larger MTU on its own; elsewhere request one (or use 15-byte slices, which is what the SDK's file transfers use; whether the watch reassembles 15-byte notification slices is not established)."
+              ],
+              "symptom": "Chunk writes fail or arrive truncated on Linux or Android but work on macOS."
+            },
+            {
+              "causes": [
+                "The open client's device-info decoder keys its labels by the decimal numbers 15 and 16, which are tags 0x0f and 0x10; the watch sends the model string as tag 0x15 and the battery block as tag 0x16 (upstream's own decode log). Key on 0x15/0x16."
+              ],
+              "symptom": "Decoded device info has no model string or battery field."
+            },
+            {
+              "causes": [
+                "Known upstream limit: its sleep reassembly concatenates frames after a 5-byte header and misaligns after the first frame (it drops the bad records). See protocol_details.history.sleep for a likely cause."
+              ],
+              "symptom": "A multi-night sleep pull decodes to nonsense records."
+            },
+            {
+              "causes": [
+                "Reported upstream after 90 s worn on every notify characteristic: on-demand measurement results are not pushed. Read the values from fitness history instead (see also protocol_details.spontaneous_stream)."
+              ],
+              "symptom": "Heart-rate or SpO2 measurement commands are acknowledged but no reading comes back."
+            },
+            {
+              "causes": [
+                "Upstream's advice is to hold the button 10-15 s or let the battery run down. That is generic advice for this class of watch, not confirmed on the HT36."
+              ],
+              "symptom": "The watch freezes after an experiment."
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision: no account, no network credentials, no bond. The open client scans by name, connects, subscribes to 34f2 and writes. Confidence is medium because one public implementation ran this against a watch; this project has not.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Nothing a client does binds the watch. The vendor app registers the watch against its cloud account, but the watch answered the open client without being unbound. Moving to a new client only means stopping the vendor app (or the phone's Bluetooth) from holding the link.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "status": "untested"
+    },
+    "type": "smartwatch"
+  },
+  "entities": [
+    {
+      "device_class": "battery",
+      "name": "Battery",
+      "notes": "Poll with query_battery; the reply is the only 34f2 frame the declared format decodes.",
+      "platform": "sensor",
+      "state_characteristic": "000034f2-0000-1000-8000-00805f9b34fb",
+      "state_command": "query_battery",
+      "state_mapping": {
+        "value": "battery_level"
+      },
+      "unit": "%"
+    },
+    {
+      "command_characteristic": "000034f1-0000-1000-8000-00805f9b34fb",
+      "commands": {
+        "press": "find_watch"
+      },
+      "name": "Find Watch",
+      "platform": "button"
+    }
+  ],
+  "evidence": {
+    "artifacts": [
+      {
+        "artifact": "tcsenpai/ht36 at cbcfc4aa8cc031f84e844bfe1d786987b5e1890a",
+        "description": "Source of every command, layout and quirk in this spec. The vendor app its author decompiled was GloryFitPro 1.8.5.2 for Android; this project did not examine it.\n",
+        "type": "public_implementation",
+        "url": "https://github.com/tcsenpai/ht36"
+      },
+      {
+        "artifact": "Gadgetbridge issue #5541",
+        "description": "Full GATT table of a sibling GloryFitPro watch; matches the HT36's.",
+        "type": "community_thread",
+        "url": "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/5541"
+      },
+      {
+        "artifact": "Gadgetbridge issue #5505",
+        "description": "A GloryFit device using 34f1 with a different (eb 02) dialect; a warning against identifying by UUID.",
+        "type": "community_thread",
+        "url": "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/5505"
+      },
+      {
+        "description": "None found. No FCC ID is known for the HT36.",
+        "type": "fcc_filing"
+      }
+    ],
+    "community_threads": "Gadgetbridge issue #5541 shows the same GATT table (56ff/34f1/34f2, 55ff/35f1/35f2, ffd0, 180a, the two e49a services) on a sibling GloryFitPro watch sold under another name, which corroborates the service UUIDs. Gadgetbridge issue #5505 documents a GloryFit device that writes 34f1 with a different dialect (frames starting eb 02).\n",
+    "negative_findings": "Two public Gadgetbridge captures of other GloryFit-app devices (issues #5505 and #6531) and one of a Kospet watch (issue #3343) were searched for this spec's frames (01 a4 aa, 01 b0 ab ab, 01 a5 ab 04, 01 c6 ..): none occur. They speak the eb 02 dialect and are not evidence for this protocol.\n",
+    "open_questions": "The working set-time format; whether 15-byte slices reassemble; the chunk acknowledgement layout; whether the spontaneous C6/AC01 stream is live heart rate; the sleep/workout section width; how many fitness frames a window holds and whether the index walk works; the notification type and weather icon tables; the SoC.\n",
+    "public_implementation": "tcsenpai/ht36 (MIT), read at commit cbcfc4aa8cc031f84e844bfe1d786987b5e1890a: its BLE transport, frame builders and decoders, fitness/sleep decoders, watch-face codec, CLI, features.json status table, wiki and archived notes. Its author built it from a decompile of the vendor app and reports running every command marked verified there against one HT36 (notification rendered on the wrist, physical buzz, battery and device info decoded, a day of fitness and one night of sleep decoded, GPS echoed). Its own notes were used to correct its code where they disagree (device-info tags 0x15/0x16). Negative findings it records: set-time does not change the clock, on-demand heart-rate results never arrive, ffd1 answers nothing, the vendor cloud publishes no firmware for this watch, the watch-face reorder command reorders but does not delete, and five rounds of BLE fuzzing crashed nothing.\n",
+    "this_project": "No capture, FCC grant or manual for the HT36 is held, and nothing has been run against a watch. Test vectors were computed from the rules in this file with the Python standard library.\n"
+  },
+  "features": [
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "Not established: nothing records how the watch advertises or what it shows in update mode."
+        },
+        "enter": {
+          "how": "unknown",
+          "notes": "Not documented, deliberately. Writing the update characteristic e49a3002-f69a-11e8-8eb2-f2801f1b9fd1 is the one action upstream says can brick the watch, and no entry bytes are given here.\n"
+        },
+        "image": {
+          "notes": "The vendor app asks a vendor web service for a newer build, keyed by the \"AT364D\" project code and the current build number. Upstream replicated the check in 2026-07 and got \"no new version\" for every build number it tried, so no image for this watch is publicly obtainable; upstream concluded the only copy is the one in the watch's flash.\n",
+          "signing": "unknown",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "unknown"
+        ],
+        "notes": "Recorded so a client lists the service read-only and never writes it. The stack is not identified: upstream says Telink, but the UUIDs are not Telink's published OTA service.\n",
+        "recovery": {
+          "interrupted": "unknown",
+          "notes": "Upstream names no recovery for a failed update; its hardware notes suggest a flash dump over a debug pad would be needed, which nobody has done.\n"
+        },
+        "services": [
+          "e49a3001-f69a-11e8-8eb2-f2801f1b9fd1"
+        ],
+        "transport": "ble",
+        "verification": "reported"
+      },
+      "type": "firmware_update"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "MIT-licensed TypeScript client (Bun + noble) whose author ran it against an HT36: notifications, weather, GPS, battery, device info, vibrate and history sync, plus a watch-face codec and a wiki of protocol notes. No manual for the watch has been found, so this is the documentation.\n",
+      "kind": "implementation",
+      "title": "tcsenpai/ht36: open local-first BLE client for the HT36",
+      "url": "https://github.com/tcsenpai/ht36"
+    },
+    {
+      "description": "The command bytes, chunked-transfer writer, notification and weather TLV builders, battery and device-info decoders, pinned at the commit read.",
+      "kind": "implementation",
+      "title": "tcsenpai/ht36: src/proto.ts (frame builders and decoders)",
+      "url": "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/src/proto.ts"
+    },
+    {
+      "description": "Per-minute fitness record and sleep record decoders, pinned at the commit read.",
+      "kind": "implementation",
+      "title": "tcsenpai/ht36: src/fitness.ts (history decoders)",
+      "url": "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/src/fitness.ts"
+    },
+    {
+      "description": "Decoder and encoder for the 240 x 240 watch-face .bin format, pinned at the commit read.",
+      "kind": "implementation",
+      "title": "tcsenpai/ht36: src/face.ts (watch-face codec)",
+      "url": "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/src/face.ts"
+    },
+    {
+      "description": "Upstream's frame envelope, notification recipe and group table, with the replies it saw on hardware.",
+      "kind": "protocol_writeup",
+      "title": "tcsenpai/ht36 wiki: command table",
+      "url": "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/wiki/commands.md"
+    },
+    {
+      "description": "GATT table of a sibling GloryFitPro watch, identical to the HT36's; not covered by this spec.",
+      "kind": "forum",
+      "title": "Gadgetbridge issue #5541: Zeblade Stratos 2 Ultra (GloryFit Pro)",
+      "url": "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/5541"
+    },
+    {
+      "description": "Open watch-face editor for this .bin format; upstream's watch-face codec is a port of it.",
+      "kind": "implementation",
+      "title": "janaboy74/wfeditormk66",
+      "url": "https://github.com/janaboy74/wfeditormk66"
+    },
+    {
+      "description": "The vendor app the HT36 is sold with, still listed.",
+      "kind": "other",
+      "title": "GloryFitPro on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=com.yc.gloryfitpro"
+    }
+  ],
+  "protocol_details": {
+    "battery_reply": {
+      "decode": "level = byte 7, percent.",
+      "example": {
+        "frame": "01 a4 aa 16 06 01 01 58 02 01 00",
+        "level_percent": 88
+      },
+      "frame": "01 a4 aa 16 06 01 01 <level> 02 01 <x>"
+    },
+    "chunked_transfer": {
+      "acknowledgements": "Upstream reports that the watch acknowledges each chunk and answers the trailer with an FD frame carrying the XOR, but published neither layout. The watch-face and AGPS file transfers (out of scope) are acknowledgement-driven; the short pushes above work without waiting.\n",
+      "description": "How a payload longer than one write travels, in both directions. Upstream calls it subpackaging. Head is two bytes (01 and the group), flag is two bytes (the marker and opcode pair).\n",
+      "known_heads": [
+        {
+          "carries": "notification switches",
+          "flag": 43947,
+          "head": 434
+        },
+        {
+          "carries": "notification push",
+          "flag": 43947,
+          "head": 432
+        },
+        {
+          "carries": "weather push",
+          "flag": 43947,
+          "head": 480
+        },
+        {
+          "carries": "device-info reply",
+          "flag": 43690,
+          "head": 420
+        },
+        {
+          "carries": "fitness-history reply",
+          "flag": 43521,
+          "head": 454
+        },
+        {
+          "carries": "sleep-history reply",
+          "flag": 43524,
+          "head": 454
+        },
+        {
+          "carries": "spontaneous stream (see spontaneous_stream)",
+          "flag": 44033,
+          "head": 454
+        }
+      ],
+      "limits": "One section byte and the 0xfd trailer marker cap a transfer at 253 chunks, about 4 KB at 16 bytes. The watch truncates long notification text rather than failing (upstream's fuzzing). A frame with a wrong XOR did not crash the watch; whether it is rejected or shown is not recorded.\n",
+      "receive": [
+        "A multi-frame reply arrives the same way: frames carry the request's four header bytes, a section byte and a slice; a frame whose byte 4 is 0xfd is the trailer.",
+        "Strip five bytes from each non-trailer frame and concatenate in section order.",
+        "The sleep and workout replies close with fd fd <xor8>, not fd <xor8>; see history.sleep."
+      ],
+      "schema_gap": "framing.scheme has no value for this chunk/trailer layout and no `auto` role spans several writes, so each transfer is declared as a chunk command plus an end command whose xor8 the client computes.\n",
+      "send": [
+        "Split the payload into slices of at most 16 bytes (the open client's size).",
+        "Frame n = head(2) flag(2) n(1) slice. n counts from 0.",
+        "Trailer = head(2) flag(2) 0xfd xor8, where xor8 is the XOR of every byte of every chunk frame (head, flag and section bytes included; trailer not included).",
+        "Write the frames in order without response. The open client leaves 150 ms between frames and does not wait for acknowledgements."
+      ],
+      "verification": "reported"
+    },
+    "device_info": {
+      "decoder_defect": "The open client's decoder labels tags by the decimal numbers 15 and 16 (0x0f and 0x10), so it never reports the model string or battery. The tags are 0x15 and 0x16.\n",
+      "description": "Reassembled body of the chunked reply to query_device_info: repeated AA <tag> <len> <value>. Walk it by length; stop at the first entry that does not start with AA. Tags from upstream's decode of one watch.\n",
+      "tags": [
+        {
+          "length": 6,
+          "name": "mac",
+          "notes": "The watch's Bluetooth address, most significant byte first.",
+          "tag": 1
+        },
+        {
+          "encoding": "ascii",
+          "length": 8,
+          "name": "device_type",
+          "notes": "NAL-WB00 on upstream's unit.",
+          "tag": 2
+        },
+        {
+          "encoding": "ascii",
+          "length": 6,
+          "name": "hardware_revision",
+          "notes": "Six ASCII digits.",
+          "tag": 3
+        },
+        {
+          "length": 1,
+          "name": "flag_04",
+          "notes": "Unknown.",
+          "tag": 4
+        },
+        {
+          "length": 1,
+          "name": "flag_05",
+          "notes": "Unknown; upstream guesses a bound flag.",
+          "tag": 5
+        },
+        {
+          "encoding": "ascii",
+          "length": 4,
+          "name": "firmware_version",
+          "notes": "V1.0 on upstream's unit.",
+          "tag": 8
+        },
+        {
+          "encoding": "ascii",
+          "length": 4,
+          "name": "ui_version",
+          "tag": 9
+        },
+        {
+          "encoding": "ascii",
+          "length": 8,
+          "name": "model_code",
+          "notes": "Same text as tag 02 on upstream's unit.",
+          "tag": 13
+        },
+        {
+          "length": 1,
+          "name": "flag_0f",
+          "notes": "Unknown.",
+          "tag": 15
+        },
+        {
+          "length": 1,
+          "name": "flag_12",
+          "notes": "Unknown.",
+          "tag": 18
+        },
+        {
+          "encoding": "ascii",
+          "length": 4,
+          "name": "version_13",
+          "notes": "Unknown version string (V1.0).",
+          "tag": 19
+        },
+        {
+          "length": 0,
+          "name": "empty_14",
+          "tag": 20
+        },
+        {
+          "encoding": "ascii",
+          "length": 13,
+          "name": "system_version",
+          "notes": "Same string the a1 query returns (AT364D + V + build).",
+          "tag": 21
+        },
+        {
+          "length": 6,
+          "name": "battery_block",
+          "notes": "01 01 <level %> 02 01 <x>, the same six bytes as the battery reply's payload.",
+          "tag": 22
+        }
+      ],
+      "verification": "reported"
+    },
+    "envelope": {
+      "description": "Every frame on 000034f1/000034f2 starts with 01. Offsets from the start of the frame.\n",
+      "layout": [
+        {
+          "length": 1,
+          "name": "prefix",
+          "offset": 0,
+          "value": 1
+        },
+        {
+          "length": 1,
+          "name": "group",
+          "notes": "Command domain; see groups.",
+          "offset": 1
+        },
+        {
+          "length": 1,
+          "name": "marker",
+          "notes": "AA query, AB set, AC device push or acknowledgement. Not a marker in group A3 (set-time), which carries tag-length-value entries from byte 2.",
+          "offset": 2
+        },
+        {
+          "length": 1,
+          "name": "opcode",
+          "offset": 3
+        },
+        {
+          "length": 1,
+          "name": "length",
+          "notes": "Payload length in bytes. ABSENT on bare queries (01 a4 aa 16, 01 a5 aa 07, 01 a4 aa aa). In a chunked transfer this byte is the section index instead, and 0xfd marks the trailer.",
+          "offset": 4
+        },
+        {
+          "length": "length",
+          "name": "payload",
+          "offset": 5
+        }
+      ],
+      "observations": [
+        "Query replies echo the request's four bytes, marker AA included, then add length and payload (battery: 01 a4 aa 16 06 ...).",
+        "Set commands are acknowledged in a mix of forms: vibrate with 01 a5 ac 05 01 01, the health settings with an echo of 01 e1 ab <op>, GPS with an echo of the whole frame.",
+        "Spontaneous frames from the watch use marker AC (01 c6 ac 01 ...).",
+        "No checksum on single frames; the XOR-8 exists only on chunked transfers.",
+        "Upstream's reading of the SDK: the app's parser takes bytes 2-3 as one 16-bit operation, byte 4 as length, bytes 5.. as payload."
+      ],
+      "verification": "reported"
+    },
+    "gnss": {
+      "notes": "push_gps_location and query_ephemeris_params are the only group E9 commands in scope. The group also carries route/waypoint upload and AGPS almanac upload as acknowledgement-driven file transfers; upstream marks the almanac push as working in one place and unfinished in another, and neither is documented here.\n"
+    },
+    "groups": {
+      "description": "Command groups (byte 1) seen upstream. Only the ones with commands above are in scope.",
+      "table": [
+        {
+          "domain": "time (older SDK set-time form)",
+          "group": 162,
+          "in_scope": true
+        },
+        {
+          "domain": "time (current SDK set-time form; not working on this firmware)",
+          "group": 163,
+          "in_scope": true
+        },
+        {
+          "domain": "battery and device information",
+          "group": 164,
+          "in_scope": true
+        },
+        {
+          "domain": "device control: find/vibrate, find state, default configuration",
+          "group": 165,
+          "in_scope": true
+        },
+        {
+          "domain": "notification push (chunked, flag abab)",
+          "group": 176,
+          "in_scope": true
+        },
+        {
+          "domain": "notification switches (chunked, flag abab)",
+          "group": 178,
+          "in_scope": true
+        },
+        {
+          "domain": "supported message types (query 01 b3 aa aa; mapped from the SDK, never sent)",
+          "group": 179,
+          "in_scope": false
+        },
+        {
+          "domain": "history index",
+          "group": 197,
+          "in_scope": true
+        },
+        {
+          "domain": "history data: opcode 01 fitness, 04 sleep; also the spontaneous stream",
+          "group": 198,
+          "in_scope": true
+        },
+        {
+          "domain": "weather push (chunked, flag abab)",
+          "group": 224,
+          "in_scope": true
+        },
+        {
+          "domain": "health measurement settings (see health_settings)",
+          "group": 225,
+          "in_scope": false
+        },
+        {
+          "domain": "watch faces: parameters, list, reorder, upload, apply (see watchface_format)",
+          "group": 227,
+          "in_scope": false
+        },
+        {
+          "domain": "workout history",
+          "group": 232,
+          "in_scope": true
+        },
+        {
+          "domain": "GNSS: position push, ephemeris parameters, AGPS and route file transfers",
+          "group": 233,
+          "in_scope": true,
+          "notes": "Only opcode 02 (position) and the 01 query are in scope; the file transfers are not."
+        }
+      ]
+    },
+    "health_settings": {
+      "description": "Group E1 queries (01 e1 aa <op>, reply 01 e1 aa <op> <len> <value>) as upstream swept them. Reference only: no command is declared, because the set forms (01 e1 ab <op> <len> <value>) change what the watch measures and were acknowledged without a visible effect.\n",
+      "table": [
+        {
+          "meaning": "measurement interval (unnamed)",
+          "op": 11,
+          "sample": 10
+        },
+        {
+          "meaning": "continuous heart-rate interval",
+          "op": 12,
+          "sample": 10
+        },
+        {
+          "meaning": "mood interval",
+          "op": 14,
+          "sample": 10
+        },
+        {
+          "meaning": "blood-pressure auto interval",
+          "op": 15,
+          "sample": 0
+        },
+        {
+          "meaning": "continuous heart rate on/off",
+          "op": 16,
+          "sample": 1
+        },
+        {
+          "meaning": "continuous SpO2 on/off",
+          "op": 17,
+          "sample": 1
+        },
+        {
+          "meaning": "stress auto on/off",
+          "op": 18,
+          "sample": 1
+        },
+        {
+          "meaning": "mood auto on/off",
+          "op": 19,
+          "sample": 0
+        },
+        {
+          "meaning": "unknown",
+          "op": 20,
+          "sample": 0
+        },
+        {
+          "meaning": "temperature parameters?",
+          "op": 21,
+          "sample": "2 bytes, 150"
+        },
+        {
+          "meaning": "unknown",
+          "op": 22,
+          "sample": "2 bytes, 50"
+        }
+      ],
+      "verification": "reported"
+    },
+    "history": {
+      "fitness": {
+        "functions": [
+          {
+            "bytes": 1,
+            "id": 1,
+            "name": "steps"
+          },
+          {
+            "bytes": 1,
+            "id": 2,
+            "name": "calories",
+            "notes": "Upstream sums these as kcal; unit not established."
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 3,
+            "name": "distance",
+            "unit": "m"
+          },
+          {
+            "bytes": 1,
+            "id": 4,
+            "name": "resting_heart_rate",
+            "unit": "bpm"
+          },
+          {
+            "bytes": 1,
+            "id": 5,
+            "name": "heart_rate_max",
+            "unit": "bpm"
+          },
+          {
+            "bytes": 1,
+            "id": 6,
+            "name": "heart_rate_min",
+            "unit": "bpm"
+          },
+          {
+            "bytes": 1,
+            "id": 7,
+            "name": "dynamic_heart_rate",
+            "unit": "bpm"
+          },
+          {
+            "bytes": 1,
+            "id": 9,
+            "name": "spo2",
+            "unit": "%"
+          },
+          {
+            "bytes": 1,
+            "id": 10,
+            "name": "resting_heart_rate_v2",
+            "unit": "bpm"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 11,
+            "name": "height",
+            "notes": "Upstream's name; meaning in a per-minute record not established."
+          },
+          {
+            "bytes": 1,
+            "id": 12,
+            "name": "heart_rate_average",
+            "unit": "bpm"
+          },
+          {
+            "bytes": 1,
+            "id": 13,
+            "name": "resting_heart_rate_v3",
+            "unit": "bpm"
+          },
+          {
+            "bytes": 2,
+            "id": 14,
+            "name": "unnamed_14"
+          },
+          {
+            "bytes": 2,
+            "id": 15,
+            "name": "unnamed_15"
+          },
+          {
+            "bytes": 2,
+            "id": 17,
+            "name": "blood_pressure",
+            "notes": "Byte 0 systolic, byte 1 diastolic.",
+            "unit": "mmHg"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 18,
+            "name": "mood"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 19,
+            "name": "pai_low"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 20,
+            "name": "pai_medium"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 21,
+            "name": "pai_high"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 22,
+            "name": "pai_low_duration"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 23,
+            "name": "pai_medium_duration"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 25,
+            "name": "pai_high_duration"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 26,
+            "name": "hrv"
+          },
+          {
+            "bytes": 2,
+            "endianness": "big",
+            "id": 27,
+            "name": "blood_sugar",
+            "notes": "Raw / 10; the unit (probably mmol/L) is not established.",
+            "scale": 0.1
+          }
+        ],
+        "layout": [
+          {
+            "endianness": "big",
+            "length": 2,
+            "name": "frame_index",
+            "offset": 0,
+            "type": "uint16"
+          },
+          {
+            "endianness": "big",
+            "length": 4,
+            "name": "start_time",
+            "notes": "Seconds since 1970-01-01 of the frame's minute 0.",
+            "offset": 2,
+            "type": "uint32",
+            "unit": "s"
+          },
+          {
+            "length": "rest",
+            "name": "slots",
+            "notes": "Repeated slot records until the buffer ends.",
+            "offset": 6
+          }
+        ],
+        "notes": "Functions not listed are two bytes (upstream's rule). Only steps, calories, distance, the heart-rate family and SpO2 have been seen in a real sync; the rest are from the SDK's parser as upstream transcribed it. A frame covering a 24-hour window returned 60 slots.\n",
+        "reassembly_quirk": "Upstream found an extra leading 0x00 in some reassembled buffers and drops it when the timestamp at bytes 2-5 is implausible but the one at bytes 3-6 is plausible. Its origin is not known.\n",
+        "reply_frames": "01 c6 aa 01 <section> <slice>, trailer 01 c6 aa 01 fd <xor8>.",
+        "request": "query_fitness_index for the count, then request_fitness_data per frame index.",
+        "slot": [
+          {
+            "endianness": "big",
+            "length": 2,
+            "name": "minute_offset",
+            "notes": "Record time = start_time + minute_offset x 60.",
+            "type": "uint16",
+            "unit": "min"
+          },
+          {
+            "length": "1-4",
+            "name": "function_mask",
+            "notes": "Little-endian bytes; each byte with its top bit set is followed by another. Bit n-1 set means function n is present. Bits 7, 15, 23 (functions 8, 16, 24) are the continuation flags, not functions. If the fourth byte has its top bit set, a second mask follows for functions above 32; upstream skips it."
+          },
+          {
+            "name": "values",
+            "notes": "One value per present function, in ascending function order, sized per the table below."
+          }
+        ],
+        "verification": "reported"
+      },
+      "sleep": {
+        "layout_upstream": "Upstream strips five bytes (01 c6 aa 04 <section>) from each frame, then skips three bytes (00 00 <count>) and reads 7-byte records.\n",
+        "likely_cause_of_multi_night_failure": "This project's reading, not verified: the sleep and workout replies close with fd fd and the empty workout reply is 01 e8 aa 01 00 00 00 00, which both fit a TWO-byte section index (00 00, 00 01, ...) followed, in the first frame, by a two-byte big-endian record count. Stripping five bytes per frame then leaves the section's low byte in the stream once per continuation frame, which would misalign every multi-frame pull exactly as upstream reports. A client should strip six bytes per frame and read the count from the first frame; check against a capture.\n",
+        "notes": "Stage codes follow the convention upstream expects across this SDK family; a real night decoded coherently with them (each start plus its minutes gives the next start). Stages 7 and 8 carry 0 minutes.\n",
+        "record": [
+          {
+            "endianness": "big",
+            "length": 4,
+            "name": "start_time",
+            "offset": 0,
+            "type": "uint32",
+            "unit": "s"
+          },
+          {
+            "endianness": "big",
+            "length": 2,
+            "name": "minutes",
+            "offset": 4,
+            "type": "uint16",
+            "unit": "min"
+          },
+          {
+            "length": 1,
+            "name": "stage",
+            "offset": 6,
+            "values": {
+              "1": "deep",
+              "2": "light",
+              "3": "REM",
+              "4": "awake",
+              "7": "session marker (start?)",
+              "8": "session end"
+            }
+          }
+        ],
+        "request": "request_sleep_history.",
+        "verification": "reported"
+      },
+      "workout": {
+        "notes": "request_workout_history. Pipeline only; no record has ever been seen, so no layout is given."
+      }
+    },
+    "notification_switches": {
+      "body": "ab 01 01 <incoming_call> ab 02 01 <messages>",
+      "description": "Body of the group B2 transfer (head 01b2, flag abab), always one chunk. Writing it sets two switches on the watch.\n",
+      "fields": [
+        {
+          "length": 1,
+          "name": "incoming_call",
+          "notes": "Upstream's name for it; call alerts themselves are out of scope.",
+          "tag": 43777,
+          "values": {
+            "0": "off",
+            "1": "on"
+          }
+        },
+        {
+          "length": 1,
+          "name": "messages",
+          "notes": "Must be on, in the same connection, before a notification push renders.",
+          "tag": 43778,
+          "values": {
+            "0": "off",
+            "1": "on"
+          }
+        }
+      ],
+      "xor8_rule": "For this single chunk the trailer XOR is 0xb0 ^ incoming_call ^ messages."
+    },
+    "notification_tlv": {
+      "description": "Body of the notification push (head 01b0, flag abab): tag (2 bytes), length (1 byte, value length in bytes), value. Text is UTF-16BE; a character outside the Basic Multilingual Plane is a surrogate pair. The SDK has a two-byte length form it uses only when the watch reports a capability bit; this watch uses one byte.\n",
+      "order": "The open client emits the tags in ascending order, as the vendor app does.",
+      "tags": [
+        {
+          "encoding": "utf16be",
+          "name": "app_name",
+          "notes": "Shown as the source; the open client sends HT36.",
+          "tag": 43777
+        },
+        {
+          "encoding": "utf16be",
+          "name": "contact",
+          "tag": 43778
+        },
+        {
+          "encoding": "utf16be",
+          "name": "content",
+          "notes": "Message body. The vendor app truncates to 244 or 432 bytes depending on the watch; the watch truncates long text on its own.",
+          "tag": 43779
+        },
+        {
+          "length": 1,
+          "name": "id",
+          "notes": "Message id modulo 255.",
+          "tag": 43780
+        },
+        {
+          "encoding": "utf16be",
+          "name": "phone_number",
+          "tag": 43781
+        },
+        {
+          "encoding": "utf16be",
+          "name": "source_package",
+          "notes": "Android package of the originating app.",
+          "tag": 43782
+        },
+        {
+          "encoding": "utf16be",
+          "name": "title",
+          "tag": 43783
+        },
+        {
+          "length": 1,
+          "name": "type",
+          "notes": "Message type. REQUIRED: without it the watch acknowledges and does not render. Upstream sends 1; the other values are not mapped.",
+          "required": true,
+          "tag": 43784
+        },
+        {
+          "length": 1,
+          "name": "vibrate",
+          "notes": "Always present.",
+          "required": true,
+          "tag": 43785,
+          "values": {
+            "0": "silent",
+            "1": "vibrate"
+          }
+        },
+        {
+          "length": 4,
+          "name": "message_id",
+          "notes": "Big-endian; the SDK sends it only for types 7 and 52, and only when non-zero.",
+          "tag": 43786
+        }
+      ],
+      "verification": "reported"
+    },
+    "out_of_scope": [
+      "Firmware update. e49a3002-f69a-11e8-8eb2-f2801f1b9fd1 is do-not-write; no update bytes are documented.",
+      "Watch-face upload, reorder, apply and the E3 parameter queries.",
+      "AGPS almanac and route uploads (group E9 file transfers).",
+      "Health-measurement setters (group E1) and on-demand measurement triggers.",
+      "Call alerts, camera remote, alarms, reminders, music and every other SDK feature upstream has not mapped.",
+      "YC-SDK watches sold under other names, until their advertised name and command set are shown to match."
+    ],
+    "spontaneous_stream": {
+      "description": "Frames the watch sends on 34f2 without being asked, in pairs about every 10 s, the first about 19 s after subscribing. Upstream calls them Type A (16 bytes) and Type B (6 bytes) and ignores them.\n",
+      "established": "Type B is the chunked-transfer trailer for Type A: its last byte is the XOR of all 16 Type A bytes (upstream checked 4 of 4 complete pairs).\n",
+      "hypothesis": "This project's reading, not verified: head 01c6 and flag ac01 make this a device-pushed history record. Bytes 6-9 are a Unix time (upstream's capture decodes to the minute it was taken, and the value advanced about 10 per 10 s), and b8 08 is a function mask in the history encoding meaning functions 4, 5, 6 and 12 (resting, maximum, minimum and average heart rate), followed by four one-byte values that were 73-86 in the capture. If that holds, the watch does push live heart rate, contrary to upstream's conclusion. Byte 5 (0x0a) is unexplained. Upstream's hand-off notes also record 01 c5 ac ac 01 03 arriving on subscribe in a different watch state; unexplained.\n",
+      "type_a": "01 c6 ac 01 00 0a <u32 BE time> b8 08 <four bytes>",
+      "type_b": "01 c6 ac 01 fd <xor8 of the Type A frame>",
+      "verification": "hypothesis"
+    },
+    "test_vectors": {
+      "decode": [
+        {
+          "expect": "88 %",
+          "frame": "01 a4 aa 16 06 01 01 58 02 01 00",
+          "name": "battery reply"
+        },
+        {
+          "body": "aa 01 06 00 00 5e 00 53 01 aa 08 04 56 31 2e 30 aa 15 0d 41 54 33 36 34 44 56 30 30 32 37 31 36 aa 16 06 01 01 57 02 01 00",
+          "expect": "mac 00:00:5e:00:53:01, firmware V1.0, system_version AT364DV002716, battery 87 %",
+          "name": "device info, reassembled (constructed)"
+        },
+        {
+          "body": "00 00 6a 4e e4 80 00 00 03 2a 03 00 01 80 01 61 00 02 b8 08 48 52 44 4b 00 03 04 00 1e 00 04 80 80 01 76 4c",
+          "expect": "frame 0, start 2026-07-09 00:00 UTC; 00:00 steps 42, calories 3; 00:01 SpO2 97 %; 00:02 resting 72, max 82, min 68, average 75 bpm; 00:03 distance 30 m; 00:04 blood pressure 118/76 mmHg\n",
+          "name": "fitness frame, reassembled (constructed)"
+        },
+        {
+          "expect": "2 records: 2026-07-08 23:30 UTC 30 min light; 2026-07-09 00:00 UTC 45 min deep",
+          "frame": "01 c6 aa 04 00 00 00 02 6a 4e dd 78 00 1e 02 6a 4e e4 80 00 2d 01",
+          "name": "sleep frame (constructed, upstream's single-frame layout)"
+        }
+      ],
+      "description": "Built by transcribing the chunk, TLV and GPS rules above with nothing but the Python standard library; the GPS coordinates are upstream's own published example, and the four Type A/B pairs are from upstream's published capture log. The time 0x6a4fa6a4 is 2026-07-09 13:48:20 UTC. The device-info MAC is from the documentation range.\n",
+      "frames": [
+        {
+          "frames": [
+            "01 b2 ab ab 00 ab 01 01 01 ab 02 01 01",
+            "01 b2 ab ab fd b0"
+          ],
+          "name": "notification switches, both on"
+        },
+        {
+          "frames": [
+            "01 b2 ab ab 00 ab 01 01 00 ab 02 01 01",
+            "01 b2 ab ab fd b1"
+          ],
+          "name": "notification switches, calls off, messages on"
+        },
+        {
+          "body": "ab 01 02 00 58 ab 03 04 00 48 00 69 ab 08 01 01 ab 09 01 01",
+          "frames": [
+            "01 b0 ab ab 00 ab 01 02 00 58 ab 03 04 00 48 00 69 ab 08 01 01",
+            "01 b0 ab ab 01 ab 09 01 01",
+            "01 b0 ab ab fd 7d"
+          ],
+          "name": "notification: app X, content Hi, type 1, vibrate"
+        },
+        {
+          "body": "ab 02 01 00 ab 04 02 00 32 ab 05 08 00 4f 00 73 00 6c 00 6f ab 06 02 ff fd ab 07 02 00 02 ab 08 02 ff f9 ab 09 01 01 ab 0a 01 14 ab 0b 04 6a 4f a6 a4 ab 0c 02 00 01 ab 0f 02 3c 03",
+          "frames": [
+            "01 e0 ab ab 00 ab 02 01 00 ab 04 02 00 32 ab 05 08 00 4f 00 73",
+            "01 e0 ab ab 01 00 6c 00 6f ab 06 02 ff fd ab 07 02 00 02 ab 08",
+            "01 e0 ab ab 02 02 ff f9 ab 09 01 01 ab 0a 01 14 ab 0b 04 6a 4f",
+            "01 e0 ab ab 03 a6 a4 ab 0c 02 00 01 ab 0f 02 3c 03",
+            "01 e0 ab ab fd a0"
+          ],
+          "name": "weather: Celsius, AQI 50, Oslo, -3 (high 2, low -7), icon 1, PM2.5 20, time 0x6a4fa6a4, wind 0/1, humidity 60, UV 3"
+        },
+        {
+          "frames": [
+            "01 e9 ab 02 0c 6a 4f a6 a4 1b 19 49 50 05 7a 48 60"
+          ],
+          "name": "GPS: 45.4642 N, 9.19 E at 0x6a4fa6a4 (upstream's example)"
+        },
+        {
+          "frames": [
+            "01 e9 ab 02 0c 6a 4f a6 a4 eb d0 08 00 5a 20 b5 48"
+          ],
+          "name": "GPS: 33.8688 S, 151.2093 E at 0x6a4fa6a4 (negative latitude)"
+        },
+        {
+          "frames": [
+            "01 a3 01 04 6a 4f a6 a4 10 02 85 32"
+          ],
+          "name": "set_time (SDK form, not working on this firmware): 0x6a4fa6a4, UTC+5:30"
+        },
+        {
+          "frames": [
+            "01 c5 aa 01 08 6a 4e 55 24 6a 4f a6 a4"
+          ],
+          "name": "fitness index, 24 h ending 0x6a4fa6a4"
+        },
+        {
+          "frames": [
+            "01 c6 aa 01 0a 6a 4e 55 24 6a 4f a6 a4 00 00"
+          ],
+          "name": "fitness data, same window, frame 0"
+        }
+      ],
+      "xor8_checks": [
+        {
+          "frame": "01 c6 ac 01 00 0a 6a 4f a6 ae b8 08 4f 56 4f 52",
+          "xor8": 249
+        },
+        {
+          "frame": "01 c6 ac 01 00 0a 6a 4f a6 b8 b8 08 4b 56 4b 50",
+          "xor8": 237
+        },
+        {
+          "frame": "01 c6 ac 01 00 0a 6a 4f a6 c2 b8 08 49 56 49 4e",
+          "xor8": 137
+        },
+        {
+          "frame": "01 c6 ac 01 00 0a 6a 4f a6 cb b8 08 49 56 49 4e",
+          "xor8": 128
+        }
+      ]
+    },
+    "time": {
+      "notes": "Neither set-time frame is known to work (see the commands). The watch's clock is normally set by the vendor app. Whether the history timestamps are UTC or local seconds is not established; upstream treats them as UTC.\n"
+    },
+    "watchface_format": {
+      "description": "Format of the watch-face .bin files the vendor catalogue serves, as upstream decoded and re-encoded them (following the open editor janaboy74/wfeditormk66). Described so a file can be recognised and inspected. The upload transfer (group E3) is out of scope; upstream's upload is blocked because the watch refuses new faces once its slots are full and no delete command is known.\n",
+      "header": [
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "dial_id",
+          "notes": "0x0005a871 (bytes 71 a8 05 00) on every face for this watch; upstream calls it the magic. 360 x 360 faces for other watches carry a different value.",
+          "offset": 0,
+          "type": "uint32"
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "data_size",
+          "notes": "File size minus the 24-byte header.",
+          "offset": 4,
+          "type": "uint32",
+          "unit": "bytes"
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "crc32",
+          "notes": "CRC-32 (reflected poly 0xedb88320, init and xorout 0xffffffff) over everything after the header.",
+          "offset": 8,
+          "type": "uint32"
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "width",
+          "notes": "240.",
+          "offset": 12,
+          "type": "uint16",
+          "unit": "px"
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "height",
+          "notes": "240; the screen itself reports 240 x 296.",
+          "offset": 14,
+          "type": "uint16",
+          "unit": "px"
+        },
+        {
+          "length": 8,
+          "name": "compression",
+          "notes": "Two u32 LE words; the first masked with 0xffffff00 equal to 0x02ff0100 selects the run-length codec. Upstream's encoder writes 0x02ff0100, 0xffffff15.",
+          "offset": 16
+        }
+      ],
+      "items": "From offset 24, 24-byte element records until a u16 of 0: type (u16), width (u16), data position (u32, from file start), height (u16), x (u16), y (u16), two unknown bytes, image count (u8 at +16), copy flag (u8 at +17, black is transparent when 0), two unknown bytes, four clock-hand bytes at +20. All little-endian.\n",
+      "limits": "Upstream's watch reports a 409 600-byte face slot and held nine faces, which was its maximum.",
+      "pixels": "RGB565, each pixel stored byte-swapped. Element types 4-42 and 47, 48, 71 use the run-length codec; others are raw pixels. Per image: a u32 offset to the next image, then one u32 row-start per row (relative to just after the first u32), then per row repeated {u8 size, u8 count, size pixels}, each of the size pixels repeated count times, until the row is full.\n",
+      "verification": "reported"
+    },
+    "weather_tlv": {
+      "description": "Body of the today's-weather push (head 01e0, flag abab): tag (2 bytes), length (1 byte), value, in this order. Multi-byte numbers are big-endian. Tags AB01, AB03, AB0D and AB0E are not sent by the open client and are not known.\n",
+      "tags": [
+        {
+          "length": 1,
+          "name": "unit",
+          "notes": "Unit of the three temperature tags.",
+          "tag": 43778,
+          "values": {
+            "0": "Celsius",
+            "1": "Fahrenheit"
+          }
+        },
+        {
+          "endianness": "big",
+          "length": 2,
+          "name": "aqi",
+          "notes": "Air-quality index.",
+          "tag": 43780,
+          "type": "uint16"
+        },
+        {
+          "encoding": "utf16be",
+          "name": "city",
+          "notes": "Length byte is the byte count of the UTF-16BE text.",
+          "tag": 43781
+        },
+        {
+          "endianness": "big",
+          "length": 2,
+          "name": "current_temperature",
+          "notes": "Whole degrees in the AB02 unit, two's complement.",
+          "tag": 43782,
+          "type": "int16"
+        },
+        {
+          "endianness": "big",
+          "length": 2,
+          "name": "high_temperature",
+          "tag": 43783,
+          "type": "int16"
+        },
+        {
+          "endianness": "big",
+          "length": 2,
+          "name": "low_temperature",
+          "tag": 43784,
+          "type": "int16"
+        },
+        {
+          "length": 1,
+          "name": "condition_icon",
+          "notes": "Weather icon code. The table is not mapped; the open client defaults to 1.",
+          "tag": 43785
+        },
+        {
+          "length": 1,
+          "name": "pm25",
+          "notes": "One byte, so capped at 255.",
+          "tag": 43786,
+          "unit": "µg/m³"
+        },
+        {
+          "endianness": "big",
+          "length": 4,
+          "name": "published_time",
+          "notes": "Seconds since 1970-01-01; the open client sends the current time.",
+          "tag": 43787,
+          "type": "uint32",
+          "unit": "s"
+        },
+        {
+          "length": 2,
+          "name": "wind",
+          "notes": "Byte 0 wind direction code, byte 1 wind force level. Code tables not mapped.",
+          "tag": 43788
+        },
+        {
+          "length": 2,
+          "name": "humidity_and_uv",
+          "notes": "Byte 0 relative humidity in %, byte 1 UV index.",
+          "tag": 43791
+        }
+      ],
+      "verification": "reported"
+    }
+  },
+  "remaining_unknowns": [
+    "The set-time frame this firmware accepts: the SDK's A3 frame is acknowledged and ignored, and the older A2 frame has never been tried.",
+    "Whether the watch reassembles notification and weather chunks sliced smaller than 16 bytes, which a client on a default 23-byte ATT MTU needs.",
+    "The layout of the per-chunk acknowledgements and of the FD answer to a trailer, and whether a wrong XOR is rejected or accepted.",
+    "Whether the spontaneous 01 c6 ac 01 frames are live heart-rate records (function mask b8 08), and what their byte 5 means.",
+    "Whether sleep and workout replies use a two-byte section index, which would explain upstream's multi-night sleep failure.",
+    "How many fitness frames a window holds, and whether request_fitness_data with frame_index 1..count-1 returns the rest.",
+    "Whether history timestamps are UTC or local seconds.",
+    "The AB08 notification type values other than 1, and the AB09 weather icon and AB0C wind code tables.",
+    "What query_find_state (A5/07) reports, what the seven query_default_config entries switch, how long find_watch buzzes and whether value 0 stops it.",
+    "The meaning of battery-reply tag 02 and device-info flags 04, 05, 0f, 12 and 14.",
+    "Whether the advertisement carries a service UUID or manufacturer data, and whether the address is public.",
+    "Whether the watch accepts more than one central at a time.",
+    "The SoC (upstream says Telink TLSR8232/8258 and, later, an Actions ATS3085-class part) and so the firmware-update stack behind e49a3001-f69a-11e8-8eb2-f2801f1b9fd1.",
+    "What the e49a25f8 service and the ffd0 service are for.",
+    "Any factory-reset route, on the watch or over BLE, and what it clears."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "enable_notifications": {
+              "description": "First of two writes that switch the watch's call and message notifications on (chunked transfer, head 01b2, flag abab, section 0): payload AB 01 01 <incoming call 1> AB 02 01 <messages 1>. Follow with enable_notifications_end. Upstream writes this pair before every push; a push without it in the same connection is acknowledged and not shown. The payload with either switch 0 is in protocol_details.notification_switches.\n",
+              "value": [
+                1,
+                178,
+                171,
+                171,
+                0,
+                171,
+                1,
+                1,
+                1,
+                171,
+                2,
+                1,
+                1
+              ],
+              "verification": "reported"
+            },
+            "enable_notifications_end": {
+              "description": "Trailer for enable_notifications: head, flag, FD, then the XOR of every byte of the chunk frame (0xb0 for the both-on payload). Write about 150 ms after the chunk.\n",
+              "value": [
+                1,
+                178,
+                171,
+                171,
+                253,
+                176
+              ],
+              "verification": "reported"
+            },
+            "find_watch": {
+              "description": "Buzz the watch so it can be found (group A5, marker AB, opcode 04, length 1, value 1). Upstream confirmed a physical buzz; the acknowledgement it logged is 01 a5 ac 05 01 01. How long the buzz lasts, and whether value 0 stops it, are not recorded.\n",
+              "locate": "both",
+              "value": [
+                1,
+                165,
+                171,
+                4,
+                1,
+                1
+              ],
+              "verification": "reported"
+            },
+            "push_gps_location": {
+              "description": "Send the phone's position to the watch (group E9, set, opcode 02, length 12): time, latitude and longitude, all big-endian 32 bits. Upstream saw the watch echo the frame back, which it reads as acceptance; nothing visible happens on the watch. Upstream believes it seeds workout tracking.\n",
+              "parameters": {
+                "latitude": {
+                  "description": "Degrees north times 10^7, two's complement (45.4642 N = 0x1b194950).",
+                  "endianness": "big",
+                  "max": 900000000,
+                  "min": -900000000,
+                  "scale": 1e-07,
+                  "type": "int32",
+                  "unit": "°"
+                },
+                "longitude": {
+                  "description": "Degrees east times 10^7, two's complement (9.19 E = 0x057a4860).",
+                  "endianness": "big",
+                  "max": 1800000000,
+                  "min": -1800000000,
+                  "scale": 1e-07,
+                  "type": "int32",
+                  "unit": "°"
+                },
+                "unix_time": {
+                  "description": "Seconds since 1970-01-01 UTC at which the fix was taken.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                }
+              },
+              "template": [
+                1,
+                233,
+                171,
+                2,
+                12,
+                "{unix_time}",
+                "{latitude}",
+                "{longitude}"
+              ],
+              "verification": "reported"
+            },
+            "push_notification_chunk": {
+              "description": "One chunk of a notification push (head 01b0, flag abab). Build the tag-length-value body (protocol_details.notification_tlv, UTF-16BE text, the AB08 type and AB09 vibrate tags always present), cut it into slices of at most 16 bytes, and send slice n as this frame with section n, about 150 ms apart. Then send push_notification_end.\n",
+              "parameters": {
+                "section": {
+                  "description": "Zero-based chunk index. 0xfd marks the trailer, so stay below it.",
+                  "max": 252,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "slice": {
+                  "description": "The next up-to-16 bytes of the notification body.",
+                  "max_length": 16,
+                  "min_length": 1,
+                  "type": "bytes"
+                }
+              },
+              "template": [
+                1,
+                176,
+                171,
+                171,
+                "{section}",
+                "{slice}"
+              ],
+              "verification": "reported"
+            },
+            "push_notification_end": {
+              "description": "Trailer that closes a notification push. xor8 is the XOR of every byte of every push_notification_chunk frame sent in this transfer, headers and section bytes included.\n",
+              "parameters": {
+                "xor8": {
+                  "description": "Computed by the client across several writes, which no `auto` role can express. Test vectors in protocol_details.test_vectors.\n",
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                1,
+                176,
+                171,
+                171,
+                253,
+                "{xor8}"
+              ],
+              "verification": "reported"
+            },
+            "push_weather_chunk": {
+              "description": "One chunk of a today's-weather push (head 01e0, flag abab). Body is the tag-length-value list in protocol_details.weather_tlv (unit, AQI, city, current/high/low temperature, icon, PM2.5, time, wind, humidity and UV). Same slicing and pacing as the notification push; close with push_weather_end.\n",
+              "parameters": {
+                "section": {
+                  "description": "Zero-based chunk index.",
+                  "max": 252,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "slice": {
+                  "description": "The next up-to-16 bytes of the weather body.",
+                  "max_length": 16,
+                  "min_length": 1,
+                  "type": "bytes"
+                }
+              },
+              "template": [
+                1,
+                224,
+                171,
+                171,
+                "{section}",
+                "{slice}"
+              ],
+              "verification": "reported"
+            },
+            "push_weather_end": {
+              "description": "Trailer that closes a weather push: FD then the XOR of every byte of every push_weather_chunk frame.",
+              "parameters": {
+                "xor8": {
+                  "description": "XOR over all chunk frames of this transfer, computed by the client.",
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                1,
+                224,
+                171,
+                171,
+                253,
+                "{xor8}"
+              ],
+              "verification": "reported"
+            },
+            "query_battery": {
+              "description": "Battery query (group A4, marker AA, opcode 16, no length byte). Reply 01 a4 aa 16 06 01 01 <level> 02 01 <x>: level in percent at byte 7. See the 000034f2 format.\n",
+              "value": [
+                1,
+                164,
+                170,
+                22
+              ],
+              "verification": "reported"
+            },
+            "query_default_config": {
+              "description": "Query the watch's default configuration (group A5, marker AA, opcode 01). Upstream's reply held seven entries of <index> 01 <state> (only index 5 on); what each index switches is not known.\n",
+              "value": [
+                1,
+                165,
+                170,
+                1
+              ],
+              "verification": "reported"
+            },
+            "query_device_info": {
+              "description": "Device-information query (group A4, marker AA, opcode AA). The watch answers with a chunked reply 01 a4 aa aa <section> <slice>... closed by 01 a4 aa aa fd <xor8>; reassembled, it is a list of AA <tag> <len> <value> entries: MAC, device type, firmware and UI versions, model code, system version string, battery. Tag table in protocol_details.device_info.\n",
+              "value": [
+                1,
+                164,
+                170,
+                170
+              ],
+              "verification": "reported"
+            },
+            "query_ephemeris_params": {
+              "description": "Ask the watch for its satellite-assistance parameters (group E9, query, opcode 01). Upstream's reply carried status bytes and the ASCII list \"f1e1G3;f1e1C3;f1e1E3\" (GPS, BeiDou, Galileo), which it reads as an on-board multi-GNSS receiver. The status bytes are not decoded.\n",
+              "value": [
+                1,
+                233,
+                170,
+                1
+              ],
+              "verification": "reported"
+            },
+            "query_find_state": {
+              "description": "Query in the find-device group (group A5, marker AA, opcode 07, no length). Upstream calls it the wear state after the SDK's name for it, which is about finding the wearable; whether the answer means \"on the wrist\" or \"find function enabled\" is not established. Reply observed: 01 a5 aa 07 01 01 (length 1, value 1).\n",
+              "value": [
+                1,
+                165,
+                170,
+                7
+              ],
+              "verification": "reported"
+            },
+            "query_fitness_index": {
+              "description": "Ask how many fitness-history frames cover a time window (group C5, query, opcode 01, length 8). Reply 01 c5 aa 01 01 <count>. Upstream's 24-hour window answered 9.\n",
+              "parameters": {
+                "end_time": {
+                  "description": "Window end, seconds since 1970-01-01.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                },
+                "start_time": {
+                  "description": "Window start, seconds since 1970-01-01.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                }
+              },
+              "template": [
+                1,
+                197,
+                170,
+                1,
+                8,
+                "{start_time}",
+                "{end_time}"
+              ],
+              "verification": "reported"
+            },
+            "request_fitness_data": {
+              "description": "Pull one fitness-history frame (group C6, query, opcode 01, length 10). The watch streams 01 c6 aa 01 <section> <slice>... and closes with 01 c6 aa 01 fd <xor8>; the reassembled bytes are one per-minute record block (protocol_details.history.fitness). Upstream only ever requests frame 0, which returned 60 per-minute records from a 24-hour window, so a full sync probably walks frame_index from 0 to the count query_fitness_index gave; not verified.\n",
+              "parameters": {
+                "end_time": {
+                  "description": "Window end, seconds since 1970-01-01.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                },
+                "frame_index": {
+                  "default": 0,
+                  "description": "Which frame of the window to send; upstream always sends 0.",
+                  "endianness": "big",
+                  "max": 65535,
+                  "min": 0,
+                  "type": "uint16"
+                },
+                "start_time": {
+                  "description": "Window start, seconds since 1970-01-01 (same window as the index query).",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                }
+              },
+              "template": [
+                1,
+                198,
+                170,
+                1,
+                10,
+                "{start_time}",
+                "{end_time}",
+                "{frame_index}"
+              ],
+              "verification": "reported"
+            },
+            "request_sleep_history": {
+              "description": "Pull sleep history for a window (group C6, query, opcode 04, length 8). Reply frames 01 c6 aa 04 ... carry a record count and 7-byte records (start time, minutes, stage), closed by a trailer ending fd fd <xor8>. Single-night pulls decode cleanly upstream; multi-night pulls do not yet (protocol_details.history.sleep).\n",
+              "parameters": {
+                "end_time": {
+                  "description": "Window end, seconds since 1970-01-01.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                },
+                "start_time": {
+                  "description": "Window start, seconds since 1970-01-01. Upstream asks for the last 7 days.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                }
+              },
+              "template": [
+                1,
+                198,
+                170,
+                4,
+                8,
+                "{start_time}",
+                "{end_time}"
+              ],
+              "verification": "reported"
+            },
+            "request_workout_history": {
+              "description": "Pull recorded workouts for a window (group E8, query, opcode 01, length 8). Upstream's watch had none and answered 01 e8 aa 01 00 00 00 00 then an fd fd trailer; the record layout is not decoded.\n",
+              "parameters": {
+                "end_time": {
+                  "description": "Window end, seconds since 1970-01-01.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                },
+                "start_time": {
+                  "description": "Window start, seconds since 1970-01-01.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                }
+              },
+              "template": [
+                1,
+                232,
+                170,
+                1,
+                8,
+                "{start_time}",
+                "{end_time}"
+              ],
+              "verification": "reported"
+            },
+            "set_time": {
+              "description": "The SDK's current set-time frame (group A3): 01 a3 01 04 <Unix time, u32 BE> 10 02 <zone hours> <zone fraction>. The bytes after the group read as two tag-length-value entries (tag 01, 4 bytes of time; tag 10, 2 bytes of zone). UPSTREAM REPORTS THAT THE WATCH ACKNOWLEDGES THIS AND ITS CLOCK DOES NOT CHANGE (tested twice), so this is the SDK's frame, not a working command. Kept so the next person starts from it.\n",
+              "parameters": {
+                "unix_time": {
+                  "description": "Seconds since 1970-01-01 UTC, as the open client sends it. Whether the watch wants UTC or local seconds is part of what is unresolved.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                },
+                "zone_fraction": {
+                  "default": 0,
+                  "description": "Minutes past the whole hour as hundredths of an hour, per upstream's reading of the SDK (UTC+5:30 sends 50). The open client always sends 0.",
+                  "max": 99,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "zone_hours": {
+                  "description": "Sign-magnitude whole hours of the UTC offset: 0x80 plus the hours for UTC+0 and east (UTC+1 = 0x81), the bare hours for west (UTC-8 = 0x08). Not linear, so no scale is declared.\n",
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                1,
+                163,
+                1,
+                4,
+                "{unix_time}",
+                16,
+                2,
+                "{zone_hours}",
+                "{zone_fraction}"
+              ],
+              "verification": "hypothesis"
+            },
+            "set_time_legacy": {
+              "description": "The SDK's older set-time frame (group A2, set, opcode 01, length 6): <Unix time u32 BE> <zone hours> <zone fraction>, same encodings as set_time. Listed upstream as a fallback and never sent to an HT36.\n",
+              "parameters": {
+                "unix_time": {
+                  "description": "Seconds since 1970-01-01.",
+                  "endianness": "big",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                },
+                "zone_fraction": {
+                  "default": 0,
+                  "description": "Hundredths of an hour past the whole hour.",
+                  "max": 99,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "zone_hours": {
+                  "description": "Sign-magnitude hours: 0x80 plus hours for UTC+0 and east, bare hours for west.",
+                  "max": 255,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                1,
+                162,
+                171,
+                1,
+                6,
+                "{unix_time}",
+                "{zone_hours}",
+                "{zone_fraction}"
+              ],
+              "verification": "hypothesis"
+            }
+          },
+          "name": "Command write",
+          "notes": "Write-without-response per upstream's live GATT dump (the archived nRF Connect table also lists read). Every command below is written here; replies come back on 000034f2. Single frames carry no checksum. Multi-frame transfers use the chunk/trailer framing in protocol_details.chunked_transfer, which no schema framing scheme describes, so each transfer is declared as a chunk command plus an end command and the client computes the XOR itself.\n",
+          "properties": [
+            "write_without_response"
+          ],
+          "role": "command",
+          "uuid": "000034f1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "prefix",
+              "notes": "Always 0x01.",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "group",
+              "offset": 1,
+              "type": "uint8",
+              "values": {
+                "164": "battery / device status"
+              }
+            },
+            {
+              "length": 1,
+              "name": "marker",
+              "offset": 2,
+              "type": "uint8",
+              "values": {
+                "170": "query (echoed)",
+                "171": "set (echoed)",
+                "172": "device push or acknowledgement"
+              }
+            },
+            {
+              "length": 1,
+              "name": "opcode",
+              "offset": 3,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "payload_length",
+              "notes": "6 in every battery reply upstream logged.",
+              "offset": 4,
+              "type": "uint8",
+              "unit": "bytes"
+            },
+            {
+              "length": 1,
+              "name": "level_tag",
+              "notes": "0x01. Bytes 5-10 read as two tag-length-value entries (01 01 <level>, 02 01 <x>); that reading is this project's, not upstream's.",
+              "offset": 5,
+              "type": "uint8"
+            },
+            {
+              "device_class": "battery",
+              "length": 1,
+              "name": "battery_level",
+              "notes": "0x58 = 88 % in upstream's log; it ticks down live.",
+              "offset": 7,
+              "type": "uint8",
+              "unit": "%"
+            },
+            {
+              "length": 1,
+              "name": "battery_status",
+              "notes": "Value of tag 02; 0x00 in every log. Possibly charging state; not established.",
+              "offset": 10,
+              "type": "uint8"
+            }
+          ],
+          "format_match": {
+            "notes": "Battery reply (01 a4 aa 16 ...). Confirm byte 1 is 0xa4.",
+            "offset": 3,
+            "value": 22
+          },
+          "name": "Command replies and pushes (notify)",
+          "notes": "Every reply to a 34f1 write, every chunk of a multi-frame reply, and the watch's spontaneous frames (a pair every ~10 s, starting ~19 s after subscribing; see protocol_details.spontaneous_stream) arrive here. Match a reply on its first four bytes. The `format` below describes the battery reply only: format_match selects byte 3 = 0x16, which the reply to the health-settings query E1/16 also has, so check byte 1 = 0xa4 as well.\n",
+          "properties": [
+            "notify"
+          ],
+          "role": "notify",
+          "uuid": "000034f2-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "initialization": [
+        {
+          "characteristic": "000034f2-0000-1000-8000-00805f9b34fb",
+          "delay_ms": 500,
+          "notes": "The only per-connection step. The open client subscribes, waits about 500 ms and starts writing. No handshake frame is needed.\n",
+          "subscribe": true
+        }
+      ],
+      "name": "YC SDK command service",
+      "notes": "The command channel. UUID from the upstream README and the nRF Connect GATT table in upstream's archived hand-off notes; Gadgetbridge issue #5541 shows the same pairing on a sibling watch. The reply parser in the vendor SDK (as upstream describes it) treats bytes 2-3 of a frame as one 16-bit operation, byte 4 as the length and the rest as payload.\n",
+      "uuid": "000056ff-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "query_version_string": {
+              "description": "Single raw byte a1, no envelope. The watch answers on 35f2 with a1 followed by its ASCII system-version string (\"AT364D\", V, a six-digit build). Upstream saw the same answer when a1 was written to 34f1.\n",
+              "value": [
+                161
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "Config write",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "000035f1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "opcode_echo",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 13,
+              "name": "system_version",
+              "notes": "ASCII, e.g. AT364DV002716: project code AT364D, then V and the firmware build. Length taken from one unit.",
+              "offset": 1,
+              "type": "string"
+            }
+          ],
+          "format_match": {
+            "offset": 0,
+            "value": 161
+          },
+          "name": "Config notify",
+          "notes": "Reply to the a1 query: byte 0 echoes a1, the rest is the ASCII system-version string (13 bytes on upstream's unit).",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "000035f2-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Secondary config channel (35f1/35f2)",
+      "notes": "Service UUID from the archived nRF Connect table and the sibling watch in Gadgetbridge issue #5541; upstream's reading of the SDK associates the 35f1/35f2 pair with 0000ffe0 instead, so a client should find the characteristics by UUID rather than under a fixed service. Upstream calls it a JieLi config channel. Writing the single byte a1 to 35f1 is answered on 35f2; set frames written here (vibrate) also take effect, but query frames get no reply. The main protocol does not need this service.\n",
+      "uuid": "000055ff-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "Model Number String",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00002a24-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Manufacturer Name String",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00002a29-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "PnP ID",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00002a50-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Device Information",
+      "notes": "Standard SIG service, present per upstream's GATT dumps. The values were never recorded, so nothing is said about them here.\n",
+      "uuid": "0000180a-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "FFD1",
+          "properties": [
+            "write",
+            "write_without_response"
+          ],
+          "uuid": "0000ffd1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "FFD2",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "0000ffd2-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "FFD3",
+          "properties": [
+            "write",
+            "write_without_response",
+            "notify"
+          ],
+          "uuid": "0000ffd3-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "FFD0 service (unused)",
+      "notes": "Present on the watch and on the sibling in Gadgetbridge issue #5541. Upstream's first guess was that ffd1 is the command channel (the FitCloud-family layout); writes to it produced no reply of any kind. Its purpose on this watch is unknown. Leave it alone.\n",
+      "uuid": "0000ffd0-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "Update write (never write)",
+          "properties": [
+            "write",
+            "write_without_response"
+          ],
+          "uuid": "e49a3002-f69a-11e8-8eb2-f2801f1b9fd1"
+        },
+        {
+          "name": "Update notify",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "e49a3003-f69a-11e8-8eb2-f2801f1b9fd1"
+        }
+      ],
+      "name": "Firmware update service (DO NOT WRITE)",
+      "notes": "The firmware-update path. Upstream calls it Telink OTA; see device.notes for why the SoC is unsettled. NEVER WRITE e49a3002-f69a-11e8-8eb2-f2801f1b9fd1: upstream warns that one stray byte can put the watch into update mode and brick it, and its client never touches it. No update bytes are documented here. (A research note in circulation spells this characteristic as a 16-bit-base UUID with e49a3002 in the first group; that form is wrong.)\n",
+      "uuid": "e49a3001-f69a-11e8-8eb2-f2801f1b9fd1"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "Data write",
+          "properties": [
+            "write",
+            "write_without_response"
+          ],
+          "uuid": "e49a25e0-f69a-11e8-8eb2-f2801f1b9fd1"
+        },
+        {
+          "name": "Data notify",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "e49a28e1-f69a-11e8-8eb2-f2801f1b9fd1"
+        }
+      ],
+      "name": "Secondary data service (e49a25e0/e49a28e1)",
+      "notes": "A second write/notify pair on the same 128-bit base. Upstream subscribed to e49a28e1 while listening and never wrote e49a25e0; its purpose is not known.\n",
+      "uuid": "e49a25f8-f69a-11e8-8eb2-f2801f1b9fd1"
+    }
+  ]
+}

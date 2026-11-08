@@ -1,0 +1,2073 @@
+{
+  "bluetooth_classic": {
+    "ble_role": "none",
+    "dual_mode": "unknown",
+    "notes": "dual_mode is unknown across the family, not for the P710BT: its guide gives Bluetooth 2.1+EDR, which has no BLE. The PT-P910BT is Bluetooth 5.0 and its settings tool has a \"Bluetooth Mode\" field shown as Classic, so a BLE mode may exist there; no client in the evidence uses one, hence ble_role none. wake_required is false because the printer has no sleep state that hides it short of being off: it auto-powers-off (PT-P710BT: configurable over USB), and the Power button brings it back.\n",
+    "profiles": [
+      {
+        "channel": 1,
+        "notes": "The vendor SDK opens exactly these three models with Android's insecure RFCOMM constructor. Channel 1 is what the open-source clients connect to (stecman, dogtopus and pt-p710bt-label-maker all default to it and print); resolving the channel by SDP from the UUID is the portable route.\n",
+        "profile": "spp",
+        "role": "control",
+        "secure": false,
+        "uuid": "00001101-0000-1000-8000-00805f9b34fb",
+        "variants": [
+          "PT-P300BT",
+          "PT-P710BT",
+          "PT-P715eBT"
+        ],
+        "verification": "reported"
+      },
+      {
+        "notes": "Every model the vendor SDK does not single out gets a secure socket, which needs the bond. The PT-P910BT's settings tool also has an \"Encrypt communication data\" option. Channel not recorded.\n",
+        "profile": "spp",
+        "role": "control",
+        "secure": true,
+        "uuid": "00001101-0000-1000-8000-00805f9b34fb",
+        "variants": [
+          "PT-P300BTz",
+          "PT-P910BT"
+        ],
+        "verification": "reported"
+      },
+      {
+        "notes": "The PT-P910BT guide lists \"SPP; iAP2\". For the others, inferred from Brother's iOS apps supporting them and the Print SDK's MFi requirement (external-accessory protocol com.brother.ptcbp). The iOS path; see device.host_compatibility.\n",
+        "profile": "iap2",
+        "role": "undocumented",
+        "verification": "reported"
+      }
+    ],
+    "serial": {
+      "correlation": "in_order",
+      "encoding": "binary",
+      "framing": {
+        "checksum": "none",
+        "length_prefix": false,
+        "max_frame_bytes": 32,
+        "notes": "Host to printer: the raster language has no envelope. Each opcode has a fixed length or carries its own byte count (G n1 n2 counts the bytes after it, little-endian), so the stream is self-delimiting; the 0x00 invalidate run exists to flush a half-received command. Printer to host: only 32-byte status records, always starting 80 20 42 30 (print head mark, size 0x20, 'B', series '0'), sent in reply to request_status or on their own (unsolicited). A reader that loses sync scans for 80 20 42 and takes 32 bytes. Replies and pushes share the prefix; byte 18 (status_type) tells them apart: 00 is a reply to request_status, anything else is a push.\n",
+        "resync": "scan_to_start_bytes",
+        "rx_start_bytes": [
+          "80"
+        ]
+      },
+      "max_in_flight": 1,
+      "notes": "One command at a time and no status request while a page is printing: Brother's reference says nothing, not even ESC i S, may be sent from the end of the print data until completion is confirmed, and that the printer reports errors on its own meanwhile. The vendor SDK pauses 500 ms after the socket opens before writing (PT-P300BT, PT-P710BT and every model except the PT-P910BT; also the MW-170/270, not covered). The open-source clients write each opcode and each raster line as its own write and need no pacing. Ircama retries the opening status query up to six times because, on macOS especially, the first read on a fresh link can return nothing. response_timeout_ms is Ircama's 10 s serial timeout, not a vendor figure.\n",
+      "profile_uuid": "00001101-0000-1000-8000-00805f9b34fb",
+      "response_timeout_ms": 10000,
+      "unsolicited": [
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "error_information_1",
+              "notes": "Same bits as request_status.error_information_1.",
+              "offset": 8,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "error_information_2",
+              "notes": "Same bits as request_status.error_information_2.",
+              "offset": 9,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "status_type",
+              "notes": "00 (reply to status request) never arrives unasked. Single byte.",
+              "offset": 18,
+              "type": "uint8",
+              "values": {
+                "1": "printing completed",
+                "2": "error occurred",
+                "4": "turned off",
+                "5": "notification",
+                "6": "phase change"
+              }
+            },
+            {
+              "length": 1,
+              "name": "phase_type",
+              "offset": 19,
+              "type": "uint8",
+              "values": {
+                "0": "editing (can receive)",
+                "1": "printing"
+              }
+            },
+            {
+              "endianness": "big",
+              "length": 2,
+              "name": "phase_number",
+              "notes": "Big-endian: offset 20 is the high byte. Meaning per phase_type; see request_status.",
+              "offset": 20,
+              "type": "uint16"
+            },
+            {
+              "length": 1,
+              "name": "notification_number",
+              "offset": 22,
+              "type": "uint8",
+              "values": {
+                "0": "none",
+                "1": "cover open",
+                "2": "cover closed"
+              }
+            }
+          ],
+          "length": 32,
+          "name": "status_notification",
+          "notes": "Sent while and after printing when automatic status notification is on (the default; ESC i ! 00). A normal page gives a phase change to printing (06, phase_type 01), then printing completed (01), then a phase change back to editing (06, phase_type 00). An error gives status_type 02 and the printer discards the rest of the job. The dogtopus client prints the first frame after the print command; Ircama reads frames until status_type 01, 02 or 04 or 60 s pass. Every field of request_status's layout applies; only the ones a client acts on are repeated here.\n",
+          "prefix": "80 20 42",
+          "verification": "reported"
+        }
+      ],
+      "verification": "reported"
+    },
+    "variants": [
+      "PT-P300BT",
+      "PT-P300BTz",
+      "PT-P710BT",
+      "PT-P715eBT",
+      "PT-P910BT"
+    ],
+    "verification": "reported",
+    "wake_required": false
+  },
+  "commands": {
+    "cut_every_n_labels": {
+      "description": "ESC i A n: with auto cut on, cut after every n labels (1-99). PT-P910BT only; the PT-P710BT reference says it does not support it.",
+      "parameters": {
+        "labels": {
+          "default": 1,
+          "max": 99,
+          "min": 1,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        27,
+        105,
+        65,
+        "{labels}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "initialize": {
+      "description": "ESC @: reset mode settings. Brother's reference says it also cancels printing.",
+      "response": {
+        "expected": false
+      },
+      "transport": "rfcomm",
+      "value": [
+        27,
+        64
+      ],
+      "verification": "reported"
+    },
+    "invalidate": {
+      "description": "Invalidate: 100 bytes of 0x00. Flushes a half-received command; NULL is skipped by the printer, so extra zeros are harmless.",
+      "notes": "100 bytes is the PT-P710BT reference's count (and pt-p710bt-label-maker's); the PT-P300BT clients send 64 and the PT-P910BT reference asks for 200 (send this twice). To abandon a job midway, send invalidate then initialize.\n",
+      "response": {
+        "expected": false
+      },
+      "transport": "rfcomm",
+      "value": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "verification": "reported"
+    },
+    "print_information": {
+      "description": "ESC i z: tape and page description for the page that follows, including its raster line count.",
+      "notes": "Example, 24 mm tape, 2 lines: 1B 69 7A 84 01 18 00 02 00 00 00 00 00. More in protocol_details.test_vectors.",
+      "parameters": {
+        "media_length": {
+          "default": 0,
+          "description": "0 for TZe tape, which is continuous.",
+          "type": "uint8",
+          "unit": "mm"
+        },
+        "media_type": {
+          "description": "Checked only when valid_flags has 0x02. 01 laminated, 03 non-laminated, 11/17 heat-shrink. The PT-P910BT reference asks for 00 for any laminated or non-laminated TZe tape.\n",
+          "source": "state:request_status.media_type",
+          "type": "uint8"
+        },
+        "media_width": {
+          "description": "Tape width in whole millimetres (0x18 for 24 mm), as the status reports it.",
+          "source": "state:request_status.media_width",
+          "type": "uint8",
+          "unit": "mm"
+        },
+        "page": {
+          "allowed": [
+            0,
+            1,
+            2
+          ],
+          "default": 0,
+          "description": "The PT-P910BT wants 2 on the last page, and on a single-page job.",
+          "labels": [
+            "first page",
+            "any later page",
+            "last page (PT-P910BT only)"
+          ],
+          "type": "uint8"
+        },
+        "raster_lines": {
+          "description": "Number of raster lines (G or Z) in this page, u32 little-endian.",
+          "endianness": "little",
+          "min": 1,
+          "required": true,
+          "type": "uint32"
+        },
+        "valid_flags": {
+          "default": 132,
+          "description": "Which of the following fields the printer should check, OR-ed: 0x02 media type, 0x04 media width, 0x08 media length, 0x40 quality (unused), 0x80 recovery. 0x84 (width + recovery) is Brother's example and pt-p710bt-label-maker's; Ircama sends 0xC4. With 0x02/0x04/0x08 set, a mismatch with the loaded tape sets replace_media in the status. On the PT-P910BT, 0x80 does not turn on status reporting; use set_auto_status_notification.\n",
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        27,
+        105,
+        122,
+        "{valid_flags}",
+        "{media_type}",
+        "{media_width}",
+        "{media_length}",
+        "{raster_lines}",
+        "{page}",
+        0
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "print_last_page_and_feed": {
+      "description": "Ctrl-Z (0x1A): print the last page, feed and cut per the mode bits. Ends the job.",
+      "response": {
+        "expected": false,
+        "notes": "No reply to the byte itself; with notification on, status_notification frames follow. Wait for printing completed (status_type 01) before closing the socket."
+      },
+      "transport": "rfcomm",
+      "value": [
+        26
+      ],
+      "verification": "reported"
+    },
+    "print_page": {
+      "description": "FF (0x0C): print this page and wait for the next; for every page but the last.",
+      "response": {
+        "expected": false,
+        "notes": "No reply to the byte itself; with notification on, status_notification frames follow (phase change, printing completed, phase change)."
+      },
+      "transport": "rfcomm",
+      "value": [
+        12
+      ],
+      "verification": "reported"
+    },
+    "raster_line": {
+      "description": "G n1 n2 data: one raster line (one dot column across the tape); n1 n2 is the byte count of data, u16 little-endian.",
+      "notes": "The vendor app and both open-source clients send one G per 128-dot line. Example, 24 mm, dots 48-79 on: 47 06 00 FB 00 FD FF FB 00. More in protocol_details.test_vectors.\n",
+      "parameters": {
+        "byte_count": {
+          "description": "Must equal the length of row. Uncompressed: 16 (128-dot models) or 70 (PT-P910BT).",
+          "endianness": "little",
+          "max": 71,
+          "min": 0,
+          "required": true,
+          "type": "uint16"
+        },
+        "row": {
+          "description": "The line, 1 bit per dot, 1 = print, first byte's MSB first (layout in protocol_details.raster_orientation), PackBits-compressed when set_compression is 02. Brother: if compression would give more than the uncompressed length, send the line as one literal run instead (count byte 0x0F then the 16 bytes, 17 in all, on a 128-dot model). A line shorter than the head is padded with zero dots by the printer.\n",
+          "max_length": 71,
+          "min_length": 0,
+          "required": true,
+          "type": "bytes"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        71,
+        "{byte_count}",
+        "{row}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "request_status": {
+      "description": "ESC i S: ask for the 32-byte status record. Send once before each job, never while a page is printing.",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "print_head_mark",
+            "notes": "Always 0x80.",
+            "offset": 0,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "size",
+            "notes": "Always 0x20 (32, the record length).",
+            "offset": 1,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "brother_code",
+            "notes": "Always 0x42 ('B').",
+            "offset": 2,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "series_code",
+            "notes": "Always 0x30 ('0').",
+            "offset": 3,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "model_code",
+            "notes": "0x72 comes from the open-source status decoders (dogtopus, Ircama), 0x78 from the PT-P910BT reference. The PT-P710BT's and PT-P715eBT's values are not published and were not found.\n",
+            "offset": 4,
+            "type": "uint8",
+            "values": {
+              "114": "PT-P300BT (0x72)",
+              "120": "PT-P910BT (0x78)"
+            }
+          },
+          {
+            "length": 1,
+            "name": "country_code",
+            "notes": "0x30 ('0') in both references.",
+            "offset": 5,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "battery_level",
+            "notes": "PT-P910BT only, per its reference. The PT-P710BT reference marks bytes 6 and 7 reserved (00). The open-source P300BT decoders read byte 6 as an extended error and byte 7 as a power level (0 full, 1 half, 2 low, 3 critical, 4 AC), the opposite order to Brother's P910BT layout; neither reading has been checked on a PT-P300BT.\n",
+            "offset": 6,
+            "type": "uint8",
+            "values": {
+              "32": "no AC adapter, full (0x20)",
+              "34": "no AC adapter, half (0x22)",
+              "35": "no AC adapter, low (0x23)",
+              "36": "no AC adapter, needs charging (0x24)",
+              "48": "AC adapter, full (0x30)",
+              "50": "AC adapter, half (0x32)",
+              "51": "AC adapter, low (0x33)",
+              "52": "AC adapter, needs charging (0x34)",
+              "55": "battery not installed (0x37)"
+            }
+          },
+          {
+            "length": 1,
+            "name": "extended_error",
+            "notes": "PT-P910BT per its reference; reserved on the PT-P710BT. See battery_level for the open-source reading.",
+            "offset": 7,
+            "type": "uint8",
+            "values": {
+              "33": "incompatible media (0x21)"
+            }
+          },
+          {
+            "length": 1,
+            "name": "error_information_1",
+            "notes": "Bit field; the named bits follow. Non-zero means do not print.",
+            "offset": 8,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 1,
+            "name": "no_media",
+            "notes": "Bit 0: no tape cassette.",
+            "offset": 8,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 4,
+            "name": "cutter_jam",
+            "notes": "Bit 2.",
+            "offset": 8,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 8,
+            "name": "weak_batteries",
+            "notes": "Bit 3.",
+            "offset": 8,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 64,
+            "name": "high_voltage_adapter",
+            "notes": "Bit 6: wrong (over-voltage) adapter. Not on the PT-P910BT.",
+            "offset": 8,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "error_information_2",
+            "notes": "Bit field; the named bits follow. Non-zero means do not print.",
+            "offset": 9,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 1,
+            "name": "replace_media",
+            "notes": "Bit 0: wrong media, e.g. print_information's media check failed.",
+            "offset": 9,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 4,
+            "name": "communication_error",
+            "notes": "Bit 2. PT-P910BT reference; not used on the PT-P710BT.",
+            "offset": 9,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 8,
+            "name": "communication_buffer_full",
+            "notes": "Bit 3. PT-P910BT reference; not used on the PT-P710BT.",
+            "offset": 9,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 16,
+            "name": "cover_open",
+            "notes": "Bit 4. Not on the PT-P910BT.",
+            "offset": 9,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 32,
+            "name": "overheating",
+            "notes": "Bit 5.",
+            "offset": 9,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 128,
+            "name": "system_error",
+            "notes": "Bit 7. PT-P910BT reference; not used on the PT-P710BT.",
+            "offset": 9,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "media_width",
+            "notes": "Loaded tape width in whole millimetres; 0 = no cassette; a 3.5 mm tape reports 4. Single byte, no scale.",
+            "offset": 10,
+            "type": "uint8",
+            "unit": "mm"
+          },
+          {
+            "length": 1,
+            "name": "media_type",
+            "offset": 11,
+            "type": "uint8",
+            "values": {
+              "0": "no media",
+              "1": "laminated tape",
+              "17": "heat-shrink tube 2:1 (0x11)",
+              "20": "flexible ID tape (0x14, PT-P910BT)",
+              "21": "satin tape (0x15, PT-P910BT)",
+              "23": "heat-shrink tube 3:1 (0x17)",
+              "255": "incompatible tape",
+              "3": "non-laminated tape",
+              "4": "fabric tape (PT-P910BT)"
+            }
+          },
+          {
+            "length": 1,
+            "name": "number_of_colors",
+            "notes": "Always 00.",
+            "offset": 12,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "fonts",
+            "notes": "Always 00.",
+            "offset": 13,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "mode",
+            "notes": "Echo of the last various_mode flags (0x40 auto cut, 0x80 mirror); 00 if none was sent.",
+            "offset": 15,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "density",
+            "notes": "Always 00.",
+            "offset": 16,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "media_length",
+            "notes": "Always 0 for TZe tape (continuous).",
+            "offset": 17,
+            "type": "uint8",
+            "unit": "mm"
+          },
+          {
+            "length": 1,
+            "name": "status_type",
+            "notes": "03 (exit IF mode) is listed as unused. Single byte.",
+            "offset": 18,
+            "type": "uint8",
+            "values": {
+              "0": "reply to status request",
+              "1": "printing completed",
+              "2": "error occurred",
+              "4": "turned off",
+              "5": "notification",
+              "6": "phase change"
+            }
+          },
+          {
+            "length": 1,
+            "name": "phase_type",
+            "offset": 19,
+            "type": "uint8",
+            "values": {
+              "0": "editing (can receive)",
+              "1": "printing"
+            }
+          },
+          {
+            "endianness": "big",
+            "length": 2,
+            "name": "phase_number",
+            "notes": "Big-endian. With phase_type 00: 0 = can receive, 1 = feeding. With phase_type 01: 0 = printing, 0x14 = cover opened while receiving.\n",
+            "offset": 20,
+            "type": "uint16"
+          },
+          {
+            "length": 1,
+            "name": "notification_number",
+            "offset": 22,
+            "type": "uint8",
+            "values": {
+              "0": "none",
+              "1": "cover open",
+              "2": "cover closed"
+            }
+          },
+          {
+            "length": 1,
+            "name": "expansion_area",
+            "notes": "Always 00.",
+            "offset": 23,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "tape_color",
+            "notes": "Cassette background colour code; table in protocol_details.tape_color_codes.",
+            "offset": 24,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "name": "text_color",
+            "notes": "Cassette ink colour code; table in protocol_details.text_color_codes.",
+            "offset": 25,
+            "type": "uint8"
+          },
+          {
+            "length": 4,
+            "name": "hardware_settings",
+            "notes": "PT-P710BT reference: factory hardware information used for checking; not decoded. Reserved (00) on the PT-P910BT.",
+            "offset": 26,
+            "type": "bytes"
+          }
+        ],
+        "length": 32,
+        "notes": "Worked examples in protocol_details.test_vectors. Brother's layout for the PT-P710BT and PT-P910BT; the open-source clients decode the PT-P300BT's reply with the same offsets.\n",
+        "prefix": "80 20 42",
+        "timeout_ms": 10000,
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        27,
+        105,
+        83
+      ],
+      "verification": "reported"
+    },
+    "set_advanced_mode": {
+      "description": "ESC i K n: half cut, chain printing, special tape, high resolution, buffer handling.",
+      "parameters": {
+        "flags": {
+          "default": 8,
+          "description": "OR of the bits in protocol_details.advanced_mode_bits: 0x04 half cut (PT-P910BT only), 0x08 no chain printing (feed and cut after the last label), 0x10 special tape (no cutting), 0x40 high resolution (180 x 360 dpi; PT-P710BT only), 0x80 no buffer clearing. 0x08 is what both open-source clients and Brother's sample send; 0x00 (chain printing) saves the ~25 mm of tape a cut wastes before the next label.\n",
+          "max": 255,
+          "min": 0,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        27,
+        105,
+        75,
+        "{flags}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_auto_status_notification": {
+      "description": "ESC i ! n: whether the printer pushes status frames while printing.",
+      "notes": "Supported on the PT-P710BT and PT-P910BT per their references; on the P910BT it is the only way to get status during printing. Lasts until power-off.",
+      "parameters": {
+        "mode": {
+          "allowed": [
+            0,
+            1
+          ],
+          "default": 0,
+          "labels": [
+            "notify (default)",
+            "do not notify"
+          ],
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        27,
+        105,
+        33,
+        "{mode}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_compression": {
+      "description": "M n: raster line compression, 00 none or 02 TIFF (PackBits).",
+      "notes": "01 is reserved. zero_raster_line is valid only with 02. The vendor app and both open-source clients use 02.",
+      "parameters": {
+        "mode": {
+          "allowed": [
+            0,
+            2
+          ],
+          "default": 2,
+          "labels": [
+            "uncompressed",
+            "TIFF (PackBits)"
+          ],
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        77,
+        "{mode}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_margin": {
+      "description": "ESC i d n1 n2: feed margin before and after the printed area, in dots, u16 little-endian.",
+      "parameters": {
+        "margin": {
+          "default": 14,
+          "description": "Dots at the feed resolution. Brother's range: 14 (2 mm) to 900 (127 mm) at 180 dpi, 28 to 1800 in the P710BT's high-resolution mode, 14 (1 mm) to 1800 on the 360 dpi PT-P910BT. The open-source clients send 0 and print; the physical minimum still applies (see protocol_details.tape_waste).\n",
+          "endianness": "little",
+          "max": 1800,
+          "min": 0,
+          "type": "uint16",
+          "unit": "dots"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        27,
+        105,
+        100,
+        "{margin}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_various_mode": {
+      "description": "ESC i M n: auto cut (bit 6) and mirror printing (bit 7).",
+      "parameters": {
+        "flags": {
+          "allowed": [
+            0,
+            64,
+            128,
+            192
+          ],
+          "default": 64,
+          "description": "Bits 0-5 unused. The PT-P300BT has no automatic cutter; the Ircama and dogtopus clients say bit 6 makes it print a label boundary instead.",
+          "labels": [
+            "no auto cut, no mirror",
+            "auto cut",
+            "mirror",
+            "auto cut and mirror"
+          ],
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": false
+      },
+      "template": [
+        27,
+        105,
+        77,
+        "{flags}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "switch_to_raster_mode": {
+      "description": "ESC i a 01: select raster mode. The only mode on the PT-P710BT and PT-P910BT; it lasts until power-off.",
+      "notes": "The PT-P710BT supports neither ESC/P (00) nor P-touch Template mode (03); the stecman gist found the PT-P300BT does not answer ESC/P either.",
+      "response": {
+        "expected": false
+      },
+      "transport": "rfcomm",
+      "value": [
+        27,
+        105,
+        97,
+        1
+      ],
+      "verification": "reported"
+    },
+    "zero_raster_line": {
+      "description": "Z: one all-blank raster line. Valid only with TIFF compression.",
+      "response": {
+        "expected": false
+      },
+      "transport": "rfcomm",
+      "value": [
+        90
+      ],
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "printer",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "bt_classic": {
+            "name": {
+              "match": "prefix",
+              "values": [
+                "PT-P300BT",
+                "PT-P710BT",
+                "PT-P715eBT",
+                "PT-P910BT"
+              ]
+            },
+            "requires_discoverable_mode": false
+          },
+          "notes": "Brother's guides describe the printer as findable from a phone's Bluetooth settings whenever it is on, not asleep and not connected to another device; there is no pairing button. The PT-P910BT can have Bluetooth or discoverability switched off in its settings (see device.pairing.enter_pairing_mode). The vendor app runs a Classic inquiry and keeps names containing its model keys, and also lists already-bonded devices matched the same way, so a host that has paired can skip the inquiry. No service UUID is used to narrow the match because nobody has checked that the printer's inquiry response carries the SPP UUID; the name is specific enough on its own. The PT-P300BTz's name is unknown, and the PT-N25BT is found over BLE by the vendor app, so neither is listed.\n",
+          "type": "bt_classic_inquiry",
+          "verification": "reported"
+        }
+      ]
+    },
+    "host_compatibility": [
+      {
+        "basis": "The vendor Android app's own path (static analysis): an RFCOMM socket by SPP UUID through the platform stack, insecure for three models and secure for the rest.\n",
+        "link": "br_edr",
+        "stack": "android",
+        "status": "compatible",
+        "variants": [
+          "PT-P300BT",
+          "PT-P300BTz",
+          "PT-P710BT",
+          "PT-P715eBT",
+          "PT-P910BT"
+        ],
+        "verification": "reported"
+      },
+      {
+        "basis": "The stecman and dogtopus gists and Ircama/PT-P300BT (PT-P300BT) and pt-p710bt-label-maker (PT-P710BT) pair with bluetoothctl and print over /dev/rfcomm0 or a PyBluez RFCOMM socket on channel 1. Their authors' results, not this project's.\n",
+        "link": "br_edr",
+        "stack": "bluez",
+        "status": "compatible",
+        "variants": [
+          "PT-P300BT",
+          "PT-P300BTz",
+          "PT-P710BT",
+          "PT-P715eBT",
+          "PT-P910BT"
+        ],
+        "verification": "reported"
+      },
+      {
+        "basis": "Ircama/PT-P300BT documents printing to a PT-P300BT through an outgoing Bluetooth COM port on Windows, and ships a Windows build.\n",
+        "link": "br_edr",
+        "notes": "Windows may show the paired printer as \"Driver Unavailable\" and drop the connection right after pairing; opening the COM port still works (Ircama README, quoting pytouch-cube). Brother itself does not support Bluetooth from a computer on the PT-P710BT (user's guide).\n",
+        "stack": "windows",
+        "status": "compatible",
+        "variants": [
+          "PT-P300BT",
+          "PT-P300BTz",
+          "PT-P710BT",
+          "PT-P715eBT",
+          "PT-P910BT"
+        ],
+        "verification": "reported"
+      },
+      {
+        "basis": "Ircama/PT-P300BT has a macOS IOBluetooth backend, and the stecman gist notes a /dev/tty.* serial device appearing on macOS once the PT-P300BT is paired.\n",
+        "link": "br_edr",
+        "stack": "iobluetooth",
+        "status": "compatible",
+        "variants": [
+          "PT-P300BT",
+          "PT-P300BTz",
+          "PT-P710BT",
+          "PT-P715eBT",
+          "PT-P910BT"
+        ],
+        "verification": "reported"
+      },
+      {
+        "basis": "CoreBluetooth has no RFCOMM. Brother's iOS apps do reach these printers: the PT-P910BT's guide lists its Bluetooth profiles as \"SPP; iAP2\", Brother's Print SDK guide for iOS says Bluetooth printing needs its MFi framework and the external-accessory protocol string com.brother.ptcbp, and the P910BT has an \"Auto re-pairing\" setting for Apple devices. That the PT-P300BT and PT-P710BT are MFi as well is inferred from the vendor's iOS app supporting them; no iOS session has been examined.\n",
+        "cause": {
+          "missing_api": "rfcomm"
+        },
+        "link": "br_edr",
+        "notes": "An iPhone or iPad cannot open the SPP socket this spec documents; only an app declaring Brother's accessory protocol (in practice Brother's own) reaches the printer, over iAP2. Whether the iAP2 session carries the same raster stream is not established. macOS is outside this verdict (iobluetooth).\n",
+        "stack": "corebluetooth",
+        "status": "incompatible",
+        "symptom": "no_transport",
+        "variants": [
+          "PT-P300BT",
+          "PT-P300BTz",
+          "PT-P710BT",
+          "PT-P715eBT",
+          "PT-P910BT"
+        ],
+        "verification": "reported",
+        "workaround": "vendor_mfi"
+      }
+    ],
+    "identification": {
+      "mac_prefixes": [
+        {
+          "confidence": "low",
+          "notes": "FUJITSU LIMITED's block, i.e. the maker of the Bluetooth module inside the printer rather than Brother. Shown on a PT-P710BT in the pairing example of the pt-p710bt-label-maker README, and consistent with the original PT-P300BT capture write-up (stecman gist), where the printer showed up as a Fujitsu device. It ranks a Classic inquiry result and identifies nothing on its own.\n",
+          "prefix": "A0:66:10"
+        }
+      ],
+      "notes": "The printers are Classic-only on this evidence, so their names live in the bt_classic_inquiry discovery method, not here where a BLE scan matcher reads. Name format per Brother's FAQ and user's guides: \"PT-\" + model name + the last four digits of the serial number (printed on a sticker under the Power button and inside the cassette cover), e.g. PT-P300BTxxxx, PT-P710BTxxxx. The vendor app is looser: it keeps any inquiry result or bonded device whose name CONTAINS one of P300, P300BTz, P710, P715, P910 or N25.\n"
+    },
+    "manufacturer": "Brother Industries, Ltd.",
+    "manufacturer_status": "active",
+    "name": "Brother P-touch Cube label printers (PT-P300BT, PT-P710BT)",
+    "notes": "Battery-powered thermal-transfer tape label printers that take Brother TZe cassettes and are driven from a phone. The PT-P300BT (\"P-touch CUBE\") prints up to 12 mm tape with a manual cutter lever and runs on six AAA cells or an AC adapter. The PT-P710BT (\"CUBE Plus\") prints up to 24 mm tape with an automatic full cutter, a Li-ion pack and USB. Both print at 180 dpi. The vendor apps are P-touch Design&Print 2 and iPrint&Label; Brother's P710BT guide says the printer does not support Bluetooth to a computer, only USB, but the open-source clients cited here print to both models from Linux, Windows and macOS over Bluetooth.\nTRANSPORT. Bluetooth Classic only on this evidence (the P710BT's guide gives Bluetooth 2.1+EDR). Find it by inquiry: it answers as \"PT-\" + model + the last four digits of its serial number, e.g. PT-P710BTxxxx. Pair from the host (PIN 0000 if asked), then open RFCOMM to the Serial Port Profile UUID 00001101-0000-1000-8000-00805f9b34fb. The vendor SDK opens that socket INSECURE for the PT-P300BT, PT-P710BT and PT-P715eBT and secure for every other model, and waits 500 ms after connecting before it writes. Brother's mobile SDK also has a BLE channel (service a76eb9e0-f3ac-4990-84cf-3a94d2426b2b), and an earlier write-up in the research store assumed the Cube models use it. The evidence says they do not: Brother's Print SDK supported-printer page lists BLE only on TD and RJ models and lists the PT-P910BT as Bluetooth (Classic), and the vendor app sends only the PT-N25BT over BLE. See protocol_details.brother_mobile_sdk_ble_channel.\nSTREAM. Host to printer is Brother's PT raster language: a run of 0x00 invalidate bytes, ESC @, ESC i a 01 (raster mode), ESC i z (print information), ESC i M / ESC i K (mode bits), ESC i d (margin), M 02 (TIFF/PackBits), one G line per 128-dot raster line (Z for a blank line), then 1A to print and feed. Every opcode is self-delimiting. The only thing the printer ever sends is a 32-byte status record starting 80 20 42 30, either in reply to ESC i S or on its own while printing. See commands, bluetooth_classic.serial and protocol_details.job_sequence.\nFAMILY. The PT-P715eBT is a PT-P710BT sibling in the same vendor app and SDK. The PT-P910BT (\"CUBE XP\", 36 mm, 360 dpi) uses the same language with its own published reference and differences listed in protocol_details.model_differences. The PT-P300BTz appears only in the vendor app's model table. The PT-N25BT is in the same app but the app reaches it over BLE, which this spec does not declare as a control surface. All of those are marked unverified in device.variants.\nOUT OF SCOPE. The QL line (brother-ql-1110nwb), the PocketJet PJ line, the TD and RJ BLE printers, USB-only and LAN PT desktop models, and every other brand in the label-printer survey (LuckPrinter clones are fichero-d11-printer; Phomemo/DothanTech, DYMO, PeriPage, Polono and MakeID are not covered).\n",
+    "openness": {
+      "notes": "Brother publishes the command language for the PT-P710BT and the PT-P910BT, not for the PT-P300BT. That the PT-P300BT speaks the same language over SPP was found from Android HCI captures of the vendor app by the author of the original community write-up (the stecman gist) and is implemented by Ircama/PT-P300BT, which is maintained and tested on hardware by its author. The facts no Brother document states (which socket flag the vendor opens, the pause after connecting, the inquiry name filter, which model the vendor app sends over BLE) come from the vendor Android app.\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/Ircama/PT-P300BT",
+      "status": "documented_api",
+      "upstream_docs": [
+        {
+          "covers": "The PT-P710BT's command language: invalidate, initialize, the 32-byte status request and reply, raster-mode switch, print information, mode and advanced-mode bits, margin, TIFF (PackBits) compression, raster and zero-raster lines, the two print commands, per-tape pin tables at 180 dpi and the USB descriptor.\n",
+          "title": "Brother Software Developer's Manual: Raster Command Reference, PT-E550W/P750W/P710BT (v1.02)",
+          "url": "https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf"
+        },
+        {
+          "covers": "The same language for the 360 dpi, 36 mm PT-P910BT, with its differences marked per model: 200-byte invalidate, 70-byte raster lines, battery and extended-error bytes in the status reply, media type 00 for TZe tape, and a \"last page\" value in print information.\n",
+          "title": "Brother Software Developer's Manual: Raster Command Reference, PT-P900/P900W/P950NW/P910BT (v1.02)",
+          "url": "https://download.brother.com/welcome/docp100407/cv_ptp900_eng_raster_102.pdf"
+        }
+      ]
+    },
+    "pairing": {
+      "bonding": "unknown",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "indicator": "None needed: the printer is discoverable and pairable whenever it is on, idle and not connected. PT-P710BT: Power LED lit steadily once a Bluetooth connection is established. PT-P910BT: Power LED orange (lit 3 s, off 1 s) means its Bluetooth is off.\n",
+        "notes": "No button and no window on the PT-P300BT or PT-P710BT. The PT-P910BT has settings that can hide it: Bluetooth on/off (toggled from the Power button, below), \"Bluetooth on Power On\", and \"Visible to Other Devices\" in Brother's Printer Setting Tool, with which a host that never paired cannot connect.\n",
+        "procedures": [
+          {
+            "applies_to": [
+              "PT-P910BT"
+            ],
+            "basis": "PT-P910BT User's Guide, LED indications table (vendor document, not tried).",
+            "indicator": "After power-on the Power LED is green when Bluetooth is on and orange when it is off.",
+            "name": "Switch Bluetooth back on (PT-P910BT)",
+            "steps": [
+              {
+                "action": "With the printer idle, hold the Power button about nine seconds until the Power LED flashes green, then release.",
+                "actor": "user"
+              },
+              {
+                "action": "Press the Power button twice quickly.",
+                "actor": "user",
+                "expect": "Bluetooth toggles and the printer turns off."
+              },
+              {
+                "action": "Press the Power button to turn the printer on.",
+                "actor": "user",
+                "expect": "Power LED green: Bluetooth is on. If it is orange, repeat to toggle again."
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": false
+      },
+      "exclusivity": {
+        "recovery": "Brother's guides: if the printer cannot be found it may be connected to another device; turn off Bluetooth on that device, or turn the printer off and on again. Also check it is not asleep and is close to the phone.\n",
+        "single_bond": "unknown",
+        "single_connection": true
+      },
+      "notes": "Basis: Brother's user's guides and FAQ (pair, PIN 0000 if asked), the open-source clients (all pair with bluetoothctl or the Windows settings before opening RFCOMM), and the vendor Android app, which starts a bond itself before its first connection. `required: true` is that documented flow. It is not proof that the firmware refuses an unbonded link: the vendor SDK opens the socket with Android's INSECURE RFCOMM constructor for the PT-P300BT, PT-P710BT and PT-P715eBT, which does not demand authentication from the host side, so those three may accept a connection with no bond. Nobody has tried. The PT-P300BTz and PT-P910BT get a secure socket, which needs the bond. The P710BT is Bluetooth 2.1+EDR and has no display or keypad, so a Secure Simple Pairing exchange would be Just Works; `security_mode` stays unknown because nothing records which mode the printer negotiates.\n",
+      "pin": {
+        "length": 4,
+        "notes": "Brother's PT-P300BT and PT-P710BT user's guides and its pairing FAQ (which lists the PT-N25BT, PT-P300BT, PT-P710BT, PT-P715eBT and PT-P910BT) say to enter 0000 if the host asks for a PIN. Whether the printer ever asks, i.e. falls back to legacy PIN pairing rather than completing Secure Simple Pairing silently, is not stated. The PT-P910BT's settings tool can enable and change a PIN (\"PIN code usage\"), so on that model it can become user-chosen.\n",
+        "source": "fixed_default",
+        "value": "0000"
+      },
+      "required": true,
+      "security_mode": "unknown",
+      "unpair": {
+        "clears": "The host's bond. No printer-side way to drop one bond is documented.",
+        "notes": "Remove the printer in the host's Bluetooth settings. The PT-P910BT guide warns that a firmware update may reset the printer's Bluetooth pairings, after which the host's stale entry must be deleted and the printer paired again.\n",
+        "requires_factory_reset": false,
+        "supported": true
+      }
+    },
+    "protocol": "bluetooth_classic",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No Wi-Fi and no application-level credential. The only secret is the Bluetooth link key each side stores after pairing; Brother does not document how many the printer keeps.\n",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "Basis: the PT-P910BT user's guide describes a Power-button reset and a reset from Brother's Printer Setting Tool over USB. The PT-P300BT and PT-P710BT user's guides describe none, and the P710BT's settings tool lists only power-on/off, auto-power-off, report contents and length adjustment. Nothing a new owner needs lives on the printer anyway: the bond is re-made from the new host, and every print setting is sent with each job.\n",
+        "effect": "PT-P910BT: returns printer settings to factory defaults (the guide calls it resetting the internal memory). Whether it clears the printer's list of bonded hosts is not stated. No reset is documented for the PT-P300BT or PT-P710BT.\n",
+        "procedures": [
+          {
+            "applies_to": [
+              "PT-P910BT"
+            ],
+            "basis": "PT-P910BT User's Guide, Troubleshooting > Reset the Label Printer (vendor document, not tried).",
+            "indicator": "Power LED flashes orange, then lights orange; the printer then returns to idle.",
+            "name": "Power-button reset (PT-P910BT)",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "With the printer idle, hold the Power button about nine seconds until the Power LED flashes green, then release.",
+                "actor": "user"
+              },
+              {
+                "action": "Hold the Power button about nine seconds again until the Power LED flashes green rapidly, and release while it is flashing rapidly.",
+                "actor": "user",
+                "expect": "Power LED flashes orange, then lights orange; the printer returns to idle."
+              }
+            ],
+            "verified": false
+          }
+        ]
+      },
+      "methods": [
+        {
+          "description": "Power the printer on, find PT-<model><last four serial digits> in the host's Bluetooth settings and pair (PIN 0000 if asked), then open an RFCOMM socket to the SPP UUID and check the printer answers a status request. The link-layer facts are in device.pairing.\n",
+          "name": "Pair from the host's Bluetooth settings, then open SPP",
+          "role": "primary",
+          "steps": [
+            {
+              "action": "Insert a TZe cassette, close the cover and press the Power button.",
+              "actor": "user",
+              "expect": "PT-P710BT: Power LED lit 3 s, off 1 s (standby). PT-P300BT: LED flashing green (lit 3 s, off 1 s)."
+            },
+            {
+              "action": "Run a Classic inquiry and pick the device named PT-<model><last four digits of the serial>.",
+              "actor": "client",
+              "expect": "One result per printer. If none appears, the printer may be connected to another device or asleep."
+            },
+            {
+              "action": "Pair with the printer. If the host asks for a PIN, enter 0000.",
+              "actor": "user",
+              "notes": "Most hosts pair a Bluetooth 2.1+ device with no prompt at all; the PIN is Brother's documented answer when one is asked for."
+            },
+            {
+              "action": "Open an RFCOMM socket to 00001101-0000-1000-8000-00805f9b34fb (SPP) at the printer's address, then wait 500 ms.",
+              "actor": "client",
+              "notes": "Resolve the channel by SDP from the UUID; the open-source clients connect to RFCOMM channel 1 and work. The 500 ms pause is the vendor SDK's for the Cube models (it skips it for the PT-P910BT).\n",
+              "timeout_seconds": 10
+            },
+            {
+              "action": "Send invalidate, initialize and request_status, then read 32 bytes.",
+              "actor": "client",
+              "expect": "A 32-byte status starting 80 20 42 30, status_type 00, no error bits, media_width equal to the loaded tape.",
+              "timeout_seconds": 10
+            }
+          ],
+          "troubleshooting": [
+            {
+              "fix": "It accepts one connection at a time: turn off Bluetooth on any other phone that was using it, or power-cycle the printer. If the vendor app's own pairing fails, pair from the system Bluetooth settings with PIN 0000 instead (see evidence.open_questions on the app's PIN handling).\n",
+              "symptom": "The printer does not appear, or pairing fails from the vendor app."
+            },
+            {
+              "fix": "Reported by the Ircama project (quoting pytouch-cube) for the PT-P300BT: add an outgoing COM port for the printer's Serial service in the classic Bluetooth settings and open that port; printing works despite the message.\n",
+              "symptom": "Windows pairs, shows 'Driver Unavailable' and disconnects."
+            }
+          ],
+          "type": "bt_classic_pairing",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision beyond a Bluetooth bond: no Wi-Fi, no account, no cloud in the print path. Brother's guides pair from the phone's own Bluetooth settings; Brother's FAQ says Design&Print 2 pairs from inside the app (on Android 4.4 and earlier, from the system settings), and the vendor app does start the bond itself before connecting. Confidence is medium: vendor documentation plus open-source clients that pair the same way, none of it replayed by this project.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Nothing to rejoin: pair from the new host. If an old phone keeps grabbing the connection, turn its Bluetooth off or remove the printer from it; the printer serves one connection at a time.\n",
+        "requires_factory_reset": false
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "No printer was available to this project and the research store holds no capture. The open-source clients cited were run on real printers by their authors, and one of them (the stecman gist) started from a capture of the vendor app, which is why the job sequence here is trusted; that is their verification, not this project's.\n",
+      "status": "untested"
+    },
+    "transport": "rfcomm",
+    "type": "label-printer",
+    "variants": [
+      {
+        "model": "PT-P300BT",
+        "notes": "P-touch CUBE. TZe 3.5, 6, 9 and 12 mm; 180 dpi; 128-dot raster line of which about 64 dots print (Ircama README; the stecman gist saw the outer ~30 dots each side of a 12 mm label stay blank); manual cutter lever; six AAA cells or AC adapter; no USB. Status model byte 0x72 (open-source status decoders). Brother publishes no raster reference for it; everything comes from the open-source clients and the vendor app. The vendor SDK opens an insecure SPP socket and waits 500 ms after connecting. With ESC i M bit 6 (auto cut) set, the Ircama and dogtopus clients say the P300BT prints a label boundary mark instead of cutting.\n"
+      },
+      {
+        "model": "PT-P300BTz",
+        "notes": "Unverified. Present only in the vendor app's model table as a 12 mm, manual-cutter sibling of the PT-P300BT, and derived from it in the vendor SDK. What distinguishes it (hardware revision, region) and its advertised name are not established. Unlike the PT-P300BT, the vendor SDK opens a SECURE socket to it.\n"
+      },
+      {
+        "model": "PT-P710BT",
+        "notes": "P-touch CUBE Plus. TZe 3.5 to 24 mm; 180 dpi (180 x 360 in high-resolution mode); 128-dot head; automatic full cutter (no half cut); Li-ion pack charged over USB; USB 2.0 Full Speed printing (USB 04f9:20af) with Windows/Mac drivers; Bluetooth 2.1+EDR Class 2. Covered by Brother's PT-E550W/P750W/P710BT raster reference, which does not give its status model byte. Does not support ESC i A, ESC/P or P-touch Template mode. Vendor SDK: insecure socket, 500 ms wait.\n"
+      },
+      {
+        "model": "PT-P715eBT",
+        "notes": "Unverified. A PT-P710BT sibling (24 mm, same cutter class) in the vendor app and SDK, where it shares the P710BT's command family and its insecure socket. Listed on Brother's pairing FAQ. Nobody in the evidence has driven one.\n"
+      },
+      {
+        "model": "PT-P910BT",
+        "notes": "Unverified here, but Brother publishes its raster reference and a user's guide: P-touch CUBE XP, TZe 3.5 to 36 mm, 360 dpi, 560-dot head (70-byte raster line), full and half cut, Li-ion, USB-C, Bluetooth 5.0 with SPP and iAP2, status model byte 0x78. Same language with the differences in protocol_details.model_differences. The vendor SDK opens a SECURE socket and does not wait after connecting. Brother's Print SDK lists it as Bluetooth (Classic) and USB, Android 5 or later.\n"
+      },
+      {
+        "model": "PT-N25BT",
+        "notes": "Not on this spec's control surface. A 12 mm printer in the same vendor app and on the same pairing FAQ, derived from the PT-P300BT in the vendor SDK, but it is the ONE model the vendor app sends over BLE (Brother's mobile-SDK channel in protocol_details.brother_mobile_sdk_ble_channel) rather than Classic SPP. Listed so a reader holding one knows why nothing below reaches it. Its advertised name and BLE framing over that channel are not established.\n"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "icon": "mdi:tape-measure",
+      "name": "Tape Width",
+      "notes": "0 means no cassette; a 3.5 mm cassette reads 4. Poll only between jobs: no status request is allowed while a page prints.",
+      "platform": "sensor",
+      "state_command": "request_status",
+      "state_field": "request_status.media_width",
+      "unit": "mm",
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT",
+        "PT-P910BT"
+      ]
+    },
+    {
+      "icon": "mdi:label-outline",
+      "name": "Tape Type",
+      "platform": "sensor",
+      "state_command": "request_status",
+      "state_field": "request_status.media_type",
+      "state_mapping": {
+        "0": "no media",
+        "1": "laminated tape",
+        "17": "heat-shrink tube 2:1",
+        "20": "flexible ID tape",
+        "21": "satin tape",
+        "23": "heat-shrink tube 3:1",
+        "255": "incompatible tape",
+        "3": "non-laminated tape",
+        "4": "fabric tape"
+      },
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT",
+        "PT-P910BT"
+      ]
+    },
+    {
+      "device_class": "problem",
+      "name": "No Tape Cassette",
+      "platform": "binary_sensor",
+      "state_command": "request_status",
+      "state_field": "request_status.no_media",
+      "state_mapping": {
+        "on_value": 1
+      },
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT",
+        "PT-P910BT"
+      ]
+    },
+    {
+      "device_class": "opening",
+      "name": "Cover Open",
+      "notes": "The PT-P910BT reference does not use this bit.",
+      "platform": "binary_sensor",
+      "state_command": "request_status",
+      "state_field": "request_status.cover_open",
+      "state_mapping": {
+        "on_value": 1
+      },
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT"
+      ]
+    },
+    {
+      "device_class": "battery",
+      "name": "Low Battery",
+      "platform": "binary_sensor",
+      "state_command": "request_status",
+      "state_field": "request_status.weak_batteries",
+      "state_mapping": {
+        "on_value": 1
+      },
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT",
+        "PT-P910BT"
+      ]
+    },
+    {
+      "device_class": "problem",
+      "name": "Cutter Jam",
+      "platform": "binary_sensor",
+      "state_command": "request_status",
+      "state_field": "request_status.cutter_jam",
+      "state_mapping": {
+        "on_value": 1
+      },
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT",
+        "PT-P910BT"
+      ]
+    },
+    {
+      "device_class": "heat",
+      "name": "Overheated",
+      "notes": "The PT-P710BT's LED table calls this a high-temperature error: wait until the Power LED turns green.",
+      "platform": "binary_sensor",
+      "state_command": "request_status",
+      "state_field": "request_status.overheating",
+      "state_mapping": {
+        "on_value": 1
+      },
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT",
+        "PT-P910BT"
+      ]
+    }
+  ],
+  "evidence": {
+    "app_static_analysis": "The transport facts under bluetooth_classic, device.pairing.notes and protocol_details.vendor_app_connection / brother_mobile_sdk_ble_channel are what the vendor app does, not what a printer was seen to do.\n",
+    "artifacts": [
+      {
+        "artifact": "Brother Raster Command Reference PT-E550W/P750W/P710BT v1.02, and PT-P900/P900W/P950NW/P910BT v1.02",
+        "description": "The command language, status layout and per-tape pin tables for the PT-P710BT and PT-P910BT. Do not state the PT-P710BT's status model byte. The P910BT reference is at download.brother.com/welcome/docp100407/cv_ptp900_eng_raster_102.pdf.\n",
+        "type": "vendor_documentation",
+        "url": "https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf"
+      },
+      {
+        "artifact": "PT-P300BT and PT-P710BT user's guides, PT-P910BT user's guide, Brother FAQ faqp00100300_000, Brother Print SDK manual (supported printers; iOS getting started)",
+        "description": "Advertised name format, PIN 0000, one connection at a time, LED states, Bluetooth 2.1+EDR on the P710BT and 5.0 with SPP/iAP2 on the P910BT, the P910BT's reset and Bluetooth toggle, firmware update over USB, that the P710BT does not officially support Bluetooth to a computer, the SDK's BLE list (TD/RJ only) and its MFi requirement on iOS (com.brother.ptcbp). The P300BT and P710BT guides document no factory reset.\n",
+        "type": "vendor_documentation"
+      },
+      {
+        "artifact": "stecman gist (original PT-P300BT write-up), dogtopus gist (Python 3 fork), Ircama/PT-P300BT, robby-cornelissen/pt-p710bt-label-maker",
+        "description": "Clients their authors ran on a PT-P300BT (first three) and a PT-P710BT. The stecman write-up started from Android HCI captures of the vendor app: SPP carrying the PT raster language, one 16-byte G line per raster line, 64 invalidate bytes, the transposed image, and a Fujitsu-made Bluetooth module. The others add the status decoder (model byte 0x72 for the P300BT), RFCOMM channel 1, and the Windows and macOS paths.\n",
+        "type": "public_implementation",
+        "url": "https://gist.github.com/stecman/ee1fd9a8b1b6f0fdd170ee87ba2ddafd"
+      },
+      {
+        "artifact": "P-touch Design&Print 2 for Android, package com.brother.ptouch.designandprint2, version 2.4.1 (versionCode 572)",
+        "description": "Established: the app's six-model table, that only the PT-N25BT goes over BLE, the SPP socket and its insecure flag for PT-P300BT, PT-P710BT and PT-P715eBT (secure otherwise), the 500 ms post-connect pause, the inquiry name filter, the in-app bond and its PIN handling, the BLE channel's UUIDs and constants, and that firmware comes from Brother's update service. Negative: no table mapping status model bytes to models was found, and the status layout as carried over BLE was not read.\n",
+        "obtained_via": "third-party APK mirror, 2026-09-17",
+        "type": "static_analysis"
+      }
+    ],
+    "open_questions": [
+      "The vendor app's PIN (a possible cause of \"pairing fails in the app\"). When Android has not recorded the printer's device type, the app supplies the last FIVE characters of the advertised name as the PIN (for PT-P710BTxxxx that is \"Txxxx\"), where Brother documents 0000. For a printer found by inquiry Android normally knows the type and the app leaves pairing to the OS, so this should be rare. Unverified on hardware. Workaround: pair from the system Bluetooth settings.\n",
+      "Location permission (a cause of \"stuck on turn on location services\"). Reviews of app 1.3.x describe the app refusing to proceed without location services even with them on; a 2024 review of 2.0.0 says the requirement was dropped. Android required location permission for Bluetooth discovery before Android 12, so older app releases on older phones may still hit it.\n",
+      "App-version regressions. A review of app 1.3.1 reports a PT-P300BT that would not connect until the previous app version was reinstalled. Nothing in the 2.4.1 code explains it.\n",
+      "Error state after printing. The stecman and dogtopus write-ups report the PT-P300BT sometimes staying in an error state after a job, cleared by pressing the Power button once. Cause unknown.\n",
+      "Tape wasted before each label (the commonest complaint in reviews). Mechanical; see protocol_details.tape_waste for what reduces it.\n"
+    ]
+  },
+  "features": [
+    {
+      "format": "1bit-bitmap",
+      "max_height": 3536,
+      "max_palette_colors": 2,
+      "max_width": 128,
+      "media": [
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "3.5 mm TZe tape",
+          "width_mm": 3.5
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "6 mm TZe tape",
+          "width_mm": 6
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "9 mm TZe tape",
+          "width_mm": 9
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "12 mm TZe tape",
+          "notes": "64 printable dots centred in the 128-dot line (Ircama README; the stecman gist saw about 30 dots each side stay blank). Dot counts for narrower tape on this model are not documented.\n",
+          "print_width_dots": 64,
+          "width_mm": 12
+        }
+      ],
+      "print_geometry": {
+        "bytes_per_row": 16,
+        "dpi": 180,
+        "head_dots": 128,
+        "invalidate_bytes": 100,
+        "max_length_dots": 3536,
+        "printable_dots": 64
+      },
+      "type": "image_upload",
+      "variants": [
+        "PT-P300BT",
+        "PT-P300BTz"
+      ]
+    },
+    {
+      "format": "1bit-bitmap",
+      "max_height": 7086,
+      "max_palette_colors": 2,
+      "max_width": 128,
+      "media": [
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "3.5 mm TZe tape",
+          "print_width_dots": 24,
+          "right_margin_dots": 52,
+          "total_width_dots": 24,
+          "width_mm": 3.5
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "6 mm TZe tape",
+          "print_width_dots": 32,
+          "right_margin_dots": 48,
+          "total_width_dots": 42,
+          "width_mm": 6
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "9 mm TZe tape",
+          "print_width_dots": 50,
+          "right_margin_dots": 39,
+          "total_width_dots": 64,
+          "width_mm": 9
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "12 mm TZe tape",
+          "print_width_dots": 70,
+          "right_margin_dots": 29,
+          "total_width_dots": 84,
+          "width_mm": 12
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "18 mm TZe tape",
+          "print_width_dots": 112,
+          "right_margin_dots": 8,
+          "total_width_dots": 128,
+          "width_mm": 18
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 1,
+          "name": "24 mm TZe tape",
+          "notes": "The tape is wider than the head; all 128 dots print.",
+          "print_width_dots": 128,
+          "right_margin_dots": 0,
+          "total_width_dots": 170,
+          "width_mm": 24
+        }
+      ],
+      "print_geometry": {
+        "bytes_per_row": 16,
+        "dpi": 180,
+        "feed_margin_dots": 14,
+        "head_dots": 128,
+        "invalidate_bytes": 100,
+        "max_length_dots": 7086,
+        "min_length_dots": 31,
+        "printable_dots": 128
+      },
+      "type": "image_upload",
+      "variants": [
+        "PT-P710BT",
+        "PT-P715eBT"
+      ]
+    },
+    {
+      "format": "1bit-bitmap",
+      "max_height": 14173,
+      "max_palette_colors": 2,
+      "max_width": 560,
+      "media": [
+        {
+          "kind": "continuous",
+          "media_type_code": 0,
+          "name": "3.5 mm TZe tape",
+          "print_width_dots": 48,
+          "right_margin_dots": 264,
+          "width_mm": 3.5
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 0,
+          "name": "6 mm TZe tape",
+          "print_width_dots": 64,
+          "right_margin_dots": 256,
+          "width_mm": 6
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 0,
+          "name": "9 mm TZe tape",
+          "print_width_dots": 106,
+          "right_margin_dots": 235,
+          "width_mm": 9
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 0,
+          "name": "12 mm TZe tape",
+          "print_width_dots": 150,
+          "right_margin_dots": 213,
+          "width_mm": 12
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 0,
+          "name": "18 mm TZe tape",
+          "print_width_dots": 234,
+          "right_margin_dots": 171,
+          "width_mm": 18
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 0,
+          "name": "24 mm TZe tape",
+          "print_width_dots": 320,
+          "right_margin_dots": 128,
+          "width_mm": 24
+        },
+        {
+          "kind": "continuous",
+          "media_type_code": 0,
+          "name": "36 mm TZe tape",
+          "notes": "Not centred: 45 unused dots on one side of the head and 61 on the other (reference pin table).",
+          "print_width_dots": 454,
+          "right_margin_dots": 61,
+          "width_mm": 36
+        }
+      ],
+      "print_geometry": {
+        "bytes_per_row": 70,
+        "dpi": 360,
+        "feed_margin_dots": 14,
+        "head_dots": 560,
+        "invalidate_bytes": 200,
+        "max_length_dots": 14173,
+        "min_length_dots": 57,
+        "printable_dots": 454
+      },
+      "type": "image_upload",
+      "variants": [
+        "PT-P910BT"
+      ]
+    },
+    {
+      "type": "raster_print"
+    },
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "The guides describe a state that waits for a new program: PT-P300BT LED steady red (\"booting\"; transfer the program again), PT-P710BT Power LED steady red (program transfer failure), PT-P910BT Power LED steady red (\"recovery mode\"). What the printer advertises in that state is not known.\n"
+        },
+        "enter": {
+          "how": "unknown",
+          "notes": "Two vendor routes: the phone app over Bluetooth, and (PT-P710BT, PT-P910BT) Brother's P-touch Update Software over USB, whose guides say not to power off or unplug during the update. The bytes that start a transfer are not documented here, deliberately: a client should use the vendor tools.\n"
+        },
+        "image": {
+          "algorithm": "unknown",
+          "format": "Unknown. A per-model file from Brother's firmware-update web service.",
+          "notes": "The vendor Android app asks Brother's firmware-update web service for the connected model's latest file and passes it to the SDK's file-transfer path over the open Bluetooth link. Nothing about the file's structure or signing was examined.\n",
+          "signing": "unknown",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "vendor_serial",
+          "custom"
+        ],
+        "notes": "The P910BT guide warns that a firmware update may reset Bluetooth pairings. A user review of the vendor app mentions its printer firmware update feature.\n",
+        "recovery": {
+          "interrupted": "stays_in_bootloader",
+          "notes": "From the vendor guides' LED tables: after a failed transfer the printer waits for the program to be sent again. Not tried.\n"
+        },
+        "transport": [
+          "rfcomm",
+          "usb"
+        ],
+        "verification": "reported"
+      },
+      "type": "firmware_update"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor-hosted user's guide for the PT-P710BT (P-touch CUBE Plus): pairing with PIN 0000, LED tables, USB firmware update, and the Bluetooth 2.1+EDR specification this spec's Classic verdict rests on.\n",
+      "kind": "manual",
+      "title": "Brother PT-P710BT User's Guide (English, PDF)",
+      "url": "https://download.brother.com/welcome/docp100362/pt-p710bt_eng_ug_03.pdf"
+    },
+    {
+      "description": "Vendor-hosted user's guide for the PT-P300BT (P-touch CUBE): pairing with PIN 0000, LED states, supported tape widths and tape-saving settings.\n",
+      "kind": "manual",
+      "title": "Brother PT-P300BT User's Guide (US English, PDF)",
+      "url": "https://download.brother.com/welcome/docp100262/ptp300bt_useng_usr_d018t1001a_05.pdf"
+    },
+    {
+      "description": "Vendor-hosted user's guide for the PT-P910BT (P-touch CUBE XP): the Power-button reset, the Bluetooth on/off toggle, Bluetooth settings and the SPP/iAP2 specification.\n",
+      "kind": "manual",
+      "title": "Brother PT-P910BT User's Guide (PDF)",
+      "url": "https://support.brother.com/g/s/es/htmldoc/ptouch/p910bt/uken/PDF/PDF.pdf"
+    },
+    {
+      "description": "Brother's own reference for the command language, status record and pin tables used here (PT-P710BT).",
+      "kind": "protocol_writeup",
+      "title": "Brother Raster Command Reference: PT-E550W/P750W/P710BT",
+      "url": "https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf"
+    },
+    {
+      "description": "The same language for the 360 dpi PT-P910BT, with its per-model differences.",
+      "kind": "protocol_writeup",
+      "title": "Brother Raster Command Reference: PT-P900/P900W/P950NW/P910BT",
+      "url": "https://download.brother.com/welcome/docp100407/cv_ptp900_eng_raster_102.pdf"
+    },
+    {
+      "description": "Name format PT-<model><last four serial digits> and PIN 0000; covers PT-N25BT, PT-P300BT, PT-P710BT, PT-P715eBT and PT-P910BT.",
+      "kind": "vendor_support",
+      "title": "Brother FAQ: connecting a mobile device via Bluetooth (P-touch Design&Print / Design&Print 2)",
+      "url": "https://support.brother.com/g/b/faqend.aspx?c=us&lang=en&prod=p300bteus&faqid=faqp00100300_000"
+    },
+    {
+      "description": "Per-model interface table: BLE only on TD and RJ models; PT-P910BT, PT-E310BT and PT-E560BT as Bluetooth (Classic).",
+      "kind": "vendor_support",
+      "title": "Brother Print SDK manual: supported printers",
+      "url": "https://support.brother.com/g/s/es/htmldoc/mobilesdk/overview/supported-printer.html"
+    },
+    {
+      "description": "Bluetooth printing on iOS needs the MFi build of the SDK and the external-accessory protocol com.brother.ptcbp.",
+      "kind": "vendor_support",
+      "title": "Brother Print SDK manual: getting started on iOS",
+      "url": "https://support.brother.com/g/s/es/htmldoc/mobilesdk/guide/getting-started/getting-started-ios.html"
+    },
+    {
+      "description": "Maintained PT-P300BT client (Python CLI, Tk GUI, Web Serial page): ptcbp.py builds the commands, ptstatus.py decodes the 32-byte status, labelmaker.py runs the job and waits for completion; Windows, Linux and macOS Bluetooth paths.\n",
+      "kind": "implementation",
+      "title": "Ircama/PT-P300BT",
+      "url": "https://github.com/Ircama/PT-P300BT"
+    },
+    {
+      "description": "PT-P710BT client written from Brother's raster reference: label_maker.py (job and status handling over PyBluez RFCOMM), label_rasterizer.py (transpose and PackBits).",
+      "kind": "implementation",
+      "title": "robby-cornelissen/pt-p710bt-label-maker",
+      "url": "https://github.com/robby-cornelissen/pt-p710bt-label-maker"
+    },
+    {
+      "description": "The original PT-P300BT reverse engineering, from HCI captures of the vendor app.",
+      "kind": "protocol_writeup",
+      "title": "stecman: Controlling the Brother P-Touch Cube label maker from a computer",
+      "url": "https://gist.github.com/stecman/ee1fd9a8b1b6f0fdd170ee87ba2ddafd"
+    },
+    {
+      "description": "PyBluez RFCOMM (channel 1) version of the stecman scripts, with a command parser (ptcbp.py) and status decoder (ptstatus.py).",
+      "kind": "implementation",
+      "title": "dogtopus: Python 3 fork of the P-Touch Cube scripts",
+      "url": "https://gist.github.com/dogtopus/64ae743825e42f2bb8ec79cea7ad2057"
+    },
+    {
+      "description": "The vendor Android app analysed for this spec.",
+      "kind": "vendor_support",
+      "title": "P-touch Design&Print 2 on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=com.brother.ptouch.designandprint2"
+    },
+    {
+      "description": "How to capture the vendor app's RFCOMM traffic, which would move this spec's facts from reported to confirmed.",
+      "kind": "other",
+      "title": "Android: Bluetooth verifying and debugging (HCI snoop log)",
+      "url": "https://source.android.com/docs/core/connect/bluetooth/verifying_debugging"
+    }
+  ],
+  "initialization": [
+    {
+      "command": "invalidate",
+      "expect_response": false,
+      "notes": "Once the socket is open (the vendor SDK waits 500 ms first on every model but the PT-P910BT). On a PT-P910BT send it twice: its reference asks for 200 bytes.\n"
+    },
+    {
+      "command": "initialize",
+      "expect_response": false
+    },
+    {
+      "command": "request_status",
+      "expect_response": true,
+      "notes": "The link is usable once a 32-byte reply starting 80 20 42 30 arrives with status_type 00. Refuse to print if either error byte is non-zero or phase_type is not 00 (what Ircama and dogtopus do), and take media_width and media_type for print_information from it.\n"
+    }
+  ],
+  "local_access": {
+    "covers": [
+      "Raster label printing on every TZe width the model takes",
+      "Status: loaded tape width, type and colours, errors, print progress"
+    ],
+    "not_covered": [
+      "Firmware update (vendor app or P-touch Update Software only; bytes not documented)"
+    ],
+    "status": "native",
+    "summary": "Fully local: pair and print over Bluetooth SPP (or USB on the PT-P710BT and PT-P910BT) with no account and no cloud in the path. The vendor app wants network access for its templates and some reviewers say for its main menu, but the printer knows nothing of that.\n"
+  },
+  "protocol_details": {
+    "advanced_mode_bits": {
+      "bits": {
+        "0x01": "draft printing (PT-P900 series; must be 0 on the PT-P910BT; not defined for the PT-P710BT)",
+        "0x04": "half cut (PT-P910BT; not used on the PT-P710BT)",
+        "0x08": "no chain printing: feed and cut after the last label (0 = chain printing, no feed or cut after the last)",
+        "0x10": "special tape: never cut",
+        "0x40": "high-resolution printing, 180 x 360 dpi (PT-P710BT; not on the PT-P910BT)",
+        "0x80": "no buffer clearing when printing (not on the PT-P910BT)"
+      },
+      "description": "ESC i K n1. Single byte, OR the bits.",
+      "verification": "reported"
+    },
+    "brother_mobile_sdk_ble_channel": {
+      "bonding_kick": "When the printer's write characteristic is ...e3 (write without response), the SDK first writes a single 0x00 byte to ...e2 and waits up to 60 s for the OS bond to complete; without that bond it does not use the write-without-response path. With ...e2 as the write characteristic it writes with response and needs no kick. Which printers expose ...e3 and which ...e2 the SDK decides at runtime; no table exists in the app.\n",
+      "cccd": "00002902-0000-1000-8000-00805f9b34fb",
+      "characteristics": [
+        {
+          "role": "read: status, up to 32 bytes per read",
+          "uuid": "a76eb9e1-f3ac-4990-84cf-3a94d2426b2b"
+        },
+        {
+          "role": "write with response; also the bonding kick below",
+          "uuid": "a76eb9e2-f3ac-4990-84cf-3a94d2426b2b"
+        },
+        {
+          "role": "write without response + notify; declared only in the second-generation app (an older release of the first app declares e0, e1 and e2 only)",
+          "uuid": "a76eb9e3-f3ac-4990-84cf-3a94d2426b2b"
+        },
+        {
+          "role": "notify",
+          "uuid": "a76eb9e4-f3ac-4990-84cf-3a94d2426b2b"
+        }
+      ],
+      "constants": {
+        "connect_retries": 3,
+        "default_mtu_bytes": 23,
+        "min_connect_wait_ms": 5000,
+        "read_max_bytes": 32,
+        "requested_mtu_bytes": 512,
+        "write_chunk": "negotiated MTU minus 5 bytes",
+        "write_queue_bytes": 512
+      },
+      "description": "Brother's mobile print SDK, as bundled in the vendor app, carries a BLE transport alongside Classic SPP. It is recorded here because an earlier research note assumed the Cube models use it; on the evidence they do not. The vendor app sends only the PT-N25BT over it, and Brother's public Print SDK supported-printer page lists BLE only for TD and RJ models (TD-2350D series, TD-4550DNWB, RJ-3250WB, RJ-4250WB) and the PT-P910BT, PT-E310BT and PT-E560BT as Bluetooth (Classic). Nothing here is claimed for the PT-P300BT, PT-P710BT, PT-P715eBT or PT-P910BT. Everything is read from the SDK code; no BLE printer was scanned or captured.\n",
+      "payload": "presumably the same raster stream as over SPP; the status layout as carried over BLE was not read",
+      "scan_filter": "the same service UUID: the SDK discovers BLE printers by service, not by name",
+      "service": "a76eb9e0-f3ac-4990-84cf-3a94d2426b2b",
+      "verification": "reported"
+    },
+    "entity_coverage": "Printing itself is the image_upload/raster_print feature, not an entity: a job is a sequence of commands built from a bitmap, which no entity shape carries. Setting commands (auto status, mode bits, margin, compression) are per-job and belong to the job builder, so they are not bound either. The status reply IS bound (tape width and type, and the error bits a user can act on).\n",
+    "job_sequence": {
+      "after": "Read status_notification frames until status_type 01 (completed), 02 (error: the printer has discarded the job; resend from the page that did not reach phase printing) or 04 (turned off). Ircama allows 60 s. Then, optionally, invalidate + initialize before closing, as Ircama and dogtopus do.\n",
+      "description": "One job, in order, as Brother's references lay it out and the open-source clients send it. Steps marked per_page repeat for each page. All multi-byte numbers are little-endian except the status reply's phase number.\n",
+      "steps": [
+        {
+          "command": "invalidate",
+          "hex": "00 x100",
+          "note": "64 in the P300BT clients, 200 on the PT-P910BT"
+        },
+        {
+          "command": "initialize",
+          "hex": "1B 40"
+        },
+        {
+          "command": "request_status",
+          "hex": "1B 69 53",
+          "note": "read 32 bytes; refuse to continue on any error bit or phase_type != 00"
+        },
+        {
+          "command": "switch_to_raster_mode",
+          "hex": "1B 69 61 01",
+          "per_page": true
+        },
+        {
+          "command": "set_auto_status_notification",
+          "hex": "1B 69 21 00",
+          "note": "optional; Brother's sample and pt-p710bt-label-maker send it",
+          "per_page": true
+        },
+        {
+          "command": "print_information",
+          "hex": "1B 69 7A f t w 00 <lines u32 LE> <page> 00",
+          "per_page": true
+        },
+        {
+          "command": "set_various_mode",
+          "hex": "1B 69 4D 40",
+          "per_page": true
+        },
+        {
+          "command": "cut_every_n_labels",
+          "hex": "1B 69 41 01",
+          "note": "PT-P910BT only",
+          "per_page": true
+        },
+        {
+          "command": "set_advanced_mode",
+          "hex": "1B 69 4B 08",
+          "per_page": true
+        },
+        {
+          "command": "set_margin",
+          "hex": "1B 69 64 <dots u16 LE>",
+          "per_page": true
+        },
+        {
+          "command": "set_compression",
+          "hex": "4D 02",
+          "per_page": true
+        },
+        {
+          "command": "raster_line / zero_raster_line",
+          "hex": "47 <n u16 LE> <n bytes> | 5A",
+          "note": "one per line; the count must equal print_information's raster_lines",
+          "per_page": true
+        },
+        {
+          "command": "print_page / print_last_page_and_feed",
+          "hex": "0C | 1A",
+          "note": "0C between pages, 1A after the last",
+          "per_page": true
+        }
+      ],
+      "verification": "reported"
+    },
+    "model_differences": {
+      "PT-P300BT": {
+        "cutter": "manual lever",
+        "dpi": 180,
+        "invalidate_bytes": "64 in the open-source clients (100 is harmless)",
+        "max_tape_mm": 12,
+        "printable_dots_12mm": 64,
+        "raster_line_bytes": 16,
+        "reference": "none published; open-source clients",
+        "socket": "insecure, 500 ms pause after connect",
+        "status_model_code": "0x72"
+      },
+      "PT-P710BT": {
+        "cutter": "automatic full cut",
+        "dpi": "180 (180 x 360 with advanced_mode 0x40)",
+        "invalidate_bytes": 100,
+        "max_tape_mm": 24,
+        "raster_line_bytes": 16,
+        "reference": "PT-E550W/P750W/P710BT raster reference",
+        "socket": "insecure, 500 ms pause after connect",
+        "status_model_code": "not published",
+        "unsupported": [
+          "ESC i A",
+          "half cut",
+          "ESC/P and P-touch Template modes"
+        ]
+      },
+      "PT-P910BT": {
+        "cutter": "automatic full and half cut",
+        "dpi": 360,
+        "invalidate_bytes": 200,
+        "max_tape_mm": 36,
+        "media_type_for_tze": "0x00 in print_information",
+        "page_field": "0 first, 1 later, 2 last (and single-page jobs)",
+        "raster_line_bytes": 70,
+        "reference": "PT-P900/P900W/P950NW/P910BT raster reference",
+        "socket": "secure, no pause after connect",
+        "status_extras": "battery level at byte 6, extended error at byte 7",
+        "status_model_code": "0x78",
+        "unsupported": [
+          "high-resolution and draft printing",
+          "heat-shrink tube",
+          "no-buffer-clearing bit"
+        ]
+      },
+      "description": "What changes between members, for a job builder. Everything else is common.",
+      "verification": "reported"
+    },
+    "print_information_valid_flags": {
+      "bits": {
+        "0x02": "media type valid (checked against the cassette)",
+        "0x04": "media width valid",
+        "0x08": "media length valid",
+        "0x40": "priority to print quality (listed as unused)",
+        "0x80": "printer recovery always on (on the PT-P910BT it does not enable status pushes)"
+      },
+      "description": "The valid-flag byte of print_information (ESC i z n1). Single byte, OR the bits.",
+      "verification": "reported"
+    },
+    "raster_orientation": {
+      "description": "How a label image becomes raster lines, as both open-source clients do it and as the stecman capture of the vendor app showed. Build the label as a 1-bit image with the tape's width vertical (128 px tall on a 128-dot model, text upright) and its length horizontal. Raster line n is pixel column n, left to right; within a line, bit 7 of the first byte is the column's top pixel, and so on down. In other words the image is transposed (the clients describe it as rotate 90 degrees and mirror). Content narrower than the head is centred: Brother's pin tables give equal unused margins on both sides for every tape up to 24 mm on the 128-dot models, and 45/61 unused dots for 36 mm on the PT-P910BT. Which physical edge of the tape Brother's \"pin 0\" is, is not stated; the transposed layout is the one known to print upright.\n",
+      "verification": "reported"
+    },
+    "tape_color_codes": {
+      "description": "request_status byte 24, cassette background colour. Single byte.",
+      "values": {
+        "0x01": "white",
+        "0x02": "other",
+        "0x03": "clear",
+        "0x04": "red",
+        "0x05": "blue",
+        "0x06": "yellow",
+        "0x07": "green",
+        "0x08": "black",
+        "0x09": "clear with white text",
+        "0x20": "matte white",
+        "0x21": "matte clear",
+        "0x22": "matte silver",
+        "0x23": "satin gold",
+        "0x24": "satin silver",
+        "0x30": "blue (D series)",
+        "0x31": "red (D series)",
+        "0x40": "fluorescent orange",
+        "0x41": "fluorescent yellow",
+        "0x50": "berry pink (S series)",
+        "0x51": "light gray (S series)",
+        "0x52": "lime green (S series)",
+        "0x60": "yellow (F series)",
+        "0x61": "pink (F series)",
+        "0x62": "blue (F series)",
+        "0x70": "white heat-shrink tube",
+        "0x90": "white flexible ID",
+        "0x91": "yellow flexible ID",
+        "0xF0": "cleaning cassette",
+        "0xF1": "stencil",
+        "0xFF": "incompatible"
+      },
+      "verification": "reported"
+    },
+    "tape_waste": {
+      "description": "Why every label starts with a strip of blank tape, the most common complaint about these printers. The cutter sits some way before the print head, so the shortest tape the printer can feed out is about 24.5 mm (PT-P710BT reference) and the P710BT guide says each first print feeds about 25 mm of blank tape; Ircama measures about 2.5 cm before and 1 mm after the print on a PT-P300BT. It is mechanical, not a margin setting. What reduces it over several labels: chain printing (set_advanced_mode without 0x08, so the last label is not fed and cut), which is also Brother's advice in the P300BT guide (turn off \"cut the last label\" in Design&Print 2, turn on chain printing in iPrint&Label).\n",
+      "verification": "reported"
+    },
+    "test_vectors": {
+      "description": "Computed from the layouts above and checked against an independent standard-library transcription (a PackBits encoder and decoder written from the algorithm, and struct packing). None is a capture; the status records are constructed, with zeros where the real bytes are unknown (hardware_settings).\n",
+      "frames": [
+        {
+          "hex": "1B 69 7A 84 01 18 00 02 00 00 00 00 00",
+          "meaning": "print_information: width+recovery valid, laminated, 24 mm, 2 lines, first page"
+        },
+        {
+          "hex": "1B 69 7A 84 01 0C 00 2C 01 00 00 00 00",
+          "meaning": "print_information: 12 mm, 300 lines"
+        },
+        {
+          "hex": "1B 69 64 0E 00",
+          "meaning": "set_margin 14 dots (2 mm at 180 dpi)"
+        }
+      ],
+      "job_24mm_two_lines": "100 x 00, then 1B 40 1B 69 61 01 1B 69 21 00 1B 69 7A 84 01 18 00 02 00 00 00 00 00 1B 69 4D 40 1B 69 4B 08 1B 69 64 0E 00 4D 02 47 06 00 FB 00 FD FF FB 00 5A 1A (149 bytes in all): one line with dots 48-79 set, one blank line, auto cut, print and feed.\n",
+      "packbits_lines": [
+        {
+          "g_line": "47 06 00 FB 00 FD FF FB 00",
+          "packed": "FB 00 FD FF FB 00",
+          "raw": "00 00 00 00 00 00 FF FF FF FF 00 00 00 00 00 00"
+        },
+        {
+          "g_line": "47 0A 00 FC 00 02 18 3C 7E FE FF FC 00",
+          "packed": "FC 00 02 18 3C 7E FE FF FC 00",
+          "raw": "00 00 00 00 00 18 3C 7E FF FF FF 00 00 00 00 00"
+        },
+        {
+          "g_line": "47 02 00 F1 FF",
+          "packed": "F1 FF",
+          "raw": "FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF"
+        }
+      ],
+      "status_replies": [
+        {
+          "hex": "80 20 42 30 72 30 00 00 00 00 0C 01 00 00 00 00 00 00 00 00 00 00 00 00 01 08 00 00 00 00 00 00",
+          "meaning": "PT-P300BT, reply to request, 12 mm laminated, white tape, black ink, no errors, can receive"
+        },
+        {
+          "hex": "80 20 42 30 72 30 00 00 00 00 0C 01 00 00 00 00 00 00 06 01 00 00 00 00 01 08 00 00 00 00 00 00",
+          "meaning": "push: phase change to printing"
+        },
+        {
+          "hex": "80 20 42 30 72 30 00 00 00 00 0C 01 00 00 00 00 00 00 01 00 00 00 00 00 01 08 00 00 00 00 00 00",
+          "meaning": "push: printing completed"
+        },
+        {
+          "hex": "80 20 42 30 72 30 00 00 00 10 0C 01 00 00 00 00 00 00 02 00 00 00 00 00 01 08 00 00 00 00 00 00",
+          "meaning": "push: error occurred, cover open (error_information_2 bit 4)"
+        }
+      ],
+      "verification": "reported"
+    },
+    "text_color_codes": {
+      "description": "request_status byte 25, cassette ink colour. Single byte.",
+      "values": {
+        "0x01": "white",
+        "0x02": "other",
+        "0x04": "red",
+        "0x05": "blue",
+        "0x08": "black",
+        "0x0A": "gold",
+        "0x62": "blue (F series)",
+        "0xF0": "cleaning cassette",
+        "0xF1": "stencil",
+        "0xFF": "incompatible"
+      },
+      "verification": "reported"
+    },
+    "various_mode_bits": {
+      "bits": {
+        "0x40": "auto cut (PT-P300BT: prints a boundary mark, per the open-source clients)",
+        "0x80": "mirror printing"
+      },
+      "description": "ESC i M n1. Single byte.",
+      "unused": "bits 0-5",
+      "verification": "reported"
+    },
+    "vendor_app_connection": {
+      "bonding": "Starts a bond itself and waits up to 45 s for it. When Android reports the device type as Classic it leaves the exchange to the OS; when the type is unknown it supplies a PIN of the last five characters of the advertised name, not Brother's documented 0000 (see evidence.open_questions).\n",
+      "description": "What the vendor Android app (P-touch Design&Print 2 2.4.1) does, for troubleshooting and for a client that wants to behave like it. Static analysis, not observed on the air.\n",
+      "discovery": "Classic inquiry; keeps devices whose name contains P300, P300BTz, P710, P715, P910 or N25; also lists bonded devices matched the same way",
+      "firmware": "downloads from Brother's firmware-update web service and sends over the open link",
+      "model_table": [
+        "PT-P300BT",
+        "PT-P300BTz",
+        "PT-P710BT",
+        "PT-P715eBT",
+        "PT-P910BT",
+        "PT-N25BT"
+      ],
+      "post_connect_wait_exempt": "names containing PT-P910BT (and MW-170, MW-270)",
+      "post_connect_wait_ms": 500,
+      "socket": "SPP UUID; insecure for PT-P300BT, PT-P710BT, PT-P715eBT; secure for the rest",
+      "transport_by_model": "PT-N25BT over BLE; every other model over Classic SPP",
+      "verification": "reported"
+    }
+  },
+  "remaining_unknowns": [
+    "Whether the PT-P300BT, PT-P710BT and PT-P715eBT accept an RFCOMM connection with no bond (the vendor SDK's insecure socket suggests they might), and which pairing mode the printer negotiates (SSP Just Works or legacy PIN 0000).",
+    "The RFCOMM channel on the PT-P910BT and PT-P300BTz, and whether channel 1 is fixed on the others (the open-source clients assume it).",
+    "Status model byte for the PT-P710BT, PT-P715eBT and PT-P300BTz.",
+    "The meaning of status bytes 6 and 7 on the PT-P300BT: Brother's P910BT layout (battery, extended error) and the open-source decoders' reading (extended error, power) disagree.",
+    "The PT-P300BT's printable dots per tape width below 12 mm, and whether 64 (Ircama) or about 68 (stecman) is right at 12 mm.",
+    "What the PT-P300BTz is, and its advertised name.",
+    "Whether the PT-P715eBT and PT-P910BT behave as their references and the vendor app say; nobody in the evidence has driven either over Bluetooth.",
+    "Whether any Cube model exposes Brother's BLE service a76eb9e0-f3ac-4990-84cf-3a94d2426b2b (the P910BT's 'Bluetooth Mode' setting hints at a BLE mode), and which BLE printers use ...e2 versus ...e3.",
+    "The PT-N25BT's BLE framing, name and status layout over that channel.",
+    "Whether the iAP2 session iOS apps use carries the same raster stream, and whether the PT-P300BT and PT-P710BT really are MFi accessories.",
+    "The firmware file format, whether it is signed, and the transfer bytes the vendor app uses.",
+    "Whether the printer keeps one bond or several, and whether any reset clears them.",
+    "FCC IDs; not harvested for this spec."
+  ]
+}

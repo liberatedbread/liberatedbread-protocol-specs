@@ -1,0 +1,1502 @@
+{
+  "device": {
+    "category": "climate",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "values": [
+                "Blueair P2i",
+                "Blueair ICP"
+              ]
+            }
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "host_compatibility": [
+      {
+        "basis": "The vendor app drives the unit through Android's own GATT client (RxAndroidBle over the platform stack), bonding with createBond and requesting an MTU of 517.\n",
+        "notes": "Remember to request the MTU explicitly on Android; other stacks usually negotiate it themselves.",
+        "stack": "android",
+        "status": "compatible",
+        "verification": "reported"
+      }
+    ],
+    "identification": {
+      "local_name_prefixes": [
+        "Blueair P2i",
+        "Blueair ICP"
+      ],
+      "notes": "The app scans with an empty filter and keeps any result whose name starts with \"Blueair ICP\" or \"Blueair P2i\", compared case-insensitively (the same scan also accepts the update-mode names, see dfu_mode). Once the bond is in place, and before it opens the GATT connection, it re-checks that the name contains one of the two. BLE-module firmware 1.2.3 and 1.2.11 both carry the name \"Blueair P2i\"; \"Blueair ICP\" is presumably what earlier firmware advertised. The app uses no advertised service UUID or manufacturer data. The 1.2.11 firmware's advertising data carries flags 0x06, the name, an appearance field and a complete list of 16-bit service UUIDs, 0x0002 and 0x0001 in normal operation (protocol_details.advertising). They are left out of service_uuids on purpose: they were read from firmware rather than seen on air, and 16-bit values this generic would pull other hardware into the matcher. In update mode the unit answers under a different name; features[firmware_update].dfu.dfu_mode has it and is checked first.\n"
+    },
+    "manufacturer": "Blueair AB",
+    "manufacturer_status": "active",
+    "name": "Blueair Cabin P2i Car Air Purifier",
+    "notes": "A 12 V in-car HEPASilent purifier: a purifier unit strapped behind a headrest, a laser particle sensor (Plantower family) inside it, and a control knob that doubles as the 12 V plug and carries a USB charging port. Three processors: a Nordic nRF52 BLE module, the purifier's main MCU, and the knob's own MCU (the app and firmware call it the \"plug\"). The module's DFU packages target hw_version 52 and SoftDevice S132 v5.0.0, and S132 plus a roughly 220 KB application only fits an nRF52832, so the part is an nRF52832 by inference, not by marking. The main-MCU firmware the update package carries is an Arm Cortex-M image linked at 0x08000000, the STM32 convention, so the main MCU is probably an STM32 or a clone (also by inference). The FCC grant is 2ARIK-P2I. The BLE module relays everything between the phone and the other two over an internal serial link. The app's internal name for the product is ICP; the protocol and the SDK come from Airboxlab (Foobot). The 2018 manual pairs it with the \"Blueair Friend\" app; today's Blueair app adds it through its legacy add-device path.\nLocal control is complete and needs no cloud: fan speed (low / medium / high), fan mode (manual / auto), the particle readings (PM1, PM2.5, PM10 and six particle-count bins), filter and fan run-time counters, a fault bitfield, and a history of stored readings. Every custom characteristic is a 16-bit short expanded onto the Bluetooth SIG base UUID (0000xxxx-0000-1000-8000-00805f9b34fb) even though the shorts (0x0001 to 0x0060) are not SIG-assigned; that is how the app builds them. Write them exactly as expanded below. The app never names a service and finds characteristics by UUID after discovery, and a client should do the same. The module's own GATT table (read from its firmware, not seen on air) puts them in four 16-bit primary services on the same base: 0x0001 (versions, clock, faults, unit type and state), 0x0002 (fan and air quality), 0x0003 (update progress) and 0x1337 (a factory AT-command channel that a client should leave alone).\nWrites go to a \"requested\" characteristic and the unit reports the value it actually applied on a separate \"reported\" characteristic (fan speed 0x0012 -> 0x0011, fan mode 0x0014 -> 0x0013). The unit's own logs show the same value can also change from the knob or from the main MCU (auto mode), so treat the reported characteristic as the truth and never echo your own write back as state.\nLink: the app bonds before it touches any characteristic, and the BLE module keeps a small list of bonded phones and advertises with a whitelist once it has any, so an unbonded client can only get in while the unit is in pairing mode (knob turned clockwise and held about 5 s). Its GATT table requires an encrypted link (security mode 1 level 2) for every custom value and CCCD, and it pairs as LE legacy Just Works. See device.pairing. Notifications are longer than 20 bytes (the stored-record characteristic is 38 bytes), so the ATT MTU must be raised before subscribing; the app asks for 517.\nFirmware: Nordic Secure DFU through the stack's buttonless characteristic. The update is a cascade: the BLE module updates first, then pushes new firmware to the main MCU and on to the knob, reporting each stage on the update-progress characteristic 0x0060. See features[firmware_update].\nOut of scope, mentioned only so nobody reuses this spec for them: Blueair's Wi-Fi purifiers (Classic i-series, Sense+, Aware, Blue Signature, HealthProtect 74xx/77xx, Blue Pure / Blue Max 211i-511i, humidifiers and fans). The same app onboards those over Espressif protocomm (advertised service 4772911e-d07c-4617-8241-f4d10948d6ae) or a SoftAP and then controls them through the vendor cloud; none of that touches this GATT surface.\n",
+    "pairing": {
+      "bonding": "required",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "indicator": "The knob's lights cycle in the pairing animation the app shows.",
+        "notes": "Needed for every new phone. Outside pairing mode the unit advertises with a whitelist of bonded phones only, and with no bonds at all it does not advertise. Pairing mode ends on a timeout whose length is not established, or when a bond completes.\n",
+        "procedures": [
+          {
+            "basis": "The vendor app's Cabin pairing instructions (turn the knob clockwise and hold for 5 seconds until the lights animate), and the BLE module's log strings for a pairing mode started by the main MCU and ended by a timeout or a successful bond.\n",
+            "hold_seconds": 5,
+            "name": "Knob turned clockwise and held",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "With the unit on, turn the knob clockwise and keep it turned for about 5 seconds.",
+                "actor": "user",
+                "expect": "The knob's lights cycle; the unit starts advertising to all phones."
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": true
+      },
+      "exclusivity": {
+        "notes": "The module's logs show a bonded-peer list with a maximum size and a replace-when-full path, so several phones can hold bonds. The maximum is not established.\n",
+        "recovery": "Close the vendor app or switch Bluetooth off on the phone that holds the link. Entering pairing mode from the knob also drops whichever phone is connected.\n",
+        "single_bond": false,
+        "single_connection": "unknown"
+      },
+      "notes": "The app always bonds: it calls createBond, waits for the bonded state, and treats a return to \"not bonded\" as failure, before it discovers services. The module's firmware settles the rest (static analysis, reported, never observed on air). Its pairing parameters: bonding on, I/O capabilities none, LE Secure Connections off, key size 7 to 16 bytes, encryption and identity keys distributed in both directions. It also sets the MITM and OOB flags, but a phone holds no OOB data for it, so LE legacy pairing falls back to Just Works with unauthenticated keys. Every custom characteristic value and every CCCD is registered with security mode 1 level 2 (encryption, unauthenticated keys accepted), so an unbonded read, write or subscribe is refused with an insufficient-encryption error and most host stacks then pair on their own. The whitelist advertising means an unbonded central cannot connect outside pairing mode anyway. The one exception is the factory AT-command service 0x1337 on a unit still in its test-rig mode.\n",
+      "required": true,
+      "security_mode": "just_works",
+      "unpair": {
+        "notes": "The firmware can erase all bonds on a command from the main MCU, but no user-facing trigger was found. Forgetting the unit on a phone only clears the phone's side.\n",
+        "supported": "unknown"
+      }
+    },
+    "protocol": "ble",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [
+          "BLE bond held by the phone's Bluetooth stack"
+        ],
+        "notes": "No application-layer credential exists on the BLE link. The vendor account and cloud tokens the app also uses are for its cloud upload only and are not needed locally.\n",
+        "stored_on_device": [
+          "BLE bonds (LTKs) and a whitelist of bonded phones"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "Two things that are not a factory reset: the FILTER RESET button on the purifier base only restarts the filter counter (to 360 h per the module's logs), and the anticlockwise 3-second knob hold only puts the unit into idle. What drops the bond list, and whether a power cycle does anything to it, is the open question for anyone adopting a second-hand unit.\n",
+        "effect": "Not established. The BLE module erases every bond when the main MCU tells it to, and the main-MCU image carried inside the update package has a factory-reset routine of its own, but neither the manual nor the app names a user gesture that reaches them.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "advertised_name": "Blueair P2i",
+            "advertised_name_match": "prefix",
+            "pairing_required": true
+          },
+          "description": "Put the unit into pairing mode from the knob, bond with it, raise the MTU and subscribe. After the first bond the unit reconnects to the same phone without the gesture; a new phone needs the gesture again.\n",
+          "steps": [
+            {
+              "action": "Fit the filter and top cover (the unit will not start without the cover), plug the knob into a 12 V outlet and switch the ignition on.",
+              "actor": "user"
+            },
+            {
+              "action": "Flick the knob left or right once to turn the unit on.",
+              "actor": "user",
+              "expect": "A blue LED on the top cover; the fan starts at its last setting."
+            },
+            {
+              "action": "Turn the knob clockwise and keep it there for about 5 seconds.",
+              "actor": "user",
+              "expect": "The knob's lights run the pairing animation. Any phone already connected is dropped so a new one can pair."
+            },
+            {
+              "action": "Scan for a name starting with 'Blueair P2i' or 'Blueair ICP' (case-insensitive) and connect.",
+              "actor": "client",
+              "notes": "The app scans for 30 s and takes the first match.",
+              "timeout_seconds": 30
+            },
+            {
+              "action": "Bond (Android createBond, or let the host stack pair on first encrypted access) and wait for the bond to complete.",
+              "actor": "client",
+              "expect": "Bonded. A refused or failed bond usually means the unit was not in pairing mode."
+            },
+            {
+              "action": "Request a larger ATT MTU (the app asks for 517; at least 41 is needed for the 38-byte stored-record notifications), discover services, then run the top-level initialization sequence.",
+              "actor": "client",
+              "request": {
+                "protocol": "ble_gatt"
+              }
+            }
+          ],
+          "troubleshooting": [
+            {
+              "causes": [
+                "The unit has never been bonded and is not in pairing mode. The module's logs say it does not advertise at all with an empty bond list outside pairing mode.",
+                "The ignition-switched 12 V outlet is off, or the top cover is not seated."
+              ],
+              "symptom": "Scan finds nothing"
+            },
+            {
+              "causes": [
+                "Pairing mode was not active. Repeat the knob gesture and bond within its window (length not established).",
+                "The phone still holds an old bond that the unit has dropped. Forget the unit in the phone's Bluetooth settings and pair again."
+              ],
+              "symptom": "Connects, then bonding fails or the link drops"
+            },
+            {
+              "causes": [
+                "The MTU was not raised. At the default MTU of 23 a notification carries only 20 bytes."
+              ],
+              "symptom": "Notifications on 0x0015 or 0x0016 arrive cut short or not at all"
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision: the unit has no Wi-Fi and holds no network credentials. The one-time step is the Bluetooth bond, done from the knob's pairing gesture (device.pairing). The vendor app also registers the unit to a Blueair account and uploads its readings, but the unit does not need that to work. From the decompiled app and the vendor manual; never run here.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "No network membership. A new phone is added by repeating the knob pairing gesture; the unit keeps a bounded list of bonded phones and, per its logs, replaces an entry when the list is full.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "status": "untested"
+    },
+    "type": "car-air-purifier",
+    "variants": [
+      {
+        "model": "Cabin P2i",
+        "notes": "Single purifier unit."
+      },
+      {
+        "model": "Cabin P2iD (Duo)",
+        "notes": "Named in the vendor manual's performance table. Its BLE identity is not established. The protocol has room for it: the module logs a single / duo unit type (the 0x0004 characteristic, never read by the app) and the fault bitfield carries a separate byte for the second unit's cover and malfunction flags. That it advertises and behaves as described here is a hypothesis.\n"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "command_characteristic": "00000012-0000-1000-8000-00805f9b34fb",
+      "commands": {
+        "select_option": "set_fan_speed"
+      },
+      "icon": "mdi:fan",
+      "name": "Fan Speed",
+      "notes": "In auto mode the reported speed is the one the unit chose; picking a speed does not by itself leave auto mode (not established; the app switches mode separately). A reported 0 has no option here; the app shows it as low.\n",
+      "platform": "select",
+      "state_characteristic": "00000011-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "options": {
+          "1": "low",
+          "2": "medium",
+          "3": "high"
+        },
+        "value": "fan_speed"
+      }
+    },
+    {
+      "command_characteristic": "00000014-0000-1000-8000-00805f9b34fb",
+      "commands": {
+        "select_option": "set_fan_mode"
+      },
+      "name": "Fan Mode",
+      "notes": "Reported 0 (unknown) and 3 (max) have no option; the advanced set_fan_mode_max command writes 3.",
+      "platform": "select",
+      "state_characteristic": "00000013-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "options": {
+          "1": "manual",
+          "2": "auto"
+        },
+        "value": "fan_mode"
+      }
+    },
+    {
+      "device_class": "pm25",
+      "name": "PM2.5",
+      "notes": "Live, while 0x0017 is subscribed. Ignore frames whose sensor_status is not 0.",
+      "platform": "sensor",
+      "state_characteristic": "00000017-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "pm2_5"
+      },
+      "unit": "µg/m³"
+    },
+    {
+      "device_class": "pm1",
+      "name": "PM1",
+      "platform": "sensor",
+      "state_characteristic": "00000017-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "pm1"
+      },
+      "unit": "µg/m³"
+    },
+    {
+      "device_class": "pm10",
+      "name": "PM10",
+      "platform": "sensor",
+      "state_characteristic": "00000017-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "pm10"
+      },
+      "unit": "µg/m³"
+    },
+    {
+      "name": "Particles >0.3 µm",
+      "notes": "Raw count; per 0.1 L of air if the Plantower convention holds.",
+      "platform": "sensor",
+      "state_characteristic": "00000017-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "count_0_3um"
+      }
+    },
+    {
+      "device_class": "duration",
+      "name": "Filter Time Remaining",
+      "notes": "21600 min (360 h) after a filter reset. The vendor app shows filter life as value x 100 / 21600, truncated, 0 when value <= 0.",
+      "platform": "sensor",
+      "state_characteristic": "00000015-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "filter_remaining_minutes"
+      },
+      "unit": "min"
+    },
+    {
+      "icon": "mdi:air-filter",
+      "name": "Filter Life",
+      "notes": "The vendor app's own filter-life figure: remaining minutes x 100 / 21600, truncated; clamp negative values to 0.",
+      "platform": "sensor",
+      "state_characteristic": "00000015-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "filter_life_percent"
+      },
+      "unit": "%"
+    },
+    {
+      "device_class": "opening",
+      "name": "Filter Cover Open",
+      "platform": "binary_sensor",
+      "state_characteristic": "00000003-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "on_when": "nonzero",
+        "value": "main_filter_cover_open"
+      }
+    },
+    {
+      "device_class": "problem",
+      "name": "Particle Sensor Fault",
+      "platform": "binary_sensor",
+      "state_characteristic": "00000003-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "on_when": "nonzero",
+        "value": "main_sensor_not_responding"
+      }
+    },
+    {
+      "device_class": "problem",
+      "name": "Knob USB Overload",
+      "platform": "binary_sensor",
+      "state_characteristic": "00000003-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "on_when": "nonzero",
+        "value": "knob_usb_overload"
+      }
+    },
+    {
+      "device_class": "enum",
+      "icon": "mdi:state-machine",
+      "name": "Unit State",
+      "notes": "BLE-module firmware 1.2.11 and later only; absent on 1.2.3, so create it only when discovery finds 0x0005. From firmware static analysis; the vendor app never reads it.",
+      "platform": "sensor",
+      "state_characteristic": "00000005-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "states": {
+          "0": "unknown",
+          "1": "powered off",
+          "2": "starting up",
+          "3": "filter due",
+          "4": "normal",
+          "5": "going to standby",
+          "6": "standby",
+          "7": "pairing mode",
+          "8": "error",
+          "9": "firmware update"
+        },
+        "value": "unit_state"
+      }
+    }
+  ],
+  "evidence": {
+    "app_static_analysis": "The Blueair Android app's embedded Cabin SDK (written by Airboxlab): the characteristic table (16-bit shorts expanded onto the SIG base, plus the Nordic buttonless UUID), the device-name and update-mode-name tables, the scan, name-check, bond, MTU, discovery, update-progress and characteristic-setup sequence, and the parsers for stored records, run time counters, live sensor frames, fault flags and update progress. The app-level controller that maps the UI onto the SDK showed which values the app actually writes (speeds 1-3; modes manual and auto). App strings gave the pairing gesture and the update wording, paraphrased here.\n",
+    "artifacts": [
+      {
+        "artifact": "com.blueair.android (Blueair), v4.x, Play listing 4.11.0",
+        "description": "Established every UUID, byte layout and the connect sequence. The app never names a GATT service for the Cabin, reads nothing from 0x0004, and never writes 8ec90003-f315-4f60-9fb8-838830daea50 itself (the Nordic library does).\n",
+        "obtained_via": "third-party APK mirror (XAPK), 2026-09",
+        "type": "static_analysis"
+      },
+      {
+        "artifact": "Cabin P2i BLE-module Nordic DFU packages, application 1.2.3 and 1.2.11",
+        "description": "Structure, log strings and a disassembly of the BLE setup code; no bytes reproduced. Gave the advertised name, SoftDevice and signing, the pairing and whitelist behaviour, the GATT service layout, per-characteristic properties and security, and the advertising data.\n",
+        "obtained_via": "vendor's publicly readable firmware bucket, 2026-09",
+        "type": "firmware_image"
+      },
+      {
+        "artifact": "FCC ID 2ARIK-P2I, Blueair Tech (Shenzhen) Co., Ltd., filed 2018-11-06",
+        "description": "Listing only (equipment class DTS, 2402-2480 MHz); exhibits not retrieved. Ties the Cabin P2i to a Bluetooth LE radio grant.\n",
+        "type": "fcc_filing",
+        "url": "https://fccid.io/2ARIK-P2I"
+      },
+      {
+        "artifact": "Blueair Cabin P2i car air purifier user manual (EN/JA)",
+        "description": "Controls, LEDs, filter interval, update behaviour.",
+        "type": "vendor_documentation",
+        "url": "https://www.blueair.jp/wp-content/uploads/2019/05/501128_P2i.pdf"
+      }
+    ],
+    "documentation_review": "The vendor's Cabin P2i user manual: knob gestures, LED meanings, the 360-hour filter interval and filter reset button, update behaviour, and the P2iD row in the performance table.\n",
+    "firmware_static_analysis": "Two BLE-module DFU packages (application 1.2.3 and 1.2.11) from the vendor's public bucket. Their manifests (application only), init-packet structure (signed command, ECDSA P-256, hw_version 52, S132 v5.0.0, application version 0) and the application images' log strings: advertised name \"Blueair P2i\", pairing mode started from the main MCU and ended by a timeout, whitelist advertising and no advertising with an empty bond list, a bounded peer list with replacement, bond erase and factory-reset routines, the requested/reported fan logic, the 360 h filter reset, single/duo unit type, and the BLE -> main -> knob update cascade. A disassembly of the 1.2.11 application's BLE setup then gave the GATT table: four 16-bit primary services (0x0001, 0x0002, 0x0003, 0x1337) besides Device Information and the Nordic DFU service, each characteristic's properties, fixed length, user-description label and security level, plus the advertising data and the pairing parameters. The same image carries embedded Cortex-M images linked at 0x08000000, the main-MCU firmware of the update cascade. 1.2.3 carries the same characteristic labels except the unit-state one, which is new in 1.2.11.\n",
+    "open_questions": "Whether a real unit's GATT table and advertising match what the firmware sets up (one nRF Connect session would settle it); how long pairing mode lasts; how many bonds the unit keeps; what speed 0 and mode 3 do when written; the code values of the single/duo characteristic; whether stored records are removed once notified; whether any gesture clears the bond list; how the P2iD advertises.\n"
+  },
+  "features": [
+    {
+      "dfu": {
+        "dfu_mode": {
+          "address_offset": 1,
+          "local_name_prefix": "AirBoxLab",
+          "notes": "The app treats a scan result whose name starts with \"AirBoxLab\" or \"Dfu\" (case-insensitive) as a unit stuck in update mode and finds the owning unit by subtracting 1 from the address, which is the stack's no-bond-sharing +1 rule. \"AirBoxLab\" is presumably the bootloader's own name; \"Dfu\" is generic (a random \"Dfu...\" name is what the Nordic library can ask a bootloader to advertise), so it is left out of the matcher and should only be tied to this product in context (an update this client just started).\n"
+        },
+        "enter": {
+          "command": "enter_dfu_bootloader",
+          "how": "stack_characteristic",
+          "notes": "The app hands the unit's address and the package to the Nordic Android DFU library with keep-bond set; the library performs the buttonless entry on 8ec90003-f315-4f60-9fb8-838830daea50.\n"
+        },
+        "image": {
+          "algorithm": "ecdsa_p256",
+          "format": "nrfutil Secure DFU zip: manifest.json, one application .bin and a signed .dat init packet.",
+          "notes": "The cloud tells the app the package's path; the app downloads it over plain HTTP from firmware.foobot.io, a publicly readable Foobot (Airboxlab) bucket that also holds Blueair's other firmware, and hands it to the Nordic library. The two packages read for this spec are application-only, need SoftDevice S132 v5.0.0 (FWID 0x9d) and hw_version 52, carry an ECDSA P-256 signed init packet, and both declare application version 0, so the bootloader's version check cannot tell releases apart. Signed means a replacement client can deliver the vendor's packages but cannot build new ones. No image or init-packet bytes are reproduced here.\n",
+          "signing": "signed",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "nordic_secure_dfu"
+        ],
+        "notes": "From the app's update code and the DFU packages; nothing was flashed here. The BLE module's application image contains embedded Arm Cortex-M images with vector tables linked at 0x08000000 (the STM32 convention), which is how the main-MCU firmware travels inside the BLE package to be pushed on after the module boots; where the knob's image sits was not traced. The app's own copy says an update takes about 5 minutes.\n",
+        "recovery": {
+          "interrupted": "stays_in_bootloader",
+          "notes": "The app has a dedicated path for resuming an update on a unit found in update mode, which it would not need if an interrupted transfer fell back to the old image. Flash arithmetic agrees: a roughly 220 KB application on an nRF52832 beside S132 leaves no room for a second bank. Recovery therefore needs a Nordic DFU client and the vendor package. After the BLE module the unit keeps updating its main MCU and knob by itself (0x0060); the manual says not to turn the unit off until it restarts, and the knob shows green meanwhile.\n"
+        },
+        "services": [
+          "0000fe59-0000-1000-8000-00805f9b34fb"
+        ],
+        "transport": "ble",
+        "verification": "reported"
+      },
+      "type": "firmware_update"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor manual for the Cabin P2i, hosted by Blueair Japan (English and Japanese): knob gestures, LED codes, filter change and reset, updates.\n",
+      "kind": "manual",
+      "title": "Blueair Cabin P2i car air purifier user manual (PDF, EN/JA)",
+      "url": "https://www.blueair.jp/wp-content/uploads/2019/05/501128_P2i.pdf"
+    },
+    {
+      "description": "Aggregator copies of the Cabin P2i manual, including a later revision.\n",
+      "kind": "manual",
+      "title": "Blueair Cabin P2i user manuals (ManualsLib)",
+      "url": "https://www.manualslib.com/products/Blueair-Cabin-P2i-9273796.html"
+    },
+    {
+      "description": "Grant listing for the Cabin P2i car purifier (grantee Blueair Tech (Shenzhen) Co., Ltd., code 2ARIK; filed 2018-11-06, equipment class DTS, 2402-2480 MHz Bluetooth LE). Details from the listing as indexed by a web search; the site refuses scripted requests (HTTP 403), so the exhibits (test report, internal photos, manual) were not retrieved.\n",
+      "kind": "other",
+      "title": "FCC ID 2ARIK-P2I (fccid.io)",
+      "url": "https://fccid.io/2ARIK-P2I"
+    },
+    {
+      "description": "The DFU library the Blueair app embeds to update the BLE module; its buttonless-without-bond-sharing implementation is the entry path used.\n",
+      "kind": "implementation",
+      "title": "nordicsemi/Android-DFU-Library",
+      "url": "https://github.com/nordicsemi/Android-DFU-Library"
+    },
+    {
+      "description": "Reference for the nrfutil DFU package format (manifest, init packet, signing) the vendor packages follow; nrfutil can also deliver a package.\n",
+      "kind": "implementation",
+      "title": "NordicSemiconductor/pc-nrfutil",
+      "url": "https://github.com/NordicSemiconductor/pc-nrfutil"
+    },
+    {
+      "description": "Datasheet for a sibling Plantower sensor, describing the twelve data words (CF=1 and atmospheric PM figures, particle counts per 0.1 L) whose order the live frames follow. The exact sensor model in the Cabin P2i is not established.\n",
+      "kind": "standard",
+      "title": "Plantower PMS5003 data manual (PDF)",
+      "url": "https://www.aqmd.gov/docs/default-source/aq-spec/resources-page/plantower-pms5003-manual_v2-3.pdf"
+    }
+  ],
+  "initialization": [
+    {
+      "characteristic": "00000060-0000-1000-8000-00805f9b34fb",
+      "notes": "Before this step: bond (device.pairing), request a larger ATT MTU (the app asks for 517; the 38-byte stored-record notifications need at least 41) and run service discovery. Then this read, which is the first GATT operation the app makes: firmware-update progress, 9 bytes. The app ignores any value that is not exactly 9 bytes.\n",
+      "read": true
+    },
+    {
+      "characteristic": "00000060-0000-1000-8000-00805f9b34fb",
+      "notes": "While the update step (byte 0) is 2 to 5 the unit is still passing new firmware on to its main MCU or knob. The SDK can hold the rest of this sequence until the step reads 1 (not needed) or 6 (finished); the shipped app does not ask it to. Holding back is the safer choice.\n",
+      "subscribe": true
+    },
+    {
+      "characteristic": "00002a25-0000-1000-8000-00805f9b34fb",
+      "notes": "Serial number and BLE address as one UTF-8 string, 'serial;address'.",
+      "read": true
+    },
+    {
+      "characteristic": "00000001-0000-1000-8000-00805f9b34fb",
+      "notes": "Firmware versions of the BLE module, main MCU and knob, ';'-separated.",
+      "read": true
+    },
+    {
+      "characteristic": "00000003-0000-1000-8000-00805f9b34fb",
+      "read": true
+    },
+    {
+      "characteristic": "00000011-0000-1000-8000-00805f9b34fb",
+      "read": true
+    },
+    {
+      "characteristic": "00000013-0000-1000-8000-00805f9b34fb",
+      "read": true
+    },
+    {
+      "characteristic": "00000015-0000-1000-8000-00805f9b34fb",
+      "read": true
+    },
+    {
+      "characteristic": "00000002-0000-1000-8000-00805f9b34fb",
+      "description": "Set the unit's clock: send the set_clock command, i.e. write the current Unix time in seconds as a uint32 little-endian. The bytes change every time, so this step cannot be stated as data and a client runs it by hand. The unit stamps its stored records with this clock.\n"
+    },
+    {
+      "characteristic": "00000003-0000-1000-8000-00805f9b34fb",
+      "subscribe": true
+    },
+    {
+      "characteristic": "00000011-0000-1000-8000-00805f9b34fb",
+      "subscribe": true
+    },
+    {
+      "characteristic": "00000013-0000-1000-8000-00805f9b34fb",
+      "subscribe": true
+    },
+    {
+      "characteristic": "00000015-0000-1000-8000-00805f9b34fb",
+      "subscribe": true
+    },
+    {
+      "characteristic": "00000017-0000-1000-8000-00805f9b34fb",
+      "notes": "Live particle-sensor frames. The module's logs suggest it only streams while this subscription is open.",
+      "subscribe": true
+    },
+    {
+      "characteristic": "00000016-0000-1000-8000-00805f9b34fb",
+      "notes": "Optional. Stored records arrive as a burst of 38-byte notifications. The app subscribes only after reading the device information, and only when a user is signed in, because it forwards the records to the cloud. Whether records the phone has seen are deleted from the unit is not established.\n",
+      "subscribe": true
+    }
+  ],
+  "protocol_details": {
+    "advertising": {
+      "ad_flags": 6,
+      "ad_flags_meaning": "LE General Discoverable Mode, BR/EDR not supported",
+      "appearance_included": true,
+      "complete_16bit_service_uuids": {
+        "factory_test_rig_mode": [
+          "00000001-0000-1000-8000-00805f9b34fb",
+          "00001337-0000-1000-8000-00805f9b34fb"
+        ],
+        "normal": [
+          "00000002-0000-1000-8000-00805f9b34fb",
+          "00000001-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      "description": "The 1.2.11 firmware's advertising data, read from its setup code (not captured on air). Advertising is fast, then slow, and filtered to the whitelist of bonded phones whenever the unit has bonds and is not in pairing mode; with no bonds and no pairing mode it does not advertise.\n",
+      "local_name": "Blueair P2i",
+      "notes": "Not used as a matcher in device.identification: static analysis only, and 16-bit values this generic are a weak needle. The appearance value itself and the advertising intervals and timeouts were not traced.\n",
+      "verification": "reported"
+    },
+    "app_defects": [
+      "The fault-flag parser accepts a 3-byte value and then reads a fourth byte, which throws.",
+      "The live-frame parser has no length check; a short frame throws and ends the stream until reconnect.",
+      "The live-frame status table includes -200 (sensor not initialised), which the signed byte it reads cannot represent.",
+      "Pairing takes the first matching advertiser within its 30 s scan, not the strongest; with two units in pairing mode it can bond the wrong one.",
+      "Stored records are drained only while a user is signed in (they go to the cloud); a local-only phone never collects them.",
+      "Resuming an interrupted update looks the unit up in the cloud account's device list, so without the cloud a stuck unit needs a generic Nordic DFU tool and the package."
+    ],
+    "architecture": {
+      "description": "The phone only ever talks to the nRF52 BLE module. The module talks to the purifier's main MCU over an internal serial link with an AT-style command set (fan speed and mode, PM averages, filter-usage reset, clock, pairing start/stop, update steps), and the main MCU talks to the knob. That is why fan changes can originate from BLE, the knob or the main MCU, and why the fault field has separate bytes per board. The AT command set is internal and is not needed by a BLE client; the factory service 0x1337 exposes it over BLE (see that service's notes).\n"
+    },
+    "gatt_security": {
+      "cccd_permission": "read open; write needs security mode 1 level 2",
+      "description": "How the module registers its custom characteristics, read from its firmware (reported). Values the app reads or subscribes to are useless without the bond this implies.\n",
+      "exception": "service 0x1337 is registered with open permissions while the unit is in its factory test-rig mode",
+      "pairing_parameters": {
+        "bond": true,
+        "io_capabilities": "none",
+        "keys_distributed": "encryption and identity keys, both directions",
+        "le_secure_connections": false,
+        "max_key_size": 16,
+        "min_key_size": 7,
+        "mitm_flag": true,
+        "oob_flag": true,
+        "resulting_method": "LE legacy Just Works (the MITM and OOB flags cannot be met without OOB data on the phone)"
+      },
+      "user_description": "every custom characteristic has a Characteristic User Description descriptor carrying a short English label",
+      "value_length": "fixed (the stack's variable-length flag is off); the declared length is each characteristic's size",
+      "value_permission": "security mode 1 level 2 (encryption, no MITM) for read and write on every custom characteristic",
+      "verification": "reported"
+    },
+    "knob_gestures": {
+      "description": "From the vendor manual and app; none is visible over BLE except through its effects.",
+      "gestures": [
+        {
+          "effect": "turn the unit on; the fan resumes its last setting",
+          "gesture": "flick left or right once"
+        },
+        {
+          "effect": "cycle low -> medium -> high -> auto -> low; 1, 2, 3 or 6 white LEDs blink three times to confirm",
+          "gesture": "flick right repeatedly"
+        },
+        {
+          "effect": "idle (lights off)",
+          "gesture": "turn anticlockwise and hold 3 s"
+        },
+        {
+          "effect": "Bluetooth pairing mode (lights animate)",
+          "gesture": "turn clockwise and hold about 5 s"
+        }
+      ],
+      "notes": "The knob's colour shows PM2.5 in six bands; the manual gives no numbers for them."
+    },
+    "write_then_report": {
+      "description": "Fan speed and fan mode each have a requested characteristic (0x0012, 0x0014) and a reported one (0x0011, 0x0013). The module's log strings describe setting the requested value and then fetching both the current and the requested value, for speed and mode alike, so a write is forwarded to the main MCU and the reported value follows as a notification. A client should render only the reported value.\n"
+    }
+  },
+  "remaining_unknowns": [
+    "The service layout (0x0001, 0x0002, 0x0003, 0x1337), security levels and advertising data come from firmware static analysis and have not been seen on air.",
+    "Whether the pairing exchange really lands on Just Works on every phone (the firmware sets the MITM and OOB flags as well as no I/O capabilities), and the length of the pairing-mode window.",
+    "Maximum number of stored bonds, and any user gesture or power sequence that clears them.",
+    "The appearance value, advertising intervals and timeouts, and the address type; whether any manufacturer data is sent (none was seen in the setup code).",
+    "Effect of writing fan speed 0 or fan mode 3; whether writing a speed in auto mode also switches to manual.",
+    "The code values of 0x0004 (single/duo unit type).",
+    "Whether stored records on 0x0016 are deleted after notification, how many the unit holds, and what triggers the dump.",
+    "Whether byte 1 of the 0x0017 frame is the high byte of a 16-bit sensor status.",
+    "Which PM set is Plantower CF=1 and which is atmospheric, and the unit of the particle counts.",
+    "Whether filter_remaining_minutes goes negative when the filter is overdue, and whether there is a BLE command to reset it.",
+    "What a write of the wrong length does to the fixed-length characteristics (rejected by the stack, or truncated).",
+    "The bootloader's own advertised name and timeout, and whether it is single-bank as the flash arithmetic suggests.",
+    "How a Cabin P2iD (Duo) advertises and whether anything else differs.",
+    "Nothing here has been run against hardware; no over-the-air capture exists."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "name": "Firmware versions",
+          "notes": "UTF-8 text, fields separated by ';': [0] BLE-module firmware, [1] main-MCU firmware, [2] knob firmware. The module formats it with a trailing ';' inside an 84-byte fixed-length value, so expect padding after the last ';' (its fill byte was not established). The app uses field [0] as the firmware revision, overriding what 0x2a26 says.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00000001-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "commands": {
+            "set_clock": {
+              "description": "Set the unit's clock to the given Unix time (seconds since 1970-01-01 UTC).",
+              "parameters": {
+                "unix_time": {
+                  "description": "Current Unix time in seconds, little-endian. The app sends the phone's clock truncated to whole seconds.",
+                  "endianness": "little",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32",
+                  "unit": "s"
+                }
+              },
+              "template": [
+                "{unix_time}"
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "Clock (Unix time)",
+          "notes": "4 bytes, uint32 little-endian Unix seconds. The app writes the phone's time here once per connection and never reads it; the module's GATT table also makes it readable. The unit passes the time to the main MCU and stamps stored records with it. Fixed-length: write exactly 4 bytes.\n",
+          "properties": [
+            "read",
+            "write"
+          ],
+          "uuid": "00000002-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "mask": 1,
+              "name": "main_filter_cover_open",
+              "notes": "Top cover off or filter not seated; the unit will not run.",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 2,
+              "name": "main_button_fault",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 4,
+              "name": "main_battery_fault",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 8,
+              "name": "main_sensor_not_responding",
+              "notes": "Particle sensor silent.",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 16,
+              "name": "main_sensor_out_of_range",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 32,
+              "name": "main_malfunction",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 1,
+              "name": "knob_not_responding",
+              "notes": "Knob unplugged from the unit, or its cable damaged.",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 2,
+              "name": "knob_led_driver_fault",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 4,
+              "name": "knob_buttons_fault",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 8,
+              "name": "knob_malfunction",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 16,
+              "name": "knob_usb_overload",
+              "notes": "Too much drawn from the knob's USB port; the manual says the system shuts down until the load is removed.",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 1,
+              "name": "ble_main_not_responding",
+              "notes": "The BLE module has lost contact with the main MCU.",
+              "offset": 2,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 1,
+              "name": "duo_filter_cover_open",
+              "notes": "Second unit of a Duo installation.",
+              "offset": 3,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 2,
+              "name": "duo_malfunction",
+              "offset": 3,
+              "type": "uint8"
+            }
+          ],
+          "name": "Fault flags",
+          "notes": "4 bytes: byte 0 purifier (main MCU) faults, byte 1 knob faults, byte 2 BLE-module faults, byte 3 second-unit (Duo) faults. All zero means no fault. The app rejects values shorter than 3 bytes but then reads byte 3 anyway, so a 3-byte value would crash its parser: expect exactly 4. The same bitfield is carried little-endian in bytes 8-11 of every stored record (0x0016). Bits not listed here have no meaning in the app.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "00000003-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Unit type (single / duo)",
+          "notes": "1 byte, fixed length. Present in the app's characteristic table and never accessed by it; the properties and length come from the module's GATT table. The firmware package distinguishes a single unit, a Duo pair and an unknown type, and this is where that is most likely exposed; the code values were not recovered.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "00000004-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "device_class": "enum",
+              "length": 1,
+              "name": "unit_state",
+              "offset": 0,
+              "type": "uint8",
+              "values": {
+                "0": "unknown",
+                "1": "powered off",
+                "2": "starting up",
+                "3": "filter due",
+                "4": "normal",
+                "5": "going to standby",
+                "6": "standby",
+                "7": "pairing mode",
+                "8": "error",
+                "9": "firmware update"
+              }
+            }
+          ],
+          "name": "Unit state",
+          "notes": "1 byte, firmware 1.2.11 and later only (1.2.3 has no such characteristic). Not in the app's characteristic table, so no app uses it; from the module's firmware only. The value is the main MCU's operating state, which the module keeps, logs by name and notifies when it changes; the names below are paraphrases of the firmware's own state-name table, indexed 0 to 9, and the module refuses to log anything above 9. Verification: reported (firmware static analysis), never read from a unit.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "00000005-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Cabin identity, clock and status service",
+      "notes": "16-bit service 0x0001 on the SIG base, like every custom UUID here: the shorts are not SIG-assigned (in Classic, 0x0001-0x0003 are the SDP, UDP and RFCOMM protocol UUIDs, which is a coincidence), so write them exactly as expanded. Read from the BLE module's firmware, where each of the services below is registered as a primary service with a 16-bit UUID, and not from a GATT dump. The module lists this service in its advertising data (protocol_details.advertising). Every characteristic in it carries a Characteristic User Description with a short English label, and every value and CCCD requires an encrypted link (security mode 1 level 2; see device.pairing). Values are declared fixed-length in the module's table, so write exactly the length given.\n",
+      "uuid": "00000001-0000-1000-8000-00805f9b34fb",
+      "verification": "reported"
+    },
+    {
+      "characteristics": [
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "fan_speed",
+              "offset": 0,
+              "type": "uint8",
+              "values": {
+                "0": "speed 0 (meaning not established)",
+                "1": "low",
+                "2": "medium",
+                "3": "high"
+              }
+            }
+          ],
+          "name": "Fan speed (reported)",
+          "notes": "1 byte, the speed the unit is actually running, including the speed auto mode has chosen. The app ignores any value that is not exactly one byte or not 0 to 3, and displays 0 as low.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "00000011-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "commands": {
+            "set_fan_speed": {
+              "description": "Set the manual fan speed. Read the applied speed back from 0x0011.",
+              "parameters": {
+                "speed": {
+                  "description": "Fan speed step. The knob offers the same three.",
+                  "labels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "max": 3,
+                  "min": 1,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                "{speed}"
+              ],
+              "verification": "reported"
+            },
+            "set_fan_speed_zero": {
+              "advanced": true,
+              "advanced_reason": "The vendor app never writes 0 and nobody has observed what the unit does with it: it may stop the fan, be clamped to low, or be ignored. A fan is low-risk, but this is untested. If the unit misbehaves, write a speed of 1 to 3 or flick the knob.\n",
+              "description": "Write speed 0, which the enum defines and the app never sends.",
+              "value": [
+                0
+              ],
+              "verification": "hypothesis"
+            }
+          },
+          "name": "Fan speed (requested)",
+          "notes": "1-byte write (fixed length: exactly one byte). The unit applies it and reports the result on 0x0011. The app only ever writes 1, 2 or 3; a request for 0 from its UI is sent as 1.\n",
+          "properties": [
+            "write"
+          ],
+          "uuid": "00000012-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "fan_mode",
+              "offset": 0,
+              "type": "uint8",
+              "values": {
+                "0": "unknown",
+                "1": "manual",
+                "2": "auto",
+                "3": "max"
+              }
+            }
+          ],
+          "name": "Fan mode (reported)",
+          "notes": "1 byte. The app ignores any value that is not exactly one byte or not 0 to 3.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "00000013-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "commands": {
+            "set_fan_mode": {
+              "description": "Switch between manual (the speed on 0x0012 applies) and auto (the unit picks the speed from its particle sensor).",
+              "parameters": {
+                "mode": {
+                  "description": "Fan mode code, as reported on 0x0013.",
+                  "labels": [
+                    "manual",
+                    "auto"
+                  ],
+                  "max": 2,
+                  "min": 1,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                "{mode}"
+              ],
+              "verification": "reported"
+            },
+            "set_fan_mode_max": {
+              "advanced": true,
+              "advanced_reason": "The vendor app never writes mode 3 and the knob has no max position, so what the unit does with it is unobserved. Low risk for a fan, but untested. Write mode 1 or 2, or flick the knob, to get back to a known state.\n",
+              "description": "Write mode 3 (max), which the enum defines and the app never sends.",
+              "value": [
+                3
+              ],
+              "verification": "hypothesis"
+            }
+          },
+          "name": "Fan mode (requested)",
+          "notes": "1-byte write (fixed length: exactly one byte); the result appears on 0x0013. The app's UI offers only manual and auto and refuses to send anything else.\n",
+          "properties": [
+            "write"
+          ],
+          "uuid": "00000014-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "fan_speed0_minutes",
+              "notes": "Minutes run at speed index 0 (hypothesis from the field name).",
+              "offset": 0,
+              "type": "uint32",
+              "unit": "min"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "fan_speed1_minutes",
+              "notes": "Minutes at low.",
+              "offset": 4,
+              "type": "uint32",
+              "unit": "min"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "fan_speed2_minutes",
+              "notes": "Minutes at medium.",
+              "offset": 8,
+              "type": "uint32",
+              "unit": "min"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "fan_speed3_minutes",
+              "notes": "Minutes at high.",
+              "offset": 12,
+              "type": "uint32",
+              "unit": "min"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "fan_on_minutes",
+              "notes": "Total minutes the fan has run.",
+              "offset": 16,
+              "type": "uint32",
+              "unit": "min"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "live_minutes",
+              "notes": "Total minutes powered (hypothesis).",
+              "offset": 20,
+              "type": "uint32",
+              "unit": "min"
+            },
+            {
+              "device_class": "duration",
+              "endianness": "little",
+              "length": 4,
+              "name": "filter_remaining_minutes",
+              "notes": "Filter time left, 21600 (360 h) after a filter reset. Declared signed because the app reads it as a signed 32-bit integer and clamps anything at or below 0 to 0 % filter life; whether the unit actually lets it go negative once the filter is overdue is not established.\n",
+              "offset": 24,
+              "type": "int32",
+              "unit": "min"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "filter_life_percent",
+              "notes": "The same four bytes as filter_remaining_minutes, scaled the way the vendor app shows them: minutes x 100 / 21600 (21600 = 360 h, a fresh filter). The app truncates to a whole percent and shows 0 for any value at or below 0; a linear scale cannot say that, so clamp at 0 when decoding.\n",
+              "offset": 24,
+              "scale": 0.004629629629629629,
+              "type": "int32",
+              "unit": "%"
+            }
+          ],
+          "name": "Fan and filter run-time counters",
+          "notes": "28 bytes, seven 32-bit little-endian minute counters. The app only uses the last one (filter time remaining): it shows it as filter life and also pushes it to the cloud as an attribute. It ignores a value that is not exactly 28 bytes and decodes every counter into a signed 32-bit integer. Per the manual a filter lasts about 360 hours of running (6 months at 2.5 h/day), and the module's logs say the FILTER RESET button sets the remaining time to 360 h, so filter_remaining_minutes counts down from 21600. The app turns it into a percentage itself: remaining x 100 / 21600, truncated to an integer, and 0 when remaining is 0 or less. The counters' exact meanings beyond the app's field names are hypotheses.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "00000015-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "timestamp",
+              "notes": "Unix time from the unit's clock.",
+              "offset": 0,
+              "type": "uint32",
+              "unit": "s"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "datastore_number",
+              "notes": "Record number in the unit's store (hypothesis: a running sequence number).",
+              "offset": 4,
+              "type": "uint32"
+            },
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "fault_flags",
+              "notes": "The 0x0003 bitfield: byte 8 purifier, byte 9 knob, byte 10 BLE module, byte 11 second unit.",
+              "offset": 8,
+              "type": "uint32"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm1",
+              "offset": 12,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm2_5",
+              "offset": 14,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm10",
+              "offset": 16,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm1_alt",
+              "notes": "Second PM1 figure; see the 0x0017 notes for the likely meaning of the two sets.",
+              "offset": 18,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm2_5_alt",
+              "offset": 20,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm10_alt",
+              "offset": 22,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_0_3um",
+              "notes": "Particles above 0.3 µm; per 0.1 L of air if the Plantower convention holds (hypothesis).",
+              "offset": 24,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_0_5um",
+              "offset": 26,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_1um",
+              "offset": 28,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_2_5um",
+              "offset": 30,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_5um",
+              "offset": 32,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_10um",
+              "offset": 34,
+              "type": "uint16"
+            },
+            {
+              "length": 1,
+              "name": "fan_speed",
+              "notes": "Same codes as 0x0011; the app reads it as a signed byte.",
+              "offset": 36,
+              "type": "int8"
+            },
+            {
+              "length": 1,
+              "name": "fan_mode",
+              "notes": "Same codes as 0x0013.",
+              "offset": 37,
+              "type": "int8"
+            }
+          ],
+          "name": "Stored air-quality records",
+          "notes": "38-byte records, all fields little-endian. The app never reads this characteristic; it enables notifications and receives a burst of records, which it batches (up to 10 records or 10 s) and uploads. Records are stamped with the unit's clock (set via 0x0002) and numbered by the unit's data store. Any value not exactly 38 bytes is dropped by the app. Needs an MTU of at least 41.\n",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "00000016-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "sensor_status",
+              "notes": "Any other value is \"unknown\" to the app. Its table also has -200 (sensor not initialised), which no signed byte can hold. Byte 1 may be the high byte of a 16-bit status (it would be 0xff for every negative code); not established.\n",
+              "offset": 0,
+              "type": "int8",
+              "values": {
+                "-100": "crc_error",
+                "-102": "timeout",
+                "0": "ok"
+              }
+            },
+            {
+              "length": 1,
+              "name": "reserved",
+              "notes": "Not read by the app.",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "device_class": "pm1",
+              "endianness": "little",
+              "length": 2,
+              "name": "pm1",
+              "offset": 2,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "device_class": "pm25",
+              "endianness": "little",
+              "length": 2,
+              "name": "pm2_5",
+              "offset": 4,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "device_class": "pm10",
+              "endianness": "little",
+              "length": 2,
+              "name": "pm10",
+              "offset": 6,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm1_alt",
+              "offset": 8,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm2_5_alt",
+              "offset": 10,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "pm10_alt",
+              "offset": 12,
+              "type": "uint16",
+              "unit": "µg/m³"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_0_3um",
+              "offset": 14,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_0_5um",
+              "offset": 16,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_1um",
+              "offset": 18,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_2_5um",
+              "offset": 20,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_5um",
+              "offset": 22,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "count_10um",
+              "offset": 24,
+              "type": "uint16"
+            }
+          ],
+          "name": "Live particle-sensor frames",
+          "notes": "26-byte frames while subscribed, all multi-byte fields little-endian. Byte 0 is the sensor status as a signed byte; byte 1 is not read by the app. Then twelve uint16 values in the same order as the stored record's PM and count fields, which is also the order of the twelve data words in a Plantower PMS frame (the module's log strings name Plantower sensor errors). If the Plantower convention holds, the first PM set is the \"CF=1 standard particle\" figure and the second the \"atmospheric environment\" figure, and the counts are per 0.1 L of air; that mapping is a hypothesis. The app shows the first set (PM1, PM2.5, PM10) stamped with the phone's clock. The app has no length check: a shorter frame makes its parser throw and ends the subscription until the next connection.\n",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "00000017-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Cabin fan and air-quality service",
+      "notes": "16-bit service 0x0002 on the SIG base, from the module's firmware. Holds fan speed and mode (reported and requested), the run-time counters, the stored records and the live sensor frames. Listed in the advertising data in normal operation. Same rules as service 0x0001: user-description labels on every characteristic, encryption required (security mode 1 level 2) for every value and CCCD, fixed-length values.\n",
+      "uuid": "00000002-0000-1000-8000-00805f9b34fb",
+      "verification": "reported"
+    },
+    {
+      "characteristics": [
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "update_step",
+              "notes": "The app maps any other value to not started.",
+              "offset": 0,
+              "type": "int8",
+              "values": {
+                "0": "not started",
+                "1": "not needed",
+                "2": "BLE module updating",
+                "3": "main MCU updating",
+                "4": "copying knob image to main MCU",
+                "5": "knob updating",
+                "6": "finished",
+                "7": "step max (enum bound)"
+              }
+            },
+            {
+              "length": 1,
+              "name": "ble_module_status",
+              "notes": "Same status codes in bytes 3, 5 and 7; any other value reads as unknown.",
+              "offset": 1,
+              "type": "int8",
+              "values": {
+                "0": "unknown",
+                "1": "not needed",
+                "2": "in progress",
+                "3": "finished",
+                "4": "status max (enum bound)"
+              }
+            },
+            {
+              "length": 1,
+              "name": "ble_module_percent",
+              "offset": 2,
+              "type": "int8",
+              "unit": "%"
+            },
+            {
+              "length": 1,
+              "name": "main_mcu_status",
+              "offset": 3,
+              "type": "int8",
+              "values": {
+                "0": "unknown",
+                "1": "not needed",
+                "2": "in progress",
+                "3": "finished",
+                "4": "status max (enum bound)"
+              }
+            },
+            {
+              "length": 1,
+              "name": "main_mcu_percent",
+              "offset": 4,
+              "type": "int8",
+              "unit": "%"
+            },
+            {
+              "length": 1,
+              "name": "knob_copy_status",
+              "offset": 5,
+              "type": "int8",
+              "values": {
+                "0": "unknown",
+                "1": "not needed",
+                "2": "in progress",
+                "3": "finished",
+                "4": "status max (enum bound)"
+              }
+            },
+            {
+              "length": 1,
+              "name": "knob_copy_percent",
+              "offset": 6,
+              "type": "int8",
+              "unit": "%"
+            },
+            {
+              "length": 1,
+              "name": "knob_status",
+              "offset": 7,
+              "type": "int8",
+              "values": {
+                "0": "unknown",
+                "1": "not needed",
+                "2": "in progress",
+                "3": "finished",
+                "4": "status max (enum bound)"
+              }
+            },
+            {
+              "length": 1,
+              "name": "knob_percent",
+              "offset": 8,
+              "type": "int8",
+              "unit": "%"
+            }
+          ],
+          "name": "Firmware-update progress",
+          "notes": "9 bytes: an overall step, then a status and a percentage for each of the four stages of the update cascade (BLE module, main MCU, copying the knob's image to the main MCU, knob). The app ignores values that are not exactly 9 bytes and treats the unit as settled when the step is 1 or 6, or the knob stage reads finished.\n",
+          "properties": [
+            "read",
+            "notify"
+          ],
+          "uuid": "00000060-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Cabin update-progress service",
+      "notes": "16-bit service 0x0003 on the SIG base, from the module's firmware. Holds only the update-progress characteristic. Never listed in the advertising data. Encryption required, as for the other custom services.\n",
+      "uuid": "00000003-0000-1000-8000-00805f9b34fb",
+      "verification": "reported"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "AT command (write)",
+          "notes": "128-byte fixed-length value; the module copies each write into a buffer and a task picks it up. Command syntax and the reply framing were not traced. Do not write to it.\n",
+          "properties": [
+            "write"
+          ],
+          "uuid": "00000040-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "AT command response",
+          "notes": "128-byte fixed-length value; the replies to 0x0040.",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "00000041-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Factory AT-command channel",
+      "notes": "16-bit service 0x1337 on the SIG base, from the module's firmware; the app does not know it exists. It carries a text channel into an AT-style command interpreter and exists for the factory test rig. At boot the module picks a test-rig mode when its stored settings are uninitialised or its stored device ID is all zeros (its log says as much for the second case); in that mode it lists 0x1337 in its advertising data in place of 0x0002 and registers this service without the encryption requirement. On a unit that has left the factory the service is still there but needs an encrypted link like the others. The module's AT vocabulary, which it also uses on its serial link to the main MCU, covers fan control, the filter-usage counters, the clock, bond deletion and the update steps of the main MCU and knob; which of those this characteristic accepts was not traced. Several can wipe state or leave a board without firmware, and none has been tried, so this spec declares no commands here and a client should leave the service alone. Listed so a GATT explorer's output is not a mystery, and so nobody mistakes it for the control surface.\n",
+      "uuid": "00001337-0000-1000-8000-00805f9b34fb",
+      "verification": "reported"
+    },
+    {
+      "characteristics": [
+        {
+          "name": "Serial number and BLE address",
+          "notes": "UTF-8 '<serial>;<address>': the app splits on ';' and takes the serial from the first field and the unit's BLE address from the second. Exact address formatting not established.\n",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00002a25-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Firmware revision",
+          "notes": "UTF-8. The app replaces it with field [0] of 0x0001.",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00002a26-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Hardware revision",
+          "notes": "UTF-8.",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00002a27-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Manufacturer name",
+          "notes": "UTF-8.",
+          "properties": [
+            "read"
+          ],
+          "uuid": "00002a29-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Device Information",
+      "notes": "The four characteristics below are SIG Device Information characteristics. The app reads them by characteristic UUID and never names the service; the module's firmware registers the SIG Device Information service 0x180a (static analysis), which is where they sit. Whether it exposes further Device Information characteristics was not traced.\n",
+      "uuid": "0000180a-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "enter_dfu_bootloader": {
+              "advanced": true,
+              "advanced_reason": "The unit stops purifying and waits in its bootloader for a signed Blueair image; only a Nordic DFU client holding the vendor's package can bring it back before the bootloader's timeout. Do not send it unless you are about to run a full update.\n",
+              "description": "Reboot the BLE module into its Nordic Secure DFU bootloader. Indications on this characteristic must be enabled first.\n",
+              "value": [
+                1
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "Buttonless DFU (no bond sharing)",
+          "notes": "Stack default behaviour (docs/protocols/firmware-update.md): enable indications, write 0x01, the unit answers 20 01 01 and resets into its bootloader at its address +1. Opcode 0x02 sets the name the bootloader will advertise. Properties are the stack's, not observed.\n",
+          "properties": [
+            "write",
+            "indicate"
+          ],
+          "uuid": "8ec90003-f315-4f60-9fb8-838830daea50"
+        }
+      ],
+      "name": "Nordic Secure DFU (buttonless entry)",
+      "notes": "The firmware-update path; a GATT explorer keeps it read-only. The app lists the buttonless-without-bond-sharing characteristic in its table but never writes it itself: the Nordic DFU library it embeds does. The module's firmware registers service 0xfe59 and adds the buttonless characteristic under Nordic's vendor base, as the nRF5 SDK's buttonless-DFU module does (static analysis).\n",
+      "uuid": "0000fe59-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

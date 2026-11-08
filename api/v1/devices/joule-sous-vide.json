@@ -1,0 +1,2760 @@
+{
+  "device": {
+    "category": "appliance",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "notes": "The circulator address carried after the flags byte is what both apps and the vendor account use as the device's identity, so it is the preferred key. Whether the BLE address itself is public is not recorded. The user-facing name is the one identify_circulator returns (rename sets it), not an advertised local name.",
+        "stable_keys": [
+          "manufacturer_data",
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "service_uuids": [
+              "700b4321-9836-4383-a2b2-31a9098d1473"
+            ]
+          },
+          "notes": "The ChefSteps app scans with this service UUID as its filter.",
+          "type": "ble_scan"
+        },
+        {
+          "ble": {
+            "manufacturer_data": {
+              "company_id": 345,
+              "description": "Company ID 0x0159; payload byte 0 = flags/version, bytes 1.. = circulator address."
+            }
+          },
+          "notes": "Breville+ identifies a legacy Joule by this company ID alone.",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "host_compatibility": [
+      {
+        "basis": "Both vendor apps are Android (and iOS) clients of this exact GATT layout: the ChefSteps app through a Cordova BLE plugin, Breville+ through its own native layer.",
+        "notes": "Breville+ requests MTU 512 on Android 13 and older and forces MTU 23 on Android 14 and newer for this model; nothing records why.",
+        "stack": "android",
+        "status": "compatible",
+        "verification": "reported"
+      },
+      {
+        "basis": "The ChefSteps app shipped on iOS; its SDK's simulator fixtures are written in CoreBluetooth advertisement terms and its advert parser expects the company-ID bytes CoreBluetooth includes in manufacturer data.",
+        "stack": "corebluetooth",
+        "status": "compatible",
+        "verification": "reported"
+      },
+      {
+        "basis": "No Linux client is known. Nothing in the layout looks hostile to bluetoothd: one vendor service, a notify doorbell and plain reads and writes, relying on the host's ATT long read and long write.",
+        "stack": "bluez",
+        "status": "unknown",
+        "verification": "hypothesis"
+      },
+      {
+        "basis": "JouleUWP targeted Windows but never decoded the BLE traffic, so it proves nothing about the GATT path.",
+        "stack": "windows",
+        "status": "unknown",
+        "verification": "hypothesis"
+      }
+    ],
+    "identification": {
+      "manufacturer_data": {
+        "company_id": 345,
+        "company_id_hex": "0x0159",
+        "description": "Both vendor apps key on company ID 0x0159 (345). Payload after the two company-ID bytes: byte 0 = flags and version (bit 7 set means another phone is already connected, bits 0-6 an advertisement format version), bytes 1.. = the circulator's messaging address (8 bytes in the SDK's own simulated adverts). On CoreBluetooth the app sees the company-ID bytes too, so its offsets are 2 higher; on Android they are stripped."
+      },
+      "notes": "Match the service UUID or company ID 0x0159; both apps check both. Local names are not used for matching (the SDK's simulator uses placeholder names), so none is claimed here. The circulator address in the manufacturer data is per unit: never publish a real one. Since firmware 85.39 a Joule already connected to one phone stops appearing as connectable to others (firmware release notes).",
+      "service_uuids": [
+        "700b4321-9836-4383-a2b2-31a9098d1473"
+      ]
+    },
+    "manufacturer": "Breville (formerly ChefSteps)",
+    "manufacturer_status": "active",
+    "name": "ChefSteps Joule Sous Vide (original: CS10001 stainless, CS20001 white)",
+    "notes": "The ChefSteps Joule (2016; Breville bought ChefSteps in 2019) is an\n1100 W immersion circulator with no manual controls: an app is the only\nway to set a temperature. It has Bluetooth LE and 2.4 GHz Wi-Fi. Breville\nshut the ChefSteps Joule app off in March 2026 and moved owners to the\naccount-gated Breville+ Cooking app (Sage+ in Europe), which drives the\nsame hardware with the same protocol. Breville+ needs Joule firmware 175\nor 123.1 for Bluetooth-only use (ChefSteps help centre).\n\nLOCAL SURFACE. BLE is the only local control path. Wi-Fi is provisioned\nover BLE and then used only for an outbound connection to the vendor\ncloud, which carries the same protobuf messages; JouleUWP found no open\nports. So there is no LAN spec to write, and the cloud path is recorded\nin protocol_details.cloud_path as non-local.\n\nGATT (all on the vendor base 700b432x-9836-4383-a2b2-31a9098d1473).\nService 700b4321-9836-4383-a2b2-31a9098d1473. Characteristics:\n  - 700b4322-9836-4383-a2b2-31a9098d1473 write (with response): requests.\n  - 700b4323-9836-4383-a2b2-31a9098d1473 read: one device message per read.\n  - 700b4325-9836-4383-a2b2-31a9098d1473 notify: a doorbell. Its value is\n    ignored; each notification means \"read 700b4323 now\".\n  - 700b4326-9836-4383-a2b2-31a9098d1473 write without response: the\n    block-transfer channel for firmware, logs and certificates.\nNo 700b4324-9836-4383-a2b2-31a9098d1473 is referenced by either app.\n\nFRAMING. Every write to 700b4322 is exactly one protobuf-encoded envelope\n(the vendor calls it StreamMessage), with no length prefix, header,\nchecksum or chunking layer of its own. Every read of 700b4323 returns\nexactly one envelope. A message longer than one ATT payload travels as an\nATT long write (prepared writes, which write-with-response gives you) or\nlong read (Read Blob), which host stacks do by themselves. The ChefSteps\napp never raises the MTU; Breville+ asks for 512 on Android 13 and older\nand forces 23 on Android 14 and newer (reason not recorded). A zero-length\nread means \"nothing queued\".\n\nENVELOPE (protobuf, proto2). Field 1 handle (fixed32, little-endian, a\nper-request correlation id the reply echoes), field 4 end (bool, set on\nthe last message of a stream), field 5 sender address and field 6\nrecipient address (bytes; both sent EMPTY over BLE by the ChefSteps app),\nthen exactly one body from a oneof of about 60 request, reply and feed\nmessages (protocol_details.message_catalogue). Requests here are written\nin field-number order with the empty addresses included, which is what\nthe vendor encoder emits: 0d <handle LE32> 2a 00 32 00 <body>.\n\nCLIENT RULES.\n  1. Subscribe to 700b4325 first; wait about 500 ms (Breville+ does).\n  2. On every 700b4325 notification, read 700b4323 and decode one\n     envelope. Match replies to requests by handle.\n  3. The first message on every connection must be submit_key with the\n     key this device issued at pairing (device.pairing). It is the only\n     message the device accepts before authorisation.\n  4. Use a fresh handle per request. Most replies arrive within 5 s; key\n     exchange waits up to 35 s and a button-press request up to 300 s for\n     a person (protocol_details.app_behaviour.reply_timeouts_s).\n  5. A request you opened stays open until an envelope with end = true\n     arrives or you send one. For a long-lived stream (the live feed),\n     send keep_alive with that stream's handle every 5 s.\n  6. State comes from the live feed: begin_live_feed opens a stream of\n     data points (bath temperature, program step, time remaining).\n  7. Read identify_circulator's API version once and gate the newer\n     messages on it (protocol_details.api_version_capabilities).\n\nPAIRING, RECONCILED. This is not ECDH, whatever earlier notes said (the\napp merely bundles a curve25519 library). Start-key-exchange makes the\nJoule blink white; when the owner presses its top button the Joule\nreturns a device-issued secret key in the clear. The app stores that key\n(and uploads it to the vendor account) and presents it with submit_key on\nevery later connection. JouleUWP's 2016 \"no pin or security requirement\"\nis true of the Bluetooth link, which never bonds and has no PIN; that\nwrite-up had not decoded the BLE traffic, so it never saw the app-layer\nkey. Whether the earliest firmware skipped the check is unknown.\n\nMODELS AND SCOPE. Covered: the original Joule, CS10001 (stainless) and\nCS20001 (white). Breville+ files these under its internal model code\nCSJ100 (with CSJ000 also in its sous-vide list) and finds them by company\nID 0x0159. NOT covered, contrary to earlier notes that called CSJ100 the\nTurbo: the Joule Turbo (retail BSV600) is a separate model in Breville+,\nadvertised under company ID 0x0955 and driven through Breville's own\nappliance service (protocol_details.excluded). Also out of scope: the\nvendor cloud REST/WebSocket API as a control surface, the Joule oven,\nBreville's ovens and espresso machines, factory and test messages, and\nfirmware-flashing byte sequences.\n\nSAFETY. See safety_advisory. The device enforces its own maximum\n(get_limits) and stops on its own faults. Setpoints above 85 °C are\n`advanced`; delayed start and holding temperature are documented in\nprotocol_details only.\n",
+    "openness": {
+      "notes": "ChefSteps never published a local API; a 2016 \"developer signup\" went nowhere (JouleUWP). The protocol is protobuf over one vendor GATT service, recovered from the apps. The vendor schema itself is not reproduced here, only the fields a client needs, restated.",
+      "reverse_engineered": true,
+      "status": "undocumented"
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "indicator": "LED blinks white: ready to pair, press the top of the Joule to continue (ChefSteps LED article).",
+        "notes": "The 35 s is the ChefSteps app's wait for the start-key-exchange reply, not a documented device window. Breville+ shows \"press the top button on your Joule to confirm, for security\" before pairing a Joule.",
+        "procedures": [
+          {
+            "basis": "ChefSteps app pairing flow and prompts (35 s key-exchange wait), Breville+ pairing prompt for Joule models, ChefSteps Help Center LED-state article, and the Breville+ Bluetooth-only pairing article. Not run here.",
+            "indicator": "White blinking LED.",
+            "name": "Start a key exchange, then press the top button while the LED blinks white",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "Connect, subscribe to 700b4325-9836-4383-a2b2-31a9098d1473 and send start_key_exchange.",
+                "actor": "client"
+              },
+              {
+                "action": "Press the button on top of the Joule.",
+                "actor": "user",
+                "expect": "The start-key-exchange reply arrives carrying the secret key."
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": true,
+        "window_seconds": 35
+      },
+      "exclusivity": {
+        "notes": "Whether a new key exchange invalidates keys issued earlier is not recorded. The help centre says other people can use a Joule over Bluetooth with the owner's account (which shares the stored key) or their own (which runs its own key exchange), which suggests more than one key can be valid, but that is an inference.",
+        "recovery": "Close the vendor app (and any other phone) first: since firmware 85.39 a Joule connected to one phone is not connectable from another, and the advertisement flag bit 7 shows it. If the secret key is lost or rejected, pair again with the top-button press; if that fails, factory reset.",
+        "single_bond": "unknown",
+        "single_connection": true
+      },
+      "notes": "No link-layer pairing: the vendor instruction book says never to pair from the phone's Bluetooth menu, and neither app bonds. The authorisation is app-layer: a device-issued secret key, obtained once with a physical top-button press and presented with submit_key on every connection. Submit-key is the only message the vendor router lets through before authorisation. On UL-listed units (identify's hardware options bit 16) the app additionally asks for a button press before any cook above 85 °C (request_button_press).",
+      "required": true,
+      "security_mode": "app_layer",
+      "unpair": {
+        "clears": "Every secret key the Joule has issued, plus its Wi-Fi settings, name and owner (factory reset).",
+        "notes": "The only documented way to revoke pairings is the factory reset. Removing the Joule from a vendor account (\"Disconnect Joule\") is an account-side operation; whether it clears the device's keys is not established. A forget-device-pairing request exists in the message set's debug/end-use group, but no app flow sends it and its effect is unknown, so it is documented by role only.",
+        "requires_factory_reset": true,
+        "supported": "unknown"
+      }
+    },
+    "protocol": "ble",
+    "safety_advisory": {
+      "advisory_url": "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf",
+      "detail": "The Joule has no manual controls: its only button confirms pairing and high-temperature starts, and pressing it during a cook stops the program. Before starting a cook from a client, make sure the Joule is in a pot with water between 38 mm and 203 mm deep (vendor instruction book) and nothing flammable is near. The firmware stops a program on low water, tip-over, overheating, a stuck motor and power loss (see protocol_details.enums.stop_reason), and a client must never try to work around those stops. Unplugging the Joule stops it immediately and overrides any program (instruction book). This spec only declares what the vendor app does: setpoints of 20-85 °C are ordinary commands, 85.5-98 °C is `advanced` (near-boiling water; UL-listed units demand a button-press confirmation first), delayed start and holding temperature are documented but not declared, and firmware flashing is overview only. This project is not affiliated with ChefSteps or Breville.",
+      "severity": "warning",
+      "summary": "This starts an 1100 W immersion heater remotely, at up to 98 °C at sea level. Stop-cooking is always one command away; keep it that way in any client."
+    },
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [
+          "secret_key: returned by start_key_exchange after the top-button press; presented with submit_key on every connection"
+        ],
+        "notes": "The Wi-Fi passphrase is a plain protobuf string inside the connect-Wi-Fi request, and the BLE link is neither bonded nor encrypted by the apps, so it crosses the air in the clear. The secret key is likewise returned and resubmitted in the clear. The vendor apps also upload the secret key to the owner's vendor account (the circulator record carries it), which is how Breville+ carried ChefSteps-era pairings forward, and how an owner whose account still works could recover their own key without re-pairing. Never publish a key.",
+        "stored_on_device": [
+          "The secret key(s) it issued at pairing",
+          "Wi-Fi SSIDs and passphrases (several profiles on firmware 103.52 and later)",
+          "The vendor-cloud bearer token pushed by the owner's app",
+          "Its user-chosen name"
+        ],
+        "wifi_passphrase_protection": "plaintext"
+      },
+      "factory_reset": {
+        "applicable": true,
+        "confidence": "medium",
+        "description": "The vendor documents a power-on button hold. ChefSteps' 2020 article says at least 10 seconds; Breville's 2026 Bluetooth-only article says at least 15. Firmware 85.39 and 87.39 made the reset harder to trigger by accident, which may be why the time grew. Remove the Joule from the vendor account first if you still use the app. There is also a factory-reset request in the message set; it is documented by role only (protocol_details.message_catalogue.excluded_by_role).",
+        "effect": "Erases the Joule's name, its Wi-Fi settings and its authentication and ownership information (ChefSteps help centre), so every stored secret key stops working and the unit must be paired again. Cook history in the vendor account is not on the device.",
+        "procedures": [
+          {
+            "basis": "ChefSteps Help Center 'What is a factory reset, and how do I perform one?' (updated 2020-01-30) and 'Pairing ChefSteps Joule to the Breville+ app using Bluetooth only' (updated 2026-03-04). Not run here.",
+            "hold_seconds": 15,
+            "indicator": "Double-blinking (or blinking) yellow while resetting, then steady white when done.",
+            "name": "Hold the top button from power-up until the LED blinks yellow",
+            "power_state": "booting",
+            "steps": [
+              {
+                "action": "Unplug the Joule and plug it back in.",
+                "actor": "user"
+              },
+              {
+                "action": "Immediately press and hold the top button for at least 15 seconds (10 in the older article) until the light blinks yellow. If it does not, unplug and try again, holding the button as you plug it in.",
+                "actor": "user",
+                "expect": "Yellow blinking: a factory reset is in progress."
+              },
+              {
+                "action": "Wait for the reset to finish.",
+                "actor": "device",
+                "expect": "Steady white light: the reset is complete and the Joule can be paired afresh.",
+                "timeout_seconds": 120
+              }
+            ],
+            "verified": false
+          }
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false,
+            "read_characteristic": "700b4323-9836-4383-a2b2-31a9098d1473",
+            "service_uuid": "700b4321-9836-4383-a2b2-31a9098d1473",
+            "write_characteristic": "700b4322-9836-4383-a2b2-31a9098d1473"
+          },
+          "description": "Connect, ask the Joule for a key exchange, have the owner press the top button while it blinks white, keep the secret key it returns, then authorise with it. Nothing else is needed for local control.",
+          "issues_credentials": {
+            "secret_key": {
+              "command": "start_key_exchange",
+              "notes": "Envelope oneof field 121, inner field 1 (bytes). The ChefSteps app keeps it as a hex string and also uploads it to the vendor account; store it per device. Its length on real hardware is not recorded (the SDK's simulator issues 16 bytes).",
+              "reply_path": "start_key_exchange_reply.secret_key"
+            }
+          },
+          "name": "Pair over Bluetooth (key exchange, Bluetooth only)",
+          "role": "primary",
+          "steps": [
+            {
+              "action": "Plug the Joule in. Its LED shows solid white when idle and blinks white when it is ready to pair (ChefSteps LED article).",
+              "actor": "user"
+            },
+            {
+              "action": "Scan for service 700b4321-9836-4383-a2b2-31a9098d1473 or company ID 0x0159 and connect. Do not pair from the phone's Bluetooth settings (instruction book).",
+              "actor": "client",
+              "timeout_seconds": 10
+            },
+            {
+              "action": "Subscribe to 700b4325-9836-4383-a2b2-31a9098d1473, wait about 500 ms, then write start_key_exchange to 700b4322-9836-4383-a2b2-31a9098d1473.",
+              "actor": "client"
+            },
+            {
+              "action": "Tell the owner to press the button on top of the Joule. The ChefSteps app waits up to 35 s for this.",
+              "actor": "user",
+              "timeout_seconds": 35
+            },
+            {
+              "action": "On the doorbell notification, read 700b4323-9836-4383-a2b2-31a9098d1473 and decode the start-key-exchange reply (oneof field 121).",
+              "actor": "client",
+              "expect": "Result 0 (success) and a secret key in inner field 1. Store it; it is the only credential this device will accept. To abandon the exchange instead, send cancel_key_exchange."
+            },
+            {
+              "action": "Authorise with submit_key carrying that key.",
+              "actor": "client",
+              "expect": "Submit-key reply (oneof field 131) with result 0. The connection is now authorised.",
+              "timeout_seconds": 5
+            },
+            {
+              "action": "Optionally send identify_circulator, rename it (protocol_details.message_encodings.rename), and read get_limits.",
+              "actor": "client"
+            }
+          ],
+          "type": "ble_provisioning",
+          "verified": false
+        },
+        {
+          "description": "What the vendor apps do by default: pair as above, then hand the Joule Wi-Fi credentials over the same BLE link so it can reach the vendor cloud. Wi-Fi adds nothing local; it is only for remote use through the vendor app.",
+          "name": "Pair, then join Wi-Fi for the vendor cloud",
+          "role": "alternative",
+          "stages": [
+            {
+              "description": "The primary method's steps, ending with an authorised connection and a stored secret key.",
+              "name": "Key exchange",
+              "steps": [
+                {
+                  "action": "Pair as in the primary method (start_key_exchange, top-button press, submit_key).",
+                  "actor": "client"
+                }
+              ],
+              "type": "ble_provisioning",
+              "verified": false
+            },
+            {
+              "description": "Scan, choose a network and send it SSID, passphrase and security type over the authorised BLE link. The key exchange and all Wi-Fi-joining messages are Bluetooth-only in the vendor router.",
+              "name": "Wi-Fi over Bluetooth",
+              "steps": [
+                {
+                  "action": "Send scan_wifi_networks. The Joule answers with one Wi-Fi-scan reply per access point on the same handle (SSID, security type, RSSI).",
+                  "actor": "client",
+                  "timeout_seconds": 15
+                },
+                {
+                  "action": "Send a connect-Wi-Fi request with SSID, passphrase and security type (protocol_details.message_encodings.connect_wifi). The Joule takes 2.4 GHz 802.11b/g/n, open/WPA/WPA2 personal, DHCP only.",
+                  "actor": "client",
+                  "expect": "Connect-Wi-Fi reply with result 0. 31 means wrong password, 24 a key error.",
+                  "timeout_seconds": 15
+                },
+                {
+                  "action": "Poll get_wifi_status until the connection status reads 5 (got an IP). A cloud status of 101 is what the app treats as healthy.",
+                  "actor": "client"
+                },
+                {
+                  "action": "The vendor app then fetches a per-device token from the owner's account and pushes it to the Joule (protocol_details.cloud_path). That makes this account the Joule's Wi-Fi owner. A local client has no reason to do this.",
+                  "actor": "client"
+                }
+              ],
+              "type": "ble_provisioning",
+              "verified": false
+            }
+          ],
+          "type": "ble_provisioning",
+          "verified": false
+        }
+      ],
+      "notes": "A factory-fresh or reset Joule must be paired before it answers anything: the client runs the key exchange, the owner presses the top button, and the client keeps the secret key the Joule returns. Wi-Fi is optional and only serves the vendor cloud; the ChefSteps help centre documents a Bluetooth-only setup. Confidence is medium: both vendor apps agree on the flow and the vendor's help articles describe the button press, but it has not been run here.",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "To move the Joule to a new router, connect over BLE (authorised), send disconnect_wifi, then provision the new network with connect-Wi-Fi. This is the ChefSteps help centre's own procedure (Settings, My Joules, Disconnect Joule from WiFi, then Connect). The old network does not need to be up. Firmware 103.52 and later keep several Wi-Fi profiles (forget_wifi_profile drops one). Only the account that owns the Joule can put it on Wi-Fi through the vendor app; a factory reset clears the owner.",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Connect over BLE and authorise with submit_key.",
+            "actor": "client"
+          },
+          {
+            "action": "Send disconnect_wifi, then connect-Wi-Fi with the new network's credentials.",
+            "actor": "client",
+            "expect": "get_wifi_status eventually reports connection status 5."
+          }
+        ]
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "Nobody on this project has driven a Joule from this document, and the research store holds no HCI capture or pcap of one. Every GATT role, framing rule and byte sequence below was read out of the two vendor Android apps (the legacy ChefSteps app and Breville+ Cooking) and cross-checked between them, plus the 2016 JouleUWP write-up and the vendor's help articles. The protobuf encodings were re-derived here from the field numbers and checked with a throwaway wire-format decoder, not against a device.",
+      "status": "untested"
+    },
+    "transport": "ble-gatt",
+    "type": "sous-vide-immersion-circulator",
+    "variants": [
+      {
+        "model": "CS10001",
+        "notes": "Joule Original, stainless-steel top cap (ChefSteps help centre). The identify reply's hardware-options bit 0 marks stainless. Breville's reissued instruction book covers it with CS20001."
+      },
+      {
+        "model": "CS20001",
+        "notes": "Joule Original, white polycarbonate top cap. Hardware-options bit 1 marks white (bit 2 is a rose-gold finish). Same protocol as CS10001."
+      }
+    ]
+  },
+  "entities": [
+    {
+      "commands": {
+        "press": "stop_cooking"
+      },
+      "icon": "mdi:stop-circle",
+      "name": "Stop Cooking",
+      "notes": "Stops heating and circulation. Put this first. Unplugging the Joule also stops it immediately.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "select_option": "start_cook"
+      },
+      "icon": "mdi:pot-steam",
+      "name": "Start Cook",
+      "notes": "Picking a temperature starts (or restarts) a manual cook at it: the Joule has no setpoint without a running program, so there is no \"set temperature but stay idle\". Options are start_cook's labels (20-85 °C in 0.5 °C steps). The current program's setpoint is read with the describe-feed request for the live feed's feed id (protocol_details.message_encodings.describe_feed).",
+      "platform": "select"
+    },
+    {
+      "commands": {
+        "press": "drop_food"
+      },
+      "icon": "mdi:food-steak",
+      "name": "Drop Food",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "clear_error"
+      },
+      "icon": "mdi:alert-remove",
+      "name": "Clear Error",
+      "notes": "API version 6 and later.",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": "blink_led"
+      },
+      "icon": "mdi:led-on",
+      "name": "Identify",
+      "notes": "White double blink for 5 s. API version 6 and later.",
+      "platform": "button"
+    },
+    {
+      "device_class": "temperature",
+      "name": "Water Temperature",
+      "notes": "payload_formats.Data_Point bath_temperature (field 10, float32 °C), from the live feed opened with begin_live_feed.",
+      "platform": "sensor",
+      "precision": 0.1,
+      "state_characteristic": "700b4323-9836-4383-a2b2-31a9098d1473",
+      "unit": "C"
+    },
+    {
+      "icon": "mdi:timer-sand",
+      "name": "Time Remaining",
+      "notes": "payload_formats.Data_Point time_remaining (field 12).",
+      "platform": "sensor",
+      "state_characteristic": "700b4323-9836-4383-a2b2-31a9098d1473",
+      "unit": "s"
+    },
+    {
+      "icon": "mdi:state-machine",
+      "name": "Program Step",
+      "notes": "payload_formats.Data_Point program_step (field 11), decoded with protocol_details.enums.program_step. Absent means idle.",
+      "platform": "sensor",
+      "state_characteristic": "700b4323-9836-4383-a2b2-31a9098d1473"
+    },
+    {
+      "commands": {
+        "poll": "get_limits"
+      },
+      "device_class": "temperature",
+      "name": "Maximum Setpoint",
+      "notes": "payload_formats.Limits_Reply max_temperature (float32 °C).",
+      "platform": "sensor",
+      "state_characteristic": "700b4323-9836-4383-a2b2-31a9098d1473",
+      "unit": "C"
+    }
+  ],
+  "evidence": {
+    "app_static_analysis": "The legacy ChefSteps app (2.77.5) was read for: the scan filter and advert parser, the GATT UUIDs and the simulator's property table, the subscribe-then-read loop and the empty-read handling, the write path that blanks the addresses, the request/reply table with its timeouts, the router's Bluetooth-only and pre-authorisation rules, the pairing sequence (open, key exchange, submit key), the UL button-press rule for high-temperature starts, the API-version capability table, and the protobuf schema's field numbers, restated in our own tables. Breville+ (1.44.0) was read for its native legacy-Joule path (the same UUIDs, write-with-response, the 500 ms post-subscribe wait, MTU handling, model detection by company ID) and its JS bundle (pairing prompts, the secret-key reuse, the minimum read size). Nothing was executed.",
+    "artifacts": [
+      {
+        "artifact": "com.chefsteps.circulator 2.77.5 (versionCode 277050), XAPK/APK",
+        "description": "Legacy ChefSteps Joule app; its JavaScript device SDK and embedded protobuf schema are the primary source.",
+        "obtained_via": "third-party APK mirror, 2026-09-01",
+        "type": "static_analysis"
+      },
+      {
+        "artifact": "com.breville.cookingapp (Breville+ Cooking) 1.44.0 (versionCode 755)",
+        "description": "Successor app: native legacy-Joule BLE path and decompiled Hermes bundle, used for cross-checks and the model mapping.",
+        "obtained_via": "third-party APK mirror, 2026-09-17",
+        "type": "static_analysis"
+      },
+      {
+        "artifact": "mitchcapper/JouleUWP JOULE_PROTOCOL.md",
+        "description": "2016 community write-up. Its linked release archive republishes decompiled vendor code and is not used.",
+        "obtained_via": "fetched 2026-09-28",
+        "type": "public_research",
+        "url": "https://github.com/mitchcapper/JouleUWP/blob/master/JOULE_PROTOCOL.md"
+      },
+      {
+        "artifact": "ChefSteps Help Center articles and Joule firmware release notes",
+        "description": "Factory reset, LED states, owner model, temperature limits, Bluetooth-only pairing, firmware history.",
+        "obtained_via": "fetched 2026-09-28 (help-centre article bodies through the Zendesk API)",
+        "type": "vendor_documentation",
+        "url": "https://www.chefsteps.com/joule/firmware-release-notes"
+      },
+      {
+        "artifact": "Breville 'the Joule Sous Vide' instruction book, CS10001/CS20001",
+        "description": "Water depth limits, radio bands, the in-app pairing instruction, the no-manual-controls statement.",
+        "obtained_via": "fetched 2026-09-28",
+        "type": "vendor_documentation",
+        "url": "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+      }
+    ],
+    "documentation_review": "ChefSteps Help Center articles (factory reset; LED colours; owner; the Bluetooth-only Breville+ pairing procedure; model identification; Joule Turbo pairing; minimum and maximum temperatures; Wi-Fi requirements) and the ChefSteps firmware release notes, read 2026-09-28. Breville's CS10001 instruction book for water depth, radio bands and the \"pair in the app\" rule.",
+    "open_questions": "See remaining_unknowns. The first things to settle with a unit: the real secret-key length, whether submit_key is truly required on current firmware, whether the empty-address envelopes are accepted, and whether the live feed dies without keep-alives.",
+    "open_source_review": "JouleUWP's JOULE_PROTOCOL.md (2016): no BLE PIN, no open ports, the program model, and the TFTP firmware remark. It never decoded BLE traffic. sameer/joule-ha, cited in earlier notes, is an empty repository as of 2026-09-28; the Home Assistant community thread shows no working local integration. chromeJoule, mentioned there, republishes vendor app code and is deliberately not cited."
+  },
+  "features": [
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "What the Joule advertises while in its bootloader is not recorded. The LED blinks blue while an update downloads and is solid blue while it installs, then the Joule restarts to solid white (vendor LED article)."
+        },
+        "image": {
+          "notes": "Five image kinds: the BLE SoC's application, its SoftDevice and bootloader, the Wi-Fi module's firmware and a certificate bundle. The BLE-path transfer carries a checksum; the Wi-Fi path carries a SHA-256 the device checks after download. JouleUWP reported that no signature is verified; that was a reading of app code, not a test, so signing stays unknown.",
+          "signing": "unknown",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "vendor_ble",
+          "custom"
+        ],
+        "notes": "Two paths, both driven by the vendor app with images from the vendor cloud. BLE: a boot-mode request reboots the SoC into its bootloader and the image goes over 700b4326-9836-4383-a2b2-31a9098d1473 in blocks framed by start-transfer, block and complete messages. Wi-Fi: a request tells the Joule to fetch an image itself by TFTP or HTTP from a named host with a SHA-256, then a set-firmware message switches slots. No entry command is declared (dfu.enter is omitted on purpose): the boot-mode and transfer messages are documented by role only in protocol_details.firmware_update, and no flashing bytes are given. Firmware is updated through the vendor app (it needs a temporary Wi-Fi link); Breville+ needs 175 or 123.1 for Bluetooth-only use.",
+        "recovery": {
+          "interrupted": "unknown",
+          "notes": "The Wi-Fi module keeps three image slots (one running, one factory) and refuses to overwrite the active or factory slot, which suggests an interrupted Wi-Fi update keeps the old image. Nothing is recorded for the BLE SoC."
+        },
+        "transport": [
+          "ble",
+          "udp",
+          "http"
+        ],
+        "verification": "reported"
+      },
+      "type": "firmware_update"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor-hosted instruction book for the original Joule, stainless CS10001 and white CS20001 (English and French). Safety, water depth 38-203 mm, radio bands, and \"pair through the app, not the phone's Bluetooth menu\". Not the Joule Turbo's.",
+      "kind": "manual",
+      "title": "Breville: the Joule Sous Vide instruction book, CS10001 / CS20001 (PDF)",
+      "url": "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+    },
+    {
+      "description": "Vendor booklet for the Joule Turbo BSV600, the excluded sibling, so a Turbo owner can tell the two apart. Not the manual for the original Joule this spec covers.",
+      "kind": "manual",
+      "title": "Breville: Joule Turbo BSV600 safety guide / instruction booklet (PDF)",
+      "url": "https://assets.breville.com/BSV600/BSV600_USCM_SG3_D24_LR.pdf"
+    },
+    {
+      "description": "What a reset erases and the power-on top-button hold. Zendesk refuses non-browser clients (403).",
+      "kind": "vendor_support",
+      "title": "ChefSteps Help Center: factory reset",
+      "url": "https://support.chefsteps.com/hc/en-us/articles/222979667-What-is-a-factory-reset-and-how-do-I-perform-one"
+    },
+    {
+      "description": "White blinking means ready to pair (press the top), double-blinking white is an identify request, yellow blinking is a reset.",
+      "kind": "vendor_support",
+      "title": "ChefSteps Help Center: LED colours and blink patterns",
+      "url": "https://support.chefsteps.com/hc/en-us/articles/223021708-Why-is-the-LED-on-my-Joule-blinking-and-what-does-the-light-color-mean"
+    },
+    {
+      "description": "The 2026 post-migration procedure: reset, top-button press, skip Wi-Fi. Firmware 175 or 123.1 required.",
+      "kind": "vendor_support",
+      "title": "ChefSteps Help Center: pairing ChefSteps Joule to Breville+ using Bluetooth only",
+      "url": "https://support.chefsteps.com/hc/en-us/articles/36606559991319-Pairing-ChefSteps-Joule-to-the-Breville-app-using-Bluetooth-only"
+    },
+    {
+      "description": "Tells the Turbo BSV600 from the original CS10001 and CS20001 by the top cap.",
+      "kind": "vendor_support",
+      "title": "ChefSteps Help Center: which Joule model do I have?",
+      "url": "https://support.chefsteps.com/hc/en-us/articles/16314955461015-Which-Joule-sous-vide-model-do-I-have"
+    },
+    {
+      "description": "20 °C minimum, 98 °C maximum at sea level (2 °C below boiling at altitude), 90 °C recommended.",
+      "kind": "vendor_support",
+      "title": "ChefSteps Help Center: minimum and maximum temperatures",
+      "url": "https://support.chefsteps.com/hc/en-us/articles/214790827-What-is-the-minimum-maximum-temperatures-that-can-be-set-for-Joule"
+    },
+    {
+      "description": "The Wi-Fi owner model behind the cloud bearer token.",
+      "kind": "vendor_support",
+      "title": "ChefSteps Help Center: what does it mean to be Joule's owner?",
+      "url": "https://support.chefsteps.com/hc/en-us/articles/223020788-What-does-it-mean-to-be-Joule-s-owner"
+    },
+    {
+      "description": "Versions 61.22 to 175: the 98 °C ceiling, one-phone-at-a-time Bluetooth, multiple Wi-Fi profiles, harder-to-trigger reset.",
+      "kind": "vendor_support",
+      "title": "ChefSteps: Joule firmware release notes",
+      "url": "https://www.chefsteps.com/joule/firmware-release-notes"
+    },
+    {
+      "description": "2016 community notes: protobuf over BLE and the cloud WebSocket, no BLE PIN, no open ports, the program model, TFTP firmware fetch. Written before the BLE traffic was decoded.",
+      "kind": "protocol_writeup",
+      "title": "mitchcapper/JouleUWP: JOULE_PROTOCOL.md",
+      "url": "https://github.com/mitchcapper/JouleUWP/blob/master/JOULE_PROTOCOL.md"
+    },
+    {
+      "description": "The vendor app that now drives the Joule.",
+      "kind": "other",
+      "title": "Breville+ Cooking on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=com.breville.cookingapp"
+    },
+    {
+      "description": "The 2026 migration notice that retired the ChefSteps app.",
+      "kind": "forum",
+      "title": "ChefSteps community: Joule users, download the Breville+ app",
+      "url": "https://community.chefsteps.com/discussion/78615/joule-sous-vide-users-download-the-breville-cooking-app"
+    },
+    {
+      "description": "Why the manufacturer is Breville now.",
+      "kind": "other",
+      "title": "The Spoon: Breville acquires ChefSteps (2019)",
+      "url": "https://thespoon.tech/developing-breville-acquires-chefsteps-maker-of-the-joule-sous-vide/"
+    }
+  ],
+  "initialization": [
+    {
+      "characteristic": "700b4325-9836-4383-a2b2-31a9098d1473",
+      "delay_ms": 500,
+      "notes": "Open the doorbell first. Nothing arrives until this is subscribed, and each notification means \"read 700b4323-9836-4383-a2b2-31a9098d1473 now\". Breville+ waits 500 ms after the CCCD write before sending.",
+      "subscribe": true
+    },
+    {
+      "description": "Authorise: send submit_key with the secret key this device issued at pairing (setup.methods issues_credentials.secret_key) and wait up to 5 s for a submit-key reply with result 0. Nothing else is accepted before this. Then, on a new session, the vendor apps send identify_circulator (to learn the API version and hardware options), get_limits and begin_live_feed. The key is per device, so this step cannot be stated as fixed bytes."
+    }
+  ],
+  "payload_formats": {
+    "Cook_Events_Reply": {
+      "description": "Oneof field 55: field 1 result, field 2 a sub-message of optional varint timestamps (seconds; epoch not recorded).",
+      "fields": [
+        {
+          "description": "Sub-message field 1.",
+          "name": "program_started",
+          "unit": "s"
+        },
+        {
+          "description": "Sub-message field 2.",
+          "name": "food_dropped",
+          "unit": "s"
+        },
+        {
+          "description": "Sub-message field 3.",
+          "name": "set_point_reached",
+          "unit": "s"
+        },
+        {
+          "description": "Sub-message field 4.",
+          "name": "cook_finished",
+          "unit": "s"
+        }
+      ]
+    },
+    "Data_Point": {
+      "description": "Live-feed data point: oneof field 90 of an envelope on the live feed's handle. Floats are IEEE 754 binary32 LE (wire type 5); the rest are varints. Absent optional fields mean \"not reported\".",
+      "example": "0d 01 00 00 00 2a 00 32 00 d2 05 12 08 07 10 2a 18 c0 c4 07 55 00 00 5d 42 58 03 60 88 0e  (feed 7, seq 42, t=123456 ms, 55.25 °C, step 3 cook, 1800 s left; built from the field numbers, not captured)",
+      "fields": [
+        {
+          "description": "Field 1, varint. Identifies the feed (and so the program); changes when a new program starts.",
+          "name": "feed_id"
+        },
+        {
+          "description": "Field 2, varint. Increments per data point.",
+          "name": "sequence_number"
+        },
+        {
+          "description": "Field 3, varint, milliseconds since the Joule's processor started.",
+          "name": "timestamp",
+          "unit": "ms"
+        },
+        {
+          "description": "Field 4, varint enum: 0 none, 1 soft error, 2 hard error.",
+          "name": "error_state"
+        },
+        {
+          "description": "Field 10, float32. Water temperature. The app shows it to 0.1 °C.",
+          "name": "bath_temperature",
+          "unit": "C"
+        },
+        {
+          "description": "Field 11, varint enum (protocol_details.enums.program_step). Absent when no program runs.",
+          "name": "program_step"
+        },
+        {
+          "description": "Field 12, varint, seconds left on the cook timer.",
+          "name": "time_remaining",
+          "unit": "s"
+        },
+        {
+          "description": "Field 50, float32.",
+          "name": "heater_temperature",
+          "unit": "C"
+        },
+        {
+          "description": "Field 52, float32 (the cooler part of the board).",
+          "name": "upper_board_temperature",
+          "unit": "C"
+        },
+        {
+          "description": "Field 53, float32 (the hotter part of the board).",
+          "name": "lower_board_temperature",
+          "unit": "C"
+        },
+        {
+          "description": "Field 54, int32 varint (negative values are ten-byte varints). Sign gives pumping direction.",
+          "name": "motor_speed",
+          "unit": "rpm"
+        },
+        {
+          "description": "Field 55, float32, heater PWM on-percentage.",
+          "name": "heater_duty",
+          "unit": "%"
+        },
+        {
+          "description": "Field 56, float32.",
+          "name": "motor_voltage",
+          "unit": "V"
+        },
+        {
+          "description": "Field 57, float32, motor PWM on-percentage.",
+          "name": "motor_duty",
+          "unit": "%"
+        },
+        {
+          "description": "Field 58, float32.",
+          "name": "motor_current",
+          "unit": "A"
+        },
+        {
+          "description": "Field 61, float32. Absent on hardware without the pressure sensor (the SDK treats a hardware version starting 'JC' as having none).",
+          "name": "pressure",
+          "unit": "hPa"
+        },
+        {
+          "description": "Field 63, varint, raw motor-controller fault bits (meaning not recorded).",
+          "name": "motor_fault_flags"
+        },
+        {
+          "description": "Field 64, float32.",
+          "name": "motor_peak_current",
+          "unit": "A"
+        },
+        {
+          "description": "Field 65, varint. Identifies the cook by when it started, because the feed id can change.",
+          "name": "cook_start_time",
+          "unit": "s"
+        }
+      ],
+      "parse_rules": [
+        "Take the program's setpoint from the describe-feed reply for this feed_id; data points do not carry it.",
+        "No program_step and no describe-feed program means the Joule is idle.",
+        "Treat 10 s without a data point as a lost feed and reopen it (SDK behaviour)."
+      ]
+    },
+    "Envelope": {
+      "description": "Every write to 700b4322 and every read of 700b4323 is one protobuf (proto2) envelope. Field numbers and wire types are the contract; names are ours.",
+      "example": "0d 01 00 00 00 20 01 2a 00 32 00 ea 03 02 08 00  (stop-cooking reply, handle 1, end set, result 0)",
+      "fields": [
+        {
+          "description": "Field 1, fixed32 (wire type 5), little-endian uint32. Correlates a reply or stream message with the request that opened it.",
+          "name": "handle"
+        },
+        {
+          "description": "Field 4, bool varint. 1 on the last message of a stream. Replies to one-shot requests carry it.",
+          "name": "end"
+        },
+        {
+          "description": "Field 5, bytes. Empty over BLE from the ChefSteps app. Breville+ fills it from the advert; either is reported to work.",
+          "name": "sender_address"
+        },
+        {
+          "description": "Field 6, bytes. As sender_address.",
+          "name": "recipient_address"
+        },
+        {
+          "description": "Exactly one of the oneof fields listed in protocol_details.message_catalogue, as a length-delimited sub-message (wire type 2).",
+          "name": "body"
+        }
+      ],
+      "parse_rules": [
+        "Decode fields in any order; unknown field numbers must be skipped, not rejected (Breville+-era firmware may add messages).",
+        "The oneof field number tells you what the message is: an odd reply number is usually request number + 1.",
+        "A reply's inner field 1 is usually a result code (protocol_details.enums.result); 0 is success."
+      ]
+    },
+    "Identify_Reply": {
+      "description": "Oneof field 153. Strings unless noted.",
+      "fields": [
+        {
+          "description": "Field 1, the user-given name.",
+          "name": "name"
+        },
+        {
+          "description": "Field 2.",
+          "name": "firmware_version"
+        },
+        {
+          "description": "Field 3. The SDK assumes pressure sensing unless this starts 'JC'.",
+          "name": "hardware_version"
+        },
+        {
+          "description": "Field 4. Per unit; do not publish.",
+          "name": "serial_number"
+        },
+        {
+          "description": "Field 5. Per unit; do not publish.",
+          "name": "ble_mac"
+        },
+        {
+          "description": "Field 6.",
+          "name": "softdevice_version"
+        },
+        {
+          "description": "Field 7.",
+          "name": "bootloader_version"
+        },
+        {
+          "description": "Field 8.",
+          "name": "app_firmware_version"
+        },
+        {
+          "description": "Field 9.",
+          "name": "wifi_firmware_version"
+        },
+        {
+          "description": "Field 10.",
+          "name": "certificate_version"
+        },
+        {
+          "description": "Field 11.",
+          "name": "model_number"
+        },
+        {
+          "description": "Field 12, varint. Gates newer messages (protocol_details.api_version_capabilities).",
+          "name": "api_version"
+        },
+        {
+          "description": "Field 13, varint bit field (protocol_details.enums.hardware_options): finish, voltage, plug, UL and CE listing.",
+          "name": "hardware_options"
+        },
+        {
+          "description": "Field 14, varint. The app shows digits 3-4 then 1-2 as a month/year.",
+          "name": "build_date"
+        },
+        {
+          "description": "Field 15.",
+          "name": "pcba_revision"
+        }
+      ]
+    },
+    "Limits_Reply": {
+      "description": "Oneof field 181.",
+      "fields": [
+        {
+          "description": "Field 1, result code.",
+          "name": "result"
+        },
+        {
+          "description": "Field 2, float32. The device's setpoint ceiling.",
+          "name": "max_temperature",
+          "unit": "C"
+        }
+      ]
+    },
+    "Recent_Event_Reply": {
+      "description": "Oneof field 93.",
+      "fields": [
+        {
+          "description": "Field 1, varint: 0 none, 1 hardware failure, 2 program stopped.",
+          "name": "event_type"
+        },
+        {
+          "description": "Field 2, varint (protocol_details.enums.stop_reason).",
+          "name": "event_reason"
+        },
+        {
+          "description": "Field 3, varint. For a hardware failure, ms since processor start; for a stopped program, ms since the last start-program; 0 for none.",
+          "name": "event_time",
+          "unit": "ms"
+        },
+        {
+          "description": "Field 4, varint.",
+          "name": "feed_id"
+        },
+        {
+          "description": "Field 5, varint.",
+          "name": "sequence_number"
+        }
+      ],
+      "parse_rules": [
+        "Fields 6-15 carry crash diagnostics (fault type, registers, reset reason, fault count). A client can ignore them."
+      ]
+    },
+    "Wifi_Scan_Reply": {
+      "description": "Oneof field 42, one per access point, all on the scan request's handle.",
+      "fields": [
+        {
+          "description": "Field 1000, string.",
+          "name": "ssid"
+        },
+        {
+          "description": "Field 1001, varint (protocol_details.enums.wifi_security).",
+          "name": "security_type"
+        },
+        {
+          "description": "Field 1002, sint32 (zigzag varint).",
+          "name": "rssi",
+          "unit": "dBm"
+        }
+      ]
+    },
+    "Wifi_Status_Reply": {
+      "description": "Oneof field 47.",
+      "fields": [
+        {
+          "description": "Field 1. 29 means not connected.",
+          "name": "result"
+        },
+        {
+          "description": "Field 2, string.",
+          "name": "ssid"
+        },
+        {
+          "description": "Field 3, bool. Whether the vendor-cloud bearer token has been pushed.",
+          "name": "cloud_token_set"
+        },
+        {
+          "description": "Field 4, varint: 0 idle, 1 connecting, 2 wrong password, 3 no AP found, 4 connect failed, 5 got IP.",
+          "name": "connection_status"
+        },
+        {
+          "description": "Field 5, varint.",
+          "name": "ms_since_last_packet",
+          "unit": "ms"
+        },
+        {
+          "description": "Field 6, varint. 101 is what the app treats as a healthy cloud link (it matches HTTP 101, the WebSocket upgrade).",
+          "name": "cloud_status"
+        },
+        {
+          "description": "Field 7, bytes. Per unit; do not publish.",
+          "name": "wifi_mac"
+        }
+      ]
+    }
+  },
+  "protocol_details": {
+    "api_version_capabilities": {
+      "1": "usage data",
+      "10": "updated automatic-cook timer",
+      "11": "crash data",
+      "12": "update program",
+      "13": "turbo cooking",
+      "2": "get limits",
+      "3": "restartable debug feed",
+      "4": "updated event timestamps",
+      "5": "richer connect-Wi-Fi errors",
+      "6": "clear error, display LED, describe feed without an id",
+      "7": "button-press requests",
+      "8": "multiple Wi-Fi profiles",
+      "9": "cook events, early food drop",
+      "notes": "Cumulative: a Joule reporting API version N supports everything at N and below (the SDK's own table, restated)."
+    },
+    "app_behaviour": {
+      "connection": "Scan 4 s (tripled on Android), connect timeout 10 s, reconnect back-off from 0.5 s to 5 s.",
+      "high_temperature_starts": "If the setpoint is above 85 °C and hardware-options bit 16 (UL) is set, the app sends request_button_press (white, double blink, 35 s), tells the user to press the button, and starts the program only on a successful reply.",
+      "live_feed": "The app keeps one live feed open while a Joule is active and re-opens it after 10 s without a data point. It associates each feed id with its program through describe-feed, and on a power loss or firmware crash it asks list_recent_events why.",
+      "reply_timeouts_s": {
+        "connect_wifi": 15,
+        "default": 5,
+        "describe_feed": 10,
+        "identify": 5,
+        "request_button_press": 300,
+        "start_key_exchange": 35,
+        "submit_bearer_token": 15,
+        "submit_key": 5,
+        "wifi_status_and_forget": 15
+      },
+      "temperature_limits": "UI minimum 20 °C; a user setting caps the UI at 92 °C by default and 98 °C otherwise; the SDK falls back to 90 °C if get_limits is unsupported."
+    },
+    "app_defects": {
+      "breville_plus_mtu": "Breville+ forces MTU 23 for this model on Android 14 and newer, and 512 on older Android; the reason is not recorded and may be a firmware quirk with large MTUs.",
+      "breville_plus_short_reads": "Breville+ drops any read of 4 bytes or fewer without decoding it.",
+      "empty_read_fabricates_success": "The ChefSteps app, on a zero-length read while a start-program request is outstanding, invents a successful start-program reply instead of reporting a problem. A cook that never started can therefore show as started until the live feed says otherwise."
+    },
+    "cloud_path": {
+      "local": false,
+      "notes": "Not a local surface; recorded so nobody goes looking for one. Once on Wi-Fi the Joule keeps an outbound TLS connection to the vendor cloud. The app reaches it through a WebSocket (wss://production-cc-app-1.chefsteps.com/direct) that tunnels the same envelopes, with the address fields filled in. The Joule authenticates with a bearer token the owner's app fetches from the vendor account and pushes over BLE with the submit-bearer-token request (oneof 132, field 1 string); get_wifi_status field 3 then reads true and cloud status 101. The first account to do this is the Joule's \"owner\". The vendor REST API also stores each Joule's secret key in the owner's account. None of this is specified here as a control surface. JouleUWP's port scan found no open ports on the Joule."
+    },
+    "enums": {
+      "hardware_options": {
+        "1": "stainless finish",
+        "1024": "CEE 7 (EU) plug",
+        "131072": "CE-marked",
+        "2": "white finish",
+        "2048": "type J plug",
+        "256": "230 V unit",
+        "4": "rose-gold finish",
+        "512": "type G (UK) plug",
+        "65536": "UL-listed: the app requires a button press before starting above 85 °C"
+      },
+      "led_color": "0 red, 1 green, 2 blue, 3 white, 4 orange, 5 yellow, 6 black (off), 7 purple",
+      "led_pattern": "0 blink, 1 breathe, 2 double blink, 3 double pulse, 4 solid",
+      "program_step": {
+        "0": "unknown",
+        "1": "pre-heat (the app shows 'cooling' if the bath is above the setpoint)",
+        "2": "at temperature, waiting for food",
+        "3": "cooking",
+        "4": "cook done, waiting for the food to come out",
+        "5": "error",
+        "6": "waiting for update (the app shows it as turbo)"
+      },
+      "result": {
+        "0": "success",
+        "11": "invalid data",
+        "13": "timed out",
+        "15": "forbidden",
+        "17": "busy",
+        "19": "already exists (a button-press request was superseded or cancelled)",
+        "21": "not connected",
+        "22": "unknown request",
+        "24": "Wi-Fi key error",
+        "25-33": "Wi-Fi errors: bad role, wrong security type, bad WEP index, already disconnected, not connected, unexpected disconnect, wrong password, receive overrun, AP ended the connection",
+        "3": "internal error",
+        "34-44": "socket and DNS errors",
+        "45-52": "cloud WebSocket errors (45 not authorised)",
+        "5": "not found",
+        "53-57": "internal SPI and queue errors",
+        "58": "could not decode the envelope",
+        "59": "Wi-Fi operation in progress",
+        "6": "not supported",
+        "60-61": "TLS failure / invalid certificate",
+        "7": "invalid parameter",
+        "8": "invalid state (not allowed now)"
+      },
+      "stop_reason": {
+        "0": "none",
+        "1": "hardware failure (old generic value)",
+        "10": "hardware failure: accelerometer",
+        "11": "hardware failure: bad motor",
+        "12": "stuck motor",
+        "13": "hardware failure: bad heater",
+        "14": "firmware crash",
+        "2": "top button pressed (program stopped)",
+        "3": "low water",
+        "4": "tipped over",
+        "5": "overheating",
+        "6": "power loss",
+        "7": "hardware failure: heater thermistor",
+        "8": "hardware failure: bath thermistor",
+        "9": "hardware failure: pressure sensor"
+      },
+      "wifi_security": {
+        "0": "open",
+        "1": "WEP",
+        "2": "WPA",
+        "3": "WPS",
+        "4": "unknown",
+        "5": "WPA2",
+        "6": "WPA/WPA2 mixed"
+      }
+    },
+    "envelope": {
+      "addresses": "Over BLE the ChefSteps app clears both address fields to empty bytes before every write. Over the cloud WebSocket they carry the app's and the Joule's messaging addresses (hex strings of up to 9 bytes). The Joule's address is the one in its advertisement. Breville+ fills the addresses from the advertisement even over BLE; both forms are reported to work.",
+      "empty_and_short_reads": "A zero-length read of 700b4323 means nothing is queued. The ChefSteps app's plugin reports it as an error; if a start-program request is outstanding at that moment the app fabricates a successful reply and re-syncs, otherwise it drops the connection. Breville+ ignores reads of 4 bytes or fewer. A client should treat an empty read as \"nothing to do\" and confirm a start from the live feed instead.",
+      "handles": "The reply to a request, and every message of a stream the request opened (live-feed data points, Wi-Fi scan results), carries the request's handle. The ChefSteps SDK draws a random handle below 999744 per request and keeps its handles to one parity per peer (even when the peer's address sorts above its own); Breville+ derives handles from the device address plus a per-message-group offset. Neither scheme appears to matter to the Joule, which is reported to echo whatever it gets.",
+      "streams": "A request that expects one reply is complete when that reply arrives; the SDK ends its side with an end-flagged envelope if the reply did not carry end. A long-lived stream (the live feed) stays open until either side sends an envelope with end set on its handle. The opener sends a keep-alive on the handle every 5 s; the SDK times out a stream the other side opened after 15 s without a message.",
+      "wire_form": "0d <handle, uint32 LE> [20 01 when ending a stream] 2a 00 32 00 <oneof tag varint> <body length varint> <body>. The oneof tag is (field number x 8 + 2) as a varint: 50 -> 92 03, 60 -> e2 03, 130 -> 92 08, 152 -> c2 09. Bodies are ordinary protobuf; nested lengths are varints."
+    },
+    "excluded": {
+      "breville_plus_uuid_e2a6b338": "e2a6b338-d148-49ca-84a8-f5b9a7b93c6e, flagged earlier as a possible GATT UUID, is not one: in the Breville+ bundle it is the id of a built-in manual-cook recipe definition (heater, timer and wait steps) for Breville's newer appliances. It plays no part in this protocol.",
+      "joule_turbo": "The Joule Turbo (retail BSV600, orange ring on the top cap) is not this protocol, contrary to earlier notes that equated it with model code CSJ100. In Breville+, CSJ100 is the code for a Joule found under company ID 0x0159 (this spec), while the Turbo is found under company ID 0x0955 (2389) with model byte 2 in its manufacturer data, and is driven through Breville's own appliance service c6f2d9e3-49e7-4125-9014-bfc6d669ff00 (serial number, Wi-Fi MAC, proximity state, message characteristics on the same base). One Breville+ write path addresses a Breville characteristic under the 700b4321-9836-4383-a2b2-31a9098d1473 service UUID, so whether the Turbo also exposes that service is unknown. The Turbo cannot pair with the ChefSteps app (ChefSteps help centre).",
+      "other": "The Joule oven and Breville's BOV/BES/CST appliances in the same app use Breville's own stack and are out of scope."
+    },
+    "firmware_update": {
+      "advanced": true,
+      "advanced_reason": "Rebooting the SoC into its bootloader or flashing an image can leave the Joule unbootable; the Wi-Fi download path accepts an image from any host the request names. Overview only: no request bytes are given.",
+      "notes": "BLE path: the app requests boot mode (softdevice, bootloader or application), then streams the image over 700b4326-9836-4383-a2b2-31a9098d1473 using start-transfer (file type, block count, byte count, checksum, version), per-block and transfer-complete messages. Wi-Fi path: a download request names a host, a file name, the image's SHA-256 and TFTP or HTTP; the Joule reports progress and outcome (busy while cooking, checksum mismatch, bad image, refusing to overwrite the active or factory slot) and a set-firmware message activates a slot. The app checks the Wi-Fi status up to 4 times 8 s apart and gives up after 240 s without progress. Image kinds: BLE application, SoftDevice, bootloader, Wi-Fi firmware, certificates."
+    },
+    "message_catalogue": {
+      "basic": {
+        "14": "no-op",
+        "15": "reply: unhandled message",
+        "16": "reply: connection ready",
+        "17": "reply: recipient unavailable (field 1 address, field 2 reason: 0 offline, 1 unauthorised)",
+        "18/19": "ping / pong",
+        "20/21": "list streams / reply",
+        "30/31": "list operations / reply (field 1000 name)",
+        "72": "keep-alive"
+      },
+      "cook_control": {
+        "102/103": "drop food / reply",
+        "104/105": "clear error / reply (API 6+)",
+        "50/51": "start program / reply",
+        "52/53": "update program / reply (API 12+; see update_program)",
+        "54/55": "get cook events / reply (API 9+)",
+        "60/61": "stop / reply"
+      },
+      "excluded_by_role": "Also in the oneof, deliberately without numbers here: boot-mode entry, file transfer start/block/complete and file receive (firmware, logs, certificates), the Wi-Fi module's firmware status, download and set-firmware messages, factory reset, device restart, a test reset, a forget-device-pairing request, simulator on/off, reading and writing the temperature sensor's calibration coefficients, and usage-data and crash-data read and reset. They are factory, test or firmware tooling; several can leave a unit uncalibrated or unbootable. If ever declared, every one of them is `advanced`.",
+      "feeds": {
+        "100/101": "list feeds / reply",
+        "70/71": "begin live feed / reply",
+        "80/81": "retransmit feed range (field 1 feed id, 2 first seq, 3 last seq) / reply",
+        "90": "data point (payload_formats.Data_Point)",
+        "91": "debug log message (debug feed, feed type 2)",
+        "92/93": "list recent events / reply",
+        "95/96": "describe feed / reply (field 1 feed id; reply field 2 = the program)"
+      },
+      "notes": "Oneof field numbers of the messages in scope, restated from the app's schema. Replies are normally request + 1. The BLE-only column is the vendor router's rule; everything else may also travel over the cloud WebSocket.",
+      "pairing_and_identity": {
+        "120/121": "start key exchange / reply with secret key (BLE only)",
+        "125/126": "cancel key exchange / reply",
+        "130/131": "submit key / reply (BLE only; the only message allowed before authorisation)",
+        "132/133": "submit cloud bearer token / reply (cloud_path)",
+        "150/151": "rename / reply (reply field 2 = the name now set)",
+        "152/153": "identify / reply",
+        "154/155": "set messaging address / reply (not used over BLE by either app)",
+        "156/157": "display LED / reply (API 6+)",
+        "180/181": "get limits / reply (API 2+)",
+        "190/191": "request button press / reply (API 7+)",
+        "192/193": "cancel button press / reply"
+      },
+      "wifi": {
+        "160/161": "disconnect Wi-Fi / reply (BLE only)",
+        "41/42": "scan Wi-Fi / one reply per access point (BLE only)",
+        "43/44": "connect Wi-Fi / reply (BLE only)",
+        "45/47": "Wi-Fi status (list profile) / reply",
+        "48/49": "forget Wi-Fi profile / reply"
+      }
+    },
+    "message_encodings": {
+      "connect_wifi": {
+        "example": "SSID 'ExampleNet', passphrase 'example-pass', WPA2, handle 1: 0d 01 00 00 00 2a 00 32 00 da 02 1c 0a 0a 45 78 61 6d 70 6c 65 4e 65 74 12 0c 65 78 61 6d 70 6c 65 2d 70 61 73 73 18 05 (invented credentials)",
+        "notes": "Oneof field 43 (tag da 02). Body: field 1 SSID (string), field 2 passphrase (string, empty for open networks), field 3 security type (varint, enums.wifi_security). Body length = (2 + SSID length) + (2 + passphrase length) + 2 while each string is under 128 bytes. SSIDs up to 32 and passphrases up to 63 characters since firmware 85.39."
+      },
+      "describe_feed": {
+        "notes": "Oneof field 95 with field 1 = feed id (varint). For feed id 7, handle 1: 0d 01 00 00 00 2a 00 32 00 fa 05 02 08 07. The body length is 2 for ids up to 127 and 3 up to 16383. The reply (field 96) carries field 1 feed id, field 2 the program (absent when idle), field 3 result."
+      },
+      "program": {
+        "advanced_fields": {
+          "advanced": true,
+          "advanced_reason": "Delayed start leaves food in unheated water before cooking starts, and a holding temperature lets the bath drift down after the cook; both are food-safety decisions the vendor app made for the user in guided recipes. The ChefSteps app never sent delayed start from its UI (JouleUWP saw none either).",
+          "notes": "Encode as field 3 (varint s) and field 4 (float32 °C) inside the program, in field-number order, and fix up both length bytes."
+        },
+        "fields": {
+          "1": "set point, float32 °C (required)",
+          "2": "cook time, varint seconds",
+          "3": "delayed start, varint seconds (see advanced_fields)",
+          "4": "holding temperature, float32 °C (see advanced_fields)",
+          "5": "program type, varint: 0 manual, 1 automatic/guided (required)",
+          "6": "metadata sub-message: guide, program, timer and cook ids (strings, fields 1-4); app bookkeeping, not needed locally",
+          "7": "turbo state, varint: 0 none, 1 enabled, 2 timed out (API 13+). The app always sends 0 unless the user picks turbo",
+          "8": "food thickness, varint micrometres (turbo cooks)",
+          "9": "food weight, varint milligrams (turbo cooks)"
+        },
+        "notes": "The program sub-message (start-program field 1; describe-feed reply field 2). Only fields 1 and 5 are needed for a manual cook.",
+        "start_program_extras": "Start-program fields 2 (feed id) and 3 (sequence number), both varints, are optional optimistic-concurrency guards the app fills with the last data point's values."
+      },
+      "rename": {
+        "example": "Name 'Kitchen', handle 1: 0d 01 00 00 00 2a 00 32 00 b2 09 09 0a 07 4b 69 74 63 68 65 6e",
+        "notes": "Oneof field 150 (tag b2 09). Body: field 1 name (string). Reply field 151: field 1 result, field 2 the name as stored."
+      },
+      "update_program": {
+        "notes": "Oneof field 52 (API 12+): field 1 cook time (varint s), 2 set point (float32 °C), 3 set-point time (varint), 4 update type (1 regular, 2 turbo). The ChefSteps app changes a running cook by starting a new program instead (and resumes with the remaining time as the cook time), so update_program is not declared."
+      }
+    },
+    "test_vectors": {
+      "advertisement_payload": "Manufacturer data after company ID 0x0159: 10 0a 1b 2c 3d 4e 5f 60 71 -> flags 0x10 (bit 7 clear: nobody connected; version 16), circulator address 0a1b2c3d4e5f6071 (invented).",
+      "begin_live_feed": "0d 01 00 00 00 2a 00 32 00 b2 04 02 08 01",
+      "cook_time_varint": "3600 s -> 90 1c; 16383 s -> ff 7f; 16384 s -> 80 80 01; 86400 s -> 80 a3 05",
+      "notes": "Built from the field numbers with a scratch encoder and decoded back; not captured. Handle 1 throughout. Addresses and keys are invented.",
+      "request_button_press": "0d 01 00 00 00 2a 00 32 00 f2 0b 08 08 03 10 02 18 b8 91 02",
+      "set_point_float": "60.0 °C -> 00 00 70 42; 56.5 °C -> 00 00 62 42; 85.0 °C -> 00 00 aa 42",
+      "stop_cooking": "0d 01 00 00 00 2a 00 32 00 e2 03 00",
+      "stop_cooking_reply": "0d 01 00 00 00 20 01 2a 00 32 00 ea 03 02 08 00  (result 0, end set)",
+      "submit_key": "16-byte key 00..0f: 0d 01 00 00 00 2a 00 32 00 92 08 12 0a 10 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f"
+    }
+  },
+  "remaining_unknowns": [
+    "The secret key's length on real hardware (the SDK simulator issues 16 bytes; submit_key's template assumes 16).",
+    "Whether current firmware really refuses everything before submit_key, and whether the earliest (2016) firmware did (JouleUWP saw no BLE security, but never decoded the traffic).",
+    "Whether envelopes with empty address fields (the ChefSteps app's BLE form) and with filled ones (Breville+) are both accepted.",
+    "Whether a new key exchange invalidates keys issued earlier, and whether the forget-device-pairing request revokes them.",
+    "Whether the live feed ends without keep-alives, and after how long.",
+    "When a timed cook's countdown starts (at start or at drop_food), and what the Joule does when it reaches zero.",
+    "The device's maximum cook time and the reply to an out-of-range setpoint.",
+    "What bit 7 of the advertisement flags byte means exactly (the app reads it as already connected) and what the low bits' version values are.",
+    "Real ATT handles, full characteristic properties, any extra services, and whether the BLE address is public.",
+    "Why Breville+ forces MTU 23 on Android 14 and newer for this model.",
+    "What the Joule advertises in its bootloader, and whether its images are signed.",
+    "Whether the Joule Turbo (BSV600) also exposes the 700b4321-9836-4383-a2b2-31a9098d1473 service alongside Breville's own.",
+    "The meaning of forget_wifi_profile's index -1 and of get_wifi_status without an index."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "begin_live_feed": {
+              "description": "Open the cook-data feed (oneof field 70, inner field 1 = feed type 1, cook data). The Joule answers with a begin-live-feed reply (oneof field 71, result) and then streams data points (oneof field 90, payload_formats.Data_Point) on the same handle until either side ends the stream. Keep it alive with keep_alive every 5 s. The SDK treats 10 s without a data point as a dropped feed.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                178,
+                4,
+                2,
+                8,
+                1
+              ],
+              "verification": "reported"
+            },
+            "blink_led": {
+              "description": "Light the Joule's LED so you can find it (oneof field 156: inner field 1 colour, field 2 pattern, field 3 duration in ms, fixed here at 5000 ms). Reply: oneof field 157 with a result code. Defaults give a white double blink, the pattern the vendor's LED article calls \"the app has requested that Joule identify itself\". API version 6 and later.",
+              "locate": "flash",
+              "parameters": {
+                "color": {
+                  "default": 3,
+                  "description": "LED colour enum (a one-byte varint over this range).",
+                  "labels": [
+                    "Red",
+                    "Green",
+                    "Blue",
+                    "White",
+                    "Orange",
+                    "Yellow",
+                    "Off (black)",
+                    "Purple"
+                  ],
+                  "max": 7,
+                  "min": 0,
+                  "type": "uint8"
+                },
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                },
+                "pattern": {
+                  "default": 2,
+                  "description": "LED pattern enum (a one-byte varint over this range).",
+                  "labels": [
+                    "Blink",
+                    "Breathe",
+                    "Double blink",
+                    "Double pulse",
+                    "Solid"
+                  ],
+                  "max": 4,
+                  "min": 0,
+                  "type": "uint8"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                226,
+                9,
+                7,
+                8,
+                "{color}",
+                16,
+                "{pattern}",
+                24,
+                136,
+                39
+              ],
+              "verification": "reported"
+            },
+            "cancel_button_press": {
+              "description": "Withdraw a pending button-press request (oneof field 192, empty body). Reply: oneof field 193 with a result code.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                130,
+                12,
+                0
+              ],
+              "verification": "reported"
+            },
+            "cancel_key_exchange": {
+              "description": "Abandon a pending key exchange (oneof field 125, empty body). Reply: oneof field 126 with a result code.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                234,
+                7,
+                0
+              ],
+              "verification": "reported"
+            },
+            "clear_error": {
+              "description": "Acknowledge and clear a soft error (oneof field 104, empty body). Reply: oneof field 105 with a result code. API version 6 and later; older firmware needed manual error handling.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                194,
+                6,
+                0
+              ],
+              "verification": "reported"
+            },
+            "disconnect_wifi": {
+              "description": "Drop the current Wi-Fi connection (oneof field 160, empty body). Reply: oneof field 161 with a result code. Bluetooth-only in the vendor router. The first half of moving to a new network.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                130,
+                10,
+                0
+              ],
+              "verification": "reported"
+            },
+            "drop_food": {
+              "description": "Tell the Joule the food is in the bath (oneof field 102, empty body), moving a program from waiting-for-food to cooking. Reply: oneof field 103 with a result code. Dropping during pre-heat is the \"early food drop\" of API version 9 and later.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                178,
+                6,
+                0
+              ],
+              "verification": "reported"
+            },
+            "forget_wifi_profile": {
+              "description": "Forget a stored Wi-Fi profile (oneof field 48, inner field 1 = index as int32). This is the ChefSteps SDK's default form, index -1, which encodes as the ten-byte varint ff ff ff ff ff ff ff ff ff 01; what -1 selects (probably the current profile) is not established. Reply: oneof field 49 with a result code.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                130,
+                3,
+                11,
+                8,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                1
+              ],
+              "verification": "reported"
+            },
+            "get_cook_events": {
+              "description": "Read the current cook's milestones (oneof field 54, empty body). Reply: oneof field 55 (payload_formats.Cook_Events_Reply). API version 9 and later.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                178,
+                3,
+                0
+              ],
+              "verification": "reported"
+            },
+            "get_limits": {
+              "description": "Read the device's setpoint ceiling (oneof field 180, empty body). Reply: oneof field 181, inner field 1 result, inner field 2 maximum temperature (float32 °C). API version 2 and later; the SDK assumes 90 °C when unsupported.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                162,
+                11,
+                0
+              ],
+              "verification": "reported"
+            },
+            "get_wifi_status": {
+              "description": "Read the current Wi-Fi profile and link state (oneof field 45, index omitted as Breville+ sends it; the ChefSteps SDK sends index -1). Reply: oneof field 47 (payload_formats.Wifi_Status_Reply).",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                234,
+                2,
+                0
+              ],
+              "verification": "reported"
+            },
+            "identify_circulator": {
+              "description": "Ask who and what the Joule is (oneof field 152, empty body). Reply: oneof field 153 with name, firmware versions, serial number, model number, API version and hardware options (payload_formats.Identify_Reply). The serial number and MAC in it are per unit.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                194,
+                9,
+                0
+              ],
+              "verification": "reported"
+            },
+            "keep_alive": {
+              "description": "Keep an open stream alive (oneof field 72, empty body). Send it every 5 s with the handle of the stream you opened, typically the live feed's. The SDK drops a stream the other side opened after 15 s of silence; that the firmware does the same is a hypothesis.",
+              "parameters": {
+                "stream_handle": {
+                  "description": "The handle of the stream being kept alive (the one sent with begin_live_feed). Not a fresh value.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{stream_handle}",
+                42,
+                0,
+                50,
+                0,
+                194,
+                4,
+                0
+              ],
+              "verification": "reported"
+            },
+            "list_feeds": {
+              "description": "List the Joule's feeds (oneof field 100, empty body). Replies: oneof field 101, one per feed: feed id (field 1), feed type (field 2, 1 = cook data), active flag (field 3), result (field 4). Use the cook-data feed id with the describe-feed request (protocol_details.message_encodings.describe_feed) to read the running program.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                162,
+                6,
+                0
+              ],
+              "verification": "reported"
+            },
+            "list_recent_events": {
+              "description": "Ask why the last program stopped or what hardware failed (oneof field 92, empty body). Reply: oneof field 93 (payload_formats.Recent_Event_Reply).",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                226,
+                5,
+                0
+              ],
+              "verification": "reported"
+            },
+            "ping": {
+              "description": "Round-trip check (oneof field 18, empty body). The reply is a pong (oneof field 19, empty).",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                146,
+                1,
+                0
+              ],
+              "verification": "reported"
+            },
+            "request_button_press": {
+              "description": "Ask the owner to confirm at the device (oneof field 190: white, double blink, 35000 ms, as the app sends it before a high-temperature start on UL-listed units). The reply (oneof field 191) arrives only when the button is pressed, with result 0; result 13 means it timed out and 19 that it was cancelled. The SDK waits up to 300 s. API version 7 and later.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                242,
+                11,
+                8,
+                8,
+                3,
+                16,
+                2,
+                24,
+                184,
+                145,
+                2
+              ],
+              "verification": "reported"
+            },
+            "scan_wifi_networks": {
+              "description": "Have the Joule scan for access points (oneof field 41; the optional start flag is omitted, as Breville+ sends it). Replies: oneof field 42, one per access point, on the same handle (payload_formats.Wifi_Scan_Reply). Bluetooth-only in the vendor router.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                202,
+                2,
+                0
+              ],
+              "verification": "reported"
+            },
+            "start_cook": {
+              "description": "Start a manual cook that holds the setpoint until stopped (oneof field 50: inner field 1 = program with set point, float32 °C, field 1, and program type 0 = manual, field 5). Reply: oneof field 51 with a result code. Starting a program replaces any running one; that is how the vendor app changes the temperature mid-cook. On a UL-listed unit the app never uses this above 85 °C without a button press first. Example for 60.0 °C, handle 1: 0d 01 00 00 00 2a 00 32 00 92 03 09 0a 07 0d 00 00 70 42 28 00.",
+              "packet_layout": {
+                "0": "envelope: handle (fixed32 LE) and two empty addresses",
+                "12": "start-program field 1 (the program), length 7",
+                "14": "program field 1 tag (fixed32): set point",
+                "15": "set point, IEEE 754 binary32 LE, °C",
+                "19": "program field 5 (program type) = 0, manual",
+                "9": "oneof field 50 tag (0x92 0x03), body length 9"
+              },
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                },
+                "set_point": {
+                  "allowed": [
+                    1101004800,
+                    1101266944,
+                    1101529088,
+                    1101791232,
+                    1102053376,
+                    1102315520,
+                    1102577664,
+                    1102839808,
+                    1103101952,
+                    1103364096,
+                    1103626240,
+                    1103888384,
+                    1104150528,
+                    1104412672,
+                    1104674816,
+                    1104936960,
+                    1105199104,
+                    1105461248,
+                    1105723392,
+                    1105985536,
+                    1106247680,
+                    1106509824,
+                    1106771968,
+                    1107034112,
+                    1107296256,
+                    1107427328,
+                    1107558400,
+                    1107689472,
+                    1107820544,
+                    1107951616,
+                    1108082688,
+                    1108213760,
+                    1108344832,
+                    1108475904,
+                    1108606976,
+                    1108738048,
+                    1108869120,
+                    1109000192,
+                    1109131264,
+                    1109262336,
+                    1109393408,
+                    1109524480,
+                    1109655552,
+                    1109786624,
+                    1109917696,
+                    1110048768,
+                    1110179840,
+                    1110310912,
+                    1110441984,
+                    1110573056,
+                    1110704128,
+                    1110835200,
+                    1110966272,
+                    1111097344,
+                    1111228416,
+                    1111359488,
+                    1111490560,
+                    1111621632,
+                    1111752704,
+                    1111883776,
+                    1112014848,
+                    1112145920,
+                    1112276992,
+                    1112408064,
+                    1112539136,
+                    1112670208,
+                    1112801280,
+                    1112932352,
+                    1113063424,
+                    1113194496,
+                    1113325568,
+                    1113456640,
+                    1113587712,
+                    1113718784,
+                    1113849856,
+                    1113980928,
+                    1114112000,
+                    1114243072,
+                    1114374144,
+                    1114505216,
+                    1114636288,
+                    1114767360,
+                    1114898432,
+                    1115029504,
+                    1115160576,
+                    1115291648,
+                    1115422720,
+                    1115553792,
+                    1115684864,
+                    1115750400,
+                    1115815936,
+                    1115881472,
+                    1115947008,
+                    1116012544,
+                    1116078080,
+                    1116143616,
+                    1116209152,
+                    1116274688,
+                    1116340224,
+                    1116405760,
+                    1116471296,
+                    1116536832,
+                    1116602368,
+                    1116667904,
+                    1116733440,
+                    1116798976,
+                    1116864512,
+                    1116930048,
+                    1116995584,
+                    1117061120,
+                    1117126656,
+                    1117192192,
+                    1117257728,
+                    1117323264,
+                    1117388800,
+                    1117454336,
+                    1117519872,
+                    1117585408,
+                    1117650944,
+                    1117716480,
+                    1117782016,
+                    1117847552,
+                    1117913088,
+                    1117978624,
+                    1118044160,
+                    1118109696,
+                    1118175232,
+                    1118240768,
+                    1118306304,
+                    1118371840,
+                    1118437376
+                  ],
+                  "description": "Setpoint in °C as the bit pattern of an IEEE 754 binary32 float, sent as its four little-endian bytes. The allowed values are the patterns of 20.0 to 85.0 °C in 0.5 °C steps (20.0 is 0x41a00000, 60.0 is 0x42700000, 85.0 is 0x42aa0000). Pick a label; never send a °C number as the integer.",
+                  "endianness": "little",
+                  "labels": [
+                    "20.0 °C",
+                    "20.5 °C",
+                    "21.0 °C",
+                    "21.5 °C",
+                    "22.0 °C",
+                    "22.5 °C",
+                    "23.0 °C",
+                    "23.5 °C",
+                    "24.0 °C",
+                    "24.5 °C",
+                    "25.0 °C",
+                    "25.5 °C",
+                    "26.0 °C",
+                    "26.5 °C",
+                    "27.0 °C",
+                    "27.5 °C",
+                    "28.0 °C",
+                    "28.5 °C",
+                    "29.0 °C",
+                    "29.5 °C",
+                    "30.0 °C",
+                    "30.5 °C",
+                    "31.0 °C",
+                    "31.5 °C",
+                    "32.0 °C",
+                    "32.5 °C",
+                    "33.0 °C",
+                    "33.5 °C",
+                    "34.0 °C",
+                    "34.5 °C",
+                    "35.0 °C",
+                    "35.5 °C",
+                    "36.0 °C",
+                    "36.5 °C",
+                    "37.0 °C",
+                    "37.5 °C",
+                    "38.0 °C",
+                    "38.5 °C",
+                    "39.0 °C",
+                    "39.5 °C",
+                    "40.0 °C",
+                    "40.5 °C",
+                    "41.0 °C",
+                    "41.5 °C",
+                    "42.0 °C",
+                    "42.5 °C",
+                    "43.0 °C",
+                    "43.5 °C",
+                    "44.0 °C",
+                    "44.5 °C",
+                    "45.0 °C",
+                    "45.5 °C",
+                    "46.0 °C",
+                    "46.5 °C",
+                    "47.0 °C",
+                    "47.5 °C",
+                    "48.0 °C",
+                    "48.5 °C",
+                    "49.0 °C",
+                    "49.5 °C",
+                    "50.0 °C",
+                    "50.5 °C",
+                    "51.0 °C",
+                    "51.5 °C",
+                    "52.0 °C",
+                    "52.5 °C",
+                    "53.0 °C",
+                    "53.5 °C",
+                    "54.0 °C",
+                    "54.5 °C",
+                    "55.0 °C",
+                    "55.5 °C",
+                    "56.0 °C",
+                    "56.5 °C",
+                    "57.0 °C",
+                    "57.5 °C",
+                    "58.0 °C",
+                    "58.5 °C",
+                    "59.0 °C",
+                    "59.5 °C",
+                    "60.0 °C",
+                    "60.5 °C",
+                    "61.0 °C",
+                    "61.5 °C",
+                    "62.0 °C",
+                    "62.5 °C",
+                    "63.0 °C",
+                    "63.5 °C",
+                    "64.0 °C",
+                    "64.5 °C",
+                    "65.0 °C",
+                    "65.5 °C",
+                    "66.0 °C",
+                    "66.5 °C",
+                    "67.0 °C",
+                    "67.5 °C",
+                    "68.0 °C",
+                    "68.5 °C",
+                    "69.0 °C",
+                    "69.5 °C",
+                    "70.0 °C",
+                    "70.5 °C",
+                    "71.0 °C",
+                    "71.5 °C",
+                    "72.0 °C",
+                    "72.5 °C",
+                    "73.0 °C",
+                    "73.5 °C",
+                    "74.0 °C",
+                    "74.5 °C",
+                    "75.0 °C",
+                    "75.5 °C",
+                    "76.0 °C",
+                    "76.5 °C",
+                    "77.0 °C",
+                    "77.5 °C",
+                    "78.0 °C",
+                    "78.5 °C",
+                    "79.0 °C",
+                    "79.5 °C",
+                    "80.0 °C",
+                    "80.5 °C",
+                    "81.0 °C",
+                    "81.5 °C",
+                    "82.0 °C",
+                    "82.5 °C",
+                    "83.0 °C",
+                    "83.5 °C",
+                    "84.0 °C",
+                    "84.5 °C",
+                    "85.0 °C"
+                  ],
+                  "notes": "20 °C is the vendor's minimum settable temperature. The app accepts one decimal place, so finer setpoints are valid on the wire; the list stops at 0.5 °C steps to stay usable.",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                146,
+                3,
+                9,
+                10,
+                7,
+                13,
+                "{set_point}",
+                40,
+                0
+              ],
+              "verification": "reported"
+            },
+            "start_cook_above_85c": {
+              "advanced": true,
+              "advanced_reason": "Water within a few degrees of boiling: scalding risk, heavy evaporation, and at altitude the setpoint can sit above the local boiling point. UL-listed Joules require an on-device button press before the vendor app starts such a cook, and the device's own ceiling (get_limits) may be lower than 98 °C.",
+              "description": "The same manual-cook request with a setpoint of 85.5-98 °C. The vendor app allows up to 98 °C at sea level (2 °C below local boiling at altitude) and recommends 90 °C as the practical maximum. On a UL-listed unit (identify hardware options bit 16) the app first sends request_button_press and starts the cook only after the owner presses the top button. Read get_limits first and never exceed it.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                },
+                "set_point": {
+                  "allowed": [
+                    1118502912,
+                    1118568448,
+                    1118633984,
+                    1118699520,
+                    1118765056,
+                    1118830592,
+                    1118896128,
+                    1118961664,
+                    1119027200,
+                    1119092736,
+                    1119158272,
+                    1119223808,
+                    1119289344,
+                    1119354880,
+                    1119420416,
+                    1119485952,
+                    1119551488,
+                    1119617024,
+                    1119682560,
+                    1119748096,
+                    1119813632,
+                    1119879168,
+                    1119944704,
+                    1120010240,
+                    1120075776,
+                    1120141312
+                  ],
+                  "description": "Setpoint in °C as a binary32 bit pattern, four LE bytes: 85.5 to 98.0 °C in 0.5 °C steps (85.5 is 0x42ab0000, 98.0 is 0x42c40000).",
+                  "endianness": "little",
+                  "labels": [
+                    "85.5 °C",
+                    "86.0 °C",
+                    "86.5 °C",
+                    "87.0 °C",
+                    "87.5 °C",
+                    "88.0 °C",
+                    "88.5 °C",
+                    "89.0 °C",
+                    "89.5 °C",
+                    "90.0 °C",
+                    "90.5 °C",
+                    "91.0 °C",
+                    "91.5 °C",
+                    "92.0 °C",
+                    "92.5 °C",
+                    "93.0 °C",
+                    "93.5 °C",
+                    "94.0 °C",
+                    "94.5 °C",
+                    "95.0 °C",
+                    "95.5 °C",
+                    "96.0 °C",
+                    "96.5 °C",
+                    "97.0 °C",
+                    "97.5 °C",
+                    "98.0 °C"
+                  ],
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                146,
+                3,
+                9,
+                10,
+                7,
+                13,
+                "{set_point}",
+                40,
+                0
+              ],
+              "verification": "reported"
+            },
+            "start_key_exchange": {
+              "description": "Ask the Joule to issue a secret key (oneof field 120, empty body). The Joule blinks white and replies only after the owner presses the top button: start-key-exchange reply (oneof field 121) with the key in inner field 1 (bytes) and a result code in inner field 2. The ChefSteps app waits 35 s. Allowed before authorisation (the apps send it straight after connecting).",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                194,
+                7,
+                0
+              ],
+              "verification": "reported"
+            },
+            "start_long_timed_cook": {
+              "description": "As start_timed_cook for 16384 to 2097151 s (4 h 33 min to 24 days), where the cook-time varint is exactly three bytes. The device's maximum cook time is not recorded. Example for 57.0 °C and 24 h, handle 1: 0d 01 00 00 00 2a 00 32 00 92 03 0d 0a 0b 0d 00 00 64 42 10 80 a3 05 28 00.",
+              "parameters": {
+                "cook_time": {
+                  "description": "Cook time in seconds, protobuf varint, three bytes over this range.",
+                  "max": 2097151,
+                  "min": 16384,
+                  "type": "varint",
+                  "unit": "s"
+                },
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                },
+                "set_point": {
+                  "allowed": [
+                    1101004800,
+                    1101266944,
+                    1101529088,
+                    1101791232,
+                    1102053376,
+                    1102315520,
+                    1102577664,
+                    1102839808,
+                    1103101952,
+                    1103364096,
+                    1103626240,
+                    1103888384,
+                    1104150528,
+                    1104412672,
+                    1104674816,
+                    1104936960,
+                    1105199104,
+                    1105461248,
+                    1105723392,
+                    1105985536,
+                    1106247680,
+                    1106509824,
+                    1106771968,
+                    1107034112,
+                    1107296256,
+                    1107427328,
+                    1107558400,
+                    1107689472,
+                    1107820544,
+                    1107951616,
+                    1108082688,
+                    1108213760,
+                    1108344832,
+                    1108475904,
+                    1108606976,
+                    1108738048,
+                    1108869120,
+                    1109000192,
+                    1109131264,
+                    1109262336,
+                    1109393408,
+                    1109524480,
+                    1109655552,
+                    1109786624,
+                    1109917696,
+                    1110048768,
+                    1110179840,
+                    1110310912,
+                    1110441984,
+                    1110573056,
+                    1110704128,
+                    1110835200,
+                    1110966272,
+                    1111097344,
+                    1111228416,
+                    1111359488,
+                    1111490560,
+                    1111621632,
+                    1111752704,
+                    1111883776,
+                    1112014848,
+                    1112145920,
+                    1112276992,
+                    1112408064,
+                    1112539136,
+                    1112670208,
+                    1112801280,
+                    1112932352,
+                    1113063424,
+                    1113194496,
+                    1113325568,
+                    1113456640,
+                    1113587712,
+                    1113718784,
+                    1113849856,
+                    1113980928,
+                    1114112000,
+                    1114243072,
+                    1114374144,
+                    1114505216,
+                    1114636288,
+                    1114767360,
+                    1114898432,
+                    1115029504,
+                    1115160576,
+                    1115291648,
+                    1115422720,
+                    1115553792,
+                    1115684864,
+                    1115750400,
+                    1115815936,
+                    1115881472,
+                    1115947008,
+                    1116012544,
+                    1116078080,
+                    1116143616,
+                    1116209152,
+                    1116274688,
+                    1116340224,
+                    1116405760,
+                    1116471296,
+                    1116536832,
+                    1116602368,
+                    1116667904,
+                    1116733440,
+                    1116798976,
+                    1116864512,
+                    1116930048,
+                    1116995584,
+                    1117061120,
+                    1117126656,
+                    1117192192,
+                    1117257728,
+                    1117323264,
+                    1117388800,
+                    1117454336,
+                    1117519872,
+                    1117585408,
+                    1117650944,
+                    1117716480,
+                    1117782016,
+                    1117847552,
+                    1117913088,
+                    1117978624,
+                    1118044160,
+                    1118109696,
+                    1118175232,
+                    1118240768,
+                    1118306304,
+                    1118371840,
+                    1118437376
+                  ],
+                  "description": "Setpoint in °C as the bit pattern of an IEEE 754 binary32 float, sent as its four little-endian bytes. The allowed values are the patterns of 20.0 to 85.0 °C in 0.5 °C steps (20.0 is 0x41a00000, 60.0 is 0x42700000, 85.0 is 0x42aa0000). Pick a label; never send a °C number as the integer.",
+                  "endianness": "little",
+                  "labels": [
+                    "20.0 °C",
+                    "20.5 °C",
+                    "21.0 °C",
+                    "21.5 °C",
+                    "22.0 °C",
+                    "22.5 °C",
+                    "23.0 °C",
+                    "23.5 °C",
+                    "24.0 °C",
+                    "24.5 °C",
+                    "25.0 °C",
+                    "25.5 °C",
+                    "26.0 °C",
+                    "26.5 °C",
+                    "27.0 °C",
+                    "27.5 °C",
+                    "28.0 °C",
+                    "28.5 °C",
+                    "29.0 °C",
+                    "29.5 °C",
+                    "30.0 °C",
+                    "30.5 °C",
+                    "31.0 °C",
+                    "31.5 °C",
+                    "32.0 °C",
+                    "32.5 °C",
+                    "33.0 °C",
+                    "33.5 °C",
+                    "34.0 °C",
+                    "34.5 °C",
+                    "35.0 °C",
+                    "35.5 °C",
+                    "36.0 °C",
+                    "36.5 °C",
+                    "37.0 °C",
+                    "37.5 °C",
+                    "38.0 °C",
+                    "38.5 °C",
+                    "39.0 °C",
+                    "39.5 °C",
+                    "40.0 °C",
+                    "40.5 °C",
+                    "41.0 °C",
+                    "41.5 °C",
+                    "42.0 °C",
+                    "42.5 °C",
+                    "43.0 °C",
+                    "43.5 °C",
+                    "44.0 °C",
+                    "44.5 °C",
+                    "45.0 °C",
+                    "45.5 °C",
+                    "46.0 °C",
+                    "46.5 °C",
+                    "47.0 °C",
+                    "47.5 °C",
+                    "48.0 °C",
+                    "48.5 °C",
+                    "49.0 °C",
+                    "49.5 °C",
+                    "50.0 °C",
+                    "50.5 °C",
+                    "51.0 °C",
+                    "51.5 °C",
+                    "52.0 °C",
+                    "52.5 °C",
+                    "53.0 °C",
+                    "53.5 °C",
+                    "54.0 °C",
+                    "54.5 °C",
+                    "55.0 °C",
+                    "55.5 °C",
+                    "56.0 °C",
+                    "56.5 °C",
+                    "57.0 °C",
+                    "57.5 °C",
+                    "58.0 °C",
+                    "58.5 °C",
+                    "59.0 °C",
+                    "59.5 °C",
+                    "60.0 °C",
+                    "60.5 °C",
+                    "61.0 °C",
+                    "61.5 °C",
+                    "62.0 °C",
+                    "62.5 °C",
+                    "63.0 °C",
+                    "63.5 °C",
+                    "64.0 °C",
+                    "64.5 °C",
+                    "65.0 °C",
+                    "65.5 °C",
+                    "66.0 °C",
+                    "66.5 °C",
+                    "67.0 °C",
+                    "67.5 °C",
+                    "68.0 °C",
+                    "68.5 °C",
+                    "69.0 °C",
+                    "69.5 °C",
+                    "70.0 °C",
+                    "70.5 °C",
+                    "71.0 °C",
+                    "71.5 °C",
+                    "72.0 °C",
+                    "72.5 °C",
+                    "73.0 °C",
+                    "73.5 °C",
+                    "74.0 °C",
+                    "74.5 °C",
+                    "75.0 °C",
+                    "75.5 °C",
+                    "76.0 °C",
+                    "76.5 °C",
+                    "77.0 °C",
+                    "77.5 °C",
+                    "78.0 °C",
+                    "78.5 °C",
+                    "79.0 °C",
+                    "79.5 °C",
+                    "80.0 °C",
+                    "80.5 °C",
+                    "81.0 °C",
+                    "81.5 °C",
+                    "82.0 °C",
+                    "82.5 °C",
+                    "83.0 °C",
+                    "83.5 °C",
+                    "84.0 °C",
+                    "84.5 °C",
+                    "85.0 °C"
+                  ],
+                  "notes": "20 °C is the vendor's minimum settable temperature. The app accepts one decimal place, so finer setpoints are valid on the wire; the list stops at 0.5 °C steps to stay usable.",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                146,
+                3,
+                13,
+                10,
+                11,
+                13,
+                "{set_point}",
+                16,
+                "{cook_time}",
+                40,
+                0
+              ],
+              "verification": "reported"
+            },
+            "start_timed_cook": {
+              "description": "Manual cook with a cook time of 128 to 16383 s (program field 2, a varint that is exactly two bytes over this range). The program walks pre-heat, wait-for-food, cook and wait-for-remove-food; the app sends drop_food when the food goes in. Whether the countdown starts at the drop or at the start is not established. The app always sends whole minutes (minutes x 60). Example for 60.0 °C and 1 h, handle 1: 0d 01 00 00 00 2a 00 32 00 92 03 0c 0a 0a 0d 00 00 70 42 10 90 1c 28 00.",
+              "parameters": {
+                "cook_time": {
+                  "description": "Cook time in seconds, protobuf varint. Bounded so it always encodes in two bytes, which keeps the length bytes in the template right (up to 4 h 33 min). Longer cooks use start_long_timed_cook.",
+                  "max": 16383,
+                  "min": 128,
+                  "type": "varint",
+                  "unit": "s"
+                },
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                },
+                "set_point": {
+                  "allowed": [
+                    1101004800,
+                    1101266944,
+                    1101529088,
+                    1101791232,
+                    1102053376,
+                    1102315520,
+                    1102577664,
+                    1102839808,
+                    1103101952,
+                    1103364096,
+                    1103626240,
+                    1103888384,
+                    1104150528,
+                    1104412672,
+                    1104674816,
+                    1104936960,
+                    1105199104,
+                    1105461248,
+                    1105723392,
+                    1105985536,
+                    1106247680,
+                    1106509824,
+                    1106771968,
+                    1107034112,
+                    1107296256,
+                    1107427328,
+                    1107558400,
+                    1107689472,
+                    1107820544,
+                    1107951616,
+                    1108082688,
+                    1108213760,
+                    1108344832,
+                    1108475904,
+                    1108606976,
+                    1108738048,
+                    1108869120,
+                    1109000192,
+                    1109131264,
+                    1109262336,
+                    1109393408,
+                    1109524480,
+                    1109655552,
+                    1109786624,
+                    1109917696,
+                    1110048768,
+                    1110179840,
+                    1110310912,
+                    1110441984,
+                    1110573056,
+                    1110704128,
+                    1110835200,
+                    1110966272,
+                    1111097344,
+                    1111228416,
+                    1111359488,
+                    1111490560,
+                    1111621632,
+                    1111752704,
+                    1111883776,
+                    1112014848,
+                    1112145920,
+                    1112276992,
+                    1112408064,
+                    1112539136,
+                    1112670208,
+                    1112801280,
+                    1112932352,
+                    1113063424,
+                    1113194496,
+                    1113325568,
+                    1113456640,
+                    1113587712,
+                    1113718784,
+                    1113849856,
+                    1113980928,
+                    1114112000,
+                    1114243072,
+                    1114374144,
+                    1114505216,
+                    1114636288,
+                    1114767360,
+                    1114898432,
+                    1115029504,
+                    1115160576,
+                    1115291648,
+                    1115422720,
+                    1115553792,
+                    1115684864,
+                    1115750400,
+                    1115815936,
+                    1115881472,
+                    1115947008,
+                    1116012544,
+                    1116078080,
+                    1116143616,
+                    1116209152,
+                    1116274688,
+                    1116340224,
+                    1116405760,
+                    1116471296,
+                    1116536832,
+                    1116602368,
+                    1116667904,
+                    1116733440,
+                    1116798976,
+                    1116864512,
+                    1116930048,
+                    1116995584,
+                    1117061120,
+                    1117126656,
+                    1117192192,
+                    1117257728,
+                    1117323264,
+                    1117388800,
+                    1117454336,
+                    1117519872,
+                    1117585408,
+                    1117650944,
+                    1117716480,
+                    1117782016,
+                    1117847552,
+                    1117913088,
+                    1117978624,
+                    1118044160,
+                    1118109696,
+                    1118175232,
+                    1118240768,
+                    1118306304,
+                    1118371840,
+                    1118437376
+                  ],
+                  "description": "Setpoint in °C as the bit pattern of an IEEE 754 binary32 float, sent as its four little-endian bytes. The allowed values are the patterns of 20.0 to 85.0 °C in 0.5 °C steps (20.0 is 0x41a00000, 60.0 is 0x42700000, 85.0 is 0x42aa0000). Pick a label; never send a °C number as the integer.",
+                  "endianness": "little",
+                  "labels": [
+                    "20.0 °C",
+                    "20.5 °C",
+                    "21.0 °C",
+                    "21.5 °C",
+                    "22.0 °C",
+                    "22.5 °C",
+                    "23.0 °C",
+                    "23.5 °C",
+                    "24.0 °C",
+                    "24.5 °C",
+                    "25.0 °C",
+                    "25.5 °C",
+                    "26.0 °C",
+                    "26.5 °C",
+                    "27.0 °C",
+                    "27.5 °C",
+                    "28.0 °C",
+                    "28.5 °C",
+                    "29.0 °C",
+                    "29.5 °C",
+                    "30.0 °C",
+                    "30.5 °C",
+                    "31.0 °C",
+                    "31.5 °C",
+                    "32.0 °C",
+                    "32.5 °C",
+                    "33.0 °C",
+                    "33.5 °C",
+                    "34.0 °C",
+                    "34.5 °C",
+                    "35.0 °C",
+                    "35.5 °C",
+                    "36.0 °C",
+                    "36.5 °C",
+                    "37.0 °C",
+                    "37.5 °C",
+                    "38.0 °C",
+                    "38.5 °C",
+                    "39.0 °C",
+                    "39.5 °C",
+                    "40.0 °C",
+                    "40.5 °C",
+                    "41.0 °C",
+                    "41.5 °C",
+                    "42.0 °C",
+                    "42.5 °C",
+                    "43.0 °C",
+                    "43.5 °C",
+                    "44.0 °C",
+                    "44.5 °C",
+                    "45.0 °C",
+                    "45.5 °C",
+                    "46.0 °C",
+                    "46.5 °C",
+                    "47.0 °C",
+                    "47.5 °C",
+                    "48.0 °C",
+                    "48.5 °C",
+                    "49.0 °C",
+                    "49.5 °C",
+                    "50.0 °C",
+                    "50.5 °C",
+                    "51.0 °C",
+                    "51.5 °C",
+                    "52.0 °C",
+                    "52.5 °C",
+                    "53.0 °C",
+                    "53.5 °C",
+                    "54.0 °C",
+                    "54.5 °C",
+                    "55.0 °C",
+                    "55.5 °C",
+                    "56.0 °C",
+                    "56.5 °C",
+                    "57.0 °C",
+                    "57.5 °C",
+                    "58.0 °C",
+                    "58.5 °C",
+                    "59.0 °C",
+                    "59.5 °C",
+                    "60.0 °C",
+                    "60.5 °C",
+                    "61.0 °C",
+                    "61.5 °C",
+                    "62.0 °C",
+                    "62.5 °C",
+                    "63.0 °C",
+                    "63.5 °C",
+                    "64.0 °C",
+                    "64.5 °C",
+                    "65.0 °C",
+                    "65.5 °C",
+                    "66.0 °C",
+                    "66.5 °C",
+                    "67.0 °C",
+                    "67.5 °C",
+                    "68.0 °C",
+                    "68.5 °C",
+                    "69.0 °C",
+                    "69.5 °C",
+                    "70.0 °C",
+                    "70.5 °C",
+                    "71.0 °C",
+                    "71.5 °C",
+                    "72.0 °C",
+                    "72.5 °C",
+                    "73.0 °C",
+                    "73.5 °C",
+                    "74.0 °C",
+                    "74.5 °C",
+                    "75.0 °C",
+                    "75.5 °C",
+                    "76.0 °C",
+                    "76.5 °C",
+                    "77.0 °C",
+                    "77.5 °C",
+                    "78.0 °C",
+                    "78.5 °C",
+                    "79.0 °C",
+                    "79.5 °C",
+                    "80.0 °C",
+                    "80.5 °C",
+                    "81.0 °C",
+                    "81.5 °C",
+                    "82.0 °C",
+                    "82.5 °C",
+                    "83.0 °C",
+                    "83.5 °C",
+                    "84.0 °C",
+                    "84.5 °C",
+                    "85.0 °C"
+                  ],
+                  "notes": "20 °C is the vendor's minimum settable temperature. The app accepts one decimal place, so finer setpoints are valid on the wire; the list stops at 0.5 °C steps to stay usable.",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                146,
+                3,
+                12,
+                10,
+                10,
+                13,
+                "{set_point}",
+                16,
+                "{cook_time}",
+                40,
+                0
+              ],
+              "verification": "reported"
+            },
+            "stop_cooking": {
+              "description": "Stop the running program: heating and circulation stop (oneof field 60, empty body). Reply: oneof field 61 with a result code. The SDK can add optional feed id and sequence number fields for optimistic concurrency; this bare form omits them. Keep this one tap away in any client.",
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                226,
+                3,
+                0
+              ],
+              "verification": "reported"
+            },
+            "submit_key": {
+              "description": "Authorise this connection with the stored secret key (oneof field 130, inner field 1 = key bytes). Reply: oneof field 131, result 0 on success, after which every other message is accepted. The only message the vendor router allows before authorisation. This template assumes a 16-byte key (the SDK simulator's length): for a key of n bytes the two length bytes are n+2 (0x12 here) and n (0x10 here).",
+              "packet_layout": {
+                "0": "envelope field 1 tag (fixed32)",
+                "1": "handle, uint32 LE",
+                "12": "inner field 1 tag, key length 0x10",
+                "14": "secret key bytes",
+                "5": "envelope field 5 (sender address), empty",
+                "7": "envelope field 6 (recipient address), empty",
+                "9": "oneof field 130 tag (varint 0x92 0x08), then body length 0x12"
+              },
+              "parameters": {
+                "handle": {
+                  "auto": "sequence",
+                  "description": "Envelope field 1, a fixed32 correlation id; the reply carries the same value. Use a fresh value per request. The ChefSteps SDK picks random handles below 999744 and keeps the handles it opens to one parity so they cannot collide with streams the other side opens; any unused value is reported to work.",
+                  "endianness": "little",
+                  "type": "uint32"
+                },
+                "secret_key": {
+                  "description": "The key this Joule returned in its start-key-exchange reply (setup.methods issues_credentials). Per device and secret; the vendor apps also store it in the owner's account. 16 bytes is the simulator's length, not a hardware observation.",
+                  "max_length": 16,
+                  "min_length": 16,
+                  "source": "credential:secret_key",
+                  "type": "bytes"
+                }
+              },
+              "template": [
+                13,
+                "{handle}",
+                42,
+                0,
+                50,
+                0,
+                146,
+                8,
+                18,
+                10,
+                16,
+                "{secret_key}"
+              ],
+              "verification": "hypothesis"
+            }
+          },
+          "name": "request input",
+          "notes": "Write one encoded envelope per write, with response (Breville+ uses the default write type). Longer than MTU-3 bytes goes out as an ATT long write, which the host stack handles. Every command below starts 0d <handle, 4 bytes LE> 2a 00 32 00 and then carries one oneof body; see protocol_details.envelope. The ChefSteps app retries a failed write twice more before dropping the connection.",
+          "properties": [
+            "write"
+          ],
+          "role": "command",
+          "uuid": "700b4322-9836-4383-a2b2-31a9098d1473"
+        },
+        {
+          "name": "message output",
+          "notes": "Read after every doorbell notification. Each read returns exactly one encoded envelope (replies, data points, event messages); longer values arrive through the host's ATT long read. A zero-length read means nothing is queued. Breville+ ignores reads of 4 bytes or fewer. The value is protobuf, so no fixed-offset `format` applies; see protocol_details.envelope and payload_formats.",
+          "properties": [
+            "read"
+          ],
+          "uuid": "700b4323-9836-4383-a2b2-31a9098d1473"
+        },
+        {
+          "name": "doorbell",
+          "notes": "Subscribe once per connection. The notification's value is ignored by both apps; it only signals that 700b4323 has a message to read. One read per notification.",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "700b4325-9836-4383-a2b2-31a9098d1473"
+        },
+        {
+          "name": "file transfer",
+          "notes": "Block channel for firmware images, logs and certificates, written without response in small blocks (the ChefSteps app's preferred block size is 16 bytes, two packets per connection interval, 10 s per block and five retries). Only used during a file transfer that request messages on 700b4322 set up. Overview only: features[].dfu and protocol_details.firmware_update. No flashing bytes are given here.",
+          "properties": [
+            "write_without_response"
+          ],
+          "role": "bulk",
+          "uuid": "700b4326-9836-4383-a2b2-31a9098d1473"
+        }
+      ],
+      "name": "Joule stream service",
+      "notes": "The only vendor service either app uses. The ChefSteps app's simulator lays it out with the service at handle 4 and characteristics at handles 5-8 in the order read (4323), notify (4325), write (4322), file (4326), with properties read, notify, write and write-without-response; real hardware handles are not recorded. Whether Device Information or other services are present is not recorded.",
+      "uuid": "700b4321-9836-4383-a2b2-31a9098d1473"
+    }
+  ]
+}

@@ -1,0 +1,1992 @@
+{
+  "bluetooth_classic": {
+    "address_shared_with_ble": "unknown",
+    "ble_role": "discovery_only",
+    "dual_mode": true,
+    "notes": "`address_shared_with_ble` is unknown only because nobody has checked it on hardware; the vendor app depends on it being true, since it opens the RFCOMM socket to the address the BLE scan returned. `wake_required`: the box must be woken before it advertises or accepts a socket; the procedure is device.pairing.enter_pairing_mode.\n",
+    "profiles": [
+      {
+        "notes": "The only profile the vendor app uses. Opened by UUID, so the RFCOMM channel is resolved through SDP; the channel number is not known. On Linux, `sdptool browse aa:bb:cc:dd:ee:ff` finds it and `rfcomm bind 0 aa:bb:cc:dd:ee:ff <channel>` gives /dev/rfcomm0.\n",
+        "profile": "spp",
+        "role": "control",
+        "secure": false,
+        "uuid": "00001101-0000-1000-8000-00805f9b34fb",
+        "verification": "reported"
+      }
+    ],
+    "serial": {
+      "connect_timeout_ms": 10000,
+      "correlation": "prefix",
+      "encoding": "binary",
+      "framing": {
+        "checksum": "none",
+        "length_prefix": false,
+        "notes": "Host to box, every frame starts 0x23 ('#'). Box to host, replies start 0x26 ('&') and unsolicited pushes 0x40 ('@'). The second byte is the direction: 0x47 ('G') for a query and its answer, 0x53 ('S') for a set and its answer. The third byte is the command. Every reply has a fixed length, prefix included, stated on its command's `response`; the pushes are under `unsolicited`; protocol_details.reply_lengths lists them all in one table. Two replies are not fixed: the A1310 fingerprint list runs to the end of the read, and the vendor app reads the upload checksum echo as everything after its prefix, which makes a 5-byte frame when the box sends just the two CRC bytes.\n`drop_buffer` is what the vendor app does, and it explains its intermittent connect failures: it parses each read on its own, skips a byte that is not 0x26 or 0x40 where a frame should start, discards the rest of the read on an unknown command or on a reply cut short by the end of the read, and never carries bytes over. A client should do better: keep one reassembly buffer across reads, scan forward to the next 0x26 or 0x40, parse a frame only once the full length for its prefix has arrived, and drop the buffer only on a prefix it does not know.\nNo frame carries a checksum. The CRC-16/XMODEM in the firmware and custom-ring uploads covers the image, and is declared on those commands. The app parses no reply to most sets; whether the box sends one is unknown (commands[].response.expected).\n",
+        "resync": "drop_buffer",
+        "rx_start_bytes": [
+          "26",
+          "40"
+        ],
+        "tx_start_bytes": "23"
+      },
+      "inter_write_delay_ms": 50,
+      "max_in_flight": 2,
+      "notes": "The vendor app has one reader thread and one writer thread on the socket. Every write is queued after a 50 ms sleep, and the connect path spaces its two queries 100 ms apart. It sends several queries back to back without waiting and sorts the answers by prefix: two on connect, which is the figure given in `max_in_flight`, and four (A170) to six (A1310) in the refresh on its device screen, each 50 ms after the last. Two is the conservative number for a client. The 10-second timeout covers opening the socket AND getting both the firmware and serial-number replies. Every read (up to 1024 bytes) is parsed on its own.\n",
+      "profile_uuid": "00001101-0000-1000-8000-00805f9b34fb",
+      "read_chunk_bytes": 1024,
+      "unsolicited": [
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "low_battery",
+              "notes": "The app acts only on 0xA2. Single byte, so no byte order applies.",
+              "offset": 3,
+              "type": "uint8",
+              "values": {
+                "162": "battery low (0xA2)"
+              }
+            }
+          ],
+          "length": 4,
+          "name": "low_battery",
+          "notes": "The lead byte is 0x40 or 0x26; the app accepts both. When the box sends it (once, or repeatedly while low) is not known.\n",
+          "prefix": "?? 47 02",
+          "verification": "reported"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "charging",
+              "notes": "0x11 means charging; the app reads any other value as not charging. Single byte.",
+              "offset": 3,
+              "type": "uint8",
+              "values": {
+                "17": "charging (0x11)"
+              }
+            }
+          ],
+          "length": 4,
+          "name": "charging",
+          "notes": "The lead byte is 0x40 or 0x26; the app accepts both. Presumably sent when the charger is connected or removed; not established.\n",
+          "prefix": "?? 47 03",
+          "verification": "reported"
+        }
+      ],
+      "verification": "reported"
+    },
+    "verification": "reported",
+    "wake_required": true
+  },
+  "commands": {
+    "allow_early_pickup": {
+      "description": "A1310 only. Allow taking pills before the alarm time.",
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        83,
+        22,
+        0
+      ],
+      "verification": "reported"
+    },
+    "clear_alarm_slot": {
+      "advanced": true,
+      "advanced_reason": "Silences one medication reminder on the box until a client writes that slot again. The vendor app numbers slots by sorting reminders by time, so a slot number may not be the reminder you expect. The app's next full reminder sync rewrites every slot and restores the ones still in use.\n",
+      "description": "Disable one alarm slot: set_alarm_slot with enabled 00, repeat 00 and the 01 01 01 01 01 filler.",
+      "example_body": "23 53 03 07 00 00 01 01 01 01 01 00",
+      "example_notes": "Slot 7 cleared. The same bytes the vendor app sends for each empty slot it pads the list with.",
+      "notes": "The remedy for the stale-alarm defect (evidence.open_questions): after a reminder is deleted, the slots past the end of the new list still hold old times, and clearing them stops the ringing. Declared on its own so a one-tap control can send it. No reply is parsed.\n",
+      "parameters": {
+        "slot": {
+          "max": 7,
+          "min": 1,
+          "notes": "1-7 on an A170, 1-6 on an A1310.",
+          "required": true,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "template": [
+        35,
+        83,
+        3,
+        "{slot}",
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "custom_ring_upload": {
+      "description": "A1310 only. Upload a custom ring recording, framed like firmware_push.",
+      "parameters": {
+        "audio": {
+          "description": "The recording file, verbatim. The app records MP3 at an 8 kHz sample rate; what else the box accepts is unknown.",
+          "min_length": 1,
+          "required": true,
+          "type": "bytes"
+        },
+        "crc16": {
+          "description": "CRC-16/XMODEM of the audio, little-endian (same algorithm as firmware_push).",
+          "endianness": "little",
+          "required": true,
+          "type": "uint16"
+        },
+        "length": {
+          "description": "Audio length in bytes, little-endian.",
+          "endianness": "little",
+          "required": true,
+          "type": "uint32"
+        }
+      },
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "status",
+            "notes": "Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "ok"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 53 0C",
+        "verification": "reported"
+      },
+      "template": [
+        35,
+        83,
+        12,
+        "{crc16}",
+        "{length}",
+        "{audio}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "fingerprint_delete": {
+      "description": "A1310 only. Delete the fingerprint in slot 1-10.",
+      "notes": "Unlike the other fingerprint commands, the id comes after a 00 byte.",
+      "parameters": {
+        "id": {
+          "max": 10,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "status",
+            "notes": "Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "ok"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 53 0A",
+        "verification": "reported"
+      },
+      "template": [
+        35,
+        83,
+        10,
+        0,
+        "{id}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "fingerprint_enroll": {
+      "description": "A1310 only. Start enrolling a fingerprint into slot 1-10; the box reports progress.",
+      "parameters": {
+        "id": {
+          "max": 10,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "id",
+            "notes": "The fingerprint slot, 1-10.",
+            "offset": 3,
+            "type": "bytes"
+          },
+          {
+            "length": 1,
+            "name": "count",
+            "notes": "The app passes this byte to its enrolment screen as a count; its meaning (touches so far?) is not established.",
+            "offset": 4,
+            "type": "bytes"
+          },
+          {
+            "length": 1,
+            "name": "progress",
+            "notes": "The app logs this byte as progress and does not use it.",
+            "offset": 5,
+            "type": "bytes"
+          }
+        ],
+        "length": 6,
+        "notes": "Probably sent more than once during one enrolment; not established.",
+        "prefix": "26 53 08",
+        "verification": "reported"
+      },
+      "template": [
+        35,
+        83,
+        8,
+        "{id}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "fingerprint_enroll_cancel": {
+      "description": "A1310 only. Cancel a fingerprint enrolment in progress.",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "status",
+            "notes": "The app's handler calls this a reset status. Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "ok"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 53 0B",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        83,
+        11,
+        0
+      ],
+      "verification": "reported"
+    },
+    "fingerprint_list": {
+      "description": "A1310 only. List enrolled fingerprints: id and name for each.",
+      "response": {
+        "format": [
+          {
+            "length": 2,
+            "name": "header",
+            "notes": "Two bytes the app skips. Meaning unknown.",
+            "offset": 3,
+            "type": "bytes"
+          }
+        ],
+        "notes": "NOT fixed length. After the two header bytes come entries of one id byte, then the name in UTF-8, then 0x0D, repeated until the end of the READ; the vendor app has no other end marker. A client cannot split this reply out of a stream with certainty: read until the socket goes quiet, and send nothing else while waiting.\n",
+        "prefix": "26 47 09",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        9,
+        0
+      ],
+      "verification": "reported"
+    },
+    "fingerprint_set_name": {
+      "description": "A1310 only. Name an enrolled fingerprint.",
+      "parameters": {
+        "id": {
+          "max": 10,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        },
+        "name": {
+          "description": "The name in UTF-8; must not contain 0x0D, which ends it. Maximum length unknown.",
+          "min_length": 1,
+          "required": true,
+          "type": "bytes"
+        }
+      },
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "status",
+            "notes": "Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "ok"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 53 09",
+        "verification": "reported"
+      },
+      "template": [
+        35,
+        83,
+        9,
+        "{id}",
+        "{name}",
+        13
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "firmware_abort": {
+      "description": "Reject the pushed image: the app sends this on a CRC mismatch or when the user cancels.",
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        83,
+        7,
+        0
+      ],
+      "verification": "reported"
+    },
+    "firmware_commit": {
+      "advanced": true,
+      "advanced_reason": "Tells the box to keep the image it has just received. The vendor app sends it only straight after firmware_push, when the CRC echo matched. At any other time its effect is unknown, and committing a bad image may leave the box unable to boot, with no known recovery.\n",
+      "description": "Accept the pushed image after the CRC echo matched.",
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        83,
+        7,
+        1
+      ],
+      "verification": "reported"
+    },
+    "firmware_push": {
+      "advanced": true,
+      "advanced_reason": "Replaces the pill box's firmware in one frame. No image has been published or obtained, and how the box validates an image or recovers from a bad one is unknown. A box left unable to boot stops giving medication reminders, and no recovery route is known.\n",
+      "description": "Send a whole firmware image in one frame. The box answers with the CRC it computed.",
+      "example_body": "23 53 06 03 0D 04 00 00 00 01 02 03 04",
+      "example_notes": "A made-up 4-byte image 01 02 03 04: its CRC-16/XMODEM is 0x0D03, sent 03 0D; the length is 4, sent 04 00 00 00. A box that received it intact would answer 26 53 06 03 0D. No real image has been obtained.\n",
+      "notes": "The app writes the header and the whole image as one write; RFCOMM segments it.",
+      "parameters": {
+        "crc16": {
+          "description": "CRC-16/XMODEM of the image (poly 0x1021, init 0x0000, no reflection, no final XOR; check value 0x31C3 over ASCII \"123456789\"), sent little-endian. The app names the field as if it were a CRC-32; it is 16 bits.\n",
+          "endianness": "little",
+          "required": true,
+          "type": "uint16"
+        },
+        "image": {
+          "description": "The firmware file, verbatim.",
+          "min_length": 1,
+          "required": true,
+          "type": "bytes"
+        },
+        "length": {
+          "description": "Image length in bytes, little-endian.",
+          "endianness": "little",
+          "required": true,
+          "type": "uint32"
+        }
+      },
+      "response": {
+        "format": [
+          {
+            "length": 2,
+            "name": "crc16",
+            "notes": "The box's CRC of what it received, little-endian like the one sent. Compare, then send firmware_commit on a match or firmware_abort otherwise.",
+            "offset": 3,
+            "type": "bytes"
+          }
+        ],
+        "length": 5,
+        "notes": "The vendor app reads every byte after the prefix to the end of the read as the CRC, so it expects this reply alone in a read.",
+        "prefix": "26 53 06",
+        "verification": "reported"
+      },
+      "template": [
+        35,
+        83,
+        6,
+        "{crc16}",
+        "{length}",
+        "{image}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "play_ring": {
+      "description": "A1310 only. Play the selected ring (the app's ring preview).",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "playing",
+            "notes": "Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "playing"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 47 0C",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        12,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_battery": {
+      "description": "Battery charge in percent (the third payload byte).",
+      "response": {
+        "format": [
+          {
+            "length": 2,
+            "name": "unused",
+            "notes": "Two bytes the vendor app reads and ignores. Meaning unknown.",
+            "offset": 3,
+            "type": "bytes"
+          },
+          {
+            "device_class": "battery",
+            "length": 1,
+            "name": "battery",
+            "notes": "Single byte, so no byte order applies. No scale: 0x5A is 90 %.",
+            "offset": 5,
+            "type": "uint8",
+            "unit": "%"
+          }
+        ],
+        "length": 6,
+        "notes": "Example: 26 47 08 xx xx 5A is 90 %.",
+        "prefix": "26 47 08",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        8,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_current_ring": {
+      "description": "A1310 only. Which ring is selected.",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "ring",
+            "notes": "Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "0": "Ring A",
+              "1": "Ring B",
+              "2": "Ring C",
+              "3": "Custom recording"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 47 0D",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        13,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_custom_ring_status": {
+      "description": "A1310 only. Whether a custom ring recording is stored.",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "custom_ring",
+            "notes": "Anything but 01 means none. Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "recording stored"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 47 0E",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        14,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_early_pickup": {
+      "description": "Whether pills may be taken before the alarm time. The vendor app sends this only to an A1310.",
+      "notes": "The frame is in the shared codec; whether an A170 answers it is unknown.",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "early_pickup",
+            "notes": "The app treats 00 as allowed and any other value as refused. Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "0": "allowed"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 47 11",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        17,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_firmware_version": {
+      "description": "Firmware version as three bytes a b c, shown as \"a.b.c\". The other half of the connect handshake.",
+      "response": {
+        "format": [
+          {
+            "length": 3,
+            "name": "firmware_version",
+            "notes": "Three single-byte version components, major first; the app prints each in decimal joined by dots, so 26 47 06 01 02 03 is \"1.2.3\". Single bytes, so byte order does not apply.\n",
+            "offset": 3,
+            "type": "bytes"
+          }
+        ],
+        "length": 6,
+        "prefix": "26 47 06",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        6,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_horn_volume": {
+      "description": "A1310 only. Speaker volume, 0-3.",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "horn_volume",
+            "notes": "Single byte. Labels follow the order of the app's four volume choices; how loud each is has not been heard.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "0": "off",
+              "1": "low",
+              "2": "medium",
+              "3": "max"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 47 0A",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        10,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_ring": {
+      "description": "A170 only. Ring type and volume.",
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "ring_type",
+            "notes": "Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "Ring A",
+              "2": "Ring B",
+              "3": "Ring C"
+            }
+          },
+          {
+            "length": 1,
+            "name": "volume",
+            "notes": "Single byte. The app's sound switch sends 0 (off) and 1 (on). Its encoder also accepts 2 and 3, which no screen sends; what they sound like is unknown.\n",
+            "offset": 4,
+            "type": "uint8",
+            "values": {
+              "0": "off",
+              "1": "on"
+            }
+          }
+        ],
+        "length": 5,
+        "prefix": "26 47 05",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        5,
+        0
+      ],
+      "verification": "reported"
+    },
+    "query_serial_number": {
+      "description": "Serial number: 15 ASCII bytes. Half of the vendor app's connect handshake.",
+      "response": {
+        "format": [
+          {
+            "length": 15,
+            "name": "serial_number",
+            "notes": "ASCII (the app decodes it with the platform default, UTF-8). No terminator.",
+            "offset": 3,
+            "type": "string"
+          }
+        ],
+        "length": 18,
+        "notes": "A reply split across two reads makes the vendor app throw and drop the rest of the read, which fails its connect handshake.",
+        "prefix": "26 47 04",
+        "verification": "reported"
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        71,
+        4,
+        0
+      ],
+      "verification": "reported"
+    },
+    "refuse_early_pickup": {
+      "description": "A1310 only. Refuse taking pills before the alarm time.",
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        83,
+        22,
+        1
+      ],
+      "verification": "reported"
+    },
+    "set_alarm_slot": {
+      "description": "Write one alarm slot: enabled flag, repeat mask, date and time. 12 bytes.",
+      "example_body": "23 53 03 01 01 2A 1A 09 1B 08 1E 00",
+      "example_notes": "Slot 1, enabled, weekday indices 1, 3 and 5 (0x02 + 0x08 + 0x20 = 0x2A), 08:30, written on 2026-09-27. More vectors, all computed from the app's encoder and none captured: \"23 53 03 02 01 01 1A 09 1B 14 00 00\" is slot 2, every day, 20:00; \"23 53 03 07 00 00 01 01 01 01 01 00\" is slot 7 cleared; \"23 53 03 03 01 C0 1A 09 1B 07 2D 00\" is slot 3, weekday indices 0 and 6 (0x80 + 0x40), 07:45; \"23 53 03 04 01 00 1A 0A 03 0C 0F 00\" is slot 4, one-shot on 2026-10-03 at 12:15. Every field is a single byte, so byte order does not apply.\n",
+      "notes": "The date is the one-shot date for a one-shot reminder, and TODAY'S date (the day of the write) for a repeating one; whether the box treats it as a start date is unknown. A disabled slot carries 01 01 01 01 01 in place of the date and time. Its repeat byte is 00 for the empty slots the app pads the list with, but a reminder the user switched off keeps its weekday mask (A170), so a decoder must not read meaning into repeat when enabled is 00. The last byte is always 00. The box keeps whatever a slot last held, so a client must write every slot, disabling the unused ones, or old alarms keep ringing (evidence.open_questions); clear_alarm_slot is the disabled form on its own. The app leaves 50 ms before each slot frame. No reply is parsed.\n",
+      "parameters": {
+        "day": {
+          "max": 31,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        },
+        "enabled": {
+          "labels": [
+            "disabled",
+            "enabled"
+          ],
+          "max": 1,
+          "min": 0,
+          "required": true,
+          "type": "uint8"
+        },
+        "hour": {
+          "max": 23,
+          "min": 0,
+          "notes": "24-hour.",
+          "required": true,
+          "type": "uint8",
+          "unit": "h"
+        },
+        "minute": {
+          "max": 59,
+          "min": 0,
+          "required": true,
+          "type": "uint8",
+          "unit": "min"
+        },
+        "month": {
+          "max": 12,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        },
+        "repeat": {
+          "description": "A170: 00 = one-shot (or no repeat set), 01 = every day, otherwise the sum of one bit per selected weekday. Weekday index 0 is 0x80, index 1 0x02, 2 0x04, 3 0x08, 4 0x10, 5 0x20, 6 0x40; bit 0 is reserved for \"every day\", which the app sends instead of all seven bits. Which weekday index 0 is (probably Sunday) is not established. A1310: the app always sends 01. The same table as data: protocol_details.repeat_byte.\n",
+          "max": 254,
+          "min": 0,
+          "required": true,
+          "type": "uint8"
+        },
+        "slot": {
+          "max": 7,
+          "min": 1,
+          "notes": "1-7 on an A170, 1-6 on an A1310. The vendor app numbers slots by list position after sorting reminders by time.",
+          "required": true,
+          "type": "uint8"
+        },
+        "year": {
+          "description": "Calendar year of the date below, minus 2000 (raw 26 is 2026). min/max bound the raw byte.\n",
+          "max": 255,
+          "min": 0,
+          "required": true,
+          "type": "uint8",
+          "value_offset": 2000
+        }
+      },
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "template": [
+        35,
+        83,
+        3,
+        "{slot}",
+        "{enabled}",
+        "{repeat}",
+        "{year}",
+        "{month}",
+        "{day}",
+        "{hour}",
+        "{minute}",
+        0
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_clock": {
+      "description": "Set the box's clock to local wall time, all fields plain binary (not BCD).",
+      "example_body": "23 53 01 1A 09 1B 0E 05 09",
+      "example_notes": "2026-09-27 14:05:09. Every field is a single byte, so byte order does not apply.",
+      "notes": "The app fills these from the phone's clock in its default time zone. It sets the clock only after connecting from its device screen and on each reminder sync, so the box's time is only as good as the last connection.\n",
+      "parameters": {
+        "day": {
+          "max": 31,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        },
+        "hour": {
+          "max": 23,
+          "min": 0,
+          "notes": "24-hour.",
+          "required": true,
+          "type": "uint8",
+          "unit": "h"
+        },
+        "minute": {
+          "max": 59,
+          "min": 0,
+          "required": true,
+          "type": "uint8",
+          "unit": "min"
+        },
+        "month": {
+          "max": 12,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        },
+        "second": {
+          "max": 59,
+          "min": 0,
+          "required": true,
+          "type": "uint8",
+          "unit": "s"
+        },
+        "year": {
+          "description": "Calendar year minus 2000: 2026 is raw 26 (0x1A). min/max bound the raw byte, so the encodable years are 2000-2255.\n",
+          "max": 255,
+          "min": 0,
+          "required": true,
+          "type": "uint8",
+          "value_offset": 2000
+        }
+      },
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "template": [
+        35,
+        83,
+        1,
+        "{year}",
+        "{month}",
+        "{day}",
+        "{hour}",
+        "{minute}",
+        "{second}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_horn_volume": {
+      "description": "A1310 only. Set the speaker volume.",
+      "notes": "Note the opcode: 0x0D is a set here and a query (query_current_ring) in the 0x47 direction. No reply is parsed.",
+      "parameters": {
+        "volume": {
+          "labels": [
+            "off",
+            "low",
+            "medium",
+            "max"
+          ],
+          "max": 3,
+          "min": 0,
+          "required": true,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "template": [
+        35,
+        83,
+        13,
+        "{volume}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_ring": {
+      "description": "A170 only. Set the ring type, sending back the volume the box reported.",
+      "notes": "One wire command carries both settings. It is declared twice (here and set_ring_volume) so each control owns one byte and reads the other back. The vendor app instead keeps the frame in one shared buffer that it never refreshes from the box: the byte a screen does not touch is whatever the app itself last wrote, which is 00 after a restart. Its first ring-type change after launch therefore also sends volume 00 (sound off), and its first sound toggle sends ring type 00, outside 1-3. No reply is parsed. Example: 23 53 05 02 01 is Ring B, sound on.\n",
+      "parameters": {
+        "ring_type": {
+          "labels": [
+            "Ring A",
+            "Ring B",
+            "Ring C"
+          ],
+          "max": 3,
+          "min": 1,
+          "required": true,
+          "type": "uint8"
+        },
+        "volume": {
+          "description": "The volume byte read back from query_ring, so changing the ring does not change the volume.",
+          "source": "state:query_ring.volume",
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "template": [
+        35,
+        83,
+        5,
+        "{ring_type}",
+        "{volume}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_ring_a1310": {
+      "description": "A1310 only. Select a ring: three built in (0-2) or the custom recording (3).",
+      "parameters": {
+        "ring": {
+          "labels": [
+            "Ring A",
+            "Ring B",
+            "Ring C",
+            "Custom recording"
+          ],
+          "max": 3,
+          "min": 0,
+          "required": true,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "format": [
+          {
+            "length": 1,
+            "name": "status",
+            "notes": "The app treats 01 as success and anything else as failure. Single byte.",
+            "offset": 3,
+            "type": "uint8",
+            "values": {
+              "1": "ok"
+            }
+          }
+        ],
+        "length": 4,
+        "prefix": "26 53 0F",
+        "verification": "reported"
+      },
+      "template": [
+        35,
+        83,
+        15,
+        "{ring}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_ring_volume": {
+      "description": "A170 only. Set the volume byte, sending back the ring type the box reported.",
+      "notes": "Same frame as set_ring; see its notes. No reply is parsed.",
+      "parameters": {
+        "ring_type": {
+          "description": "The ring type read back from query_ring.",
+          "source": "state:query_ring.ring_type",
+          "type": "uint8"
+        },
+        "volume": {
+          "labels": [
+            "off",
+            "on",
+            "level 2",
+            "level 3"
+          ],
+          "max": 3,
+          "min": 0,
+          "notes": "The app only ever sends 0 and 1 (its sound switch). 2 and 3 are accepted by its encoder but unexercised.",
+          "required": true,
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "template": [
+        35,
+        83,
+        5,
+        "{ring_type}",
+        "{volume}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "set_time_format": {
+      "description": "A one-byte flag sent before every clock set. Meaning unknown, probably 12/24-hour display.",
+      "example_body": "23 53 02 00",
+      "notes": "The app sends it immediately before every set_clock: after connecting from its device screen, and on each reminder sync.",
+      "parameters": {
+        "flag": {
+          "default": 0,
+          "labels": [
+            "00: what the app always sends",
+            "01: never sent by the app"
+          ],
+          "max": 1,
+          "min": 0,
+          "notes": "The app's encoder writes 00 for true and 01 for false, and every call site passes true, so the box only ever sees 00. Keep 00 until a capture or a test on hardware says what 01 does.\n",
+          "type": "uint8"
+        }
+      },
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "template": [
+        35,
+        83,
+        2,
+        "{flag}"
+      ],
+      "transport": "rfcomm",
+      "verification": "reported"
+    },
+    "stop_ring": {
+      "description": "A1310 only. Stop a ring that is playing.",
+      "response": {
+        "expected": "unknown",
+        "notes": "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."
+      },
+      "transport": "rfcomm",
+      "value": [
+        35,
+        83,
+        21,
+        0
+      ],
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "health",
+    "category_hierarchy": [
+      "measurement",
+      "health",
+      "medication_management"
+    ],
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "values": [
+                "A170",
+                "A1310"
+              ]
+            }
+          },
+          "notes": "What the vendor app does: a BLE scan with no filters in low-latency mode, keeping results whose trimmed name starts with one of the prefixes. The scan result's address is the one the RFCOMM socket is opened to afterwards. The box has to be woken first or it does not appear. The app de-duplicates by address, so one result per box.\n",
+          "type": "ble_scan",
+          "verification": "reported"
+        },
+        {
+          "bt_classic": {
+            "name": {
+              "match": "prefix",
+              "values": [
+                "A170",
+                "A1310"
+              ]
+            },
+            "requires_discoverable_mode": "unknown",
+            "service_uuids": [
+              "00001101-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "notes": "The vendor app never runs a Classic inquiry, so nothing establishes that the box answers one, what name it gives there, or whether it is discoverable outside its wake window. Listed so a Classic-only host has a matcher to try; the SPP UUID alone matches every serial module, which is why the name is here as well.\n",
+          "type": "bt_classic_inquiry",
+          "verification": "hypothesis"
+        }
+      ]
+    },
+    "host_compatibility": [
+      {
+        "basis": "Static analysis of the vendor Android app: an insecure RFCOMM socket by SPP UUID through the platform Bluetooth stack, with no special handling. Not run by this project.\n",
+        "stack": "android",
+        "status": "compatible",
+        "verification": "reported"
+      },
+      {
+        "basis": "Static analysis of the vendor Android app, whose whole control surface is SPP over RFCOMM, plus CoreBluetooth having no RFCOMM API. Nothing in the Android app points to an MFi (iAP2) path. Not tried from an iPhone.\n",
+        "cause": {
+          "missing_api": "rfcomm"
+        },
+        "link": "br_edr",
+        "notes": "An iPhone or iPad cannot open the SPP socket this spec documents. If the boxes turned out to be MFi accessories the workaround would be vendor_mfi (only the vendor's own app reaches them); nothing points that way. macOS is outside this verdict: IOBluetooth exposes RFCOMM.\n",
+        "stack": "corebluetooth",
+        "status": "incompatible",
+        "symptom": "no_transport",
+        "verification": "reported",
+        "workaround": "none_known"
+      },
+      {
+        "basis": "The vendor sells PillCalendar on the App Store (id1592652731, iOS 12 or later) and its listing tells the user to search for the box over Bluetooth, so an iPhone reaches some Daviky box somehow. A user review on that listing (seen 2026-09-28) reports a \"Zoksi\" smart pill organizer working with the iOS app; which model that box is, is not known. The Android app uses the BLE side for nothing but the name. The iOS app was not examined and no box's GATT table has been browsed.\n",
+        "link": "ble",
+        "notes": "Three explanations fit: the box has a GATT surface that only the iOS app uses (some dual-mode modules bridge a GATT characteristic to the same UART as SPP); the boxes are MFi; or the iOS app drives only the A-1281. A GATT browse of a woken box with nRF Connect or bluetoothctl settles the first in a minute. A GATT pipe carrying these frames would make ble_role secondary_control and give iPhones a route.\n",
+        "stack": "corebluetooth",
+        "status": "unknown",
+        "verification": "hypothesis"
+      }
+    ],
+    "identification": {
+      "local_name_prefixes": [
+        "A170",
+        "A1310"
+      ],
+      "notes": "The vendor app keeps a scan result whose name, trimmed of whitespace, STARTS WITH \"A170\" or \"A1310\" (it also accepts \"A-128\" for the out-of-scope A-1281). Its model factory then requires the name to EQUAL \"A170\" or \"A1310\" exactly; any other name gets a do-nothing handler that sends no bytes, so a unit advertising \"A170-1234\" would be listed, would connect, and would then time out. Whether real units advertise the bare model name or a suffixed one is not established (remaining_unknowns). A client should match by prefix, as here, and pick the variant by prefix too. Two details make the mismatch stick. The app matches the name the phone's Bluetooth stack has cached for the device, not the name field of the advertisement it just received, and on a dual-mode device the stack may have learned the BR/EDR name instead. And the app registers the box with the vendor cloud under the name that passed the scan, and every later connection rebuilds the handler from the model name the cloud's box list returns; unless the cloud normalises it, a suffixed name fails on every connection, not only the first. No MAC prefix is recorded: none has been observed.\n"
+    },
+    "manufacturer": "ZHUHAI QUIN TECHNOLOGY CO., LTD. (brand Daviky)",
+    "manufacturer_status": "active",
+    "name": "Quin / Daviky Smart Pill Box (A170, A1310)",
+    "notes": "Battery-powered (rechargeable) medication reminder boxes sold under the Daviky brand and driven by the vendor's \"PillCalendar\" app. The box keeps up to seven (A170) or six (A1310) alarm slots against its own clock, and rings with sound and light when one comes due. The phone's only jobs are to set the clock, write the slots and change the ring.\nTRANSPORT. The box is dual-mode. The vendor app FINDS it with an unfiltered BLE scan and a name-prefix check, then TALKS to it over Bluetooth Classic: an insecure RFCOMM socket to the Serial Port Profile UUID (00001101-0000-1000-8000-00805f9b34fb), opened to the same address the BLE scan returned. There is no GATT anywhere in the app's device layer and no service UUID. Insecure means no pairing, no PIN and no bond. The box has to be woken before it appears in a scan (see pairing.enter_pairing_mode).\nFRAMES. Phone to box: 0x23 ('#'), then 0x47 ('G') for a query or 0x53 ('S') for a set, then a command byte and its arguments. Box to phone: 0x26 ('&'), the same direction byte and command byte, then a payload of a FIXED length per command; unsolicited pushes (low battery, charging) start 0x40 ('@'). There is no length field and no checksum. RFCOMM hands a reader whatever bytes have arrived, so a client must reassemble across reads and split replies by the prefix and length stated on each command's `response`. See bluetooth_classic.serial.framing and protocol_details.reply_lengths.\nVARIANTS. The A170 and the A1310 share this codec and differ in their command sets (see device.variants and protocol_details.variant_command_sets). A third model the app supports, the A-1281, uses a different codec that has not been analysed and is out of scope here; its name also does not match either prefix below.\niOS. The vendor also ships the app on the App Store (id1592652731). How that build reaches an A170 or A1310 is not established; CoreBluetooth has no RFCOMM, so either the iOS app drives only the A-1281, or these boxes expose a BLE surface the Android app never uses, or they are MFi accessories. See host_compatibility and remaining_unknowns.\nIf an A170 misbehaves with the vendor app, read evidence.open_questions first: the decompile shows several app-side defects (stale alarms after a deletion, a name-matching mismatch, an unframed stream parser, a stale ring buffer, a clock set only while connected) that match the usual complaints.\n",
+    "openness": {
+      "notes": "Nothing is published. Everything here comes from reading the vendor's Android app. The same company is behind the Phomemo label printers and the two apps share a support library, but the pill box codec is its own and no other spec in this catalogue documents it.\n",
+      "reverse_engineered": true,
+      "status": "undocumented"
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "Not pairing in the link-layer sense (nothing pairs); this is the wake step the box needs before it can be found or connected. The vendor app's help asks the user to wake the box first and shows an animation of it. The window's length is not known.\n",
+        "procedures": [
+          {
+            "applies_to": [
+              "A170"
+            ],
+            "basis": "The A170 bilingual instruction PDF says one button press with the screen off turns on the screen and Bluetooth, and one with the screen on turns them off. The vendor app's wake-up animation shows the same top/display-end pad and the display lighting. No hold time or awake window is given. Not tried by this project.\n",
+            "indicator": "The screen and Bluetooth indicator are on; in the app animation the display shows a fraction such as 1/7, a time and a battery icon. Not observed on a unit.\n",
+            "name": "Wake an A170",
+            "steps": [
+              {
+                "action": "Press the top of the box once at the display end so the screen and Bluetooth indicator turn on; keep it awake while scanning.",
+                "actor": "user",
+                "expect": "The display lights and the box appears in a BLE scan."
+              }
+            ],
+            "verified": false
+          },
+          {
+            "applies_to": [
+              "A1310"
+            ],
+            "basis": "The vendor app's A1310 wake-up animation: a finger presses the button at the top of the round control panel in the middle of the dial (the one marked with a clock), and the button flashes twice. No hold time or wake duration is given. Not tried on hardware.\n",
+            "indicator": "The pressed button flashes (from the animation; not observed).",
+            "name": "Wake an A1310",
+            "steps": [
+              {
+                "action": "Press the clock-marked button at the top of the round centre panel.",
+                "actor": "user",
+                "expect": "The button flashes and the box appears in a BLE scan."
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": true
+      },
+      "exclusivity": {
+        "recovery": "Close the vendor app (or turn off Bluetooth on the phone running it) before connecting from another client: an RFCOMM server channel on a module like this usually takes one connection at a time. The vendor app's own troubleshooting also says to remove the box from the phone's system Bluetooth list if it appears there, toggle Bluetooth off and on, and add the box again.\n",
+        "single_connection": "unknown"
+      },
+      "notes": "Basis: static analysis of the vendor Android app, which opens the socket with Android's insecure RFCOMM constructor and never bonds. Not confirmed on hardware. A client that opens a SECURE socket instead will make the host start pairing, and whether the box completes it is unknown.\n",
+      "required": false,
+      "security_mode": "none",
+      "unpair": {
+        "notes": "Nothing to unpair: no bond is ever created on either side.",
+        "requires_factory_reset": false,
+        "supported": false
+      }
+    },
+    "protocol": "bluetooth_classic",
+    "safety_advisory": {
+      "acknowledge_required": true,
+      "detail": "No command here has been tested on hardware. Confirm every reminder on the box after writing it, and never use an experimental client as the sole basis for a medication dose. Clearing slots and changing the clock deserve particular care: the box cannot read its schedule back, slot numbers follow sorted reminder order rather than a fixed dose, and a wrong clock can make a reminder fire at the wrong time. Keep an independent reminder until the owner has verified the schedule.\n",
+      "severity": "warning",
+      "summary": "Experimental, unverified reminder control: changing or clearing a slot can silence a medication reminder.\n"
+    },
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No Wi-Fi, no bond, no key. The RFCOMM link is unauthenticated and unencrypted.",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "Basis: static analysis of the vendor app, which sends no reset command to an A170 and offers the user no reset procedure. Its help text tells someone whose box cannot be found that it may be bound to another person's account, and to ask customer service to restore factory settings. Nothing in the box's own protocol carries an owner, so that binding looks like the vendor cloud's account record rather than state on the box, but that has not been checked. To return a box to a clean state from a client, write every alarm slot disabled (set_alarm_slot with enabled 0) and set the ring back to what you want. The A1310 answers a fingerprint command whose reply the app logs as a reset status; that is the fingerprint-enrolment cancel, not a factory reset.\n",
+        "effect": "No reset procedure is known. Nothing on the box needs one to change hands: it holds no bond and no credentials, and every setting it keeps (clock, alarm slots, ring) is overwritten by the next client.\n"
+      },
+      "methods": [
+        {
+          "description": "Wake the box, find it by BLE name prefix, open an insecure RFCOMM socket to the SPP UUID at the same address, confirm it with the firmware and serial-number queries, then set the clock and write every alarm slot. This is the vendor app's own connect-and-sync sequence, with the two fixes a client should apply: pad the slot list to the variant's full count, and reassemble replies across reads.\n",
+          "steps": [
+            {
+              "action": "Wake the pill box.",
+              "actor": "user",
+              "notes": "A170: press the top of the box at the display end; the display lights. A1310: press the button at the top of the round centre panel. Both come from the vendor app's wake-up animations; how long to press and how long the box stays awake are not established. See pairing.enter_pairing_mode.\n"
+            },
+            {
+              "action": "Scan BLE for a local name starting A170 or A1310; keep the address.",
+              "actor": "client",
+              "expect": "One scan result per box."
+            },
+            {
+              "action": "Open an insecure RFCOMM socket to 00001101-0000-1000-8000-00805f9b34fb at that address.",
+              "actor": "client",
+              "notes": "Insecure, not secure: the vendor app never bonds, and a secure socket may raise a pairing request the box does not answer. The vendor's 10-second budget covers this step and the next.\n",
+              "timeout_seconds": 10
+            },
+            {
+              "action": "Send query_firmware_version, wait 100 ms, send query_serial_number.",
+              "actor": "client",
+              "expect": "26 47 06 a b c and 26 47 04 followed by 15 ASCII bytes. The vendor app treats the connection as up only once both have been parsed, polling every 500 ms until its 10-second budget runs out.\n"
+            },
+            {
+              "action": "Send set_time_format (00), then set_clock with the host's local time.",
+              "actor": "client",
+              "notes": "The box has no other time source; see scheduling.device_clock_dependency."
+            },
+            {
+              "action": "Write set_alarm_slot for EVERY slot (1-7 on an A170, 1-6 on an A1310), with the unused ones disabled.",
+              "actor": "client",
+              "notes": "Writing only the slots in use leaves whatever an earlier client wrote in the others, and those keep ringing. Leave at least 50 ms between frames.\n"
+            }
+          ],
+          "type": "none",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing to provision: no network, no credentials, and an insecure RFCOMM socket that needs no bond. The vendor app does ask for an account and registers the box with its cloud, but the box itself knows nothing of that; its whole state is the clock, the alarm slots and the ring settings, all written over the socket below. Confidence is medium because the flow comes from the vendor app's code and has not been run against a box.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Nothing to rejoin: a new phone or client just scans and connects. If the vendor app refuses a box that another account registered, that is the vendor cloud, not the box.\n",
+        "requires_factory_reset": false
+      },
+      "required": false
+    },
+    "testing": {
+      "status": "untested"
+    },
+    "transport": "rfcomm",
+    "type": "smart-pill-box",
+    "variants": [
+      {
+        "identification": {
+          "local_name_prefix": "A170"
+        },
+        "model": "A170",
+        "notes": "Seven alarm slots with a weekday-repeat byte; ring type 1-3 and a volume byte (the app's sound switch sends 0 or 1) through set_ring/query_ring; firmware push. The app sends it no early-pick-up, fingerprint, horn-volume or custom-ring commands.\n"
+      },
+      {
+        "identification": {
+          "local_name_prefix": "A1310"
+        },
+        "model": "A1310",
+        "notes": "Six alarm slots; the repeat byte is always 01. No set_ring/query_ring (the app's handlers for them do nothing on this model); instead a four-way ring select (three built-in rings and a custom recording), a speaker volume, play and stop ring, allow or refuse early pick-up, fingerprint enrolment and management, custom ring upload, and the same firmware push. A fingerprint reader and a lock, going by the app's text.\n"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "device_class": "battery",
+      "name": "Battery",
+      "platform": "sensor",
+      "state_command": "query_battery",
+      "state_field": "query_battery.battery",
+      "unit": "%"
+    },
+    {
+      "device_class": "battery_charging",
+      "name": "Charging",
+      "notes": "Push only: there is no query, so the state is unknown until the box sends one. On is 0x11.",
+      "platform": "binary_sensor",
+      "state_field": "charging.charging",
+      "state_mapping": {
+        "on_value": 17
+      }
+    },
+    {
+      "device_class": "battery",
+      "name": "Low Battery",
+      "notes": "Push only, and no push is known to clear it: treat it as a latch until query_battery reads higher. On is 0xA2.",
+      "platform": "binary_sensor",
+      "state_field": "low_battery.low_battery",
+      "state_mapping": {
+        "on_value": 162
+      }
+    },
+    {
+      "commands": {
+        "select_option": "set_ring"
+      },
+      "name": "Ring Tone",
+      "notes": "Reads the volume back before each change so picking a ring does not silence the box, which the vendor app can do.",
+      "platform": "select",
+      "state_command": "query_ring",
+      "state_field": "query_ring.ring_type",
+      "state_mapping": {
+        "options": {
+          "1": "Ring A",
+          "2": "Ring B",
+          "3": "Ring C"
+        }
+      },
+      "variants": [
+        "A170"
+      ]
+    },
+    {
+      "commands": {
+        "turn_off": {
+          "command": "set_ring_volume",
+          "values": {
+            "volume": 0
+          }
+        },
+        "turn_on": {
+          "command": "set_ring_volume",
+          "values": {
+            "volume": 1
+          }
+        }
+      },
+      "name": "Alarm Sound",
+      "notes": "The vendor app's sound switch: volume byte 1 or 0. Levels 2 and 3 exist in the encoder but no screen sends them, so they are not offered.",
+      "platform": "switch",
+      "state_command": "query_ring",
+      "state_field": "query_ring.volume",
+      "state_mapping": {
+        "on_when": "nonzero"
+      },
+      "variants": [
+        "A170"
+      ]
+    },
+    {
+      "commands": {
+        "select_option": "set_ring_a1310"
+      },
+      "name": "Ring Tone",
+      "notes": "Custom recording only works once one has been uploaded (query_custom_ring_status).",
+      "platform": "select",
+      "state_command": "query_current_ring",
+      "state_field": "query_current_ring.ring",
+      "state_mapping": {
+        "options": {
+          "0": "Ring A",
+          "1": "Ring B",
+          "2": "Ring C",
+          "3": "Custom recording"
+        }
+      },
+      "variants": [
+        "A1310"
+      ]
+    },
+    {
+      "commands": {
+        "select_option": "set_horn_volume"
+      },
+      "name": "Speaker Volume",
+      "platform": "select",
+      "state_command": "query_horn_volume",
+      "state_field": "query_horn_volume.horn_volume",
+      "state_mapping": {
+        "options": {
+          "0": "off",
+          "1": "low",
+          "2": "medium",
+          "3": "max"
+        }
+      },
+      "variants": [
+        "A1310"
+      ]
+    },
+    {
+      "commands": {
+        "turn_off": "refuse_early_pickup",
+        "turn_on": "allow_early_pickup"
+      },
+      "name": "Allow Early Pick-up",
+      "notes": "On is raw 00: the query answers 00 for allowed, and allowing sends 23 53 16 00.",
+      "platform": "switch",
+      "state_command": "query_early_pickup",
+      "state_field": "query_early_pickup.early_pickup",
+      "state_mapping": {
+        "on_value": 0
+      },
+      "variants": [
+        "A1310"
+      ]
+    },
+    {
+      "commands": {
+        "press": "play_ring"
+      },
+      "name": "Play Ring",
+      "platform": "button",
+      "variants": [
+        "A1310"
+      ]
+    },
+    {
+      "commands": {
+        "press": "stop_ring"
+      },
+      "name": "Stop Ring",
+      "platform": "button",
+      "variants": [
+        "A1310"
+      ]
+    },
+    {
+      "commands": {
+        "press": {
+          "command": "clear_alarm_slot",
+          "values": {
+            "slot": 1
+          }
+        }
+      },
+      "icon": "mdi:alarm-off",
+      "name": "Clear Alarm Slot 1",
+      "notes": "One button per slot, because the box cannot report what a slot holds and the vocabulary has no schedule platform to write one. The command is advanced: the vendor app numbers slots by time order, so check which slot a reminder is in before clearing it.\n",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": {
+          "command": "clear_alarm_slot",
+          "values": {
+            "slot": 2
+          }
+        }
+      },
+      "icon": "mdi:alarm-off",
+      "name": "Clear Alarm Slot 2",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": {
+          "command": "clear_alarm_slot",
+          "values": {
+            "slot": 3
+          }
+        }
+      },
+      "icon": "mdi:alarm-off",
+      "name": "Clear Alarm Slot 3",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": {
+          "command": "clear_alarm_slot",
+          "values": {
+            "slot": 4
+          }
+        }
+      },
+      "icon": "mdi:alarm-off",
+      "name": "Clear Alarm Slot 4",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": {
+          "command": "clear_alarm_slot",
+          "values": {
+            "slot": 5
+          }
+        }
+      },
+      "icon": "mdi:alarm-off",
+      "name": "Clear Alarm Slot 5",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": {
+          "command": "clear_alarm_slot",
+          "values": {
+            "slot": 6
+          }
+        }
+      },
+      "icon": "mdi:alarm-off",
+      "name": "Clear Alarm Slot 6",
+      "platform": "button"
+    },
+    {
+      "commands": {
+        "press": {
+          "command": "clear_alarm_slot",
+          "values": {
+            "slot": 7
+          }
+        }
+      },
+      "icon": "mdi:alarm-off",
+      "name": "Clear Alarm Slot 7",
+      "notes": "The A1310 has six slots.",
+      "platform": "button",
+      "variants": [
+        "A170"
+      ]
+    }
+  ],
+  "evidence": {
+    "app_static_analysis": "Everything under `commands`, `bluetooth_classic` and `protocol_details` is what the vendor app sends and parses, not what a box was seen to do. No hardware and no captures were available, so every fact is `reported`.\n",
+    "artifacts": [
+      {
+        "artifact": "PillCalendar for Android, package com.quin.pillcalendar, version 3.10.1 (versionCode 127), minSdk 24",
+        "description": "Decompiled Java/Kotlin (R8-obfuscated, device-layer names intact). Established the BLE-scan-then-SPP transport, the insecure socket, the frame codec for the A170 and A1310, per-command reply lengths, the firmware frame and its CRC, the connect handshake and timings, and the app-side defects below. The native libraries are crash reporting and an MP3 encoder; no protocol code lives in them.\n",
+        "obtained_via": "third-party APK mirror (XAPK: base plus splits), 2026-09-27",
+        "type": "static_analysis"
+      },
+      {
+        "artifact": "The vendor cloud's firmware-lookup endpoint, 2026-09-27",
+        "description": "Queried without authentication for A170, A1310 and A-1281 at versions 0.0.1, 1.0.0 and 2.0.0 with an all-zero MAC. Every answer was an empty result: no firmware image or URL was obtained.\n",
+        "type": "live_probe"
+      },
+      {
+        "artifact": "PillCalendar App Store listing, id1592652731",
+        "description": "Confirms the seller and an iOS build (iOS 12 or later). Says nothing about which models it drives or how.\n",
+        "type": "vendor_documentation",
+        "url": "https://apps.apple.com/us/app/pillcalendar/id1592652731"
+      }
+    ],
+    "open_questions": [
+      "Stale alarms after deleting a reminder (most likely cause of \"it rings for a reminder I deleted\"). The app's main sync, which runs only when reminders are saved from the box's reminder-management screen or the reminder editor with the box connected, pads the list to seven entries on an A170 and six on an A1310, so removed reminders are cleared. Two other write paths, the per-reminder on/off switch on the home screen and the write after a refresh (pull-to-refresh or reopening the app), send only the reminders the server currently has, unpadded. When the list shrinks by any route other than that connected save (a change made from another phone on the account, for one), the next refresh writes only slots 1 to n, and slots n+1 to the maximum keep their old times and keep ringing. The same paths sort reminders by time, so adding or editing one renumbers every slot. Affects both models. Unverified on hardware.\n",
+      "Name matching (most likely cause of \"found it, but it never connects\"). The scan accepts any name STARTING with A170, but the model factory needs the name to be EXACTLY A170. A box advertising a suffixed name would be listed, would connect, and would then get a handler that sends nothing, so the handshake never completes and the app reports a connect timeout. Depends on the real advertised name, which nobody has recorded.\n",
+      "Unframed stream parsing (likely cause of intermittent \"connection failed\"). The app parses each RFCOMM read on its own, with no length field, no reassembly and no resync beyond skipping stray bytes. A reply split across two reads throws and is dropped, merged replies survive only if every command in them is known, and a dropped serial or firmware reply fails the connect handshake.\n",
+      "Shared ring buffer. The app builds the A170 ring frame in one shared buffer that it never refreshes from the box and that concurrent calls can race on. The byte a screen does not change is whatever the app last wrote, 00 after a restart: the first ring change after launch also sends volume 00 (sound off), and the first sound toggle sends ring type 00, outside 1-3. A likely cause of \"the box went quiet after I changed the ring\".\n",
+      "Clock set only while connected. The app sets the clock only after connecting from its device screen and on each reminder sync, and repeating alarm frames carry the date of the write, so a box that drifted or lost power relies on the next connection to ring at the right time.\n",
+      "Replies to sets. The app parses no reply to the clock, alarm, ring, time-format or early-pick-up sets. If the box does acknowledge them, the app's parser drops the rest of that read, which during a sync burst could swallow the ring or battery reply behind it.\n"
+    ]
+  },
+  "features": [
+    {
+      "dfu": {
+        "enter": {
+          "command": "firmware_push",
+          "how": "in_place",
+          "notes": "There is no separate bootloader-entry command in the app. The running firmware takes the image in one frame (firmware_push), answers with the CRC it computed, and the app then sends firmware_commit on a match or firmware_abort on a mismatch or a cancel. Whether the box reboots after the commit, and how it appears while updating, are unknown.\n"
+        },
+        "image": {
+          "algorithm": "unknown",
+          "format": "Unknown. The app sends the downloaded file verbatim after a 9-byte header.",
+          "notes": "The app asks the vendor cloud's firmware lookup for the latest image by model, current version and MAC. Probed on 2026-09-27 for A170, A1310 and A-1281 at versions 0.0.1, 1.0.0 and 2.0.0 with an all-zero MAC, it answered with an empty result every time. No image has been obtained. The CRC-16/XMODEM in the frame is a transfer check the app compares against the box's echo; whether the box also verifies a signature is unknown.\n",
+          "signing": "unknown",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "custom"
+        ],
+        "notes": "Same frames on the A170 and the A1310. Frame: 23 53 06, CRC-16/XMODEM of the image (u16 little-endian), image length (u32 little-endian), then the image. The box answers 26 53 06 and its CRC, little-endian. Worked example with a made-up image in commands.firmware_push.\n",
+        "recovery": {
+          "interrupted": "unknown",
+          "notes": "Nothing in the app handles an interrupted update beyond reporting failure."
+        },
+        "transport": "rfcomm",
+        "verification": "reported"
+      },
+      "type": "firmware_update"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "The A170 manual: charging, alarms, cancellation and the one-press screen/Bluetooth wake and sleep behavior used in this spec.\n",
+      "kind": "manual",
+      "title": "A170 Smart Pill Organizer bilingual instruction manual (PDF)",
+      "url": "https://m.media-amazon.com/images/I/B1688ivWcRL.pdf"
+    },
+    {
+      "description": "The A1310 sheet: model-specific operation, fingerprints, alarms and custom rings. Image-based; use the app analysis for protocol bytes.\n",
+      "kind": "manual",
+      "title": "A1310 Smart Pill Dispenser instruction sheet (PDF)",
+      "url": "https://m.media-amazon.com/images/I/C1C2N0jzkNL.pdf"
+    },
+    {
+      "description": "The vendor Android app this spec was recovered from (package com.quin.pillcalendar).",
+      "kind": "vendor_support",
+      "title": "PillCalendar on Google Play",
+      "url": "https://play.google.com/store/apps/details?id=com.quin.pillcalendar"
+    },
+    {
+      "description": "The vendor iOS app. How it reaches the A170 and A1310 is an open question; see host_compatibility.",
+      "kind": "vendor_support",
+      "title": "PillCalendar on the App Store",
+      "url": "https://apps.apple.com/us/app/pillcalendar/id1592652731"
+    },
+    {
+      "description": "How to capture the vendor app's RFCOMM traffic, which would confirm every reported byte here in one session.",
+      "kind": "other",
+      "title": "Android: Bluetooth verifying and debugging (HCI snoop log)",
+      "url": "https://source.android.com/docs/core/connect/bluetooth/verifying_debugging"
+    },
+    {
+      "description": "The filter for reading the RFCOMM payloads out of an HCI snoop log.",
+      "kind": "other",
+      "title": "Wireshark display filter reference: btrfcomm",
+      "url": "https://www.wireshark.org/docs/dfref/b/btrfcomm.html"
+    },
+    {
+      "description": "Parameters and check value of CRC-16/XMODEM, the checksum in the firmware and custom-ring upload frames.",
+      "kind": "standard",
+      "title": "CRC RevEng catalogue: 16-bit CRCs (CRC-16/XMODEM)",
+      "url": "https://reveng.sourceforge.io/crc-catalogue/16.htm"
+    }
+  ],
+  "initialization": [
+    {
+      "command": "query_firmware_version",
+      "delay_after_ms": 100,
+      "expect_response": false,
+      "notes": "The vendor app sends the serial-number query 100 ms later without waiting for this reply, but it needs BOTH replies before it counts the link as up.\n"
+    },
+    {
+      "command": "query_serial_number",
+      "expect_response": true,
+      "notes": "The link is up once the firmware and serial-number replies have both been parsed. The vendor app polls for that every 500 ms and gives up when its 10-second connect budget (which also covers opening the socket) runs out.\n"
+    }
+  ],
+  "protocol_details": {
+    "a1281": {
+      "note": "The app's third model uses a separate codec with its own frames. Not analysed; its name starts \"A-128\", which neither prefix here matches.\n"
+    },
+    "connect_sequence": [
+      "Open an insecure RFCOMM socket to the SPP UUID at the BLE scan's address, inside a 10 s budget.",
+      "Wait 100 ms, send 23 47 06 00 (firmware); wait 100 ms, send 23 47 04 00 (serial number).",
+      "Poll every 500 ms; the link is up once both replies have been parsed. If the 10 s budget runs out first, close the socket and fail.",
+      "On the device screen the app then sends 23 53 02 00, set_clock, 23 47 04 00, 23 47 06 00, 23 47 05 00 and 23 47 08 00 on an A170; on an A1310 it skips 05 and adds 23 47 0A 00, 23 47 0D 00 and 23 47 11 00."
+    ],
+    "entity_coverage": "Not bound to any entity, and why. Writing an alarm slot: the entity vocabulary has no time-of-day or schedule platform, and set_alarm_slot takes eight caller-supplied bytes; the slots are described in `scheduling` instead. Clearing one IS bound, as a button per slot on clear_alarm_slot, because that is the remedy for the stale-alarm defect and needs no caller input. Clock sync: set_clock needs the host's current time and no parameter `source` scheme names the host clock, so it cannot be a one-tap button. Fingerprints and the custom ring upload: multi-step flows with no entity shape. The low-battery and charging pushes ARE bound, through `state_field` on bluetooth_classic.serial.unsolicited.\n",
+    "frame_grammar": {
+      "box_to_phone_push": "40 (@) 47 (G), the command byte, one payload byte. Unsolicited.",
+      "box_to_phone_reply": "26 (&), the direction byte of the frame answered (47 or 53), the command byte, then a payload whose length is fixed per command.",
+      "checksum": "None on any frame. Only the firmware and custom-ring uploads carry a CRC-16/XMODEM, and it covers the image.",
+      "phone_to_box": "23 (#), then 47 (G) for a query or 53 (S) for a set, then the command byte, then arguments. Every query in this spec carries one 00 argument."
+    },
+    "repeat_byte": {
+      "decode_when_disabled": "Ignore it: a switched-off reminder keeps its mask, and padding slots carry 00.",
+      "description": "The A170 alarm-slot repeat byte (commands.set_alarm_slot.repeat) as data. The A1310 always gets 01. Single byte, so byte order does not apply.\n",
+      "encode": "00 when no weekday is selected; 01 when all seven are (the app never sends the seven bits together); otherwise the sum of weekday_bits_by_index over the selected indices, which equals their OR because the bits are distinct. Bit 0 (01) is never a weekday.\n",
+      "every_day": "01",
+      "example": "indices 1, 3, 5 -> 02 + 08 + 20 = 2A; indices 0, 6 -> 80 + 40 = C0",
+      "index_0_weekday": "unknown; probably Sunday",
+      "one_shot": "00",
+      "verification": "reported",
+      "weekday_bits_by_index": [
+        "80",
+        "02",
+        "04",
+        "08",
+        "10",
+        "20",
+        "40"
+      ]
+    },
+    "reply_lengths": {
+      "description": "Total frame length by prefix, for a client splitting the stream. Every length includes the three prefix bytes. A reassembler that sees a prefix not listed here has lost sync.\n",
+      "frames": {
+        "26 47 02": {
+          "length": 4,
+          "note": "0x26-led form of the push",
+          "unsolicited": "low_battery"
+        },
+        "26 47 03": {
+          "length": 4,
+          "note": "0x26-led form of the push",
+          "unsolicited": "charging"
+        },
+        "26 47 04": {
+          "command": "query_serial_number",
+          "length": 18
+        },
+        "26 47 05": {
+          "command": "query_ring",
+          "length": 5
+        },
+        "26 47 06": {
+          "command": "query_firmware_version",
+          "length": 6
+        },
+        "26 47 08": {
+          "command": "query_battery",
+          "length": 6
+        },
+        "26 47 09": {
+          "command": "fingerprint_list",
+          "length": null,
+          "note": "variable, to the end of the read"
+        },
+        "26 47 0A": {
+          "command": "query_horn_volume",
+          "length": 4
+        },
+        "26 47 0C": {
+          "command": "play_ring",
+          "length": 4
+        },
+        "26 47 0D": {
+          "command": "query_current_ring",
+          "length": 4
+        },
+        "26 47 0E": {
+          "command": "query_custom_ring_status",
+          "length": 4
+        },
+        "26 47 11": {
+          "command": "query_early_pickup",
+          "length": 4
+        },
+        "26 53 06": {
+          "command": "firmware_push",
+          "length": 5
+        },
+        "26 53 08": {
+          "command": "fingerprint_enroll",
+          "length": 6
+        },
+        "26 53 09": {
+          "command": "fingerprint_set_name",
+          "length": 4
+        },
+        "26 53 0A": {
+          "command": "fingerprint_delete",
+          "length": 4
+        },
+        "26 53 0B": {
+          "command": "fingerprint_enroll_cancel",
+          "length": 4
+        },
+        "26 53 0C": {
+          "command": "custom_ring_upload",
+          "length": 4
+        },
+        "26 53 0F": {
+          "command": "set_ring_a1310",
+          "length": 4
+        },
+        "40 47 02": {
+          "length": 4,
+          "unsolicited": "low_battery"
+        },
+        "40 47 03": {
+          "length": 4,
+          "unsolicited": "charging"
+        }
+      },
+      "verification": "reported"
+    },
+    "test_vectors": {
+      "crc16_xmodem": [
+        {
+          "crc": "0x31C3",
+          "input_ascii": "123456789"
+        },
+        {
+          "crc": "0x0D03",
+          "input_hex": "01 02 03 04",
+          "on_wire_le": "03 0D"
+        }
+      ],
+      "description": "Computed from the vendor app's encoders and checked against an independent standard-library transcription. None is a capture.\n",
+      "frames": [
+        {
+          "hex": "23 53 02 00",
+          "meaning": "time-format flag, the only value the app sends"
+        },
+        {
+          "hex": "23 53 01 1A 09 1B 0E 05 09",
+          "meaning": "clock 2026-09-27 14:05:09"
+        },
+        {
+          "hex": "23 53 03 01 01 2A 1A 09 1B 08 1E 00",
+          "meaning": "slot 1, on, weekday indices 1+3+5, 08:30"
+        },
+        {
+          "hex": "23 53 03 02 01 01 1A 09 1B 14 00 00",
+          "meaning": "slot 2, on, every day, 20:00"
+        },
+        {
+          "hex": "23 53 03 07 00 00 01 01 01 01 01 00",
+          "meaning": "slot 7 cleared"
+        },
+        {
+          "hex": "23 53 03 03 01 C0 1A 09 1B 07 2D 00",
+          "meaning": "slot 3, on, weekday indices 0+6, 07:45"
+        },
+        {
+          "hex": "23 53 03 04 01 00 1A 0A 03 0C 0F 00",
+          "meaning": "slot 4, on, one-shot 2026-10-03 12:15"
+        },
+        {
+          "hex": "23 53 06 03 0D 04 00 00 00 01 02 03 04",
+          "meaning": "firmware push of a made-up 4-byte image"
+        },
+        {
+          "hex": "26 47 06 01 02 03",
+          "meaning": "reply: firmware 1.2.3"
+        },
+        {
+          "hex": "26 47 08 00 00 5A",
+          "meaning": "reply: battery 90 %"
+        }
+      ]
+    },
+    "variant_command_sets": {
+      "A1310": [
+        "query_serial_number",
+        "query_firmware_version",
+        "query_battery",
+        "query_early_pickup",
+        "set_time_format",
+        "set_clock",
+        "set_alarm_slot",
+        "clear_alarm_slot",
+        "firmware_push",
+        "firmware_commit",
+        "firmware_abort",
+        "query_current_ring",
+        "set_ring_a1310",
+        "query_custom_ring_status",
+        "custom_ring_upload",
+        "play_ring",
+        "stop_ring",
+        "query_horn_volume",
+        "set_horn_volume",
+        "allow_early_pickup",
+        "refuse_early_pickup",
+        "fingerprint_enroll",
+        "fingerprint_enroll_cancel",
+        "fingerprint_list",
+        "fingerprint_set_name",
+        "fingerprint_delete"
+      ],
+      "A170": [
+        "query_serial_number",
+        "query_firmware_version",
+        "query_battery",
+        "query_ring",
+        "set_ring",
+        "set_ring_volume",
+        "set_time_format",
+        "set_clock",
+        "set_alarm_slot",
+        "clear_alarm_slot",
+        "firmware_push",
+        "firmware_commit",
+        "firmware_abort"
+      ],
+      "notes": "Which commands the vendor app sends to each model. The codec is shared, so a model may answer frames the app never sends it; nobody has tried."
+    },
+    "vendor_parser_behaviour": "For troubleshooting, what the vendor app does with each read, because it explains intermittent \"connection failed\" reports. It walks the bytes of ONE read (up to 1024) from the start. A byte that is not 26 or 40 is skipped. A known command consumes its fixed payload. An unknown command byte, including a reply to a set it does not parse, discards the rest of the read. A reply cut off by the end of the read throws, and the rest of the read is lost. Nothing carries over to the next read. So a serial or firmware reply split across two reads is lost, the connect handshake never completes, and the app reports a failed connection after 10 s.\n"
+  },
+  "remaining_unknowns": [
+    "The advertised name: bare model (A170) or suffixed (A170-XXXX), over BLE and over a Classic inquiry. Decides whether the vendor app's exact-name match fails (evidence.open_questions).",
+    "Whether the BR/EDR address equals the BLE address. The vendor app depends on it; nobody has checked.",
+    "The RFCOMM channel number, and whether the box accepts a second connection while one is open.",
+    "Which weekday alarm index 0 is (bit 0x80); probably Sunday.",
+    "What the time-format byte means (probably 12/24-hour display) and what 01 does; the app only ever sends 00.",
+    "Every reply length, checked on the air. They come from the app's parser, which throws on a short reply rather than proving the length.",
+    "Whether the box acknowledges any set command, and whether an A170 answers the early-pick-up query.",
+    "The meaning of the two unused bytes in the battery reply and the two header bytes of the A1310 fingerprint list.",
+    "What A170 volume levels 2 and 3 sound like.",
+    "When the box sends the low-battery and charging pushes.",
+    "The wake procedure (which button, how long) and how long the box stays awake and connectable.",
+    "How the iOS app reaches these models, if it does. A BLE control surface would change ble_role and the CoreBluetooth verdict.",
+    "The firmware image format, whether the box verifies a signature, and what an interrupted update leaves behind. No image has been obtained.",
+    "The FCC ID and grantee; not looked up.",
+    "Retail brand names. The boxes are sold as Daviky, and an App Store review of the vendor app mentions a Zoksi-branded smart pill organizer; which model each retail name is, is not established. Identify a unit by its advertised name.",
+    "The A-1281 codec, which is out of scope here."
+  ],
+  "scheduling": {
+    "applies_to": [
+      "A170",
+      "A1310"
+    ],
+    "client_side_alternative": "None needed while the box keeps time: once written, the slots fire on their own. A client should still set the clock on every connection.\n",
+    "confidence": "medium",
+    "device_clock_dependency": "The box's clock is set only by set_clock, and the vendor app sends it only after connecting from its device screen and on each reminder sync. A box whose battery ran flat, or that has drifted, rings at the wrong time until a client connects again. Repeating slots also carry the date of the write, so a box whose clock is behind that date may not ring them at all (unverified).\n",
+    "limitations": [
+      "Seven slots on an A170, six on an A1310: one time each, not one per dose.",
+      "Repeat is per weekday or every day (A170), or always 01 (A1310). No every-N-days or interval rule.",
+      "Minute resolution; no seconds in a slot.",
+      "No read-back: a client cannot see what a slot holds, only overwrite it."
+    ],
+    "mechanism": "on_device_rules",
+    "open_questions": [
+      "Which weekday index 0 is. The app's bit for index 0 is 0x80 and index 1 is 0x02; Sunday-first is likely but unconfirmed.",
+      "What the date in a repeating slot means to the box (a start date? ignored?).",
+      "Whether a slot the vendor app did not rewrite after a deletion really keeps ringing (see evidence.open_questions)."
+    ],
+    "runs_without_a_client": true,
+    "storage": {
+      "notes": "See commands.set_alarm_slot for every field and worked examples. The vendor app keeps the reminder list on its server, sorts it by time and writes it by position, so slot numbers carry no meaning of their own; whether a slot maps to a physical compartment is unknown.\n",
+      "slot_frame": "23 53 03 <slot> <enabled> <repeat> <YY> <MM> <DD> <hh> <mm> 00",
+      "slots": {
+        "A1310": 6,
+        "A170": 7
+      }
+    },
+    "summary": "The box stores up to seven (A170) or six (A1310) alarm slots and rings with sound and light when one comes due, with no phone present; the app's text says as much and the product is built around it. Each slot is one set_alarm_slot frame. There is no command to read a slot back.\n",
+    "supported": true,
+    "transfer": {
+      "steps": [
+        {
+          "action": "Connect and complete the firmware and serial-number handshake.",
+          "actor": "client"
+        },
+        {
+          "action": "Send set_time_format 00, then set_clock.",
+          "actor": "client"
+        },
+        {
+          "action": "Send one set_alarm_slot per slot, 1 to the variant's maximum, 50 ms apart; disable every slot not in use.",
+          "actor": "client"
+        }
+      ]
+    },
+    "verification": "reported"
+  }
+}
