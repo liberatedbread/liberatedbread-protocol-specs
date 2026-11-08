@@ -95,10 +95,16 @@ company ID.
 - An eight-frame, 200 ms-per-frame GIF-container upload completed four acknowledged
   chunks and EndStream, but restored the old program. It is transport evidence only,
   not proof of active animation.
-- A corrected vendor-native three-frame animation used item type 2, raw row-major RGB
-  frame buffers and two-byte durations. It completed 38 chunks and stayed active; a
-  static RGB fallback also visibly replaced the old text. This is the path clients
-  should implement for animation.
+- A corrected vendor-native three-frame animation used item type 2, a 22-byte item
+  header (geometry, type, frame count, effect, speed, dwell, border and brightness),
+  three 6144-byte raw row-major RGB frame buffers, then three two-byte big-endian
+  frame-rate values (`00 01` = one frame per second). That is 22 + 18,432 + 6 =
+  18,460 item bytes. A four-byte item CRC, four-byte programme header and 16-byte
+  partition address table bring `complexData` to 18,484 bytes. StartStream is 17
+  bytes and EndStream is 7, giving 18,508 logical transfer bytes before per-chunk
+  overhead. It completed 38 chunks and stayed active; a static RGB fallback also
+  visibly replaced the old text. This is the path clients should implement for
+  animation.
 - These are protocol and visual confirmations for one panel, not universal geometry or
   maximum resource-size claims.
 

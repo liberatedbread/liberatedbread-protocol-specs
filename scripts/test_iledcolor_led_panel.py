@@ -69,8 +69,26 @@ def test_vendor_native_animation_uses_raw_rgb_frames():
     assert native["frames"] == 3
     assert native["pixel_format"] == "RGB row-major, 3 bytes per pixel"
     assert native["duration_bytes_per_frame"] == 2
-    assert native["item_data_bytes"] == 18480
-    assert native["stream_bytes"] == 18504
+    assert native["duration_endian"] == "big"
+    assert native["duration_unit"] == "frames_per_second"
+    assert native["duration_example_hex"] == "000100010001"
+    assert native["item_header_bytes"] == 22
+    assert native["item_bytes"] == 18460
+    assert native["complex_data_bytes"] == 18484
+    assert native["logical_transfer_bytes"] == 18508
+    assert native["item_bytes"] == (
+        native["item_header_bytes"] + 3 * 32 * 64 * 3 + 3 * 2
+    )
+    assert native["complex_data_bytes"] == 4 + 4 + 16 + native["item_bytes"]
+    assert native["logical_transfer_bytes"] == (
+        native["start_packet_bytes"]
+        + native["complex_data_bytes"]
+        + native["end_packet_bytes"]
+    )
+    assert native["transport_bytes_with_chunk_headers"] == (
+        native["logical_transfer_bytes"]
+        + native["chunks"] * native["chunk_packet_overhead_bytes"]
+    )
     assert native["chunks"] == 38
     assert native["chunk_payload_bytes"] == 492
     assert "restored the old program" in upload["legacy_acknowledged_gif_example"][
