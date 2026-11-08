@@ -90,17 +90,17 @@ def test_unknown_payload_opcodes_are_not_made_executable():
     assert "disable_ssh" not in commands
 
 
-def test_session_feedback_subscription_precedes_auth_writes():
+def test_session_initialization_orders_dependencies_before_auth():
     feedback = "87654321-1234-5678-1234-56789abcdef9"
+    session_auth = "87654321-1234-5678-1234-56789abcdef1"
+    session_key_exchange = "87654321-1234-5678-1234-56789abcdefb"
     initialization = SPEC["initialization"]
     positions = {
         item["characteristic"]: index for index, item in enumerate(initialization)
     }
-    for auth in (
-        "87654321-1234-5678-1234-56789abcdef1",
-        "87654321-1234-5678-1234-56789abcdefb",
-    ):
+    for auth in (session_auth, session_key_exchange):
         assert positions[feedback] < positions[auth]
+    assert positions[session_key_exchange] < positions[session_auth]
 
     for method in SPEC["device"]["setup"]["methods"]:
         actions = [step["action"] for step in method["steps"]]

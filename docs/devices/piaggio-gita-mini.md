@@ -63,10 +63,12 @@ redacted from research captures.
    write its public key on `...def5`.
 4. Subscribe to Wi-Fi (`...def3`), general (`...def7`) and registration/session
    (`...def9`) notifications before any authentication or session-key write.
-5. Verify the stored session credential with command 9 or 63 on `...def1`/`...defb`.
-   The app selects existing-key verification when offline or within seven days; with
-   connectivity and an older key it requests a fresh one. Start with read-only version,
-   IP or OTA-status requests.
+5. Request verification of the stored session credential with command 63 on `...defb`;
+   decrypt its type-109 response to recover `n2` as detailed below.
+6. Authenticate with command 9 on `...def1` using `n2`, encrypted with the stored
+   credential. The app selects existing-key verification when offline or within seven
+   days; with connectivity and an older key it requests a fresh one. Start with read-only
+   version, IP or OTA-status requests.
 
 This path does not prove unlimited offline use. Revocation, reset, logout/reinstall and
 long-term policy need hardware tests.
