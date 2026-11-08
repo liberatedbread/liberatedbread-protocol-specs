@@ -14,21 +14,36 @@
       },
       "methods": [
         {
-          "notes": "Match raw scan-record bytes containing [01 54 59 00 01] or [01 54 42 44 xx] (see device.identification.manufacturer_data for the layout and funCode bits).\n",
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "value": "iledcolor-"
+            },
+            "service_uuids": [
+              "0000af30-0000-1000-8000-00805f9b34fb"
+            ]
+          },
+          "notes": "Match the name prefix, advertised AF30, or raw scan-record bytes containing [01 54 59 00 01] or [01 54 42 44 xx] (see device.identification.manufacturer_data for the layout and funCode bits). Do not require all three signals on every advertisement.\n",
           "type": "ble_scan"
         }
       ],
       "static_ip_required": false
     },
     "identification": {
+      "local_name_prefixes": [
+        "iledcolor-"
+      ],
       "manufacturer_data": {
-        "description": "Advertisement match is a sliding-window substring search over the raw scan record (the vendor app's advertisement matcher), so no fixed company-ID offset is asserted. Match patterns: [01 54 59 00 01] (\"TY\", hat/mini-show) and [01 54 42 44 xx] (\"TBD\", devil-eye / color panels; xx 0x01..0x10 in the vendor support list). Payload layout from the match offset: bytes[1..4] screen-type id, [5..6] height, [7..8] width (u16 BE), [9] color type, version code (u16 BE) at [11..12], customer id (u16 BE) at [13..14], bytes[15..16] funCode bitmask (bit0 time, bit1 partition, bit2 GIF, bit3 media, bit4 rotate/eye, bit5 border, bit6 password, bit7 remote). Old-protocol devices (screen-type id 0x534C0005) carry version/customer id one byte earlier ([10..11] / [12..13]). Geometry is advertised — no query needed.\n"
-      }
+        "description": "Advertisement match is a sliding-window substring search over the raw scan record (the vendor app's advertisement matcher), so no fixed company-ID offset is asserted. Match patterns: [01 54 59 00 01] (\"TY\", hat/mini-show) and [01 54 42 44 xx] (\"TBD\", devil-eye / color panels; xx 0x01..0x10 in the vendor support list). Payload layout from the match offset: bytes[1..4] screen-type id, [5..6] height, [7..8] width (u16 BE), [9] color type, version code (u16 BE) at [11..12], customer id (u16 BE) at [13..14], bytes[15..16] funCode bitmask (bit0 time, bit1 partition, bit2 GIF, bit3 media, bit4 rotate/eye, bit5 border, bit6 password, bit7 remote). Old-protocol devices (screen-type id 0x534c0005) carry version/customer id one byte earlier ([10..11] / [12..13]). Geometry is advertised — no query needed. A live 32x64 panel advertised company 0x5401 and AF30; fresh GATT discovery exposed A950 and AE00, not AF30, so AF30 is only a scan signal and must not be used as the command service.\n"
+      },
+      "service_uuids": [
+        "0000af30-0000-1000-8000-00805f9b34fb"
+      ]
     },
     "manufacturer": "Shenzhen I-ledshow Technology Co., Ltd.",
     "manufacturer_status": "active",
     "name": "iLEDColor LED Matrix Panel (DreamPanel v3)",
-    "notes": "This app replaced SPOTLED for DreamPanel v3 hardware (horizontal serial number). Built on JieLi (JL) Bluetooth OTA SDK. The protocol is FULLY RECOVERED: the vendor published its complete implementation as the open-source Flutter plugin led_bt_jl_ota on pub.dev (0.0.1 2024-08-17 → 0.0.34 2025-05-06), and the independent Rust RE akkaisinabin/iledcolor-rs agrees byte-for-byte.\nLED commands do NOT ride the OTA pipe. They use a dedicated proprietary service 0000A950: A951 command (write / write-without-response), A952 bulk data (image/GIF program upload), A953 notify. AE00/AE01/AE02 is the JieLi OTA firmware-upgrade stack only — confirmed against JieLi's official jl_bt_ota SDK (BluetoothConstant carries the same three UUIDs).\nCommand packet format (write to A951), cross-validated between the vendor plugin and iledcolor-rs:\n  [0x54] [handle:u8] [length:u16 BE (= payload + 2)] [payload…]\n  [checksum:u16 BE = simple sum of all preceding bytes]\nKnown handles: 0x00 Continue, 0x01 EndStream, 0x03 program item (playlist entry), 0x06 StartStream (single GIF/graffiti/program upload), 0x07 playlist control (defined in the vendor example but unused/commented out), 0x08 program-list complete (payload [0x01]), 0x09 Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass, 0x0F TestPass; \"simple data\" frames also use dataType 0x00 with cmdCode 0x02 (speed) / 0x04 (effect). Bulk program data goes to A952 framed with header [0x54, 0x00] and a CRC32C over the payload (the app's send-parameter builder). Session flow: Connect (0x0D) → TestPass (0x0F) → commands/uploads.\nCommand payloads (vendor plugin send builders + iledcolor-rs docs/ouppy.md, the latter hardware-sniffed): Connect 0x0D payload [0x00], replies 0x0000 — exact semantics unclear (iledcolor-rs: \"we send 0x00, receive 0x0000, always\"); the vendor example reuses it as a ping/latency probe and treats its reply as a \"query built-in program count\" response. TestPass 0x0F payload = 6-byte password; response 0x01 correct / 0x02 incorrect / 0x03 no password set. SetPass 0x0E payload = [op, oldPass:6, newPass:6] with op 0x00 set / 0x01 change / 0x02 unset (oldPass zeroed when none); response 0x01 success / 0x02 failure. Brightness 0x09 payload = [level, 0x00×8]; hardware sniffing gives 0x00/0x01 brightest … 0x0A dimmest, ≥0x0B wraps to brightest (the vendor API comment claims 0–100 — trust the sniffed 0–10 range). LedEnable 0x0A payload = [enable, 0x00×8], 0x00 off, anything else on. Program item 0x03 payload = [program count, program index, program CRC32:4, total length:u32 BE, play count, border, 0x00, 0x00].\nA953 responses echo the 0x54 framing. Status byte values, from the vendor app's transfer callback: 0x00 transfer failed, 0x01 success, 0x02 insufficient storage, 0x03 program already exists — no update needed (matched on the program CRC32, i.e. the panel retains uploaded programs across connections), 0x04 data error (e.g. length over maximum). During a chunked upload the panel answers each chunk with an 11-byte Continue (handle 0x00) response whose status sits at byte 8 (0x01 = send next chunk); EndStream (0x01) carries the final result.\nAdvertisement layout decoded from the app's advertisement model and its BLE parse helper: manufacturer bytes match [01 54 59 00 01] (\"TY\", hat/mini-show) or [01 54 42 44 xx] (\"TBD\", devil-eye / color panels). bytes[1..4] screen-type id, [5..6] height, [7..8] width (u16 BE), [9] color type, version code (u16 BE) at bytes[11..12], customer id (u16 BE) at bytes[13..14], bytes[15..16] funCode bitmask (bit0 time, bit1 partition, bit2 GIF, bit3 media, bit4 rotate/eye, bit5 border, bit6 password, bit7 remote). Exception: \"old protocol\" devices (screen-type id 0x534C0005) shift version/customer id one byte earlier (bytes[10..11] / [12..13]) and are sent differently framed bulk data (chunk header [0x01, dataType, cmdCode], trailer [0x02, 0x03]; from the vendor plugin's legacy send path). Geometry is advertised — no query needed. The brightness command requires a device protocol version of 6 or later.\nArchitecture: the app is Flutter — the BLE logic lives in Dart and in the published plugin, which is why an early Java-only static pass found no UUIDs. The Java layer only carries the BLE manager, OTA handler and send thread (whose unobfuscated originals ship in the plugin).\nSPOTLED compatibility probe: check service 0000ff20-0000-1000-8000-00805f9b34fb (SPOTLED generation; absent on iLEDColor panels — the two generations are incompatible, iledcolor-rs: \"not compatible with the spotled protocol\").\nVendor cloud (live 2026-07, no auth for reads): content library iledcolor.api.iledshow.cn; unauthenticated panel-firmware OTA API app.iledshow.cn:8098/ota/getNewestOta?width&height&currVersion&customerId&colorType — responds 200 but is customerId-gated: it needs the exact (width, height, customerId, colorType) tuple a real device advertises. Telemetry note: the app reports device MAC/name/advertisement bytes to iledcolor.api.iledshow.cn/api/reporting/add on OTA events (privacy-relevant).\nSecurity context: the panel's JieLi AC63-family SoC lineage was implicated in the BrakTooth disclosures (Bluetooth Classic DoS/deadlock, e.g. CVE-2021-34150; see Jieli-Tech/fw-AC63_BT_SDK issue #78). That applies to the chip vendor's classic-BT stack; direct impact on this BLE-only panel is unknown.\nResearch status: protocol recovered from the vendor's own published sources plus an independent reimplementation. An HCI snoop is now a nice-to-have validation, not a blocker.\n",
+    "notes": "This app replaced SPOTLED for DreamPanel v3 hardware (horizontal serial number). Built on JieLi (JL) Bluetooth OTA SDK. The protocol is FULLY RECOVERED: the vendor published its complete implementation as the open-source Flutter plugin led_bt_jl_ota on pub.dev (0.0.1 2024-08-17 → 0.0.34 2025-05-06), and the independent Rust RE akkaisinabin/iledcolor-rs agrees byte-for-byte.\nLED commands do NOT ride the OTA pipe. They use a dedicated proprietary service 0000a950: A951 command and A952 bulk data (both write-without-response on the tested unit), A953 notify. AE00/AE01/AE02 is the JieLi OTA firmware-upgrade stack only — confirmed against JieLi's official jl_bt_ota SDK (BluetoothConstant carries the same three UUIDs).\nCommand packet format (write to A951), cross-validated between the vendor plugin and iledcolor-rs:\n  [0x54] [handle:u8] [length:u16 BE (= payload + 2)] [payload…]\n  [checksum:u16 BE = simple sum of all preceding bytes]\nKnown handles: 0x00 Continue, 0x01 EndStream, 0x03 program item (playlist entry), 0x06 StartStream (single GIF/graffiti/program upload), 0x07 playlist control (defined in the vendor example but unused/commented out), 0x08 program-list complete (payload [0x01]), 0x09 Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass, 0x0F TestPass; \"simple data\" frames also use dataType 0x00 with cmdCode 0x02 (speed) / 0x04 (effect). Bulk program data goes to A952 framed with header [0x54, 0x00] and a CRC32C over the payload (the app's send-parameter builder). Session flow: Connect (0x0D) → TestPass (0x0F) → commands/uploads.\nCommand payloads (vendor plugin send builders + iledcolor-rs docs/ouppy.md, the latter hardware-sniffed): Connect 0x0D payload [0x00], replies 0x0000 — exact semantics unclear (iledcolor-rs: \"we send 0x00, receive 0x0000, always\"); the vendor example reuses it as a ping/latency probe and treats its reply as a \"query built-in program count\" response. TestPass 0x0F payload = 6-byte password; response 0x01 correct / 0x02 incorrect / 0x03 no password set. SetPass 0x0E payload = [op, oldPass:6, newPass:6] with op 0x00 set / 0x01 change / 0x02 unset (oldPass zeroed when none); response 0x01 success / 0x02 failure. Brightness 0x09 payload = [level, 0x00×8]; hardware sniffing gives 0x00/0x01 brightest … 0x0A dimmest, ≥0x0B wraps to brightest (the vendor API comment claims 0–100 — trust the sniffed 0–10 range). LedEnable 0x0A payload = [enable, 0x00×8], 0x00 off, anything else on. Program item 0x03 payload = [program count, program index, program CRC32:4, total length:u32 BE, play count, border, 0x00, 0x00].\nA953 responses echo the 0x54 framing. Status byte values, from the vendor app's transfer callback: 0x00 transfer failed, 0x01 success, 0x02 insufficient storage, 0x03 program already exists — no update needed (matched on the program CRC32, i.e. the panel retains uploaded programs across connections), 0x04 data error (e.g. length over maximum). During a chunked upload the panel answers each chunk with an 11-byte Continue (handle 0x00) response whose status sits at byte 8 (0x01 = send next chunk); EndStream (0x01) carries the final result.\nAdvertisement layout decoded from the app's advertisement model and its BLE parse helper: manufacturer bytes match [01 54 59 00 01] (\"TY\", hat/mini-show) or [01 54 42 44 xx] (\"TBD\", devil-eye / color panels). bytes[1..4] screen-type id, [5..6] height, [7..8] width (u16 BE), [9] color type, version code (u16 BE) at bytes[11..12], customer id (u16 BE) at bytes[13..14], bytes[15..16] funCode bitmask (bit0 time, bit1 partition, bit2 GIF, bit3 media, bit4 rotate/eye, bit5 border, bit6 password, bit7 remote). Exception: \"old protocol\" devices (screen-type id 0x534C0005) shift version/customer id one byte earlier (bytes[10..11] / [12..13]) and are sent differently framed bulk data (chunk header [0x01, dataType, cmdCode], trailer [0x02, 0x03]; from the vendor plugin's legacy send path). Geometry is advertised — no query needed. The brightness command requires a device protocol version of 6 or later.\nArchitecture: the app is Flutter — the BLE logic lives in Dart and in the published plugin, which is why an early Java-only static pass found no UUIDs. The Java layer only carries the BLE manager, OTA handler and send thread (whose unobfuscated originals ship in the plugin).\nSPOTLED compatibility probe: check service 0000ff20-0000-1000-8000-00805f9b34fb (SPOTLED generation; absent on iLEDColor panels — the two generations are incompatible, iledcolor-rs: \"not compatible with the spotled protocol\").\nVendor cloud (live 2026-07, no auth for reads): content library iledcolor.api.iledshow.cn; unauthenticated panel-firmware OTA API app.iledshow.cn:8098/ota/getNewestOta?width&height&currVersion&customerId&colorType — responds 200 but is customerId-gated: it needs the exact (width, height, customerId, colorType) tuple a real device advertises. Telemetry note: the app reports device MAC/name/advertisement bytes to iledcolor.api.iledshow.cn/api/reporting/add on OTA events (privacy-relevant).\nSecurity context: the panel's JieLi AC63-family SoC lineage was implicated in the BrakTooth disclosures (Bluetooth Classic DoS/deadlock, e.g. CVE-2021-34150; see Jieli-Tech/fw-AC63_BT_SDK issue #78). That applies to the chip vendor's classic-BT stack; direct impact on this BLE-only panel is unknown.\nResearch status: protocol recovered from the vendor's own published sources plus an independent reimplementation. An HCI snoop is now a nice-to-have validation, not a blocker.\n",
     "pairing": {
       "bonding": "none",
       "confidence": "medium",
@@ -57,7 +72,7 @@
           "ble": {
             "pairing_required": false
           },
-          "description": "Connect over GATT to service 0000A950: write commands to A951 in the recovered [0x54][handle][len16BE][payload][sum16BE] framing, subscribe to A953, upload bulk data to A952. Framing and opcodes are published in the vendor's Flutter plugin led_bt_jl_ota (pub.dev).\n",
+          "description": "Connect over GATT to service 0000a950: write commands to A951 in the recovered [0x54][handle][len16BE][payload][sum16BE] framing, subscribe to A953, upload bulk data to A952. Framing and opcodes are published in the vendor's Flutter plugin led_bt_jl_ota (pub.dev).\n",
           "steps": [
             {
               "action": "Power the panel on; it advertises immediately.",
@@ -72,16 +87,16 @@
               "actor": "client"
             },
             {
-              "action": "On service 0000A950: send Connect (handle 0x0D) then TestPass (0x0F, default password 6×0x00) on A951; subscribe to A953.\n",
+              "action": "On service 0000a950, subscribe to A953, then send Connect (handle 0x0D) and TestPass (0x0F, default password 6×0x00) on A951 with write-without-response.\n",
               "actor": "client",
-              "expect": "Panel accepts commands (brightness, effects, uploads)."
+              "expect": "Connect returns payload 00 00; TestPass returns 1 (password accepted), 2 (wrong password), or 3 (no password)."
             }
           ],
           "type": "ble_direct",
-          "verified": false
+          "verified": true
         }
       ],
-      "notes": "Nothing is provisioned. The panel is a BLE peripheral: it advertises, accepts a connection without pairing, and takes commands on the A950 service. The session starts with Connect (handle 0x0D) then TestPass (0x0F) carrying the 6-byte password, which defaults to 6×0x00. Panels support an optional user-set password (funCode bit 0x40), so open access holds for factory-default panels only.\n",
+      "notes": "Nothing is provisioned. The panel is a BLE peripheral: it advertises, accepts a connection without pairing, and takes commands on the A950 service. The session starts with Connect (handle 0x0D) then TestPass (0x0F) carrying the 6-byte password, which defaults to 6×0x00. Panels support an optional user-set password (funCode bit 0x40), so open access holds for factory-default panels only. The tested unit returned TestPass status 3 (no password) and accepted both static and animated uploads without an account.\n",
       "rejoin": {
         "in_place_supported": true,
         "notes": "The panel joins no network. Any client may connect once the previous one disconnects.\n",
@@ -90,10 +105,25 @@
       "required": false
     },
     "testing": {
-      "status": "untested"
+      "detail": "minimally-verified",
+      "notes": "On 2026-11-07 this project drove one 32x64 unit through Connect and TestPass (which reported no password), then completed a static RGB upload and an eight-frame GIF-container upload with status-success replies at MTU 517. On 2026-11-08 a corrected vendor-native three-frame raw-RGB animation completed 38 chunks and remained active, and a static fallback visibly replaced the old text. The earlier GIF-container upload is kept only as transport evidence, not proof of active animation. Brightness, playlist and password-setting operations, other geometries, factory reset and OTA were not exercised.\n",
+      "status": "verified"
     }
   },
   "features": [
+    {
+      "animation": true,
+      "format": "rgb888",
+      "notes": "Width and height are big-endian u16 fields in the manufacturer-data value after the two-byte company ID. A tested panel reported width 32, height 64; do not infer physical mounting orientation. Static RGB and eight-frame animated program uploads completed with 492-byte chunks at MTU 517. Upload metadata and CRC/stream framing are in protocol_details.live_upload.\n",
+      "resolution_advertisement": {
+        "company_id": 21505,
+        "height_offset": 3,
+        "width_offset": 5
+      },
+      "resolution_source": "device_reported",
+      "type": "image_upload",
+      "verification": "confirmed"
+    },
     {
       "dfu": {
         "dfu_mode": {
@@ -111,7 +141,7 @@
         "mechanisms": [
           "jieli_ota"
         ],
-        "notes": "Characteristic roles are inferred from the jl_bt_ota SDK's client behaviour, not from the panel's own GATT flags. The vendor published its implementation as the open-source led_bt_jl_ota plugin. The app reports the device MAC, name and advertisement bytes to iledcolor.api.iledshow.cn/api/reporting/add on OTA events.\n",
+        "notes": "The OTA service and characteristic flags are confirmed by live GATT discovery; the update flow itself remains inferred from the jl_bt_ota SDK and was not exercised. The vendor published its implementation as the open-source led_bt_jl_ota plugin. The app reports the device MAC, name and advertisement bytes to iledcolor.api.iledshow.cn/api/reporting/add on OTA events.\n",
         "recovery": {
           "interrupted": "unknown"
         },
@@ -157,46 +187,245 @@
       "url": "https://play.google.com/store/apps/details?id=com.led.iledcolor"
     }
   ],
+  "protocol_details": {
+    "live_upload": {
+      "geometry": "The tested manufacturer value decoded to width 32 and height 64 using big-endian fields. Its feature bits advertised GIF and password support; TestPass subsequently reported that no password was configured.\n",
+      "legacy_acknowledged_gif_example": {
+        "caveat": "The GIF-container upload was acknowledged but restored the old program, so it is transport evidence only and not proof of active animation.",
+        "chunk_payload_bytes": 492,
+        "chunks": 4,
+        "frame_interval_ms": 200,
+        "frames": 8,
+        "image_data_bytes": 1626,
+        "image_data_crc32c": "e5e18da9",
+        "metadata_u16_be": [
+          0,
+          0,
+          32,
+          64,
+          0,
+          6,
+          1,
+          100,
+          1024,
+          100
+        ],
+        "stream_bytes": 1650
+      },
+      "native_animation_example": {
+        "chunk_packet_overhead_bytes": 12,
+        "chunk_payload_bytes": 492,
+        "chunks": 38,
+        "complex_data_bytes": 18484,
+        "complex_layout": "four-byte item CRC || four-byte programme header || 16-byte partition address table || 18460-byte item",
+        "duration_bytes_per_frame": 2,
+        "duration_endian": "big",
+        "duration_example_hex": "000100010001",
+        "duration_notes": "The vendor serializer writes each frame's speed as u16 big-endian. Example value 1 means one frame per second, not one millisecond; wall-clock playback was not measured.",
+        "duration_unit": "frames_per_second",
+        "end_packet_bytes": 7,
+        "frame_data": "Three 6144-byte raw RGB frame buffers in sequence, followed by one two-byte big-endian frame-rate value per frame; not a GIF file container",
+        "frames": 3,
+        "item_bytes": 18460,
+        "item_data_crc32c": "b8a8bd77",
+        "item_header_bytes": 22,
+        "item_header_hex": "00000000002000400000000200030001010064000000",
+        "item_header_layout": [
+          "left: u16 BE = 0",
+          "top: u16 BE = 0",
+          "width: u16 BE = 32",
+          "height: u16 BE = 64",
+          "reserved: 00 00 00",
+          "item_type: u8 = 2",
+          "frame_count: u16 BE = 3",
+          "effect: u8 = 0",
+          "speed: u8 = 1",
+          "stay_time: u8 = 1",
+          "frame_type: u8 = 0",
+          "light: u8 = 100",
+          "reserved: 00 00 00"
+        ],
+        "item_layout": "22-byte item header || three 6144-byte RGB buffers || six-byte duration tail",
+        "item_type": 2,
+        "length_note": "Lengths are computed from the vendor serializer. Earlier aggregate notes did not account for the full 24-byte wrapper and are not used as test vectors.",
+        "logical_transfer_bytes": 18508,
+        "logical_transfer_layout": "17-byte StartStream packet || 18484-byte complexData || seven-byte EndStream packet",
+        "partition_address_table_hex": "00000000000000000000000000000000",
+        "pixel_format": "RGB row-major, 3 bytes per pixel",
+        "programme_header_hex": "01000000",
+        "result": "Completed EndStream with success status 1 and the new labeled sequence remained active; a static RGB fallback visibly replaced the old text.",
+        "start_packet_bytes": 17,
+        "start_request": {
+          "checksum_u16_be": 911,
+          "length_u16_be": 13,
+          "notes": "The announced length is the logical transfer bytes above, not only the item or complexData. Payload is 11 bytes; the complete StartStream packet is 17 bytes including the u16 packet length and checksum.",
+          "packet_hex": "5406000db8a8bd770000484c000000038f",
+          "payload_hex": "b8a8bd770000484c000000",
+          "payload_layout": "item CRC32C (four bytes) || logical transfer length (u32 BE) || three reserved zero bytes"
+        },
+        "stream_length_endian": "big",
+        "transport_bytes_with_chunk_headers": 18964,
+        "transport_layout": "17-byte StartStream packet || 38 A952 chunks (492-byte maximum payload and 12-byte per-chunk overhead) || seven-byte EndStream packet"
+      },
+      "parser_notes": "StartStream's seven-byte reply carries status 1, not a chunk count. Continue responses are 11 bytes with status/success at response byte 8; EndStream status is at response byte 4. The examples are evidence for the tested 32x64 panel, not universal geometry or resource-size limits.\n",
+      "responses": {
+        "connect": "54 0d 00 04 00 00 00 65",
+        "continue_first_chunk": "54 00 00 05 00 00 00 00 01 00 5a",
+        "end_stream_success": "54 01 00 03 01 00 59",
+        "start_stream_success": "54 06 00 03 01 00 5e",
+        "test_pass_no_password": "54 0f 00 03 03 00 69"
+      },
+      "static_program_example": {
+        "chunk_payload_bytes": 492,
+        "chunks": 13,
+        "image_data_bytes": 6164,
+        "image_data_crc32c": "b99ddedf",
+        "metadata_u16_be": [
+          0,
+          0,
+          32,
+          64,
+          0,
+          1,
+          1,
+          1,
+          50,
+          100
+        ],
+        "stream_bytes": 6188,
+        "stream_prefix": "CRC32C big-endian, 01, nineteen zero bytes"
+      },
+      "verification": "confirmed"
+    }
+  },
+  "remaining_unknowns": [
+    "Maximum resource size, official-app MTU behavior, and the complete StartStream metadata field semantics beyond the documented vendor builders.",
+    "Brightness, LedEnable, playlist management, password setting/changing and behavior on a password-enabled unit were not exercised.",
+    "Factory reset, power-cycle persistence, other panel geometries and old-protocol bulk framing remain unverified.",
+    "OTA was enumerated but not used; image format, signature checks, update-mode identity and interrupted-update recovery remain unknown."
+  ],
   "services": [
     {
       "characteristics": [
         {
+          "commands": {
+            "connect": {
+              "description": "Open a display session; the live reply was 54 0d 00 04 00 00 00 65.",
+              "value": [
+                84,
+                13,
+                0,
+                3,
+                0,
+                0,
+                100
+              ],
+              "verification": "confirmed"
+            },
+            "end_stream": {
+              "description": "Finish a program upload. The live response was 54 01 00 03 01 00 59; payload status 1 means success.",
+              "value": [
+                84,
+                1,
+                0,
+                3,
+                1,
+                0,
+                89
+              ],
+              "verification": "confirmed"
+            },
+            "test_pass_default": {
+              "description": "Test the factory-default six-byte all-zero password. Response status 1 = accepted, 2 = wrong password, 3 = no password configured.",
+              "value": [
+                84,
+                15,
+                0,
+                8,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                107
+              ],
+              "verification": "confirmed"
+            }
+          },
           "name": "Command",
-          "notes": "LED command packets in the 0x54 framing described above.",
+          "notes": "LED command packets in the 0x54 framing described above. Live discovery found only write-without-response.",
           "properties": [
-            "write",
             "write_without_response"
           ],
           "uuid": "0000a951-0000-1000-8000-00805f9b34fb"
         },
         {
           "name": "Data",
-          "notes": "Bulk image/GIF program upload. Each chunk is a full 0x54-framed packet with handle 0x00: [0x54, 0x00][len:u16 BE][sequence:u32 BE] [chunk length:u16 BE][chunk…][sum:u16 BE], sized to fit MTU−13 (the vendor app's chunker; iledcolor-rs uses 492-byte data chunks). The transfer ends with an EndStream packet [0x54, 0x01, 0x0003, 0x01, sum]. CRC32C (Castagnoli) covers the program payload and is announced in the StartStream/program-item command on A951.\n",
+          "notes": "Bulk image/GIF program upload. Each chunk is a full 0x54-framed packet with handle 0x00: [0x54, 0x00][len:u16 BE][sequence:u32 BE] [chunk length:u16 BE][chunk…][sum:u16 BE], sized to fit MTU−13. Static and animated uploads completed with 492-byte data chunks at MTU 517. Each 11-byte Continue response carries status/success at response byte 8. CRC32C (Castagnoli) covers the program payload and is announced in the StartStream/program-item command on A951.\n",
           "properties": [
-            "write"
+            "write_without_response"
           ],
           "uuid": "0000a952-0000-1000-8000-00805f9b34fb"
         },
         {
           "name": "Notify",
-          "notes": "Command responses and transfer progress in the same 0x54 framing, handle echoing the command. Status byte: 0x00 failed, 0x01 success, 0x02 insufficient storage, 0x03 program already exists (CRC32 match), 0x04 data error; TestPass replies 0x01 correct / 0x02 incorrect / 0x03 no password set.\n",
+          "notes": "Command responses and transfer progress in the same 0x54 framing. StartStream response payload status 1 means success; Continue status is at response byte 8; EndStream status is at response byte 4. General status values: 0x00 failed, 0x01 success, 0x02 insufficient storage, 0x03 already present, 0x04 data error. TestPass replies 0x01 correct / 0x02 incorrect / 0x03 no password set.\n",
           "properties": [
             "notify"
           ],
           "uuid": "0000a953-0000-1000-8000-00805f9b34fb"
         }
       ],
+      "initialization": [
+        {
+          "characteristic": "0000a953-0000-1000-8000-00805f9b34fb",
+          "subscribe": true
+        },
+        {
+          "characteristic": "0000a951-0000-1000-8000-00805f9b34fb",
+          "notes": "Connect; await the 54 0d 00 04 00 00 00 65 response on A953.",
+          "write": [
+            84,
+            13,
+            0,
+            3,
+            0,
+            0,
+            100
+          ]
+        },
+        {
+          "characteristic": "0000a951-0000-1000-8000-00805f9b34fb",
+          "notes": "TestPass with the factory-default six zero bytes. Status 3 means no password; status 2 requires the owner's password.",
+          "write": [
+            84,
+            15,
+            0,
+            8,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            107
+          ]
+        }
+      ],
       "name": "iLEDColor LED Control Service",
-      "notes": "Proprietary LED command/data channel, recovered from the vendor's open-source Flutter plugin led_bt_jl_ota (pub.dev) and independently confirmed by akkaisinabin/iledcolor-rs (byte-for-byte agreement). Command packets on A951: [0x54][handle:u8][length:u16 BE (= payload+2)] [payload…][checksum:u16 BE = simple sum of all preceding bytes]. Handles: 0x00 Continue, 0x01 EndStream, 0x03 program item, 0x06 StartStream (GIF/program upload), 0x08 program-list complete, 0x09 Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass, 0x0F TestPass (payload layouts in device.notes). Session: Connect (0x0D) → TestPass (0x0F, default password 6×0x00) → commands.\n",
-      "uuid": "0000a950-0000-1000-8000-00805f9b34fb"
+      "notes": "Proprietary LED command/data channel, recovered from the vendor's open-source Flutter plugin led_bt_jl_ota and confirmed by fresh GATT discovery and live command/upload replies on 2026-11-07. Command packets on A951 use [0x54][handle:u8][length:u16 BE (= payload+2)][payload…] [checksum:u16 BE = simple sum of all preceding bytes]. Session: Connect (0x0D) → TestPass (0x0F) → commands/uploads.\n",
+      "uuid": "0000a950-0000-1000-8000-00805f9b34fb",
+      "verification": "confirmed"
     },
     {
       "characteristics": [
         {
           "name": "JL OTA Write",
-          "notes": "JL OTA write characteristic (firmware-upgrade flow only).",
+          "notes": "JL OTA write characteristic (firmware-upgrade flow only); live discovery found only write-without-response.",
           "properties": [
-            "write",
             "write_without_response"
           ],
           "uuid": "0000ae01-0000-1000-8000-00805f9b34fb"
@@ -211,8 +440,9 @@
         }
       ],
       "name": "JL OTA Service",
-      "notes": "JieLi Bluetooth OTA service (firmware upgrade only — LED commands use service 0000A950). Characteristic properties below are inferred from the jl_bt_ota SDK's client behaviour (writes AE01, subscribes AE02); the peripheral's own GATT attribute flags are not confirmed from app-side code.\n",
-      "uuid": "0000ae00-0000-1000-8000-00805f9b34fb"
+      "notes": "JieLi Bluetooth OTA service (firmware upgrade only — LED commands use service 0000a950). Fresh GATT discovery confirms the characteristic flags below. No firmware operation was attempted.\n",
+      "uuid": "0000ae00-0000-1000-8000-00805f9b34fb",
+      "verification": "confirmed"
     }
   ]
 }

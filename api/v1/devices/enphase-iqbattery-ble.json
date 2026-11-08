@@ -41,10 +41,11 @@
         "53da53b9-0447-425a-b9ea-9837505eb59a"
       ]
     },
+    "integration": "supported",
     "manufacturer": "Enphase Energy",
     "manufacturer_status": "active",
     "name": "Enphase IQ Battery / IQ System Controller (BLE)",
-    "notes": "Enphase Ensemble storage gear — Encharge/IQ Battery and the Enpower/IQ System Controller — carries a Digi XBee 3 radio (Silicon Labs EFR32 inside, hence the Silabs OUI on the BLE MAC) that serves double duty: the 2.4 GHz 802.15.4 site mesh, and a BLE interface used by installers. The BLE interface is the stock Digi XBee 3 BLE GATT service: an SRP-6a-authenticated unlock, then an encrypted pipe carrying XBee API frames; Enphase payloads ride inside XBee \"User Data Relay\" frames addressed to the radio's serial interface. Two payload layers exist: a simple one-byte-typed provisioning frame set (PAN ID / link key / Envoy serial push, pairing status, relay states, telemetry read), and a rich protobuf \"object model\" (EnsObjMdlMessage) used for live statistics, inventory, relay control, battery SoC/phase config and blackstart recovery. This spec covers the battery/switch units themselves; the site gateway's own REST and BLE surfaces are documented separately in enphase-envoy. Relationship to the cloud: the commissioning sequence the vendor app runs is installer-account driven, but the BLE link itself needs no cloud — the unlock password is the XBee factory default and the link key is generated locally.\n",
+    "notes": "Enphase Ensemble storage gear — Encharge/IQ Battery and the Enpower/IQ System Controller — carries a Digi XBee 3 radio (Silicon Labs EFR32 inside, hence the Silabs OUI on the BLE MAC) that serves double duty: the 2.4 GHz 802.15.4 site mesh, and a BLE interface used by installers. The BLE interface is the stock Digi XBee 3 BLE GATT service: an SRP-6a-authenticated unlock, then an encrypted pipe carrying XBee API frames; Enphase payloads ride inside XBee \"User Data Relay\" frames addressed to the radio's serial interface. Two payload layers exist: a simple one-byte-typed provisioning frame set (PAN ID / link key / Envoy serial push, pairing status, relay states, telemetry read), and a rich protobuf \"object model\" (EnsObjMdlMessage) used for live statistics, inventory, relay control, battery SoC/phase config and blackstart recovery. This spec covers the battery/switch units themselves; the site gateway's own REST and BLE surfaces are documented separately in enphase-envoy. Relationship to the cloud: the commissioning sequence the vendor app runs is installer-account driven, but the BLE link itself needs no cloud — use the flow-specific password in protocol_details.unlock_passwords; the link key is generated locally.\nINTEGRATION SCOPE: `supported` means the mobile client can discover these units and run the SRP-6a/AES unlock followed by read-only status queries types 4, 5 and 8. It does not expose provisioning, relay, grid or other installer control writes, and no live hardware unlock has been performed. This is the Digi XBee 3 BLE protocol, not an XBee Series 2 / \"XBee2\" profile. Communications Kit 2 is a separate product boundary whose GATT services and credentials are not established and are not covered here.\n",
     "openness": {
       "notes": "No public protocol documentation from Enphase; commissioning is gated behind an installer certification program, and battery control flows through the gateway and Enlighten cloud. The BLE link layer itself is Digi's documented XBee 3 BLE protocol; the Enphase payload layer documented here is app-derived.\n",
       "status": "hostile"
@@ -57,7 +58,7 @@
         "required": false
       },
       "pin": {
-        "notes": "The Digi XBee 3 factory-default BLE password, used by the installer app as shipped. It is a product-wide constant rather than a per-unit secret, which is the only reason it can be written down here — and it is also the finding: installer gear on a customer's wall is commonly left on the vendor default, so an owner who wants their own storage back does not need the installer's credentials, only proximity.\n",
+        "notes": "The generic Digi XBee 3 factory-default BLE password is \"password\", used by the installer library as shipped. The provisioning manager's PAN/link-key constructor paths instead use \"030609\"; see protocol_details.unlock_passwords before implementing a particular flow. These are product-wide constants rather than per-unit secrets, so an owner who wants their own storage back does not need the installer's credentials, only proximity and the correct flow value.\n",
         "source": "fixed_default",
         "value": "password"
       },
@@ -99,14 +100,14 @@
             "protocol": "Digi XBee 3 BLE + Enphase relay payload (see services)",
             "service_uuid": "53da53b9-0447-425a-b9ea-9837505eb59a"
           },
-          "description": "Connect to the unit's XBee 3 BLE service, run the SRP-6a unlock (XBee API frame 0x2C, username \"apiservice\", default password \"password\"), then exchange User Data Relay frames on the now AES-encrypted channel. All values app-derived; the unlock mechanics themselves are Digi-documented public protocol.\n",
+          "description": "Connect to the unit's XBee 3 BLE service, run the SRP-6a unlock (XBee API frame 0x2C, username \"apiservice\", using the generic library default \"password\" or the provisioning manager's \"030609\" as appropriate), then exchange User Data Relay frames on the now AES-encrypted channel. All values app-derived; the unlock mechanics themselves are Digi-documented public protocol.\n",
           "steps": [
             {
               "action": "Connect and discover the XBee 3 BLE service; subscribe to the RX characteristic f9279ee9-2cd0-410c-81cc-adf11e4e5aea.",
               "actor": "client"
             },
             {
-              "action": "Perform the SRP-6a unlock: send BLE Unlock frame 0x2C with the SRP client value for user 'apiservice' and password 'password' (Digi factory default), complete the two-step exchange, and apply the negotiated AES session keys to both characteristics.",
+              "action": "Perform the SRP-6a unlock: send BLE Unlock frame 0x2C with the SRP client value for user 'apiservice', using the flow-specific password from protocol_details.unlock_passwords, complete the two-step exchange, and apply the negotiated AES session keys to both characteristics.",
               "actor": "client",
               "expect": "Unlock response frame 0xAC reports success; subsequent traffic is encrypted.",
               "timeout_seconds": 10
@@ -120,7 +121,7 @@
           "verified": false
         }
       ],
-      "notes": "These units are installer-commissioned, not owner-paired: the Installer Toolkit connects to each unit over BLE during install and pushes the site's 802.15.4 PAN ID, a locally generated 16-byte link key, and the Envoy serial number so the unit joins the site mesh. The BLE unlock itself uses the XBee 3 SRP-6a handshake with the Digi factory-default password \"password\" (the app's own default, passed whenever no other is known), so the BLE layer is cloud-free and owner-reproducible. Whether units keep advertising BLE indefinitely after commissioning is unverified — the units at the research site still beacon many months after install.\n",
+      "notes": "These units are installer-commissioned, not owner-paired: the Installer Toolkit connects to each unit over BLE during install and pushes the site's 802.15.4 PAN ID, a locally generated 16-byte link key, and the Envoy serial number so the unit joins the site mesh. The BLE unlock itself uses the XBee 3 SRP-6a handshake. The generic library default is \"password\", but the provisioning manager's constructors use \"030609\" for the PAN/link-key checks. Both are app-derived constants, not per-unit secrets; use the flow-specific value rather than assuming one universal password. Whether units keep advertising BLE indefinitely after commissioning is unverified — the units at the research site still beacon many months after install.\n",
       "rejoin": {
         "in_place_supported": true,
         "notes": "Site-mesh re-join is a re-run of the BLE provisioning push (PAN ID, link key, Envoy serial) — no reset needed, and the app retries the link-key push with freshly generated keys on mismatch.\n",
@@ -140,7 +141,7 @@
       "confidence_notes": "Derived from app code, not yet exercised against the units; the Digi XBee 3 BLE layer is additionally public vendor documentation.",
       "confirms": [
         "Units are reached via the stock Digi XBee 3 BLE GATT service 53da53b9-0447-425a-b9ea-9837505eb59a (TX 7dddca00-3e05-4651-9254-44074792c590, RX f9279ee9-2cd0-410c-81cc-adf11e4e5aea), bundled com.digi.xbee library.",
-        "Unlock is XBee BLE frame 0x2C carrying an SRP-6a handshake (username 'apiservice'); the app defaults to password 'password'; the channel is AES-encrypted afterwards.",
+        "Unlock is XBee BLE frame 0x2C carrying an SRP-6a handshake (username 'apiservice'); the generic library defaults to password 'password', while the provisioning manager's PAN/link-key constructors use '030609'; the channel is AES-encrypted afterwards.",
         "Enphase payloads ride XBee User Data Relay (0x2D) to the radio's serial interface (micropython interface for the IQ Extender); responses come back as User Data Relay Output (0xAD).",
         "Provisioning frame types 0-9 (link key, reset, relay states, ZB pairing/commissioning status, link key read, Envoy SN write/read, Enpower telemetry read); link-key frame is [0x01][0x10][16 key bytes].",
         "A protobuf object-model layer (EnsObjMdlMessage, proto2: required protover=1, required uint64 timestamp=2, oneof payload tags 3-63) carries inventory, poll/live stats, subscribe/publish, relay and secondary control, SoC/phase config, sleep mode, manual override, events and memfault diagnostics.",
@@ -234,12 +235,36 @@
           "7": "ZB_WRITE_ENVOY_SN — write the gateway (Envoy) serial number",
           "8": "ZB_READ_ENVOY_SN — read back the gateway serial (used by the app to derive/verify the site PAN ID; mismatch is a first-class PAN_ID_MISMATCH error)",
           "9": "READ_ENPOWER_TELEM — read Enpower telemetry"
+        },
+        "read_requests": {
+          "read_enpower_telem": [
+            9,
+            0
+          ],
+          "zb_read_envoy_sn": [
+            8,
+            0
+          ],
+          "zb_read_link_key": [
+            6,
+            0
+          ]
+        },
+        "write_envoy_sn": {
+          "frame": "[0x07][serial_length:u8][serial_ascii]",
+          "length": "serial_length + 2 bytes total",
+          "notes": "The gateway serial is written as ASCII bytes after type 0x07 and its one-byte length."
         }
       },
       "related_specs": [
         "enphase-envoy — the site gateway: LAN REST API, mDNS identity, and the gateway-side BLE services (connectivity ed453f0f-*, ensemble 5c498caa-*, validation 19f4de83-*, devices ba808b5a-*, OTA 57c44b4a-*) this site's units are commissioned to report to."
       ],
       "transport": "Byte stream inside XBee User Data Relay (0x2D, outgoing) and User Data Relay Output (0xAD, incoming) frames, destination interface SERIAL (MICROPYTHON on the IQ Extender).\n"
+    },
+    "unlock_passwords": {
+      "generic_library_default": "password",
+      "notes": "The app ships a generic XBee BLE default of \"password\", but both provisioning-manager constructor paths for the PAN/link-key checks use \"030609\" instead. These are different code paths, not evidence that one value is universally correct for every unit. Use the value for the flow being implemented; no per-unit secret is inferred.\n",
+      "provisioning_manager_pan_and_link_key_checks": "030609"
     }
   },
   "services": [
