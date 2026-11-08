@@ -123,8 +123,17 @@ def test_treadmills_do_not_claim_generic_ftms():
     kingsmith = specs()["kingsmith-walkingpad"]
     assert ftms not in kingsmith["device"]["identification"]["service_uuids"]
     assert not matches(kingsmith, "Generic treadmill", [ftms])
-    for name in ("KS-MC21-abc", "KS-SMC21C-abc", "ZP-ZEALR1-abc", "KS-HD-Z1D"):
+    for name in (
+        "KS-MC21-abc",
+        "KS-SMC21C-abc",
+        "ZP-ZEALR1-abc",
+        "KS-HD-Z1D",
+        "KS-AP-RF3",
+        "KS-AP-RP3",
+        "KS-AP-ZP3",
+    ):
         assert matches(kingsmith, name, [ftms]), name
+    assert not matches(kingsmith, "KS-AP-unknown", [ftms])
 
 
 def test_magic_display_requires_its_manufacturer_product_prefix():
