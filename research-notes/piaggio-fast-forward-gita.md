@@ -67,16 +67,26 @@ it.
 
 ### Per-connection ECDH
 
-1. Read the robot public key on `…def6`.
-2. Generate a phone secp256k1 key pair and write it to `…def5`.
-3. SHA-256 the ECDH secret, represent it as 64 hex characters and split that
-   string in half. Hex-decoding each 32-character half yields a 16-byte AES key
-   and a 16-byte IV.
-4. Operational plaintext is `[command][0x7f][data…]`, padded to 10 bytes when
+1. Read the robot public key on `…def6`. The curve parser accepts raw SEC 1
+   uncompressed points (`04 || X || Y`, 65 bytes) and compressed points
+   (`02`/`03 || X`, 33 bytes); coordinates are unsigned big-endian. No capture
+   establishes which form every firmware emits.
+2. Generate a phone secp256k1 key pair and write its uncompressed public point
+   to `…def5`. The app's 130-character lowercase hex rendering is hex-decoded
+   before the GATT write: send the raw 65 bytes, not ASCII hex.
+3. Convert the shared point's X coordinate to lowercase hexadecimal **without
+   leading-zero padding**, then SHA-256 the ASCII bytes of that hex text. Do
+   not hash the fixed-width 32-byte coordinate or hex-decode the text first.
+4. Represent the digest as 64 hex characters and split that string in half.
+   Hex-decoding each 32-character half yields a 16-byte AES key and a 16-byte IV.
+5. Operational plaintext is `[command][0x7f][data…]`, padded to 10 bytes when
    empty. Encrypt with AES-128-CBC/PKCS#7 and send raw ciphertext, not Base64.
 
 This key encrypts ordinary commands. ECDH alone does not authenticate the
-robot. No AEAD tag was found in the reviewed command builder.
+robot. No AEAD tag was found in the reviewed command builder. The promoted
+spec's `protocol_details.ecdh.test_vector` supplies public keys for synthetic
+scalars `01` and `2d`, a 63-character hash input exercising the dropped leading
+zero, and the expected digest/AES key/IV; it is not a robot capture.
 
 **Runtime caveat:** the JavaScript requests one native AES module name while
 the recovered Android package registers another. This could be a compatibility

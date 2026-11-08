@@ -118,12 +118,25 @@ normal plaintext notifications, with `$$$$$` and `#####` delimiters and a random
 
 Two different credential layers must not be confused:
 
-1. **Per-connection ECDH:** SHA-256 the secp256k1 shared secret, render 64 hexadecimal
-   characters and split them in half. Hex-decoding each 32-character half gives a
-   16-byte AES key and 16-byte IV. Ordinary operational commands use this pair.
+1. **Per-connection ECDH:** derive a SHA-256 digest as specified below, render its 64
+   hexadecimal characters and split them in half. Hex-decoding each 32-character half
+   gives a 16-byte AES key and 16-byte IV. Ordinary operational commands use this pair.
 2. **Cloud-issued session credential:** a 64-hex credential is also split into an AES
    key and IV and used to authenticate the robot session. It is stored by robot UUID.
    Fresh issuance needs the cloud; existing verification can work offline.
+
+Write the phone public key to `...def5` as a **raw 65-byte uncompressed SEC 1 point**:
+`0x04 || X || Y`, with both coordinates unsigned, big-endian and 32 bytes wide. The
+app's internal 130-character hex representation is hex-decoded before the write; do not
+send ASCII hex. On `...def6`, accept either that form or a raw 33-byte compressed SEC 1
+point (`0x02`/`0x03 || X`) and validate the point. The parser supports both, but no
+capture establishes which form every firmware emits.
+
+The ECDH secret is the shared point's X coordinate converted to **lowercase hexadecimal
+without leading-zero padding**. SHA-256 the ASCII bytes of that hex text—not the raw or
+hex-decoded coordinate. Its length is normally 64 characters but can be shorter. The
+synthetic vector in `protocol_details.ecdh.test_vector` exercises a 63-character input,
+including both public keys and the resulting AES key/IV.
 
 No-data plaintext is ten bytes: `[opcode][0x7f][00 × 8]`. Data-bearing plaintext is
 `[opcode][0x7f][data…]`. Encrypt the whole buffer with AES-128-CBC/PKCS#7 and send raw

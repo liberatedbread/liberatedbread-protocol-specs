@@ -662,16 +662,50 @@ protocol_details:
       "141": "Shutdown disabled"
   ecdh:
     curve: "secp256k1"
+    verification: "reported"
     exchange: >
       Read the robot public key on ...def6, generate a phone key pair and
       write its public key on ...def5. Compute the ECDH shared secret and
       hash it with SHA-256. The JavaScript uses 128 random bytes from the
       native crypto module as key-pair entropy.
+    public_key_encoding: >
+      The phone writes a raw 65-byte uncompressed SEC 1 point on ...def5:
+      0x04, then X and Y as 32-byte unsigned big-endian coordinates. It
+      internally renders the point as 130 lowercase hex characters but
+      hex-decodes them before the GATT write; do not send ASCII hex. On
+      ...def6, accept either that uncompressed form or a raw 33-byte
+      compressed SEC 1 point (0x02/0x03 plus X), and validate the point.
+      The app's parser accepts both forms; no capture establishes which form
+      every robot firmware emits. Reject other prefixes, lengths and invalid
+      points rather than treating the value as a certificate or DER key.
+    shared_secret_encoding: >
+      ECDH yields the shared point's X coordinate. Convert that nonnegative
+      integer to lowercase hexadecimal WITHOUT leading-zero padding or a 0x
+      prefix, then SHA-256 the ASCII bytes of that hex text. The input is
+      normally 64 ASCII bytes but can be shorter when X has leading zero
+      nibbles. Do not hash the fixed-width 32-byte X coordinate, the
+      hex-decoded bytes, a public key, or an X || Y concatenation.
     derivation: >
       Represent the SHA-256 digest as 64 hexadecimal characters and split it
       into two 32-character halves. Hex-decoding the halves yields a 16-byte
       AES-128 key and a 16-byte IV for this connection. Ordinary operational
       commands use this key/IV, not the cloud-issued session credential.
+    test_vector:
+      origin: "Synthetic secp256k1 scalars and uncompressed points, not a robot capture"
+      phone_private_scalar_hex: "01"
+      robot_private_scalar_hex: "2d"
+      phone_public_key_hex: "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+      robot_public_key_hex: "04049370a4b5f43412ea25f514e8ecdad05266115e4a7ecb1387231808f8b45963758f3f41afd6ed428b3081b0512fd62a54c3f3afbb5b6764b653052a12949c9a"
+      shared_x_padded_hex: "049370a4b5f43412ea25f514e8ecdad05266115e4a7ecb1387231808f8b45963"
+      shared_secret_hex_text: "49370a4b5f43412ea25f514e8ecdad05266115e4a7ecb1387231808f8b45963"
+      sha256_hex: "9f5ce7aa4582e2c89de3ef783e3cb8474ae000557a634f8333bbf83f50b7969c"
+      aes_key_hex: "9f5ce7aa4582e2c89de3ef783e3cb847"
+      iv_hex: "4ae000557a634f8333bbf83f50b7969c"
+      notes: >
+        shared_x_padded_hex is explanatory, not the hash input. Hash the 63
+        ASCII bytes of shared_secret_hex_text, demonstrating removal of the
+        leading zero nibble from the padded coordinate. Hex-decode sha256_hex's
+        first and second 32-character halves to obtain the AES key and IV.
     authentication: >
       ECDH alone does not authenticate the robot. The subsequent robot/cloud
       session exchange provides the application-level check.

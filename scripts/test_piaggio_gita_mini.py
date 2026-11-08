@@ -1,5 +1,6 @@
-"""Check the gitamini spec's documented command/chunk framing."""
+"""Check the gitamini spec's documented command, chunk and ECDH framing."""
 
+import hashlib
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,36 @@ SPEC = yaml.safe_load(
         encoding="utf-8"
     )
 )
+
+
+def _secp256k1_add(left, right):
+    if left is None:
+        return right
+    if right is None:
+        return left
+    prime = 2**256 - 2**32 - 977
+    x1, y1 = left
+    x2, y2 = right
+    if x1 == x2 and (y1 != y2 or y1 == 0):
+        return None
+    if left == right:
+        slope = (3 * x1 * x1) * pow(2 * y1, -1, prime)
+    else:
+        slope = (y2 - y1) * pow(x2 - x1, -1, prime)
+    slope %= prime
+    x3 = (slope * slope - x1 - x2) % prime
+    return x3, (slope * (x1 - x3) - y1) % prime
+
+
+def _secp256k1_multiply(scalar, point):
+    result = None
+    while scalar:
+        if scalar & 1:
+            result = _secp256k1_add(result, point)
+        point = _secp256k1_add(point, point)
+        scalar >>= 1
+    assert result is not None
+    return result
 
 
 def _commands():
@@ -142,3 +173,35 @@ def test_saved_session_wire_exchange_and_success_gate():
     assert fresh["robot_reply"]["plaintext"] == (
         "[payloadKey][.][n2_ascii][.][payload]"
     )
+
+
+def test_ecdh_public_key_and_unpadded_secret_vector():
+    vector = SPEC["protocol_details"]["ecdh"]["test_vector"]
+    generator = (
+        int("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16),
+        int("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16),
+    )
+    points = {}
+    for party in ("phone", "robot"):
+        scalar = int(vector[f"{party}_private_scalar_hex"], 16)
+        point = _secp256k1_multiply(scalar, generator)
+        public_key = (
+            b"\x04" + point[0].to_bytes(32, "big") + point[1].to_bytes(32, "big")
+        )
+        assert len(public_key) == 65
+        assert public_key.hex() == vector[f"{party}_public_key_hex"]
+        points[party] = point
+
+    phone_scalar = int(vector["phone_private_scalar_hex"], 16)
+    shared_point = _secp256k1_multiply(phone_scalar, points["robot"])
+    shared_x_padded = shared_point[0].to_bytes(32, "big")
+    assert shared_x_padded.hex() == vector["shared_x_padded_hex"]
+
+    secret_hex_text = format(shared_point[0], "x")
+    assert len(secret_hex_text) == 63
+    assert secret_hex_text == vector["shared_secret_hex_text"]
+    digest = hashlib.sha256(secret_hex_text.encode("ascii")).hexdigest()
+    assert digest == vector["sha256_hex"]
+    assert digest != hashlib.sha256(shared_x_padded).hexdigest()
+    assert digest[:32] == vector["aes_key_hex"]
+    assert digest[32:] == vector["iv_hex"]
