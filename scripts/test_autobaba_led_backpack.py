@@ -51,3 +51,22 @@ def test_raw_gif_write_fits_the_observed_mtu():
     assert upload["value_chunk_bytes"] == 196
     assert upload["gatt_write_bytes"] == 243
     assert upload["gatt_write_bytes"] <= upload["mtu"] - 3
+
+
+def test_raw_gif_worked_chunk_has_exact_layout_and_checksum():
+    upload = SPEC["protocol_details"]["raw_gif_upload"]
+    packet = bytes.fromhex(upload["worked_chunk_hex"])
+    assert len(packet) == upload["gatt_write_bytes"] == 243
+    assert packet[:4] == bytes.fromhex("aa 55 ff ff")
+    assert packet[4] == 0xED
+    assert packet[5:8] == bytes(3)
+    assert packet[8:35] == bytes.fromhex(upload["chunk_prefix"]["sequence_hex"])
+    assert packet[35] == upload["worked_chunk_fields"]["total_chunks"] == 3
+    assert packet[36:39] == bytes(3)
+    assert packet[39:43].hex() == upload["chunk_prefix"]["constant_2_hex"]
+    assert packet[43:45] == bytes.fromhex("81 c4")
+    assert packet[45:51] == b"GIF89a"
+    assert packet[51:-2] == bytes(190)
+    assert packet[-2:] == (sum(packet[:-2]) & 0xFFFF).to_bytes(2, "little")
+    assert packet[-2:] == bytes.fromhex("0d09")
+    assert len(packet) - upload["value_chunk_bytes"] == upload["packet_overhead_bytes"]

@@ -79,6 +79,8 @@ Continue `0x00`, EndStream `0x01`, program item `0x03`, StartStream `0x06`, brig
 `0x09`, LedEnable `0x0a`, Connect `0x0d`, SetPass `0x0e` and TestPass `0x0f`.
 EndStream's fixed frame is `54 01 00 03 01 00 59`; payload status 1 is success.
 
+StartStream's 11-byte payload is `[item CRC32C:4][logical transfer length:u32 BE][00 00 00]`, framed with handle 0x06, the normal u16 packet length and checksum. The complete worked request is `54 06 00 0d b8 a8 bd 77 00 00 48 4c 00 00 00 03 8f` (17 bytes): CRC32C `b8a8bd77`, transfer length `0x484c` = 18,508, then three reserved zero bytes and checksum `0x038f`.
+
 Bulk chunks on A952 are complete `0x54` packets with a sequence, chunk length, data and
 checksum. The validated static and animated uploads used 492-byte data chunks at MTU
 517. Continue responses are 11 bytes with status at response byte 8. StartStream status

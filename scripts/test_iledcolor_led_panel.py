@@ -96,6 +96,19 @@ def test_vendor_native_animation_uses_raw_rgb_frames():
     ]
 
 
+def test_start_request_vector_matches_documented_transfer():
+    native = SPEC["protocol_details"]["live_upload"]["native_animation_example"]
+    request = native["start_request"]
+    packet = bytes.fromhex(request["packet_hex"])
+    assert len(packet) == native["start_packet_bytes"] == 17
+    assert packet[:4] == bytes.fromhex("54 06 00 0d")
+    assert packet[4:8].hex() == native["item_data_crc32c"]
+    assert int.from_bytes(packet[8:12], "big") == native["logical_transfer_bytes"]
+    assert packet[12:15] == bytes(3)
+    assert request["payload_hex"] == packet[4:-2].hex()
+    assert sum(packet[:-2]) & 0xFFFF == int.from_bytes(packet[-2:], "big")
+
+
 def test_guide_default_password_checksum_matches_spec():
     packet = _commands()["test_pass_default"]["value"]
     _assert_big_endian_sum(packet)

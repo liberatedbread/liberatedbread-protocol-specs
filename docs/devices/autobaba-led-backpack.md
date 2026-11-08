@@ -99,6 +99,8 @@ The simplified raw-GIF route is now confirmed on this unit:
 
 READY example: `aa 55 ff ff 0a 00 09 00 c1 02 08 02 00 00 dd 03`.
 FINALIZE example: `aa 55 ff ff 0b 00 0f 00 c1 02 36 03 01 00 00 14 04`.
+
+The simplified raw-GIF packet is `aa55ffff | one-byte length | 00 <index> 00 | 27-byte sequence | total_chunks | 00 <index> 00 | c4000013 | 81c4 | 196-byte padded GIF data | little-endian u16 checksum`. The first six payload bytes are `GIF89a`; pad every chunk, including the last, with zeros to exactly 196 bytes. Length is `0xed` = 236 data bytes + 1, so a complete packet is 243 bytes (47 bytes of overhead). The spec's `worked_chunk_hex` is a complete index-0 example with checksum `0d09`.
 Do not generalize these example sequence numbers or this chunk size to every firmware.
 A device-originated mode-06 message was also observed and remains undecoded.
 

@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   animation is now fully mapped: 22-byte item header, raw RGB buffers,
   big-endian frame-rate tail, and the programme/partition and Start/End byte
   accounting that reconciles 18,460 item bytes, 18,484 complex bytes and 18,508
-  logical transfer bytes.
+  logical transfer bytes. A complete StartStream request vector and AUTOBABA's simplified 243-byte raw-GIF chunk, including its 196-byte zero-padding rule and little-endian checksum, are included for implementers.
 - **Finer categories and better ways to find the right device.** Optional
   `device.category_hierarchy` distinguishes LED displays from illumination,
   laser distance measurement from environmental sensing, and health
