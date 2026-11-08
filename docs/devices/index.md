@@ -32,7 +32,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Ember Mug](ember-mug.md) | BLE | Complete | None needed | Ember Technologies |
 | [Bluetooth LED Name Badge](bluetooth-led-name-badge.md) | BLE | Complete | None needed | Generic (multiple vendors) |
 | [iDotMatrix](idotmatrix.md) | BLE | Complete | None needed | iDotMatrix / LedHun |
-| [LEDs2Rave4 Lunchbox LED](leds2rave4-lunchbox-led.md) | BLE | Complete | None needed | SP LED (SP107E / SP110E) |
+| [LEDs2RAVE4 / Lunchbox Dream LED](leds2rave4-lunchbox-led.md) | BLE | Complete | None needed | LEDs2RAVE4 / Lunchbox Packs (SP107E / SP110E / SPOTLED) |
 | [SPOTLED LED Panels](spotled-led-panel.md) | BLE | Complete | None needed | Host No.4 Technology / generic OEM |
 | [CoolLEDX / CoolLED1248 Signs](coolledx-led-sign.md) | BLE | In Progress | None needed | Juntong Technology |
 | [Shining Mask](shining-mask.md) | BLE | Complete | None needed | Shenzhen Shining Bright Technology |

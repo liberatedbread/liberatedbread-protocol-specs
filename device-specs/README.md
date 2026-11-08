@@ -21,6 +21,12 @@ device:
   manufacturer_status: "abandoned"
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]  # optional richer classification
+  aliases: ["Example Bulb", "Acme Lamp"] # other names an owner may search for
+  distributors:
+    - {name: "Acme Retail", role: "retailer", url: "https://example.invalid/acme"}
+  companion_apps:
+    - {name: "Acme Lighting", package: "com.example.lighting", role: "primary", platform: "android"}
   identification:
     # How to identify this device during BLE scanning
     local_name_prefix: "ACME_"

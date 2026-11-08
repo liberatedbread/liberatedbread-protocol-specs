@@ -23,7 +23,11 @@ device:              # identity, discovery, and one-time setup
   openness: ...              # was this protocol published, or did we recover it?
   protocol: ...              # ble | bluetooth_classic | wifi | lan | zigbee | zwave | obd2 | uart | can
   category: ...              # what KIND of thing it is — closed vocabulary
+  category_hierarchy: ...    # optional domain/kind[/subtype] path
   type: ...                  # what the thing IS — free text
+  aliases: ...               # other retail/product names an owner may know
+  distributors: ...          # brands, retailers and OEMs with roles and URLs
+  companion_apps: ...        # apps that identify a model/board generation
   identification: ...        # how to recognise it while scanning
   discovery: ...             # how to FIND one that is already on the network
   managed_by: ...            # driven through a controller — which spec, how to spot it
@@ -71,6 +75,46 @@ first-class key is a contract.
 Deeper objects — inside a service, an endpoint, an entity — remain open, so a
 spec can still annotate freely where it is describing rather than declaring.
 Consumers parse the subset they understand.
+
+### Categories, product names, and discovery are different jobs
+
+`category` remains the closed, broad icon bucket. Optional
+`category_hierarchy` adds a two- or three-part classification without
+changing that consumer behavior:
+
+```yaml
+category: "sensor"
+category_hierarchy: ["measurement", "distance"]
+```
+
+Current hierarchy domains are:
+
+- `display`: `led_matrix`, `screen`, `other` — panels whose primary job is
+  showing content rather than illuminating a space.
+- `light`: `led`, `bulb`, `strip`, `lamp`, `other` — illumination.
+- `measurement`: `distance`, `temperature`, `environmental`, `health`,
+  `other`. Health measurements add a third component: `pulse_oximetry`,
+  `blood_pressure`, `thermometry`, `sleep`, `body_composition`,
+  `medication_management`, `metabolic`, or `other`.
+
+The allowed paths are checked by `scripts/test_taxonomy.py`; propose a new
+kind or subtype in that test and in this section together. `category` and
+`category_hierarchy` must agree: `display` starts with `display`, `light`
+with `light`, and `sensor`, `health`, or `scale` with `measurement`.
+
+Three other optional metadata blocks help an owner find the right device,
+but **never loosen protocol matching**:
+
+- `aliases` lists other retail, product, board or model names.
+- `distributors` lists `{name, role, url?, notes?}` parties, where `role` is
+  `brand`, `retailer`, `distributor`, `manufacturer`, or `oem`.
+- `companion_apps` lists `{name, package?, role?, platform?, url?, notes?}`
+  apps. `role` uses the same `primary` / `alternative` / `variant` /
+  `historical` vocabulary as setup methods. Use it to distinguish board or
+  app generations, not to suggest trying every app against unknown hardware.
+
+`manufacturer` remains the original maker. A distributor is not automatically
+a manufacturer, and an app name is not automatically a device identity.
 
 Two keys are rejected by name rather than by the closure, because the error
 message matters more than the rejection:

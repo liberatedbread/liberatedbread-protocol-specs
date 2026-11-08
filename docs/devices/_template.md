@@ -17,6 +17,10 @@ Brief description of the device and why it's being reverse engineered.
 | Chipset | |
 | Radio | BLE 4.x / WiFi 802.11n / etc. |
 | FCC ID | |
+| Category / hierarchy | e.g. `sensor` + `["measurement", "distance"]` |
+| Aliases | Other retail/model names an owner may search for |
+| Distributors | Brand / retailer / OEM names and roles |
+| Companion apps | App names, packages, generation and store links |
 
 ## Initial Setup
 

@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Finer categories and better ways to find the right device.** Optional
+  `device.category_hierarchy` distinguishes LED displays from illumination,
+  laser distance measurement from environmental sensing, and health
+  measurements such as pulse oximetry, blood pressure and body composition,
+  without changing the legacy flat category used for icons. Optional `aliases`,
+  `distributors` and `companion_apps` carry retail names, manufacturer /
+  distributor / OEM roles and app-generation guidance into both generated
+  indexes; these fields do not loosen radio matching. LEDs2RAVE4 and Lunchbox
+  product names, makers and generation-specific design apps are now explicit,
+  and the two pixel backpacks are displays rather than lights.
+
+- **Beurer PO60 and BM92 setup and transfer corrections.** The PO60 uses a
+  random six-digit PIN on its own display and transfers stored summaries in a
+  short `SYNC` window, not a fixed manual PIN or a live-sample stream. An
+  existing Android HCI capture is recorded as capture evidence, not an
+  end-to-end hardware test. The BM92 guide now distinguishes post-measurement
+  saved-record transfer from cuff control / continuous pressure, documents
+  user selection and the manual-versus-app MEMORY hold-time difference, and
+  links the official BM92 and PO60 manuals.
+
 - **SmartThings owners with Home Assistant are pointed at LocalThings.** The
   SmartThings Hub v2 spec and guide now name
   [LocalThings](https://github.com/mbillow/localthings) (HACS, domain
