@@ -170,6 +170,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is marked untested except for the specific evidence named in its testing
   block; no owner identifiers, app keys or decompiled source are included.
 
+- **LOYPRO identity without the FFF0 collision.** The shared
+  `0000fff0-0000-1000-8000-00805f9b34fb` service is no longer an identity
+  signal anywhere in the catalogue: it activated 16 unrelated specs for
+  `LOY5265115155`. A separate `loypro-led-display` candidate now matches the
+  explicit LOY prefix and stays identify-only until read-only GATT/model
+  evidence arrives. JLX's secondary `fff3` channel and stock SIG services
+  are declared without assigning them a command role, and its guide now
+  reflects the live LDM330 evidence and BlueZ `0x2b3a` workaround.
+
 - **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
   `power_toggle` (the raw power key beside a stateful Power switch), the
   discrete transport keys `play`, `previous`, `next`, `record` (`pause` and

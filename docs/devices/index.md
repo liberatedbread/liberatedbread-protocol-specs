@@ -257,6 +257,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Meizu MYVU / Star Air AR Glasses](meizu-myvu-glasses.md) | BLE + Bluetooth Classic relay | Spec Available (untested) | ble_direct (medium) | Meizu |
 | [Pix Backpack / Pix Mini](pix-backpack.md) | BLE | Spec Available (untested) | ble_direct (medium) | Pix Inc. |
 | [Weber iGrill Bluetooth Thermometers](weber-igrill.md) | BLE | Spec Available (untested) | ble_direct (medium) | Weber-Stephen Products (formerly iDevices) |
+| [LOY / LOYPRO LED Displays](loypro-led-display.md) | BLE | Identify only (advertising evidence) | Read-only confirmation (low) | LOY / YSKJ OEM family |
 
 ## Not everything here was liberated
 
