@@ -503,6 +503,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **AUTOBABA's secondary `5833ff…` service no longer has a maintenance-only
+  label.** The analyzed LOY SPACE display path uses `FFF0`; secondary-UUID
+  reports on other hardware range from SBH OTA to authenticated/ELS control.
+  Its role on this backpack remains unknown, so the spec and guide now reject
+  display, authentication and firmware writes there rather than implying one
+  unverified role.
 - **A misspelt command-parameter key is a validation error.** BLE and network
   command `parameters` objects are closed (`unevaluatedProperties: false`, so
   the `number_semantics` keys still count): `mx: 100` used to validate while

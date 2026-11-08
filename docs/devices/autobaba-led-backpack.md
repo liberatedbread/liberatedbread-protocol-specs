@@ -24,10 +24,12 @@ behavior remain unknown until a read-only information response is captured.
 - Display writes: `0000fff2-0000-1000-8000-00805f9b34fb`,
   **write-without-response only** in live discovery.
 - Display notifications: `0000fff1-0000-1000-8000-00805f9b34fb`, notify.
-- A separate `5833ff01-9b8b-5191-6142-22a4536ef123` service is an **SBH OTA
-  candidate**, not a second display channel. Its `5833ff02…` write and
-  `5833ff03…` notify properties were also observed. The LOY display app does
-  not use them, and no compatible image or recovery path is known.
+- A separate `5833ff01-9b8b-5191-6142-22a4536ef123` service has **no
+  established role on this backpack**. It is an SBH OTA candidate, while
+  BanlanX research describes authenticated/ELS control on other firmware.
+  Neither role is established here. Its `5833ff02…` write and `5833ff03…`
+  notify properties were observed, but the analyzed LOY display path does not
+  use them, and no compatible command, image or recovery path is known.
 
 Rediscover by exact advertised name plus FFF0 rather than persisting an old
 MAC. During the live investigation, an address-based connection failed while
@@ -92,9 +94,10 @@ but has contradictory geometry notes and no retained capture. Its 196-byte
 chunks and 8-bit count are not universal vendor limits. Prefer the official
 TLV/resource framing until a capture establishes the simpler route.
 
-Do not experiment with firmware through `5833ff…`. That UUID family appears
-on unrelated devices and matches a public SBH OTA profile, but the backpack's
-actual update protocol, accepted images and recovery path are unknown.
+Do not send display, authentication or firmware commands through `5833ff…`.
+That UUID family appears on unrelated devices, with both a public SBH OTA
+profile and authenticated/ELS control described elsewhere. Neither establishes
+the backpack's role, accepted commands or images, or a recovery path.
 
 ## References
 
