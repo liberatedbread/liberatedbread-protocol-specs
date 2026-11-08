@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   robot-side OTA V2. Pro remains an app-enum variant rather than a separately
   verified retail protocol. No remote-drive command was found; enrollment is
   not claimed to work offline, and crypto runtime behavior still needs hardware.
+  Registration/session-feedback subscription now precedes authentication and
+  session-key writes in both onboarding flows, so replies cannot be missed
+  during the eight-second feedback window.
 - **Finer categories and better ways to find the right device.** Optional
   `device.category_hierarchy` distinguishes LED displays from illumination,
   laser distance measurement from environmental sensing, and health

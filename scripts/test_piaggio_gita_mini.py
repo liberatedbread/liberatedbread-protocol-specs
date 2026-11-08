@@ -88,3 +88,30 @@ def test_unknown_payload_opcodes_are_not_made_executable():
     assert "connect_wifi" not in commands
     assert "activate_gita" not in commands
     assert "disable_ssh" not in commands
+
+
+def test_session_feedback_subscription_precedes_auth_writes():
+    feedback = "87654321-1234-5678-1234-56789abcdef9"
+    initialization = SPEC["initialization"]
+    positions = {
+        item["characteristic"]: index for index, item in enumerate(initialization)
+    }
+    for auth in (
+        "87654321-1234-5678-1234-56789abcdef1",
+        "87654321-1234-5678-1234-56789abcdefb",
+    ):
+        assert positions[feedback] < positions[auth]
+
+    for method in SPEC["device"]["setup"]["methods"]:
+        actions = [step["action"] for step in method["steps"]]
+        subscribed = next(
+            index for index, action in enumerate(actions) if "Subscribe" in action
+        )
+        for index, action in enumerate(actions):
+            if index <= subscribed:
+                continue
+            if any(
+                f"command {opcode}" in action
+                for opcode in (8, 9, 60, 61, 62, 63, 68)
+            ):
+                assert subscribed < index, action

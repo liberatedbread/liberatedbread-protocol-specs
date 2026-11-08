@@ -61,11 +61,12 @@ redacted from research captures.
    not BLE pairing.
 3. Read the robot ECDH public key on `...def6`, generate a secp256k1 phone key pair and
    write its public key on `...def5`.
-4. Verify the stored session credential with command 9 or 63 on `...def1`/`...defb`.
+4. Subscribe to Wi-Fi (`...def3`), general (`...def7`) and registration/session
+   (`...def9`) notifications before any authentication or session-key write.
+5. Verify the stored session credential with command 9 or 63 on `...def1`/`...defb`.
    The app selects existing-key verification when offline or within seven days; with
-   connectivity and an older key it requests a fresh one.
-5. Subscribe to Wi-Fi (`...def3`), general (`...def7`) and registration/session
-   (`...def9`) notifications. Start with read-only version, IP or OTA-status requests.
+   connectivity and an older key it requests a fresh one. Start with read-only version,
+   IP or OTA-status requests.
 
 This path does not prove unlimited offline use. Revocation, reset, logout/reinstall and
 long-term policy need hardware tests.
@@ -75,10 +76,12 @@ long-term policy need hardware tests.
 1. Create or sign in to a mygita account and scan the 10-character Code 128 serial and
    20-character QR secret beginning `pff`.
 2. Match the serial to the robot and perform ECDH.
-3. Request robot creation data with command 60 and exchange it with authenticated
+3. Subscribe to registration/session feedback on `...def9` before command 60 or any
+   session-key write, so replies are captured during the eight-second feedback wait.
+4. Request robot creation data with command 60 and exchange it with authenticated
    `/gitas`, then verify the response with command 61.
-4. Post the QR payload and robot verification message to authenticated `/registrations`.
-5. Set the returned identity, send command 68 and configure Wi-Fi/notifications.
+5. Post the QR payload and robot verification message to authenticated `/registrations`.
+6. Set the returned identity, send command 68 and configure Wi-Fi/notifications.
 
 Possession of the serial or advertisement alone is not enrollment. The printed QR is
 single-use. Never publish the QR secret, bearer token, verification payloads, session
