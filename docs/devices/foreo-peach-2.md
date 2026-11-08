@@ -124,6 +124,11 @@ The captured normal-mode table had no 0A30, 0A07, Battery Service `0x180f`, TI O
 D0FF service. Their behavior on other firmware or in a separate update mode remains
 unknown.
 
+Client integration: `protocol_handler: ipl_foreo` selects the mobile setup
+surface for security access, conditional activation and wake-up. Activation
+requires the actual BLE MAC address; platforms that expose only a
+CoreBluetooth UUID must not substitute it.
+
 ### Commands
 
 | Command | Meaning | Evidence |
