@@ -1,6 +1,6 @@
 # Device Specs
 
-Machine-readable specifications for IoT devices — BLE, WiFi and hub-attached.
+Machine-readable specifications for IoT devices — BLE, Bluetooth Classic, WiFi and hub-attached.
 Both the OpenGreenIoT mobile app and the Home Assistant integration consume
 these specs, and they are published as JSON by the
 [Data API](../docs/api/index.md).
@@ -88,7 +88,7 @@ entities:
 | `name` | Yes | Human-readable device name |
 | `manufacturer` | Yes | Original manufacturer name |
 | `manufacturer_status` | Yes | One of: `abandoned`, `shutdown`, `unsupported`, `active` |
-| `protocol` | Yes | Primary protocol: `ble`, `wifi`, `zigbee`, `zwave`, `obd2` |
+| `protocol` | Yes | Primary protocol: `ble`, `bluetooth_classic`, `wifi`, `lan`, `zigbee`, `zwave`, `obd2`, `uart`, `can` |
 | `category` | Yes | Broad device class from a closed vocabulary — see [The `category` vocabulary](#the-category-vocabulary) |
 | `type` | No | Free-text device class, e.g. `smart-scale`. `reference-*` marks a published-protocol reference |
 | `notes` | No | Free-text notes about the device |

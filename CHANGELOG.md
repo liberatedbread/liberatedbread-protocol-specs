@@ -102,6 +102,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   command objects are open, so a schema-driven consumer could have drawn a
   one-tap control for a write that sets more current than the wiring
   carries.
+- **Bluetooth Classic, first-class.** `device.protocol` gains
+  `bluetooth_classic` for BR/EDR devices — SPP printers, Classic OBD dongles,
+  headphone control channels, the Quin pill box — which until now were filed
+  as `ble` with a paragraph of apology or not filed at all. With it:
+  `device.transport: rfcomm | l2cap | hid`; a `bt_classic_inquiry` discovery
+  method (name, class of device, SDP service UUIDs, whether the device must be
+  put in discoverable mode); a `bt_classic_pairing` setup method for "pair it
+  from the host's Bluetooth settings"; `rfcomm` and `l2cap` on
+  `commands[].transport`, `rfcomm` on a setup step's `request.protocol` and
+  on a DFU `transport`; and a top-level
+  `bluetooth_classic` block that names the SDP profiles, which one carries the
+  control surface, whether its socket is opened **secure or insecure** (the
+  flag that decides whether a pairing dialog appears), and the serial stream's
+  framing and timing. Top-level `commands` on a byte-stream transport carry
+  the BLE `value`/`template`/`parameters` envelope and a `response` frame
+  (`prefix`, `length`, `format`), because RFCOMM has no message boundaries and
+  a protocol with no length field is splittable only that way. The block
+  counts as an access surface. Convention tests require a `device.pairing`
+  block and a `corebluetooth` `host_compatibility` verdict on every Classic
+  spec (CoreBluetooth has no RFCOMM; the vendor's iOS path is MFi or nothing)
+  and that the control profile states `secure`. New page
+  `docs/protocols/bluetooth-classic-common.md`; spec-format section; spec
+  evolution P17. `quin-pillcalendar` (Quin / Daviky A170 and A1310 pill boxes)
+  is the first spec written against it; `brother-ql-1110nwb`,
+  `obd2-bluetooth-adapter` and `obdlink-mx-plus` are migrated off their
+  workarounds. The mobile Rust `Protocol` enum preserves the value verbatim;
+  the app does not open RFCOMM sockets yet, and its BLE matcher does not yet
+  honour `ble_role`.
+  A same-day adversarial review then reshaped the stream half: frames the
+  device sends unprompted (`serial.unsolicited`), reply `correlation` and
+  `max_in_flight`, a real length-prefix description, hex `line_terminator` /
+  `prompt` / `command_terminator`, `rx_start_bytes` / `tx_start_bytes` and an
+  enumerated `resync`, `response.expected` for commands the device does not
+  answer, `initialization` steps that send a top-level `command`,
+  `bluetooth_classic.pairing` for a spec's second radio,
+  `bluetooth_classic.variants` and per-profile `variants`, `commands_from`
+  for a serial link that reuses a GATT characteristic's commands,
+  byte-envelope parameter vocabulary (`endianness`, `min_length`,
+  `max_length`, `allowed`, `labels`) on top-level commands, and
+  host-compatibility vocabulary for Classic verdicts (`link`, stack
+  `iobluetooth`, symptom `no_transport`, `cause: {missing_api}`, workaround
+  `vendor_mfi`). Inquiry matchers now narrow a name rather than OR with it.
+  Profile roles gain `media_control` and `undocumented`; DFU mechanisms gain
+  `vendor_serial`; setup steps take `l2cap` and a `command`.
 
 - **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
   `power_toggle` (the raw power key beside a stateful Power switch), the

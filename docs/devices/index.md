@@ -106,6 +106,7 @@ spec's `device.setup` block; the patterns are explained in
 | [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Pairing (medium) | Generic / ScanTool / Vgate |
 | [OBDLink MX+](obdlink-mx-plus.md) | BLE + Bluetooth Classic | In Progress | Button pairing (medium) | OBD Solutions / ScanTool |
+| [Quin / Daviky Smart Pill Boxes](quin-pillcalendar.md) | Bluetooth Classic SPP (BLE discovery) | Spec Available | None needed; wake box (medium) | ZHUHAI QUIN TECHNOLOGY / Daviky |
 | [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | None needed | Triumph Motorcycles |
 | [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | None needed | BMW Motorrad |
 | [Fardriver ND-series Motor Controller](fardriver-controller.md) | BLE | Research | None needed | Nanjing Fardriver |
