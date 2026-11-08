@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Piaggio gitamini and reported gita pro BLE profile.** New untested spec and
+  owner guide covering 0x9999/0x083B discovery, advertisement TLVs, the full
+  custom GATT map, secp256k1 ECDH/AES-CBC command framing, QR/cloud
+  registration, offline session-reuse candidate, Wi-Fi provisioning and
+  robot-side OTA V2. Pro remains an app-enum variant rather than a separately
+  verified retail protocol. No remote-drive command was found; enrollment is
+  not claimed to work offline, and crypto runtime behavior still needs hardware.
+  Registration/session-feedback subscription now precedes authentication and
+  session-key writes in both onboarding flows, so replies cannot be missed
+  during the eight-second feedback window. The saved-session exchange now
+  specifies both encryption layers, nonce encoding, request/response layouts,
+  failure types, and the subsequent read required because command 9 has no
+  dedicated success response. The iLEDColor guide's TestPass checksum is
+  corrected to 00 6b to match the additive packet sum and the spec. Its native
+  animation is now fully mapped: 22-byte item header, raw RGB buffers,
+  big-endian frame-rate tail, and the programme/partition and Start/End byte
+  accounting that reconciles 18,460 item bytes, 18,484 complex bytes and 18,508
+  logical transfer bytes. A complete StartStream request vector and AUTOBABA's simplified 243-byte raw-GIF chunk, including its 196-byte zero-padding rule and little-endian checksum, are included for implementers.
 - **Finer categories and better ways to find the right device.** Optional
   `device.category_hierarchy` distinguishes LED displays from illumination,
   laser distance measurement from environmental sensing, and health
@@ -193,7 +211,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **LOYPRO identity without the FFF0 collision.** The shared
   `0000fff0-0000-1000-8000-00805f9b34fb` service is no longer an identity
   signal anywhere in the catalogue: it activated 16 unrelated specs for
-  `LOY5265115155`. A separate `loypro-led-display` candidate now matches the
+  a LOY-prefixed display. A separate `loypro-led-display` candidate now matches the
   explicit LOY prefix and stays identify-only until read-only GATT/model
   evidence arrives. JLX's secondary `fff3` channel and stock SIG services
   are declared without assigning them a command role, and its guide now
@@ -451,6 +469,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **BLE matching tightened from the collision research.** Bare FFF0 was
+  already excluded from identification; this pass closes adjacent paths.
+  CoolLEDX and ThermoPro now use exact advertised names, so incompatible
+  CoolLEDM+ generations and unlisted TP-prefixed products do not inherit their
+  commands. UREVO and KingSmith require documented family names before FTMS
+  routing instead of claiming every 0x1826 peripheral. Magic Display requires
+  its 54 52 00 27 manufacturer prefix rather than generic Quintic FEE9, and
+  OBD no longer identifies arbitrary HM-10 FFE0 serial modules. Regression
+  tests exercise both accepted names and negative collision cases.
+
+- **First-party manual confirmation for TP-Link Kasa, Hue Bridge and JLX.**
+  Kasa bulb, single-plug and per-outlet power-strip switching and state
+  readback are now confirmed, without promoting unexercised bulb brightness,
+  energy, scheduling or provisioning paths. Hue link-button pairing and basic
+  per-light on/off control are confirmed on BSB002; brightness, authenticated
+  CLIP v2 and other bridge generations retain their previous scope. The JLX
+  LDM330 measurement flow was confirmed again, with LDM130 and the unknown
+  angle/error/secondary-service surfaces still untested. Stale no-hardware
+  statements in the Kasa guide and JLX research notes are corrected.
+
 - **A BLE command declares `value` or `template`, never both** (schema
   `not: {required: [value, template]}`). xkglow-chrome's `set_rgb_color`
   carried a fixed red beside a parameterised template; the encoder sent the
@@ -503,6 +541,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **New hardware evidence corrects five LED-panel specs and FOREO Peach 2.**
+  iLEDColor now declares its live A950 command path, write properties,
+  Connect/TestPass vectors, advertised geometry and successful static/animated
+  uploads. SPOTLED uses notification-based initialization, accepts type-4
+  finish acknowledgements and no longer treats every PauseSending as an MTU
+  error or every advertised frame limit as a proven transfer ceiling. AUTOBABA
+  panel dimensions are little-endian, with validated brightness and raw-GIF
+  uploads. A later LOYPRO information response confirms 48x16 geometry and
+  car_linkage/brake capabilities, upgrading it from identify-only to a
+  minimally verified supported spec without assuming an accelerometer or
+  wiring. iLEDColor's active animation is now distinguished from the earlier
+  GIF-container ACK path: the working form uses vendor-native raw-RGB frames
+  and durations, and SPOTLED additionally rejected three-frame/playlist writes.
+  Peach 2's security and activation characteristics move
+  under the capture-confirmed FFF0 service, its new cooling write takes seven
+  bytes, and untested activation, wake-up and OTA assumptions are marked as
+  such. A follow-up app/capture analysis adds exact model-specific names
+  (including PEACH2Duo), the 500 ms security-access delay, body/head NTC and
+  vibrator characteristics, and Duo mode bytes. Pro mode is now described as
+  an app-side subscription/test-device gate whose direct firmware acceptance
+  is unproven, rather than an unconditionally available command. Device guides
+  and confidence labels are aligned with the evidence.
+- **Enphase XBee provisioning is more precise.** The nested decompile adds
+  exact `ZB_WRITE_ENVOY_SN` framing (`07`, serial length, ASCII serial) and
+  read request bytes for link key, Envoy serial and telemetry. It also shows
+  the generic `password` default and the provisioning manager's `030609`
+  constructor path are different flows, so the spec no longer presents one
+  password as universal. The integration stays supported for discovery and
+  encrypted status queries 4, 5 and 8, rather than being misclassified as
+  identify-only: the mobile client implements that path, while a live unlock
+  and all provisioning/control writes remain unverified. The documented radio
+  is XBee 3, not XBee Series 2, and Communications Kit 2 is a separate,
+  unclaimed profile.
 - **AUTOBABA's secondary `5833ff…` service no longer has a maintenance-only
   label.** The analyzed LOY SPACE display path uses `FFF0`; secondary-UUID
   reports on other hardware range from SBH OTA to authenticated/ELS control.

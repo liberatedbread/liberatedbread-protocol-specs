@@ -51,6 +51,7 @@ Bluetooth-controlled LED displays for shoes, bags, hats, and crafts. Uses a Quin
 Identified by manufacturer-specific advertising data (not by name):
 
 - AD type `0xFF`, payload starts with `{0x54, 0x52, 0x00, 0x27}` ("TR" + 0x0027)
+- `0xFEE9` is the generic Quintic QPP service used by unrelated products; do not select this spec from that service alone. Discover it after connecting for control.
 
 ### Commands
 
