@@ -146,6 +146,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `vendor_mfi`). Inquiry matchers now narrow a name rather than OR with it.
   Profile roles gain `media_control` and `undocumented`; DFU mechanisms gain
   `vendor_serial`; setup steps take `l2cap` and a `command`.
+  Description-only initialization steps remain valid for handshakes whose
+  bytes cannot be declared, matching the field's documented contract.
+
+- **Thirty-five device specs and the November protocol follow-up.** New
+  Bluetooth Classic profiles cover 94Fifty basketball, AB Shutter remotes,
+  Anker soundcore, the Classic Beddit tracker and Brother P-touch Cube.
+  New BLE profiles cover Acaia, AC Infinity, Anova, Beddit 3/3.5, Blueair,
+  BlueDriver, Blueriiot, Boosted, Eurotronic, Even G1, Exway, Fisher-Price
+  Lumalou, Gocycle, Hestan Cue, HT36, HumsiENK, InMotion, Insta360, iopool,
+  Joule, Kinsa, LEGO Smart Play, Lippert OneControl, Marshall, Meizu MYVU,
+  Pix Backpack and Weber iGrill. Big Ass Fans gains separate firmware-3.x
+  protobuf and legacy SenseME profiles, selected by advertised capability
+  rather than product name. Furbo gains its TUTK V2/V3 and BLE-onboarding
+  map, with model-specific Furbo 2 RTSP and still-unproven offline credential
+  reuse stated honestly. Eye-Fi's expanded receiver research now covers
+  credentials, resume, TAR safety, direct mode and mounted-card records with
+  synthetic test vectors. Lutron and TP-Link scheduling, Truma strict-read
+  transport and Piaggio's Mini/offline boundaries are structured research
+  notes. AUTOBABA gains live GATT property evidence (but no display-command
+  claim), CHEF iQ separates bonding/ownership/probe registration, and Quin
+  gains its A170/A1310 manuals and discovery troubleshooting. Every new spec
+  is marked untested except for the specific evidence named in its testing
+  block; no owner identifiers, app keys or decompiled source are included.
 
 - **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
   `power_toggle` (the raw power key beside a stateful Power switch), the

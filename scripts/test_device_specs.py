@@ -3613,8 +3613,8 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
     "192.168.10.1": frozenset({
         "rachio-controller", "rabbit-air-purifier", "schlage-wifi-local-surface",
     }),
-    # Parrot Bebop/Anafi family AP.
-    "192.168.42.1": frozenset({"parrot-arsdk-drone"}),
+    # Parrot Bebop/Anafi and Insta360 camera APs.
+    "192.168.42.1": frozenset({"parrot-arsdk-drone", "insta360-camera"}),
     # Dyson setup-AP MQTT broker (non-EC categories).
     "192.168.60.1": frozenset({"dyson-air-purifier"}),
     # OpenGarage device-AP web UI.
@@ -4629,3 +4629,24 @@ def test_the_schema_rejects_a_classic_step_with_two_targets():
     assert not [e for e in validator.iter_errors(spec) if "initialization" in str(e.path)]
     spec["initialization"] = [{"command": "ping", "characteristic": "0000fff1-0000-1000-8000-00805f9b34fb"}]
     assert [e for e in validator.iter_errors(spec) if "initialization" in str(e.path)]
+
+
+
+def test_the_schema_allows_a_documented_initialization_step_without_bytes():
+    """A prose-only handshake step is documentation, not an empty operation."""
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "admore-light-bar.yaml")
+    spec["initialization"] = [
+        {"description": "Perform the vendor's per-session key exchange."}
+    ]
+    assert not [
+        error
+        for error in validator.iter_errors(spec)
+        if "initialization" in str(error.path)
+    ]
+    spec["initialization"] = [{}]
+    assert [
+        error
+        for error in validator.iter_errors(spec)
+        if "initialization" in str(error.path)
+    ]

@@ -222,6 +222,41 @@ spec's `device.setup` block; the patterns are explained in
 | [Quicklynks BM2 Battery Monitor](quicklynks-bm2.md) | BLE GATT + passive advertisements | Spec Available | None needed (read-only) | Quicklynks |
 | [WaterRower ComModule / SmartRow](waterrower-smartrow.md) | BLE FTMS + SmartRow ASCII | Spec Available | None needed (local telemetry) | WaterRower |
 | [Oral-B iO Smart Brush and iO Sense Charger](oral-b-io-smartbrush.md) | BLE GATT + manufacturer advertisements | Spec Available | None needed for brush reads; charger provisioning unresolved | Procter & Gamble |
+| [94Fifty Smart Sensor Basketball](94fifty-basketball.md) | Bluetooth Classic | Spec Available (untested) | none (medium) | InfoMotion Sports Technologies Inc. |
+| [AB Shutter 3 and generic Bluetooth HID shutter remotes](ab-shutter-3.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Various OEMs |
+| [Acaia Coffee Scales (Pearl / Lunar / Pyxis)](acaia-coffee-scale.md) | BLE | Spec Available (untested) | ble_direct (medium) | Acaia |
+| [AC Infinity UIS Controller (BLE)](acinfinity-uis-controller.md) | BLE | Spec Available (untested) | ble_direct (medium) | AC Infinity Inc. |
+| [Anker soundcore Earbuds, Headphones and Speakers](anker-soundcore.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Anker Innovations Limited |
+| [Anova Precision Cooker (original)](anova-precision-cooker.md) | BLE | Spec Available (untested) | ble_direct (medium) | Anova Applied Electronics |
+| [Beddit Sleep Tracker (Bluetooth Classic generation)](beddit-2-sleep-tracker.md) | Bluetooth Classic | Spec Available (untested) | none (low) | Beddit (Apple) |
+| [Beddit Sleep Monitor 3 / 3.5](beddit-sleep-monitor.md) | BLE | Spec Available (untested) | ble_direct (low) | Beddit (Apple) |
+| [Big Ass Fans i6 / es6 / Haiku (firmware 3.x)](big-ass-fans-i6.md) | WiFi | Spec Available (untested) | ble_provisioning (low) | Big Ass Fans (Delta T LLC) |
+| [Big Ass Fans Haiku with SenseME (legacy firmware)](big-ass-fans-senseme.md) | WiFi | Spec Available (untested) | softap_udp (low) | Big Ass Fans (Delta T LLC) |
+| [Blueair Cabin P2i Car Air Purifier](blueair-cabin-p2i.md) | BLE | Spec Available (untested) | ble_direct (medium) | Blueair AB |
+| [BlueDriver Bluetooth Pro OBD-II Scan Tool](bluedriver-obd2.md) | BLE | Spec Available (untested) | ble_direct (medium) | Lemur Vehicle Monitors |
+| [Blueriiot Blue Connect (Go / Plus) pool analyser](blueriiot-blue-connect.md) | BLE | Spec Available (untested) | ble_direct (medium) | Blueriiot / Fluidra |
+| [Boosted boards and Boosted Rev](boosted-boards.md) | BLE | Spec Available (untested) | ble_direct (medium) | Boosted Inc. |
+| [Brother P-touch Cube label printers](brother-ptouch-cube.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Brother Industries, Ltd. |
+| [Eurotronic Comet Blue Radiator Thermostat](eurotronic-comet-blue.md) | BLE | Spec Available (untested) | ble_direct (high) | Eurotronic Technology GmbH |
+| [Even Realities G1 Smart Glasses](even-g1-glasses.md) | BLE | Spec Available (untested) | ble_direct (medium) | Even Realities |
+| [Exway electric skateboards](exway-eskate.md) | BLE | Spec Available (untested) | ble_direct (low) | Exway |
+| [Fisher-Price Lumalou Better Bedtime Routine System](fisher-price-lumalou.md) | BLE | Spec Available (untested) | ble_direct (medium) | Fisher-Price (Mattel) |
+| [Furbo Dog Camera](furbo-dog-camera.md) | WiFi / TUTK P2P + BLE setup | Spec Available (untested) | ble_provisioning (low) | Tomofun Co., Ltd. |
+| [Gocycle G4 / G4i / G4i+](gocycle-ebike.md) | BLE | Spec Available (untested) | ble_direct (low) | Karbon Kinetics Ltd |
+| [Hestan Cue Smart Cooking System](hestan-cue.md) | BLE | Spec Available (untested) | ble_direct (low) | Hestan Smart Cooking |
+| [HT36 Smartwatch](ht36-smartwatch.md) | BLE | Spec Available (untested) | ble_direct (medium) | Unbranded (YC nadal SDK platform) |
+| [HumsiENK Smart BMS](humsienk-bms.md) | BLE | Spec Available (untested) | ble_direct (high) | HumsiENK |
+| [InMotion Electric Unicycles](inmotion-euc.md) | BLE | Spec Available (untested) | ble_direct (medium) | INMOTION Technologies |
+| [Insta360 360° and action cameras](insta360-camera.md) | BLE + WiFi TCP | Spec Available (untested) | ble_direct (low) | Insta360 (Arashi Vision Inc.) |
+| [iopool EcO / EcO Salt pool water monitor](iopool-eco.md) | BLE | Spec Available (untested) | ble_direct (medium) | iopool SA |
+| [ChefSteps Joule Sous Vide](joule-sous-vide.md) | BLE | Spec Available (untested) | ble_provisioning (medium) | Breville (formerly ChefSteps) |
+| [Kinsa Smart Thermometers](kinsa-thermometer.md) | BLE | Spec Available (untested) | ble_direct (medium) | Kinsa Inc. |
+| [LEGO Smart Play Smart Brick](lego-smart-play.md) | BLE | Spec Available (untested) | ble_direct (medium) | LEGO |
+| [Lippert OneControl BLE Gateway](lippert-onecontrol-ble.md) | BLE | Spec Available (untested) | button_pairing (medium) | Lippert Components (LCI) |
+| [Marshall Bluetooth Headphones, Earbuds and Speakers](marshall-bluetooth.md) | BLE | Spec Available (untested) | ble_direct (medium) | Zound Industries (Marshall) |
+| [Meizu MYVU / Star Air AR Glasses](meizu-myvu-glasses.md) | BLE + Bluetooth Classic relay | Spec Available (untested) | ble_direct (medium) | Meizu |
+| [Pix Backpack / Pix Mini](pix-backpack.md) | BLE | Spec Available (untested) | ble_direct (medium) | Pix Inc. |
+| [Weber iGrill Bluetooth Thermometers](weber-igrill.md) | BLE | Spec Available (untested) | ble_direct (medium) | Weber-Stephen Products (formerly iDevices) |
 
 ## Not everything here was liberated
 

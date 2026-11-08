@@ -63,10 +63,11 @@ A client's first contact is the same as the vendor app's, with two fixes:
 
 1. **Wake the box.** It does not advertise until woken. The vendor app's
    wake-up animations show where to press:
-   - **A170**: the top of the box at the end that carries the display, where
-     the illustration shows a ribbed pad. About a second later the small
-     display lights, showing a slot count such as `1/7`, a time and a battery
-     icon.
+   - **A170**: press once at the top/display end so the screen and Bluetooth
+     indicator turn on. The instruction PDF says one press with the screen off
+     enables both; another press with the screen on disables them. Keep the
+     box awake through discovery. The app's animation shows a slot count such
+     as `1/7`, a time and a battery icon.
    - **A1310**: the clock-marked button at the top of the round panel in the
      middle of the dial. The button flashes twice.
 
@@ -351,6 +352,31 @@ refresh, and whether slots 6-7 of an old seven-reminder schedule keep
 ringing. The test: set three reminders, delete one from a second phone
 logged into the same account, pull to refresh on the first, and wait for
 the deleted time.
+
+### 2a. It is not found at all
+
+A negative scan does not prove an unsupported model or a wrong address. A
+sleeping, out-of-range, renamed or already-connected box looks the same. Work
+through these checks before considering a reset:
+
+1. Charge the box and use the A170 one-press wake procedure above. Keep the
+   screen and Bluetooth indicator on.
+2. Close other apps/phones connected to the box; do not reset merely to break
+   a connection.
+3. Check Android version/vendor permissions. Android 9–11 needs fine location
+   and a location provider; Android 12+ needs nearby-device scan/connect
+   permissions (some Huawei/OCE/honor builds also require location services).
+4. Capture the **current** advertised name and address instead of relying on
+   an old note. The supported exact names are `A170`, `A1310` and `A-1281`.
+5. If the name has a suffix, the app's prefix scan can accept it while its
+   exact-name model selection sends it to a no-op handler. That is an app
+   defect, not a MAC-address problem.
+
+The [A170 manual](https://m.media-amazon.com/images/I/B1688ivWcRL.pdf) and
+[A1310 instruction sheet](https://m.media-amazon.com/images/I/C1C2N0jzkNL.pdf)
+are now available for the physical procedures. A1310's FAQ says a factory
+reset clears alarms, custom rings and fingerprints; it is not a routine fix
+for discovery trouble.
 
 ### 2. It is found, but "connection failed" every time
 
