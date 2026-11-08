@@ -40,8 +40,8 @@ the connection, other clients cannot connect.
 | Property | Value |
 |----------|-------|
 | Setup required | No |
-| Method | `ble_direct` — scan for `0xFE00` or `0x1826`, connect, command |
-| Setup AP / advertised name | `WalkingPad*`, `KS-*`, `ZP-ZEALR1-*`, `KINGSMITH*`, `DYNAMAX*` |
+| Method | `ble_direct` — match WiLink `0xFE00` or a documented FTMS name prefix, then connect and command; bare `0x1826` is not identity |
+| Setup AP / advertised name | WiLink `WalkingPad*` / `KS-R1*`; FTMS `KS-MC21-*`, `KS-SMC21C-*`, `ZP-ZEALR1-*`, `KS-HD-*` and the X21 prefixes declared in the spec |
 | Passphrase protection | not_applicable (no pairing, no authentication) |
 | Confidence | high (multiple working open implementations) |
 

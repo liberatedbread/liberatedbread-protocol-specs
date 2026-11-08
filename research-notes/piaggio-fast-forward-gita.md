@@ -1,5 +1,8 @@
 # Piaggio Fast Forward gita / gitamini — Research Notes
 
+**Promoted spec:** `device-specs/devices/piaggio-gita-mini.yaml`, with the owner guide
+at `docs/devices/piaggio-gita-mini.md`. This note retains the fuller research context.
+
 Updated 2026-11-07 from mygita Android/iOS 1.7.4, public manuals and static
 protocol analysis. No robot, app session, BLE write, reset, SSH connection,
 firmware update or network scan was used. All protocol statements are static

@@ -63,7 +63,9 @@ market:
 Family C is the same HM-10 serial pass-through pattern documented for the
 [MoTool Slacker](motool-slacker.md) — a single bidirectional characteristic rather than a
 pair. A client that wants to work with arbitrary hardware should probe for all three
-rather than hardcoding one.
+rather than hardcoding one. FFE0 is shared with unrelated serial modules, so it
+selects family C only after an OBD name or family-B advertisement has identified
+the adapter; it is not scan-time identity on its own.
 
 Notes that matter in practice:
 
