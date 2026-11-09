@@ -4746,6 +4746,27 @@ def test_identification_does_not_match_on_a_stack_wide_uuid(specs):
     )
 
 
+def test_service_uuids_are_unique_per_spec(specs):
+    """Each `services[]` entry is one service on the device.
+
+    Two specs once repeated a real service UUID as a "grouping placeholder"
+    for characteristics whose parent service is unknown. A consumer that
+    indexes services by UUID keeps one and silently drops the other's
+    characteristics, and a reader takes it as a claim that the device has
+    two such services. Unparented characteristics belong in
+    `protocol_details`.
+    """
+    duplicated = []
+    for device_id, spec in specs.items():
+        seen: set[str] = set()
+        for service in spec.get("services") or []:
+            uuid = str(service.get("uuid", "")).lower()
+            if uuid in seen:
+                duplicated.append(f"{device_id}: {uuid}")
+            seen.add(uuid)
+    assert not duplicated, f"services[].uuid repeated within a spec: {duplicated}"
+
+
 def _commands_by_name(node, found: dict) -> dict:
     """Every command, wherever the spec declares it (characteristics, root)."""
     if isinstance(node, dict):
