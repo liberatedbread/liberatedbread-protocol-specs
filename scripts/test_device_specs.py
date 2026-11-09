@@ -4709,6 +4709,29 @@ def test_spec_files_end_with_a_newline():
     assert not unterminated, f"spec files not ending in a newline: {unterminated}"
 
 
+# Service UUIDs a radio STACK advertises on every product built with it, so
+# they say nothing about which product is in range. A consumer treats any
+# `identification.service_uuids` entry as a strong match, so one of these
+# there claims every device on that stack. Keep them under `services`.
+STACK_WIDE_SERVICE_UUIDS = {
+    # SIG member UUID of Wicentric: the Arm Cordio WDX profile.
+    "0000fef6-0000-1000-8000-00805f9b34fb",
+}
+
+
+def test_identification_does_not_match_on_a_stack_wide_uuid(specs):
+    offenders = []
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification") or {}
+        for uuid in identification.get("service_uuids") or []:
+            if str(uuid).lower() in STACK_WIDE_SERVICE_UUIDS:
+                offenders.append(f"{device_id}: {uuid}")
+    assert not offenders, (
+        "identification.service_uuids lists a UUID every product on that "
+        f"BLE stack advertises: {offenders}"
+    )
+
+
 def _commands_by_name(node, found: dict) -> dict:
     """Every command, wherever the spec declares it (characteristics, root)."""
     if isinstance(node, dict):
