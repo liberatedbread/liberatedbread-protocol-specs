@@ -17,7 +17,7 @@ Bluetooth-controlled LED displays for shoes, bags, hats, and crafts. Uses a Quin
 | Chipset | Quintic (NXP QN-series) |
 | Radio | BLE |
 | FCC ID | Unknown |
-| Max connections | 6 simultaneous devices (app-side limit, `AppConfig.MAX_CONNECTED_DEVICE`) |
+| Max connections | 6 simultaneous devices (app-side limit in the app's configuration) |
 
 ## Protocol Summary
 
