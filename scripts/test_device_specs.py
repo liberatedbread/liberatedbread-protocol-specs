@@ -4730,6 +4730,13 @@ def _commands_by_name(node, found: dict) -> dict:
 # patch test. Pinned so a later edit cannot quietly drop the gate.
 MUST_BE_ADVANCED = {
     "quin-pillcalendar": ["set_alarm_slot", "clear_alarm_slot"],
+    "foreo-peach-2": [
+        "set_removal_mode_pro",
+        "set_flash_mode",
+        "set_cooling",
+        "set_cooling_old",
+        "activate",
+    ],
 }
 
 
