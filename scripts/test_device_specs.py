@@ -4737,6 +4737,7 @@ MUST_BE_ADVANCED = {
         "set_cooling_old",
         "activate",
     ],
+    "braun-silk-expert-pro5": ["start_patch_test"],
 }
 
 
