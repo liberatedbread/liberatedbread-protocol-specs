@@ -4773,3 +4773,50 @@ def test_hazardous_commands_are_advanced(specs, device_id):
         assert str(command.get("advanced_reason", "")).strip(), (
             f"{device_id}.{name} is advanced without an advanced_reason"
         )
+
+
+def _identification_name_prefixes(spec: dict) -> list[str]:
+    blocks = [spec["device"].get("identification") or {}]
+    blocks += [v.get("identification") or {} for v in spec["device"].get("variants") or []]
+    prefixes: list[str] = []
+    for block in blocks:
+        if block.get("local_name_prefix"):
+            prefixes.append(block["local_name_prefix"])
+        prefixes.extend(block.get("local_name_prefixes") or [])
+    return prefixes
+
+
+# Advertised names of common products no spec here covers. Name prefixes are
+# matched case-insensitively, so a short prefix like "pix" claimed every
+# Pixel phone, Pixel Buds, Pixoo panel and PIXMA printer in range.
+WELL_KNOWN_FOREIGN_NAMES = [
+    "Pixel 8 Pro",
+    "Pixel Buds Pro",
+    "Pixoo-64",
+    "PIXMA TS5350",
+    "Galaxy Buds2 Pro",
+    "AirPods Pro",
+    "JBL Flip 6",
+]
+
+
+def test_identification_prefixes_do_not_claim_well_known_products(specs):
+    claims = [
+        f"{device_id}: {prefix!r} matches {name!r}"
+        for device_id, spec in specs.items()
+        for prefix in _identification_name_prefixes(spec)
+        for name in WELL_KNOWN_FOREIGN_NAMES
+        if name.lower().startswith(prefix.lower())
+    ]
+    assert not claims, "identification prefixes too wide:\n" + "\n".join(claims)
+
+
+# Bare prefixes a review narrowed to a discovery regex because they were too
+# short to identify on; pinned so they do not come back.
+RETIRED_BARE_PREFIXES = {"pix-backpack": "pix"}
+
+
+@pytest.mark.parametrize("device_id", sorted(RETIRED_BARE_PREFIXES))
+def test_retired_bare_prefixes_stay_retired(specs, device_id):
+    prefixes = [p.lower() for p in _identification_name_prefixes(specs[device_id])]
+    assert RETIRED_BARE_PREFIXES[device_id] not in prefixes
