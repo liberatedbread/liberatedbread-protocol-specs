@@ -4650,3 +4650,60 @@ def test_the_schema_allows_a_documented_initialization_step_without_bytes():
         for error in validator.iter_errors(spec)
         if "initialization" in str(error.path)
     ]
+
+
+_DOTTED_BLOCK_REF = re.compile(
+    r"\b(payload_formats|protocol_details)\.([A-Za-z_][A-Za-z0-9_]*)(\*?)"
+)
+_URL = re.compile(r"https?://\S+")
+
+
+def _block_keys(node, block: str, found: set[str]) -> set[str]:
+    """Every key of every `block` mapping anywhere in the spec.
+
+    `payload_formats` is declared at the root and on a setup method, and a
+    method's prose points at its own, so a reference may land in either.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == block and isinstance(value, dict):
+                found.update(value)
+            _block_keys(value, block, found)
+    elif isinstance(node, list):
+        for item in node:
+            _block_keys(item, block, found)
+    return found
+
+
+def test_dotted_block_references_resolve():
+    """`payload_formats.X` / `protocol_details.X` in a spec names a real block.
+
+    A spec once shipped truncated mid-command, and its prose kept pointing at
+    a dozen `protocol_details` and `payload_formats` blocks that were never in
+    the file. Validation passed: a reference in prose is just a string. Each
+    such pointer must name a key of a block of that name in the same spec
+    (`X*` names a family of keys sharing the prefix X). URLs are skipped:
+    a page called protocol_details.html is not a reference.
+    """
+    broken = []
+    for path in SPEC_PATHS:
+        spec = load(path)
+        text = _URL.sub("", path.read_text(encoding="utf-8"))
+        for block, key, wildcard in sorted(set(_DOTTED_BLOCK_REF.findall(text))):
+            keys = _block_keys(spec, block, set())
+            ok = (
+                any(str(k).startswith(key) for k in keys) if wildcard else key in keys
+            )
+            if not ok:
+                broken.append(f"{path.name}: {block}.{key}{wildcard}")
+    assert not broken, "dangling block references:\n" + "\n".join(broken)
+
+
+def test_spec_files_end_with_a_newline():
+    """A spec that does not end in a newline was probably cut off mid-write."""
+    unterminated = [
+        path.name
+        for path in SPEC_PATHS
+        if not path.read_bytes().endswith(b"\n")
+    ]
+    assert not unterminated, f"spec files not ending in a newline: {unterminated}"
