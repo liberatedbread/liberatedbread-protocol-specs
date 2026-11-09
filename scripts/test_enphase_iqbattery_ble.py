@@ -1,5 +1,6 @@
 """Check Enphase XBee unlock variants and provisioning frame layouts."""
 
+import re
 from pathlib import Path
 
 import yaml
@@ -35,10 +36,26 @@ def test_envoy_serial_write_layout():
         "read_enpower_telem": [0x09, 0x00],
     }
 
+    # Encode a serial by following the spec's declared layout field by field,
+    # so a change to the spec's frame, length rule or type byte fails here.
     serial = b"TESTGATEWAY"
-    frame = bytes([0x07, len(serial)]) + serial
-    assert len(frame) == len(serial) + 2
+    fields = re.findall(r"\[([^\]]+)\]", provisioning["write_envoy_sn"]["frame"])
+    frame = b""
+    for field in fields:
+        if field.startswith("0x"):
+            frame += bytes([int(field, 16)])
+        elif field == "serial_length:u8":
+            frame += bytes([len(serial)])
+        elif field == "serial_ascii":
+            frame += serial
+        else:
+            raise AssertionError(f"unexpected field {field!r} in the spec's frame")
     assert frame == bytes.fromhex("07 0b 54 45 53 54 47 41 54 45 57 41 59")
+    length_rule = provisioning["write_envoy_sn"]["length"]
+    extra = int(re.fullmatch(r"serial_length \+ (\d+) bytes total", length_rule)[1])
+    assert len(frame) == len(serial) + extra
+    frame_types = provisioning["frame_types"]
+    assert "serial" in frame_types[str(frame[0])].lower()
 
 
 def test_supported_scope_does_not_claim_a_live_unlock():
