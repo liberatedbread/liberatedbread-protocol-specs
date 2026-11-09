@@ -4707,3 +4707,38 @@ def test_spec_files_end_with_a_newline():
         if not path.read_bytes().endswith(b"\n")
     ]
     assert not unterminated, f"spec files not ending in a newline: {unterminated}"
+
+
+def _commands_by_name(node, found: dict) -> dict:
+    """Every command, wherever the spec declares it (characteristics, root)."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "commands" and isinstance(value, dict):
+                for name, command in value.items():
+                    if isinstance(command, dict):
+                        found[name] = command
+            _commands_by_name(value, found)
+    elif isinstance(node, list):
+        for item in node:
+            _commands_by_name(item, found)
+    return found
+
+
+# Commands a review found NOT marked advanced although their spec or guide
+# treats them as hazardous: they silence a medication reminder, or change the
+# output mode / unlock / cooling of an IPL hair-removal device, or start its
+# patch test. Pinned so a later edit cannot quietly drop the gate.
+MUST_BE_ADVANCED = {
+    "quin-pillcalendar": ["set_alarm_slot", "clear_alarm_slot"],
+}
+
+
+@pytest.mark.parametrize("device_id", sorted(MUST_BE_ADVANCED))
+def test_hazardous_commands_are_advanced(specs, device_id):
+    commands = _commands_by_name(specs[device_id], {})
+    for name in MUST_BE_ADVANCED[device_id]:
+        command = commands[name]
+        assert command.get("advanced") is True, f"{device_id}.{name} is not advanced"
+        assert str(command.get("advanced_reason", "")).strip(), (
+            f"{device_id}.{name} is advanced without an advanced_reason"
+        )
