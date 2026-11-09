@@ -51,12 +51,19 @@ def _no_data(opcode: int) -> list[int]:
     return [opcode, 0x7F, 0, 0, 0, 0, 0, 0, 0, 0]
 
 
+def _chunk_layout():
+    return SPEC["protocol_details"]["command_framing"]["chunk_layout"]
+
+
 def _chunks(ciphertext: bytes) -> list[bytes]:
+    layout = _chunk_layout()
+    size = layout["ciphertext_bytes_per_chunk"]
+    markers = layout["continuation_marker"]
     chunks = []
-    for offset in range(0, len(ciphertext), 181):
-        part = ciphertext[offset : offset + 181]
-        final = int(offset + 181 >= len(ciphertext))
-        chunks.append(part + bytes([final]))
+    for offset in range(0, len(ciphertext), size):
+        part = ciphertext[offset : offset + size]
+        last = offset + size >= len(ciphertext)
+        chunks.append(part + bytes([markers["final" if last else "more"]]))
     return chunks
 
 
@@ -86,11 +93,33 @@ def test_wifi_join_payload_is_inside_encrypted_frame():
     assert command["parameters"]["ssid_and_password"]["type"] == "string"
 
 
+def test_chunk_layout_fits_mtu_and_matches_prose():
+    layout = _chunk_layout()
+    size = layout["ciphertext_bytes_per_chunk"]
+    # One ATT write carries MTU - 3 bytes: the ciphertext piece plus its marker.
+    assert size + 1 == layout["requested_mtu"] - 3
+    assert layout["continuation_marker"] == {"more": 0, "final": 1}
+    prose = SPEC["protocol_details"]["command_framing"]["chunking"]
+    assert f"Request MTU {layout['requested_mtu']}." in prose
+    assert f"{size}-byte pieces" in prose
+
+
 def test_chunk_boundaries_and_final_markers():
-    chunks = _chunks(bytes(range(200)) * 2)
-    assert [len(chunk) for chunk in chunks] == [182, 182, 39]
-    assert [chunk[-1] for chunk in chunks] == [0, 0, 1]
-    assert b"".join(chunk[:-1] for chunk in chunks) == bytes(range(200)) * 2
+    layout = _chunk_layout()
+    size = layout["ciphertext_bytes_per_chunk"]
+    markers = layout["continuation_marker"]
+    ciphertext = bytes(range(200)) * 2
+    chunks = _chunks(ciphertext)
+    assert [len(chunk) for chunk in chunks] == [size + 1, size + 1, 400 - 2 * size + 1]
+    assert [chunk[-1] for chunk in chunks] == [
+        markers["more"],
+        markers["more"],
+        markers["final"],
+    ]
+    assert b"".join(chunk[:-1] for chunk in chunks) == ciphertext
+    # A ciphertext that fills whole chunks still ends on a final marker.
+    exact = _chunks(bytes(2 * size))
+    assert [chunk[-1] for chunk in exact] == [markers["more"], markers["final"]]
 
 
 def test_model_ids_and_gatt_map():
@@ -171,7 +200,7 @@ def test_saved_session_wire_exchange_and_success_gate():
     assert fresh["request"]["opcode"] == 62
     assert fresh["request"]["plaintext"] == "[0x3e][0x7f][user_id_utf8][n1_ascii]"
     assert fresh["robot_reply"]["plaintext"] == (
-        "[payloadKey][.][n2_ascii][.][payload]"
+        "[key_part][.][n2_ascii][.][payload]"
     )
 
 

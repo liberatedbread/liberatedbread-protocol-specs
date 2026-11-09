@@ -167,8 +167,8 @@ The account `user_id` is not the robot UUID.
    command 9.
 
 For fresh issuance, command 62 uses the same outer request as 63 with opcode
-`0x3e`. Its successful type-62 payload is `payloadKey.n2_ascii.payload`; post
-`payloadKey`, `payload` and `n1` to authenticated `/session-keys`, then use the
+`0x3e`. Its successful type-62 payload is `key_part.n2_ascii.payload`; post
+`key_part`, `payload` and `n1` to authenticated `/session-keys`, then use the
 returned credential and `n2` with command 8. No authenticated request was made
 during research.
 
