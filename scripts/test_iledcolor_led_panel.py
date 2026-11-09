@@ -44,18 +44,11 @@ def test_advertised_geometry_offsets():
         "42 44 02 00 40 00 20 03 00 00 0d 00 3d 00 44 00 00 00"
     )
 
-    width = int.from_bytes(
-        manufacturer_value[
-            advertisement["width_offset"] : advertisement["width_offset"] + 2
-        ],
-        "big",
-    )
-    height = int.from_bytes(
-        manufacturer_value[
-            advertisement["height_offset"] : advertisement["height_offset"] + 2
-        ],
-        "big",
-    )
+    # schema.json: each offset is ONE byte of the manufacturer-data value,
+    # which is how the mobile client reads it. The u16 fields are big-endian,
+    # so the declared offsets must be their low bytes.
+    width = manufacturer_value[advertisement["width_offset"]]
+    height = manufacturer_value[advertisement["height_offset"]]
     assert (width, height) == (32, 64)
     assert advertisement["company_id"] == 0x5401
     assert feature["resolution_source"] == "device_reported"
@@ -74,15 +67,15 @@ def test_vendor_native_animation_uses_raw_rgb_frames():
     assert native["duration_example_hex"] == "000100010001"
     assert native["item_header_bytes"] == 22
     assert native["item_bytes"] == 18460
-    assert native["complex_data_bytes"] == 18484
+    assert native["stream_body_bytes"] == 18484
     assert native["logical_transfer_bytes"] == 18508
     assert native["item_bytes"] == (
         native["item_header_bytes"] + 3 * 32 * 64 * 3 + 3 * 2
     )
-    assert native["complex_data_bytes"] == 4 + 4 + 16 + native["item_bytes"]
+    assert native["stream_body_bytes"] == 4 + 4 + 16 + native["item_bytes"]
     assert native["logical_transfer_bytes"] == (
         native["start_packet_bytes"]
-        + native["complex_data_bytes"]
+        + native["stream_body_bytes"]
         + native["end_packet_bytes"]
     )
     assert native["transport_bytes_with_chunk_headers"] == (

@@ -90,7 +90,9 @@ is not a chunk count; EndStream status is at response byte 4.
 
 The tested manufacturer value reported width 32 and height 64. The spec's
 `resolution_advertisement` offsets index the manufacturer value after its two-byte
-company ID.
+company ID. Width and height are big-endian u16 fields at value bytes 5-6 and
+3-4; the schema reads one byte per dimension, so the spec points at the low bytes
+(offsets 6 and 4), which caps an advertised side at 255.
 
 - A 6164-byte RGB static program completed StartStream, 13 acknowledged chunks and
   EndStream. Its stream had a CRC32C prefix and 6188 bytes total.
@@ -102,7 +104,7 @@ company ID.
   three 6144-byte raw row-major RGB frame buffers, then three two-byte big-endian
   frame-rate values (`00 01` = one frame per second). That is 22 + 18,432 + 6 =
   18,460 item bytes. A four-byte item CRC, four-byte programme header and 16-byte
-  partition address table bring `complexData` to 18,484 bytes. StartStream is 17
+  partition address table wrap it into an 18,484-byte stream body. StartStream is 17
   bytes and EndStream is 7, giving 18,508 logical transfer bytes before per-chunk
   overhead. It completed 38 chunks and stayed active; a static RGB fallback also
   visibly replaced the old text. This is the path clients should implement for
