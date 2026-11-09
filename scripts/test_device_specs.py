@@ -3054,6 +3054,15 @@ def test_the_retired_top_level_lock_shapes_are_rejected(closed_world_spec, retir
     )
 
 
+def _has_ble_scan_name_matcher(spec: dict) -> bool:
+    methods = (spec["device"].get("discovery") or {}).get("methods") or []
+    return any(
+        method.get("type") == "ble_scan"
+        and ((method.get("ble") or {}).get("local_name") or {}).get("value")
+        for method in methods
+    )
+
+
 def test_every_ble_spec_can_be_matched_by_something(specs):
     """A BLE spec with no matcher in `device.identification` is undiscoverable.
 
@@ -3083,6 +3092,11 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
             spec["device"].get("protocol") in CLASSIC_PROTOCOLS
             and any(_inquiry_can_match(m) for m in _inquiry_methods(spec))
         )
+        # A `ble_scan` name matcher in `discovery` is an axis too: the app
+        # matches its regex / contains comparisons, which identification's
+        # plain prefix lists cannot express. A short, collision-prone name is
+        # better stated as a regex there than as a bare prefix here.
+        and not _has_ble_scan_name_matcher(spec)
         # A spec may argue that no signal distinguishes this device from
         # anything else -- fardriver does, and does it well. That argument
         # belongs in `discovery.none`, where a checker can see it, not in a
@@ -4813,7 +4827,7 @@ def test_identification_prefixes_do_not_claim_well_known_products(specs):
 
 # Bare prefixes a review narrowed to a discovery regex because they were too
 # short to identify on; pinned so they do not come back.
-RETIRED_BARE_PREFIXES = {"pix-backpack": "pix"}
+RETIRED_BARE_PREFIXES = {"humsienk-bms": "hs", "pix-backpack": "pix"}
 
 
 @pytest.mark.parametrize("device_id", sorted(RETIRED_BARE_PREFIXES))
