@@ -30,6 +30,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   corrected: it does not need the opener's learn button. Vendor-app symbol
   names are scrubbed from the Tuya gas sensor, NIU, BMW and Beurer specs,
   and a hub UUID and a partial Tuya gwId are placeholdered.
+- **Clean-room scrub and contradiction fixes.** Vendor-app internals are
+  replaced by descriptions of their role in the Hisense, Panasonic, Dyson,
+  Frigidaire (both), Rabbit Air, LED Space and Braun specs: keystore paths,
+  native library names, class and enum names, asset filenames, an internal
+  codename. Wire constants that open-source clients publish are now
+  attributed to them rather than to an APK: Roku's ECP2 client id to roam,
+  Philips' JointSpace key to suborb and haphilipsjs, Panasonic's mask to
+  panasonic-viera. Contradictions resolved:
+  - The Magic Home and SP108E setup hotspots are WPA with default
+    passphrases, not open.
+  - Bosch's BLE record is the Nyon (BUI350), not the Kiox (BUI330).
+  - Sesame and Divoom setup confidence is lowered on untested specs.
+  - The OBD-II adapter's pairing block now matches its BLE method.
+  - Frigidaire's command endpoint now agrees with its `commands:` block.
+  - Rabbit Air's protocol note now records its partial hardware replay.
 - **Piaggio gitamini and reported gita pro BLE profile.** New untested spec and
   owner guide covering 0x9999/0x083B discovery, advertisement TLVs, the full
   custom GATT map, secp256k1 ECDH/AES-CBC command framing, QR/cloud

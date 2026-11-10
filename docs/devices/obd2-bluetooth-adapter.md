@@ -75,7 +75,9 @@ Notes that matter in practice:
 - MTU is often 20 bytes; long replies (a `ATI` banner, a multi-line CAN response) always
   span several notifications.
 - No authentication, no encryption, no pairing on most BLE adapters. Anyone in range of a
-  plugged-in dongle has the same access the owner does.
+  plugged-in dongle has the same access the owner does. The exception is the OBDLink CX,
+  which bonds with a fixed passkey of `123456` during the first five minutes after
+  power-on and always encrypts the link.
 
 ### Application layer: the ELM327 command set
 
