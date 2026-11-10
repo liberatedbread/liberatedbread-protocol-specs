@@ -123,7 +123,7 @@
                 "actor": "user"
               },
               {
-                "action": "Connect and enable 00002a35-0000-1000-8000-00805f9b34fb updates using its exposed property (indications in the SIG profile); accept the new pairing prompt.",
+                "action": "Connect and enable 00002a35-0000-1000-8000-00805f9b34fb updates (notifications, or indications if that is all the GATT declares); accept the new pairing prompt.",
                 "actor": "client"
               }
             ],
@@ -155,7 +155,7 @@
               "expect": "One byte, 0-100 percent. LibreArm refuses to start below 10 percent and warns below 20."
             },
             {
-              "action": "Enable updates on 00002a35-0000-1000-8000-00805f9b34fb using its exposed mechanism: indications in the SIG profile (CCCD 02 00), rather than assuming notifications.",
+              "action": "Enable updates on 00002a35-0000-1000-8000-00805f9b34fb. Notifications (CCCD 01 00) are what the open Android client writes, and it receives records; the SIG profile specifies indications (CCCD 02 00). Use whichever the cuff's GATT declares, preferring notifications if both are.",
               "actor": "client",
               "expect": "On a fresh cuff the OS raises a pairing prompt here; accept it. An ATT error 0x05, 0x08, 0x0c or 0x0f instead means the cuff holds a bond for another phone — clear it with the pinhole (see factory_reset) and retry.\n"
             },
@@ -269,7 +269,7 @@
       },
       {
         "artifact": "agreenbhm/LibreArm_Android, app/src/main/java/com/ptylr/librearm/ble/BpClient.kt (commit 415735a08a0dd71b86a192dd57a0309528087ed5, reviewed 2026-11-01)",
-        "description": "MIT-licensed Android port by Drew Green. Independently confirms the same service, characteristic and control UUIDs and the same two command bytes, and writes the control characteristic with response. It writes CCCD 01 00 directly on 0x2a35: a client assumption, not a device requirement. It also lacks kPa conversion, signed-exponent and special-value handling, complete optional-field length checks and battery support — recorded here as a weaker parser, not as wire-format evidence.\n",
+        "description": "MIT-licensed Android port by Drew Green. Independently confirms the same service, characteristic and control UUIDs and the same two command bytes, and writes the control characteristic with response. It writes CCCD 01 00 (notifications) directly on 0x2a35 and receives records, which is the evidence that the cuff supports notifications even though the SIG profile specifies indications. It also lacks kPa conversion, signed-exponent and special-value handling, complete optional-field length checks and battery support — recorded here as a weaker parser, not as wire-format evidence.\n",
         "type": "public_implementation",
         "url": "https://github.com/agreenbhm/LibreArm_Android"
       },
@@ -307,7 +307,7 @@
         "url": "https://www.technodabbler.com/what-happened-to-qardio-when-connected-health-devices-stop-working/"
       }
     ],
-    "documentation_review": "Two open-source clients, the vendor manual and the SIG characteristic definition were first read on 2026-10-11. A 2026-11-01 review of the pinned revisions corrected the update setup: the SIG characteristic uses indications, and the current iOS client waits for the configuration callback. The Android port's direct notification CCCD write and incomplete SFLOAT/optional-field handling are client limitations, not protocol facts. The clients share an author lineage, so they count as one recovery checked twice, not two independent recoveries. The vendor app's string table was used only to confirm UUIDs and to note the DFU library.\n",
+    "documentation_review": "Two open-source clients, the vendor manual and the SIG characteristic definition were first read on 2026-10-11. A 2026-11-01 review of the pinned revisions noted that the SIG characteristic uses indications and that the current iOS client waits for the configuration callback. The Android port's direct notification CCCD write receives records, so 0x2a35 is declared notify and indicate until a GATT dump says which. Its incomplete SFLOAT/optional-field handling is a client limitation, not a protocol fact. The clients share an author lineage, so they count as one recovery checked twice, not two independent recoveries. The vendor app's string table was used only to confirm UUIDs and to note the DFU library.\n",
     "open_questions": "Which flags the cuff actually sets in its 0x2a35 records (timestamp? user ID? status?), and therefore where pulse sits; whether the characteristic is declared notify, indicate or both; whether the control characteristic is write, write-without-response or both; the exact ATT error the cuff returns on an unbonded measurement-update enable; whether the Battery Service is present on every hardware revision; whether any DFU service appears in the cuff's own GATT table; and the advertised local name, which rests on the manual's phone screenshots.\n"
   },
   "features": [
@@ -632,11 +632,13 @@
             }
           ],
           "name": "Blood Pressure Measurement",
-          "notes": "The SIG Blood Pressure Measurement record, little-endian throughout, decoded exactly as the characteristic definition says and with no vendor quirk: flags byte, then systolic, diastolic and mean arterial pressure as three IEEE-11073 16-bit SFLOATs, then optional fields in flag order — 7-byte timestamp, SFLOAT pulse rate, uint8 user ID, uint16 measurement status. Minimum length 7 bytes. The format block below declares the fixed part; payload_formats.BloodPressureMeasurement walks the optional tail, whose offsets depend on the flags, and gives the SFLOAT rule and worked examples.\nSFLOAT: the 16-bit value's low 12 bits are a two's-complement mantissa, the high 4 bits a two's-complement exponent, value = mantissa x 10^exponent. Mantissas 0x07ff (NaN), 0x0800 (NRes), 0x07fe (+INF), 0x0802 (-INF) and 0x0801 (reserved) are special and carry no value. The pressure unit follows flags bit 0: mmHg when clear, kPa when set (multiply by 7.500617 for mmHg).\nThe SIG profile specifies INDICATE (CCCD 02 00). The current iOS client calls CoreBluetooth's update-enable API and waits for the configuration callback; that API enables the mechanism the characteristic offers. The Android port instead writes CCCD 01 00 (notification), which is a client assumption, not evidence that the cuff declares or requires notifications. Use the exposed property and its corresponding CCCD value; the cuff's actual GATT property still needs a dump. Records arrive while the cuff inflates and deflates, not only at the end: a client keeps the last record whose systolic and diastolic both decode finite and above zero with systolic greater than diastolic, debounces 1.5 s after the last measurement update, and treats a special-value systolic or diastolic as \"no result\". LibreArm additionally refuses to save a result outside systolic 40-260, diastolic 20-200, pulse 20-220.\n",
+          "notes": "The SIG Blood Pressure Measurement record, little-endian throughout, decoded exactly as the characteristic definition says and with no vendor quirk: flags byte, then systolic, diastolic and mean arterial pressure as three IEEE-11073 16-bit SFLOATs, then optional fields in flag order — 7-byte timestamp, SFLOAT pulse rate, uint8 user ID, uint16 measurement status. Minimum length 7 bytes. The format block below declares the fixed part; payload_formats.BloodPressureMeasurement walks the optional tail, whose offsets depend on the flags, and gives the SFLOAT rule and worked examples.\nSFLOAT: the 16-bit value's low 12 bits are a two's-complement mantissa, the high 4 bits a two's-complement exponent, value = mantissa x 10^exponent. Mantissas 0x07ff (NaN), 0x0800 (NRes), 0x07fe (+INF), 0x0802 (-INF) and 0x0801 (reserved) are special and carry no value. The pressure unit follows flags bit 0: mmHg when clear, kPa when set (multiply by 7.500617 for mmHg).\nPROPERTIES ARE NOT FROM A GATT DUMP. The SIG profile specifies INDICATE (CCCD 02 00). The open Android client writes CCCD 01 00 (notifications) directly and receives records, so the cuff at least supports notifications; the current iOS client calls CoreBluetooth's update-enable API, which picks whichever mechanism the characteristic declares. Both are listed because the evidence supports notify and the profile specifies indicate; which the cuff actually declares still needs a dump. Records arrive while the cuff inflates and deflates, not only at the end: a client keeps the last record whose systolic and diastolic both decode finite and above zero with systolic greater than diastolic, debounces 1.5 s after the last measurement update, and treats a special-value systolic or diastolic as \"no result\". LibreArm additionally refuses to save a result outside systolic 40-260, diastolic 20-200, pulse 20-220.\n",
           "properties": [
+            "notify",
             "indicate"
           ],
-          "uuid": "00002a35-0000-1000-8000-00805f9b34fb"
+          "uuid": "00002a35-0000-1000-8000-00805f9b34fb",
+          "verification": "reported"
         },
         {
           "commands": {

@@ -360,7 +360,35 @@
     }
   ],
   "payload_formats": {
-    "BedditChannelDescription": {
+    "ForceStreamNotification": {
+      "description": "One notification on f82fd8a9-329d-4c44-a178-e82f91ec9fe6 after start_force_stream (f82fd8a8 layout, single force channel).\n",
+      "example": "80 00 e8 03 e9 03 ea 03",
+      "fields": [
+        {
+          "description": "Byte 0: 0x80 or 0x90. The meaning of the difference is unknown.",
+          "index": 0,
+          "name": "packet_type"
+        },
+        {
+          "description": "Byte 1, uint8 packet counter, wraps 255 to 0.",
+          "index": 1,
+          "name": "sequence"
+        },
+        {
+          "description": "Bytes 2 to the end: uint16 little-endian force samples, (length - 2) / 2 of them.",
+          "index": 2,
+          "name": "force_samples"
+        }
+      ],
+      "parse_rules": [
+        "Length must be at least 4 and even. Otherwise reject; the app aborts the session.",
+        "Byte 0 must be 0x80 or 0x90. Anything else: reject; the app treats it as a protocol violation and aborts the session.",
+        "Sequence and gap handling are the same as for SampleChannelNotification; the expected counter starts at 0.",
+        "Sample rate comes from f82fd8aa-329d-4c44-a178-e82f91ec9fe6 in whole Hz.",
+        "Accept any valid length (see protocol_details.att_mtu)."
+      ]
+    },
+    "SampleChannelDescriptor": {
       "description": "Value of e6807e21-b90a-11e5-a837-0800200c9a66 (channel 1) and e6807e25-b90a-11e5-a837-0800200c9a66 (channel 2), read once per connection. Each describes one sample channel of the e6807d20 layout.\n",
       "example": "10 27 75 32 66 6f 72 63 65",
       "fields": [
@@ -391,7 +419,7 @@
         "The analysis frames samples in 0.2 s blocks and rejects a rate that does not give a whole number of samples per block. Real rates are therefore multiples of 5 Hz."
       ]
     },
-    "BedditChannelPacket": {
+    "SampleChannelNotification": {
       "description": "One notification on e6807e20-b90a-11e5-a837-0800200c9a66 (channel 1) or e6807e24-b90a-11e5-a837-0800200c9a66 (channel 2) after start_streaming.\n",
       "example": "00 10 27 11 27 12 27",
       "fields": [
@@ -414,34 +442,6 @@
         "Samples are raw sensor counts with no known calibration. The app hands the bytes to its analysis unchanged.",
         "Timestamp samples by count: sample n of a channel falls at n / sample_rate_hz seconds after the stream began. Packets carry no time field.",
         "Accept any valid length. See protocol_details.att_mtu for why packets from the app's era held at most 9 samples, and why a client should not rely on that."
-      ]
-    },
-    "BedditForcePacket": {
-      "description": "One notification on f82fd8a9-329d-4c44-a178-e82f91ec9fe6 after start_force_stream (f82fd8a8 layout, single force channel).\n",
-      "example": "80 00 e8 03 e9 03 ea 03",
-      "fields": [
-        {
-          "description": "Byte 0: 0x80 or 0x90. The meaning of the difference is unknown.",
-          "index": 0,
-          "name": "packet_type"
-        },
-        {
-          "description": "Byte 1, uint8 packet counter, wraps 255 to 0.",
-          "index": 1,
-          "name": "sequence"
-        },
-        {
-          "description": "Bytes 2 to the end: uint16 little-endian force samples, (length - 2) / 2 of them.",
-          "index": 2,
-          "name": "force_samples"
-        }
-      ],
-      "parse_rules": [
-        "Length must be at least 4 and even. Otherwise reject; the app aborts the session.",
-        "Byte 0 must be 0x80 or 0x90. Anything else: reject; the app treats it as a protocol violation and aborts the session.",
-        "Sequence and gap handling are the same as for BedditChannelPacket; the expected counter starts at 0.",
-        "Sample rate comes from f82fd8aa-329d-4c44-a178-e82f91ec9fe6 in whole Hz.",
-        "Accept any valid length (see protocol_details.att_mtu)."
       ]
     }
   },
@@ -564,7 +564,7 @@
             }
           ],
           "name": "Channel 1 description",
-          "notes": "At least 5 bytes: sample rate x100 (uint16 LE), the ASCII type code \"u2\" (uint16 samples), then the channel name as UTF-8 from byte 4 to the end of the value. The variable-length name has no fixed-length field below; see payload_formats.BedditChannelDescription. The app aborts the session if the value is shorter than 5 bytes or the type code is not \"u2\".\n",
+          "notes": "At least 5 bytes: sample rate x100 (uint16 LE), the ASCII type code \"u2\" (uint16 samples), then the channel name as UTF-8 from byte 4 to the end of the value. The variable-length name has no fixed-length field below; see payload_formats.SampleChannelDescriptor. The app aborts the session if the value is shorter than 5 bytes or the type code is not \"u2\".\n",
           "properties": [
             "read"
           ],
@@ -589,7 +589,7 @@
             }
           ],
           "name": "Channel 1 data",
-          "notes": "Sample packets: a 1-byte sequence counter, then one or more uint16 LE samples to the end of the value. Sample count = (length - 1) / 2. The app aborts on a value shorter than 3 bytes or of even length. Only the header and the first sample are fixed-position; see payload_formats.BedditChannelPacket for the full layout and protocol_details.gap_padding for lost packets.\n",
+          "notes": "Sample packets: a 1-byte sequence counter, then one or more uint16 LE samples to the end of the value. Sample count = (length - 1) / 2. The app aborts on a value shorter than 3 bytes or of even length. Only the header and the first sample are fixed-position; see payload_formats.SampleChannelNotification for the full layout and protocol_details.gap_padding for lost packets.\n",
           "properties": [
             "notify"
           ],
@@ -658,7 +658,7 @@
         },
         {
           "characteristic": "e6807e21-b90a-11e5-a837-0800200c9a66",
-          "notes": "Channel 1 description (payload_formats.BedditChannelDescription).",
+          "notes": "Channel 1 description (payload_formats.SampleChannelDescriptor).",
           "read": true
         },
         {
@@ -744,7 +744,7 @@
             }
           ],
           "name": "Control and force data",
-          "notes": "One characteristic for both jobs. The client writes 0x01 to start, and the sensor notifies force packets: byte 0 is the packet type (0x80 or 0x90), byte 1 the sequence, then uint16 LE samples. The length must be even and at least 4, and any other type byte makes the app abort. See payload_formats.BedditForcePacket.\n",
+          "notes": "One characteristic for both jobs. The client writes 0x01 to start, and the sensor notifies force packets: byte 0 is the packet type (0x80 or 0x90), byte 1 the sequence, then uint16 LE samples. The length must be even and at least 4, and any other type byte makes the app abort. See payload_formats.ForceStreamNotification.\n",
           "properties": [
             "write",
             "notify"
