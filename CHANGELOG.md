@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Every device spec now answers the pairing question.** `device.pairing`
+  was required only on BLE, and 90 Wi-Fi, LAN, wired-bus and vehicle specs
+  had none. Each now says what a client must obtain before the local control
+  surface answers it: a TV's on-screen PIN or Allow prompt, a hub's link
+  button or printed code, a key only the vendor cloud ever issued (Tuya,
+  miio, Roborock, Midea V3, Enphase's JWT), an owner-set admin login, or —
+  just as usefully — an open API whose only gate is the network. Each block
+  covers the toggles that must be flipped first, the connection limits that
+  cause field failures, how a client is revoked, and what the dead cloud
+  costs. Seventeen weak BLE blocks were researched again. Five `unknown`s
+  are resolved (the HC-05 skimmer's fixed PIN, Mousr, the two UCSD-studied
+  alarms, Pebble's numeric comparison). Bose Sleepbuds II and Braun IPL say
+  what was searched and stay `unknown`.
+  `docs/protocols/pairing.md` gains an "Off BLE" section mapping each gate
+  onto the vocabulary. `scripts/test_device_specs.py` now fails any
+  non-reference spec without the block, and any block beyond "nothing
+  pairs" that carries no prose. Along the way: the Lightify cloud shutdown
+  is corrected to 2021-08-31, LG's Revoke Pairing is corrected to drop
+  every client, and Reolink's default is corrected to blank. ratgdo is
+  corrected: it does not need the opener's learn button. Vendor-app symbol
+  names are scrubbed from the Tuya gas sensor, NIU, BMW and Beurer specs,
+  and a hub UUID and a partial Tuya gwId are placeholdered.
 - **Piaggio gitamini and reported gita pro BLE profile.** New untested spec and
   owner guide covering 0x9999/0x083B discovery, advertisement TLVs, the full
   custom GATT map, secp256k1 ECDH/AES-CBC command framing, QR/cloud

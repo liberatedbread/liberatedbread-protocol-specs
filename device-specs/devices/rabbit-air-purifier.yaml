@@ -416,6 +416,69 @@ device:
         several times). Never record a real key in this repo — the spec
         documents the shape only.
 
+  pairing:
+    required: true
+    confidence: "high"
+    # No link-layer pairing on either transport: the BLE characteristic is
+    # open, and the gate is the AES user key over both BLE and UDP 9009.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      length: 32
+      notes: >
+        The 16-byte user key, written as 32 uppercase hex characters, is the
+        only credential the LAN and encrypted-BLE surfaces accept. A client
+        joining a unit that is already set up reads it out of the Rabbit Air
+        app (device control page, three-dot menu, Rename, tap the device
+        name; see setup.credentials). A client that provisions the unit
+        itself mints the key and pushes it with cmd 5 type 4 during setup
+        (setup method 'BLE setup peripheral (replayed on hardware)'), which
+        needs nothing from the app or cloud. That second route is the one
+        verified on hardware here. Per-unit; never record a value.
+    exclusivity:
+      single_bond: true
+      recovery: >
+        Share the existing key; don't mint a new one. Every client encrypts
+        under the same single user key, so a second client that pushes a
+        fresh key during a new setup locks out every client still holding
+        the old one, the vendor app included.
+      notes: >
+        The single key slot is inferred: cmd 5 type 4 is one write and the
+        unit is documented as holding one user key, but two keys have not
+        been tried. UDP 9009 has no sessions, so any number of LAN clients
+        can share the key at once.
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      notes: >
+        Revoking a key means replacing it, and the only route to cmd 5 type 4
+        seen working is setup mode. On hardware here a keyed unit ignored all
+        cleartext, and cmd 1 and cmd 2 sent after setup had ended returned an
+        error. In practice that means the wireless-button hold in
+        setup.factory_reset, then provisioning again. The app's "Tap for setup
+        user key" entry pushes a key to units set up before user keys
+        existed. Whether it can replace an existing key without setup mode
+        has not been established.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        A client that already has the key needs nothing at the hardware.
+        Minting a new key does need it: hold Speed/Wireless until the
+        wireless LED blinks, so that the unit advertises "RabbitAirSetup" and
+        accepts the cleartext setup commands (setup.methods).
+    notes: >
+      The gate is the AES-128-CBC user key. Every request on UDP/TCP 9009,
+      and every post-setup BLE command, must be encrypted under it and carry
+      a device-clock timestamp. A keyed unit gives nothing to a client
+      without the key: verified here, it answers no cleartext and
+      intermittently rejects BLE writes with ATT error 0x87. The vendor cloud
+      plays no part. The key lives on the unit and in whoever holds it, so
+      local control survives Rabbit Air's servers. Units whose Wi-Fi firmware
+      predates user keys (mcu below 24 on ESP32, below 2.2 on Inventek)
+      cannot take one. The vendor library's tokenless plaintext mode exists
+      for them, but this project has not tested such a unit.
+
 cloud:
   required: false
   vendor_service: "Rabbit Air cloud (AWS IoT Core + account API)"

@@ -457,15 +457,15 @@ def pairings(specs: dict[str, dict]):
             yield device_id, pairing
 
 
-def test_ble_devices_answer_the_pairing_question(specs):
-    """A BLE spec must say whether a client has to pair, even if the answer is no.
+def test_every_device_answers_the_pairing_question(specs):
+    """Every device spec must say whether a client has to pair, even if the answer is no.
 
-    'No pairing, open GATT' is the most common answer and the most useful one:
-    it is what tells an implementer not to go hunting for a pairing flow that
-    does not exist. Silence says the same thing to a reader who assumes the
-    best and the opposite to a reader who assumes the worst, which is why the
-    block is required here rather than merely allowed. `required: unknown` is
-    the honest third answer and satisfies this.
+    'No pairing, open GATT' is the most common BLE answer and the most useful
+    one: it is what tells an implementer not to go hunting for a pairing flow
+    that does not exist. Silence says the same thing to a reader who assumes
+    the best and the opposite to a reader who assumes the worst, which is why
+    the block is required here rather than merely allowed. `required: unknown`
+    is the honest third answer and satisfies this.
 
     Bluetooth Classic specs are gated the same way, and for them the answer
     is more often yes: a BR/EDR device either takes an insecure RFCOMM socket
@@ -473,19 +473,48 @@ def test_ble_devices_answer_the_pairing_question(specs):
     (nearly every printer and OBD dongle), and which of the two it is decides
     whether a client can connect at all without a person at the host.
 
-    WiFi and bus devices are not gated: pairing in this sense is a property of
-    the radio link, and a device reached over HTTP or a diagnostic connector
-    has no equivalent. Those may still carry the block (a hub with a physical
-    link button does) but are not required to.
+    Off BLE the question moves up a layer -- what must a client obtain before
+    the local control surface answers it -- and it blocks implementers just as
+    often: the TV waiting on an on-screen Allow, the bulb whose LAN toggle is
+    off, the plug whose key only a cloud ever issued, or, just as usefully, an
+    open API whose only gate is the network. docs/protocols/pairing.md maps
+    each of those onto the same vocabulary. Reference specs document a
+    standard rather than hardware, so there is nothing to pair with.
     """
     missing = [
         device_id
         for device_id, spec in specs.items()
-        if spec["device"].get("protocol") in BLUETOOTH_PROTOCOLS
-        and not is_reference(spec)
-        and "pairing" not in spec["device"]
+        if not is_reference(spec) and "pairing" not in spec["device"]
     ]
-    assert not missing, f"Bluetooth specs without a device.pairing block: {missing}"
+    assert not missing, f"Device specs without a device.pairing block: {missing}"
+
+
+def test_written_pairing_blocks_tell_the_story(specs):
+    """A pairing block that is more than "nothing pairs" says so in words.
+
+    The four-line BLE "connect and go" block is complete on its own. Anything
+    else -- a credential, a button, a cloud-issued key, an unknown -- is a story
+    a reader needs in prose: where the credential comes from, what the user
+    must do, and what the vendor cloud's death does to it. That prose may sit
+    on the block itself or on the part it explains (`pin`, `enter_pairing_mode`,
+    `unpair`, or `exclusivity.recovery`).
+    """
+
+    def has_prose(pairing: dict) -> bool:
+        if pairing.get("notes"):
+            return True
+        for key in ("pin", "enter_pairing_mode", "unpair"):
+            if (pairing.get(key) or {}).get("notes"):
+                return True
+        return bool((pairing.get("exclusivity") or {}).get("recovery"))
+
+    missing = [
+        device_id
+        for device_id, pairing in pairings(specs)
+        if not (pairing["required"] is False and pairing.get("security_mode") == "none")
+        and not has_prose(pairing)
+    ]
+    assert not missing, f"Pairing blocks that need prose: {missing}"
 
 
 def test_pairing_states_required_and_confidence(specs):
