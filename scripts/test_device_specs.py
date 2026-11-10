@@ -489,34 +489,6 @@ def test_every_device_answers_the_pairing_question(specs):
     assert not missing, f"Device specs without a device.pairing block: {missing}"
 
 
-def test_written_pairing_blocks_tell_the_story(specs):
-    """A pairing block that is more than "nothing pairs" says so in words.
-
-    The four-line BLE "connect and go" block is complete on its own. Anything
-    else -- a credential, a button, a cloud-issued key, an unknown -- is a story
-    a reader needs in prose: where the credential comes from, what the user
-    must do, and what the vendor cloud's death does to it. That prose may sit
-    on the block itself or on the part it explains (`pin`, `enter_pairing_mode`,
-    `unpair`, or `exclusivity.recovery`).
-    """
-
-    def has_prose(pairing: dict) -> bool:
-        if pairing.get("notes"):
-            return True
-        for key in ("pin", "enter_pairing_mode", "unpair"):
-            if (pairing.get(key) or {}).get("notes"):
-                return True
-        return bool((pairing.get("exclusivity") or {}).get("recovery"))
-
-    missing = [
-        device_id
-        for device_id, pairing in pairings(specs)
-        if not (pairing["required"] is False and pairing.get("security_mode") == "none")
-        and not has_prose(pairing)
-    ]
-    assert not missing, f"Pairing blocks that need prose: {missing}"
-
-
 def test_pairing_states_required_and_confidence(specs):
     """The two fields that make the rest of the block weighable."""
     for device_id, pairing in pairings(specs):

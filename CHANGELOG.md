@@ -23,8 +23,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   what was searched and stay `unknown`.
   `docs/protocols/pairing.md` gains an "Off BLE" section mapping each gate
   onto the vocabulary. `scripts/test_device_specs.py` now fails any
-  non-reference spec without the block, and any block beyond "nothing
-  pairs" that carries no prose. Along the way: the Lightify cloud shutdown
+  non-reference spec without the block. A new
+  `scripts/test_pairing_conventions.py` holds the rest of
+  the conventions as small predicates, each checked against the catalogue
+  and against hand-built specs it must accept or reject:
+  - Every block states `security_mode`, `bonding` and
+    `enter_pairing_mode.required`.
+  - A block beyond "nothing pairs" carries prose.
+  - `high` confidence needs hardware or a capture behind it.
+  - An exclusive device says how to recover.
+  - "Unpair by reset" points at a reset that exists.
+  - Link-layer modes appear only on Bluetooth, and `network_join` only on
+    Zigbee and Z-Wave.
+  - A default PIN agrees with its stated length.
+  - Each guide page agrees with its spec on whether pairing is required.
+
+  The new rules caught six specs. iRobot and ThermoPro TP357 claimed `high`
+  pairing confidence from open implementations; they are now `medium`.
+  BioKey's over-the-air capture is now recorded as `capture-verified`.
+  Big Ass Fans, Furbo and the OBDLink MX+ BLE pipe never stated
+  `enter_pairing_mode`. Along the way: the Lightify cloud shutdown
   is corrected to 2021-08-31, LG's Revoke Pairing is corrected to drop
   every client, and Reolink's default is corrected to blank. ratgdo is
   corrected: it does not need the opener's learn button. Vendor-app symbol
