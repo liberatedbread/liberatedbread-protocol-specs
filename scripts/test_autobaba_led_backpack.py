@@ -30,10 +30,34 @@ def test_information_query_checksum_and_length():
     assert int.from_bytes(frame[-2:], "little") == 0x03FF
 
 
+def _tlv_header(data: bytes) -> tuple[int, int, int]:
+    """Decode [type][length] per tlv_length_encoding: (type, length, header size)."""
+    tlv_type, first = data[0], data[1]
+    if first < 0x80:
+        return tlv_type, first, 2
+    if first == 0x81:
+        return tlv_type, data[2], 3
+    if first == 0x82:
+        return tlv_type, int.from_bytes(data[2:4], "little"), 4
+    raise AssertionError(f"unknown length prefix {first:#04x}")
+
+
 def test_extended_tlv_length_81_c4_means_196_bytes():
     encoding = SPEC["protocol_details"]["panel_discovery"]["tlv_length_encoding"]
     assert encoding["extended_8"].startswith("81 LL")
-    assert encoding["example"] == "13 81 c4 = type 0x13 with a 196-byte value"
+    example_hex, claim = encoding["example"].split("=", 1)
+    tlv_type, length, header = _tlv_header(bytes.fromhex(example_hex))
+    assert (tlv_type, length, header) == (0x13, 196, 3)
+    assert f"type {tlv_type:#04x}" in claim
+    assert f"{length}-byte value" in claim
+
+    # The worked GIF chunk carries the same TLV: its value runs to the checksum.
+    upload = SPEC["protocol_details"]["raw_gif_upload"]
+    packet = bytes.fromhex(upload["worked_chunk_hex"])
+    tlv_type, length, header = _tlv_header(packet[42:])
+    assert tlv_type == 0x13
+    assert length == upload["value_chunk_bytes"] == 196
+    assert len(packet) - 2 - (42 + header) == length
 
 
 def test_panel_dimensions_are_little_endian_after_type_byte():

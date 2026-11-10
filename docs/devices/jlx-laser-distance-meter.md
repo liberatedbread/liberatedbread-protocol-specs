@@ -185,7 +185,7 @@ connection. Otherwise, drive the meter from Android or iOS.
 
 | Family | Transport | Notes |
 |--------|-----------|-------|
-| **Precaster Enterprises platform (this spec)** | BLE | Johnson LDM130/LDM330 (Measure-Up app), Precaster iM2, Starrett STR3, Ronix, MeasureMate, MeasureCam/TargetCam builds share one codebase (AppName enum in the APK; Ronix builds use the older `com.wiho` package root). ASCII frames over `f151`/`f154`. |
+| **Precaster Enterprises platform (this spec)** | BLE | Johnson LDM130/LDM330 (Measure-Up app), Precaster iM2, Starrett STR3, Ronix, MeasureMate, MeasureCam/TargetCam builds share one codebase (per the APK's internal list of brand builds; Ronix builds use the older `com.wiho` package root). ASCII frames over `f151`/`f154`. |
 | Mileseey (P7/T7/R2B/M120/DT20-old, Suaoki rebadges) | BLE | Open protocol, transmits unit; supported by ImageMeter. Newer models (DT20-new, D5/D5T/D9 Pro, S50) moved to an encrypted protocol and are listed as unsupported by ImageMeter; D9 Pro rides the Tuya Smart Life app. |
 | Bosch GLM 50 C / 100 C / PLR 30-50 C | Bluetooth Classic SPP | Reverse engineered; see philipptrenz/BOSCH-GLM-rangefinder (pymtprotocol). Remote trigger supported. |
 | Bosch GLM xx-27 C generation | BLE | Newer closed BLE protocol (MeasureOn app); ImageMeter supports with manual protocol selection; partial RE in pklaus/bsch. |

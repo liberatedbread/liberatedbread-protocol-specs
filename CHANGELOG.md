@@ -564,8 +564,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is unproven, rather than an unconditionally available command. Device guides
   and confidence labels are aligned with the evidence.
 - **Enphase XBee provisioning is more precise.** The nested decompile adds
-  exact `ZB_WRITE_ENVOY_SN` framing (`07`, serial length, ASCII serial) and
-  read request bytes for link key, Envoy serial and telemetry. It also shows
+  exact framing of the gateway-serial write (`07`, serial length, ASCII
+  serial) and read request bytes for link key, Envoy serial and telemetry. It
+  also shows
   the generic `password` default and the provisioning manager's `030609`
   constructor path are different flows, so the spec no longer presents one
   password as universal. The integration stays supported for discovery and

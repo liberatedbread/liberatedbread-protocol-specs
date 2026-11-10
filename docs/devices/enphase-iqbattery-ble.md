@@ -70,8 +70,8 @@ gateway serial) re-joins a unit to the site mesh in place; no reset needed.
 | `f9279ee9-2cd0-410c-81cc-adf11e4e5aea` | RX | Device notifies XBee API frames (CCCD 0x2902) |
 
 XBee API frame types in play (public digi-xbee-java): `0x2C` BLE Unlock,
-`0xAC` BLE Unlock Response, `0xAD` User Data Relay Output (client→device),
-`0x2D` User Data Relay (device→client). After the SRP-6a unlock, both
+`0xAC` BLE Unlock Response, `0x2D` User Data Relay (client→device), `0xAD`
+User Data Relay Output (device→client). After the SRP-6a unlock, both
 directions are AES-encrypted with session keys from the handshake. Enphase
 payloads ride in the relay frames' user-data field, addressed to the radio's
 serial interface (micropython interface on the IQ Extender).
@@ -89,11 +89,11 @@ carry the payload from byte 2 on.
 | 4 | ZB_PAIRING_STATUS | 802.15.4 pairing status |
 | 5 | ZB_COMMISSIONING_STATUS | Commissioning status |
 | 6 | ZB_READ_LINK_KEY | Read back stored link key |
-| 7 | ZB_WRITE_ENVOY_SN | Write gateway serial |
+| 7 | Gateway serial write | Write gateway serial |
 | 8 | ZB_READ_ENVOY_SN | Read gateway serial (PAN ID derivation/verify) |
 | 9 | READ_ENPOWER_TELEM | Read Enpower telemetry |
 
-`ZB_WRITE_ENVOY_SN` is `[07][one-byte serial length][serial ASCII]`, so its
+The gateway-serial write is `[07][one-byte serial length][serial ASCII]`, so its
 total length is the gateway serial length plus two. The read requests are
 `06 00` (link key), `08 00` (Envoy serial) and `09 00` (Enpower telemetry).
 Responses drop those first two bytes before parsing.
