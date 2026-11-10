@@ -168,3 +168,30 @@ def test_thermopro_uses_the_scan_configs_exact_names():
         assert matches(spec, name, [])
     for name in ("TP999", "TP25-extra", "TempPro", "iBBQ"):
         assert not matches(spec, name, []), name
+
+
+def test_no_spec_claims_a_device_by_a_shared_signal_alone():
+    """Generic FTMS, a bare Apple company ID and a three-letter word are not identity.
+
+    Each of these reached main in a new spec: a rower that listed 0x1826 as a
+    scan axis (and so claimed every treadmill and bike in range), and a
+    battery monitor whose scan matcher was company ID 0x004c with no payload
+    pattern (every iBeacon and Apple device).
+    """
+    ftms = "00001826-0000-1000-8000-00805f9b34fb"
+    claimed = sorted(
+        stem for stem, spec in specs().items() if matches(spec, "Generic treadmill", [ftms])
+    )
+    assert claimed == [], f"specs identifying a device from generic FTMS alone: {claimed}"
+
+    bare_apple = []
+    for stem, spec in specs().items():
+        discovery = spec["device"].get("discovery") or {}
+        for method in discovery.get("methods") or []:
+            block = (method.get("ble") or {}).get("manufacturer_data") or {}
+            if block.get("company_id") == 76 and not block.get("pattern"):
+                bare_apple.append(stem)
+    assert bare_apple == [], (
+        f"scan matchers on Apple's company ID with no payload pattern: {bare_apple}"
+    )
+

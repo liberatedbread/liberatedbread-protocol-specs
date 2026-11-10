@@ -38,7 +38,7 @@ marked `hypothesis`.
 | Property | Value |
 |----------|-------|
 | Model | Dohm Connect, SKU / model ID 4000900 |
-| Chipset | TI BLE module (per upstream; SensorTag-family UUIDs) |
+| Chipset | Unconfirmed: upstream says a TI BLE module, but the UUID base is the CSR/Qualcomm style |
 | Radio | Bluetooth LE |
 | Power | Mains adapter |
 | Category | `appliance` |
