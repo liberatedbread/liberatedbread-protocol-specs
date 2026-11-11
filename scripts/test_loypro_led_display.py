@@ -1,5 +1,6 @@
 """Independent LOY AA55/TLV transcription using only the standard library."""
 
+from hashlib import sha256
 from pathlib import Path
 
 import yaml
@@ -107,3 +108,157 @@ def test_query_vector_checksum_and_declared_length():
     assert len(raw) == 20
     assert len(raw) == int.from_bytes(raw[4:6], "little") + 6
     assert int.from_bytes(raw[-2:], "little") == sum(raw[:-2]) & 0xFFFF
+
+
+
+def encode_ystp01(
+    width: int,
+    height: int,
+    delay: int,
+    bits_per_pixel: int,
+    palette: list[tuple[int, int, int]],
+    pages: list,
+) -> bytes:
+    palette_bytes = b"".join(bytes(entry) for entry in palette)
+    if bits_per_pixel == 24:
+        assert palette == []
+    else:
+        assert len(palette) == 1 << bits_per_pixel
+
+    packed_pages = []
+    stride = (width * bits_per_pixel + 7) // 8
+    for page in pages:
+        assert len(page) == height
+        for row in page:
+            assert len(row) == width
+            if bits_per_pixel == 24:
+                packed_pages.append(b"".join(bytes(pixel) for pixel in row))
+                continue
+
+            packed = bytearray()
+            accumulator = 0
+            bit_count = 0
+            for index in row:
+                assert 0 <= index < len(palette)
+                accumulator |= index << bit_count
+                bit_count += bits_per_pixel
+                while bit_count >= 8:
+                    packed.append(accumulator & 0xFF)
+                    accumulator >>= 8
+                    bit_count -= 8
+            if bit_count:
+                packed.append(accumulator & 0xFF)
+            assert len(packed) == stride
+            packed_pages.append(bytes(packed))
+
+    encoded = (
+        b"YSTP01"
+        + width.to_bytes(2, "little")
+        + height.to_bytes(2, "little")
+        + len(pages).to_bytes(2, "little")
+        + delay.to_bytes(2, "little")
+        + bytes([bits_per_pixel])
+        + palette_bytes
+        + b"".join(packed_pages)
+    )
+    assert len(encoded) == 15 + len(palette_bytes) + len(pages) * height * stride
+    return encoded
+
+
+def decode_ystp01(data: bytes) -> dict:
+    assert data.startswith(b"YSTP01")
+    width = int.from_bytes(data[6:8], "little")
+    height = int.from_bytes(data[8:10], "little")
+    page_count = int.from_bytes(data[10:12], "little")
+    delay = int.from_bytes(data[12:14], "little")
+    bits_per_pixel = data[14]
+    palette_size = 1 << bits_per_pixel if bits_per_pixel <= 8 else 0
+    palette = []
+    for index in range(palette_size):
+        offset = 15 + index * 3
+        palette.append(tuple(data[offset : offset + 3]))
+
+    stride = (width * bits_per_pixel + 7) // 8
+    offset = 15 + 3 * palette_size
+    pages = []
+    for _ in range(page_count):
+        page = []
+        for y in range(height):
+            row = []
+            for x in range(width):
+                if bits_per_pixel == 24:
+                    row.append(tuple(data[offset : offset + 3]))
+                    offset += 3
+                else:
+                    bit_offset = y * stride * 8 + x * bits_per_pixel
+                    shift = bit_offset & 7
+                    mask = (1 << bits_per_pixel) - 1
+                    row.append((data[offset + bit_offset // 8] >> shift) & mask)
+            page.append(row)
+        pages.append(page)
+        if bits_per_pixel != 24:
+            offset += stride * height
+
+    assert offset == len(data)
+    return {
+        "width": width,
+        "height": height,
+        "delay": delay,
+        "bits_per_pixel": bits_per_pixel,
+        "palette": palette,
+        "pages": pages,
+    }
+
+
+def test_ystp01_rgb888_vector_round_trip():
+    vector = DETAILS["program_upload"]["ystp01"]["synthetic_vectors"]["rgb888_2x2"]
+    pages = [
+        [[tuple(pixel) for pixel in row] for row in page]
+        for page in vector["expected_pages"]
+    ]
+
+    encoded = encode_ystp01(
+        vector["width"],
+        vector["height"],
+        vector["delay_raw"],
+        vector["bits_per_pixel"],
+        [],
+        pages,
+    )
+    assert encoded == bytes.fromhex(vector["media_hex"])
+    assert len(encoded) == vector["expected_total_bytes"]
+    assert sha256(encoded).hexdigest() == vector["expected_sha256"]
+
+    decoded = decode_ystp01(encoded)
+    assert decoded["width"] == vector["width"]
+    assert decoded["height"] == vector["height"]
+    assert decoded["delay"] == vector["delay_raw"]
+    assert decoded["bits_per_pixel"] == 24
+    assert decoded["palette"] == []
+    assert decoded["pages"] == pages
+
+
+def test_ystp01_palettized_two_page_vector_round_trip():
+    vector = DETAILS["program_upload"]["ystp01"]["synthetic_vectors"][
+        "palettized8_2x1_two_pages"
+    ]
+    palette = [(index, index, index) for index in range(256)]
+
+    encoded = encode_ystp01(
+        vector["width"],
+        vector["height"],
+        vector["delay_raw"],
+        vector["bits_per_pixel"],
+        palette,
+        vector["expected_pages"],
+    )
+    assert len(encoded) == vector["expected_total_bytes"] == 787
+    assert sha256(encoded).hexdigest() == vector["expected_sha256"]
+
+    decoded = decode_ystp01(encoded)
+    assert decoded["width"] == vector["width"]
+    assert decoded["height"] == vector["height"]
+    assert decoded["delay"] == vector["delay_raw"]
+    assert decoded["bits_per_pixel"] == 8
+    assert decoded["palette"] == palette
+    assert decoded["pages"] == vector["expected_pages"]

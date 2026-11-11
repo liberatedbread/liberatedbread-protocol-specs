@@ -63,6 +63,9 @@ The real sequence is program header → graphic item → ascending media chunks 
 resource finalization, waiting for the matching status-zero ACK after every
 packet. Raw GIF remains GIF; other graphics use YSTP01. The information/TLV
 canvas is 48×16 while the captured GIF is 48×15; preserve those distinct sizes.
+All five captured YSTP01 streams fit the recovered header, palette and packed
+page-length formula. The spec now declares that encoding, with synthetic
+24-bit and 8-bit round-trip vectors; delay units and other variants stay open.
 
 Locally generated resource IDs use an eight-character program prefix plus MD5
 of the input description, encoded as 20 bytes. Hash original input bytes, not

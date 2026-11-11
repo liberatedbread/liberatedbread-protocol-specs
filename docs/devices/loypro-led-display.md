@@ -91,6 +91,32 @@ description; decode the resulting 40 hex characters to 20 bytes. Hash original
 input bytes, not converted YSTP01. Captured cloud keys may use another scheme;
 they are identifiers, not credentials.
 
+### YSTP01 media encoding
+
+YSTP01 starts with this 15-byte header; all integer fields are little-endian:
+
+| Offset | Size | Meaning |
+|---:|---:|---|
+| 0 | 6 | ASCII `YSTP01` |
+| 6 | 2 | Width in pixels |
+| 8 | 2 | Height in pixels |
+| 10 | 2 | Page count |
+| 12 | 2 | Raw delay value; its time scaling is unknown |
+| 14 | 1 | Bits per pixel: 8 or 24 are capture-confirmed |
+
+An 8-bit stream has 256 three-byte RGB palette entries immediately after the
+header. A 24-bit stream has no palette and stores each pixel as R, G, B. Pages
+follow consecutively without per-page headers, with rows ordered top to bottom
+and pixels left to right. Palettized indices are packed least-significant bit
+first; each row occupies `(width * depth + 7) // 8` bytes and starts on a byte
+boundary. Emit zero in unused high padding bits. Total media length is
+`15 + palette_bytes + pages * height * row_stride`.
+
+The spec's `ystp01.synthetic_vectors` block provides reproducible 24-bit and
+8-bit media. `scripts/test_loypro_led_display.py` independently encodes,
+decodes and hashes both vectors using only the standard library. Text
+rasterization, delay units and other YSTP depths or variants remain unverified.
+
 ### Geometry and media evidence
 
 - Device-information and TLV canvas: **48×16**.
