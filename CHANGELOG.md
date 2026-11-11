@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **November research follow-up: three richer LED protocols and three new
+  device families.** SPOTLED gains the official one-/three-frame RGB888
+  capture, 7280-byte receive-window resume, transient Just Works pairing
+  details, FF10 OTA layout and separately scoped PIXELY v2/v3 findings;
+  LEDs2RAVE4 is synchronized with it. LOY B3 gains the complete AA55/TLV
+  stored-program path, GIF/YSTP01 media, ACK rules, playback and capture-
+  confirmed V18-to-V24 resource upgrade, while `08 02 00 00` is correctly
+  identified as delete-first-program rather than upload READY. New specs
+  cover Eye-Fi's card-initiated secure-receiver contract, Truma iNet X's
+  strict-read CBOR transport, and the legacy iNet Box's separate ASCII TRBT
+  protocol. Independent vectors cover all five protocol implementations;
+  reset, actuation, OTA replay and other unverified operations remain gated.
 - **Every device spec now answers the pairing question.** `device.pairing`
   was required only on BLE, and 90 Wi-Fi, LAN, wired-bus and vehicle specs
   had none. Each now says what a client must obtain before the local control
