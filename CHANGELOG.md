@@ -8,6 +8,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Every device spec now answers the pairing question.** `device.pairing`
+  was required only on BLE, and 90 Wi-Fi, LAN, wired-bus and vehicle specs
+  had none. Each now says what a client must obtain before the local control
+  surface answers it: a TV's on-screen PIN or Allow prompt, a hub's link
+  button or printed code, a key only the vendor cloud ever issued (Tuya,
+  miio, Roborock, Midea V3, Enphase's JWT), an owner-set admin login, or —
+  just as usefully — an open API whose only gate is the network. Each block
+  covers the toggles that must be flipped first, the connection limits that
+  cause field failures, how a client is revoked, and what the dead cloud
+  costs. Seventeen weak BLE blocks were researched again. Five `unknown`s
+  are resolved (the HC-05 skimmer's fixed PIN, Mousr, the two UCSD-studied
+  alarms, Pebble's numeric comparison). Bose Sleepbuds II and Braun IPL say
+  what was searched and stay `unknown`.
+  `docs/protocols/pairing.md` gains an "Off BLE" section mapping each gate
+  onto the vocabulary. `scripts/test_device_specs.py` now fails any
+  non-reference spec without the block. A new
+  `scripts/test_pairing_conventions.py` holds the rest of
+  the conventions as small predicates, each checked against the catalogue
+  and against hand-built specs it must accept or reject:
+  - Every block states `security_mode`, `bonding` and
+    `enter_pairing_mode.required`.
+  - A block beyond "nothing pairs" carries prose.
+  - `high` confidence needs hardware or a capture behind it.
+  - An exclusive device says how to recover.
+  - "Unpair by reset" points at a reset that exists.
+  - Link-layer modes appear only on Bluetooth, and `network_join` only on
+    Zigbee and Z-Wave.
+  - A default PIN agrees with its stated length.
+  - Each guide page agrees with its spec on whether pairing is required.
+
+  The new rules caught six specs. iRobot and ThermoPro TP357 claimed `high`
+  pairing confidence from open implementations; they are now `medium`.
+  BioKey's over-the-air capture is now recorded as `capture-verified`.
+  Big Ass Fans, Furbo and the OBDLink MX+ BLE pipe never stated
+  `enter_pairing_mode`. Along the way: the Lightify cloud shutdown
+  is corrected to 2021-08-31, LG's Revoke Pairing is corrected to drop
+  every client, and Reolink's default is corrected to blank. ratgdo is
+  corrected: it does not need the opener's learn button. Vendor-app symbol
+  names are scrubbed from the Tuya gas sensor, NIU, BMW and Beurer specs,
+  and a hub UUID and a partial Tuya gwId are placeholdered.
+- **Clean-room scrub and contradiction fixes.** Vendor-app internals are
+  replaced by descriptions of their role in the Hisense, Panasonic, Dyson,
+  Frigidaire (both), Rabbit Air, LED Space and Braun specs: keystore paths,
+  native library names, class and enum names, asset filenames, an internal
+  codename. Wire constants that open-source clients publish are now
+  attributed to them rather than to an APK: Roku's ECP2 client id to roam,
+  Philips' JointSpace key to suborb and haphilipsjs, Panasonic's mask to
+  panasonic-viera. Contradictions resolved:
+  - The Magic Home and SP108E setup hotspots are WPA with default
+    passphrases, not open.
+  - Bosch's BLE record is the Nyon (BUI350), not the Kiox (BUI330).
+  - Sesame and Divoom setup confidence is lowered on untested specs.
+  - The OBD-II adapter's pairing block now matches its BLE method.
+  - Frigidaire's command endpoint now agrees with its `commands:` block.
+  - Rabbit Air's protocol note now records its partial hardware replay.
 - **Piaggio gitamini and reported gita pro BLE profile.** New untested spec and
   owner guide covering 0x9999/0x083B discovery, advertisement TLVs, the full
   custom GATT map, secp256k1 ECDH/AES-CBC command framing, QR/cloud

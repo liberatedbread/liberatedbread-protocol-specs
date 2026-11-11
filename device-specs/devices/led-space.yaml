@@ -29,7 +29,8 @@ device:
     device address from the reply sender (expected to be the ESP-style AP
     gateway 192.168.4.1 — not directly captured here). Commands are JSON
     objects app-side, serialized to binary 0xAA55-framed TLV on the wire by the
-    native library libys_parse_tlv (parseJson/parseBin); replies come back as
+    app's bundled native TLV library (one entry point encodes JSON to a
+    frame, another decodes a frame back to JSON); replies come back as
     {"ack":{...},"sno":N}. Same wire frame as BLE: [0xAA, 0x55, 0xFF, 0xFF,
     len (u16-LE), sno (u16-LE), flags (0xC1), subflag, ...payload,
     checksum (u16-LE additive)] — over UDP each datagram chunk additionally
@@ -137,7 +138,7 @@ device:
             actor: "client"
             request:
               protocol: "udp"
-              message: 'parseJson({"cmd":{"get":"dev_info"}}) broadcast to 255.255.255.255:9090'
+              message: 'TLV-serialized {"cmd":{"get":"dev_info"}} broadcast to 255.255.255.255:9090'
             expect: 'A reply datagram decoding to {"ack":{"dev_info":{...}},"sno":N}; adopt the sender address for unicast commands.'
             timeout_seconds: 10
           - action: "Send commands unicast to the learned device address on UDP 9090."
@@ -184,6 +185,39 @@ device:
         Anyone who joins the device AP can issue commands; the AP password
         (whose default is published in the vendor app's own help pages) is
         the only barrier.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "fixed_default"
+      value: "12345678"
+      notes: >
+        Not a pairing PIN: this is the WPA passphrase of the panel's own "YS…"
+        hotspot, the same on every unit and printed in the app's help text.
+        The owner can change it; a changed one is theirs and has no
+        documented software recovery if lost (setup.factory_reset). Once a
+        client has joined the hotspot, UDP 9090 asks for nothing further.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        The control client has to be on the panel's own hotspot, so the
+        practical limit is how many stations the panel's AP admits, which is
+        not established. If a second phone cannot find the panel, disconnect
+        the first from the "YS…" network.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No pairing, token or owner binding: the panel hosts its hotspot
+      whenever it is powered, and any client that joins it can broadcast the
+      dev_info probe on UDP 9090 and then command it (setup method
+      'softap_udp'). Joining the hotspot with its passphrase is the whole of
+      the access control, and it is a Wi-Fi association rather than a
+      pairing with this client. The popled.cn cloud plays no part in local
+      control. App-derived; not replayed against hardware.
 
 # Custom consumer-side handler: JSON command serialization into the popled 0xAA55
 # framed binary-TLV transport (shared with the AUTOBABA LED Backpack and the

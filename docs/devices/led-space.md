@@ -84,8 +84,8 @@ the expected `sno` arrives; error replies are `{"cmd":"err"}` /
 
 Same 0xAA55-framed binary TLV as the BLE path — see the
 [AUTOBABA doc](autobaba-led-backpack.md#frame-and-tlv-format). JSON is the
-app-internal command form; `libys_parse_tlv.so` (`parseJson`/`parseBin`)
-serializes it to the wire and decodes replies.
+app-internal command form; the app's bundled native TLV library serializes
+it to the wire and decodes replies.
 
 ### Commands
 
