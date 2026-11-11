@@ -51,7 +51,7 @@ animation:
   or another input remains possible.
 - A separate sensor query uses TLV `3e 01 00`; the app does not decode its returned byte
   into acceleration axes or thresholds.
-- A separate TSLMODEL path names additional programs, but is not evidence that this
+- A separate model-keyed program table in the app names additional programs, but is not evidence that this
   helmet supports those inputs.
 
 The next read-only checks are vehicle telecontrol and sensor value, using the exact

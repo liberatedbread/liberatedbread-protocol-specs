@@ -195,7 +195,7 @@ reading. Pack voltage is at `payload[194..195] / 100` V and bus voltage at
 #### Group `0x04` — temperatures
 
 There are four sensor slots, each a u16 thermistor raw value at `payload[2 + 3i]`
-followed by one byte at `payload[4 + 3i]` holding whole °C. Slot 3 reads `FF FF FF`
+followed by one byte at `payload[4 + 3i]` holding whole °C. The third slot (i = 2) reads `FF FF FF`
 on 2013+ packs, which have only three sensors. `payload[14]` is a fifth temperature in
 °C. OVMS converts raw to °C as `-0.102 × (raw − 710)`. Only the first 16 bytes of the
 ZE1 reply are mapped.

@@ -36,7 +36,7 @@ Kit 2 has a separate, unverified GATT and credential profile and is not covered.
 | Property | Value |
 |----------|-------|
 | Setup required | Yes — installer commissioning |
-| Method | `ble_direct` (BLE provisioning push) |
+| Method | `ble_provisioning` (BLE provisioning push) |
 | Advertised name | `Enpower/<serial>`, `Encharg/<serial>` |
 | Passphrase protection | SRP-6a unlock + AES-encrypted channel; generic XBee default `password`, manager-specific `030609` |
 | Confidence | medium (app-derived; only advertisement verified on hardware) |

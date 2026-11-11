@@ -4554,6 +4554,11 @@ def test_classic_references_resolve(specs):
             if not field or "." not in field:
                 continue
             frame, _, name = field.partition(".")
+            if spec["device"].get("protocol") == "bluetooth_classic":
+                assert frame in frames, (
+                    f"{device_id}: entity {entity.get('name')!r} reads {field!r}, but "
+                    f"no Classic command response or unsolicited frame is named {frame!r}"
+                )
             if frame in frames:
                 assert name in frames[frame], (
                     f"{device_id}: entity {entity.get('name')!r} reads {field!r}, but "
