@@ -1,6 +1,6 @@
 """Independent LOY AA55/TLV transcription using only the standard library."""
 
-from hashlib import sha256
+from hashlib import md5, sha256
 from pathlib import Path
 
 import yaml
@@ -280,6 +280,80 @@ def test_ordinary_ack_status_layout_success_and_synthetic_rejection():
         assert int.from_bytes(raw[6:8], "little") == 0x16
         assert raw[8] == 0x81
         assert raw[9] == 0x82
+        assert raw[status["offset"]] == expected_status
+        assert int.from_bytes(raw[-2:], "little") == sum(raw[:-2]) & 0xFFFF
+    assert success[status["offset"]] == status["success_value"]
+    assert rejection[status["offset"]] != status["success_value"]
+
+
+
+def test_media_chunk_repeats_item_prefix_and_metadata():
+    vector = DETAILS["program_upload"]["media_chunks"]["synthetic_vector"]
+    item_prefix = (
+        tlv(0x09, b"\x01")
+        + tlv(0x0C, bytes([vector["program_index"]]))
+        + tlv(0x0D, bytes([vector["region_index"]]))
+        + tlv(0x0E, bytes([vector["item_index"]]))
+    )
+    metadata = (
+        vector["chunk_count"].to_bytes(2, "little")
+        + vector["chunk_index"].to_bytes(2, "little")
+        + vector["maximum_chunk_bytes"].to_bytes(2, "little")
+        + b"\x00"
+    )
+    encoded = aa55(
+        vector["sequence"],
+        0x02,
+        item_prefix
+        + tlv(0x12, metadata)
+        + tlv(0x13, bytes.fromhex(vector["media_hex"])),
+    )
+
+    assert encoded == bytes.fromhex(vector["packet_hex"])
+    assert len(encoded) == vector["total_bytes"] == 38
+    assert encoded[10:22] == item_prefix
+
+
+def test_resource_id_uses_one_based_program_number_and_spaced_input_hex():
+    vector = DETAILS["program_upload"]["resource_id"]["synthetic_vector"]
+    data = bytes.fromhex(vector["input_hex"])
+    prefix = (str(vector["app_program_number"]) + "0000000")[:8]
+    spaced_hex = " ".join(f"{value:02x}" for value in data)
+    resource = bytes.fromhex(prefix + md5(spaced_hex.encode()).hexdigest())
+
+    assert vector["app_program_number"] == vector["wire_program_index"] + 1
+    assert prefix == vector["expected_prefix_ascii"] == "10000000"
+    assert spaced_hex == vector["input_description"]
+    assert resource == bytes.fromhex(vector["expected_resource_id_hex"])
+    assert len(resource) == 20
+
+
+def test_playback_selection_layout_matches_capture():
+    vector = DETAILS["playback"]["selection_vector"]
+    value = bytes([vector["model"], vector["index"], *vector["ids_zero_based"]])
+    encoded = aa55(vector["sequence"], 0x02, tlv(0x36, value))
+
+    assert value.hex(" ") == vector["tlv_value_hex"]
+    assert encoded == bytes.fromhex(vector["packet_hex"])
+    assert [program + 1 for program in vector["ids_zero_based"]] == vector[
+        "ids_one_based_decoded"
+    ]
+
+
+def test_upgrade_ack_status_layout_success_and_synthetic_rejection():
+    acknowledgement = DETAILS["aa55_framing"]["upgrade_ack"]
+    success = aa55(0, 0x84, b"\x00", flags=0x81)
+    rejection = aa55(0, 0x84, b"\x01", flags=0x81)
+
+    assert success == bytes.fromhex(acknowledgement["success_response_hex"])
+    assert rejection == bytes.fromhex(
+        acknowledgement["synthetic_nonzero_response_hex"]
+    )
+    status = acknowledgement["status"]
+    for raw, expected_status in ((success, 0), (rejection, 1)):
+        assert len(raw) == acknowledgement["full_frame_bytes"] == 13
+        assert raw[8] == 0x81
+        assert raw[9] == 0x84
         assert raw[status["offset"]] == expected_status
         assert int.from_bytes(raw[-2:], "little") == sum(raw[:-2]) & 0xFFFF
     assert success[status["offset"]] == status["success_value"]

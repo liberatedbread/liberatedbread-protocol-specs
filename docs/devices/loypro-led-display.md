@@ -81,9 +81,11 @@ its timeout did not disprove GIF support. Choose the stored slot deliberately.
    play configuration (`1c`), region (`0d`) and geometry (`1d`) TLVs.
 2. Send a graphic item with item (`0e`), effect (`14`) and media declaration
    (`11`) TLVs.
-3. Send media in ascending zero-based chunks. Tag `12` carries total count,
-   index and maximum chunk size (960 in the capture) as LE16 values plus `00`;
-   tag `13` carries the media bytes.
+3. Send media in ascending zero-based chunks. Every chunk repeats `09 01 01`
+   and the graphic item's program (`0c`), region (`0d`) and item (`0e`) values
+   before tags `12` and `13`. Tag `12` carries total count, index and maximum
+   chunk size (960 in the capture) as LE16 values plus `00`; tag `13` carries
+   the media bytes.
 4. After **every** type-2 packet, wait for response `82` with the matching
    sequence and status `00`. All 84 such packets in the capture were ACKed.
 5. Finalize with tag `35`: zero-based program byte, 20-byte resource key and
@@ -93,10 +95,11 @@ its timeout did not disprove GIF support. Choose the stored slot deliberately.
 Raw GIF bytes stay GIF. Other graphics use the separate YSTP01 image encoder;
 text uploads are rendered image pages, often ending in a blank page, not a
 simple string command. Locally generated resource IDs use eight characters
-from the decimal program ID plus zero padding, followed by MD5 of the input
-description; decode the resulting 40 hex characters to 20 bytes. Hash original
-input bytes, not converted YSTP01. Captured cloud keys may use another scheme;
-they are identifiers, not credentials.
+from the **one-based app/UI program number** (`wire_program_index + 1`) plus
+zero padding, followed by MD5 of the input description. Wire program zero thus
+uses prefix `10000000`, not `00000000`. Decode the resulting 40 hex characters
+to 20 bytes. Hash original input bytes, not converted YSTP01. Captured cloud
+keys may use another scheme; they are identifiers, not credentials.
 
 ### YSTP01 media encoding
 
@@ -134,14 +137,22 @@ rasterization, delay units and other YSTP depths or variants remain unverified.
   byte-for-byte. This proves the official protocol path, not a new third-party
   hardware write or visible rendering by our client.
 
-Tag `36` controls playback model/index/program-ID lists. Model 1 loops and other
-models select single-play behavior. Short type-6 tag-`36` notifications are
-playback data, **not accelerometer axes**.
+Tag `36` controls playback model/index/program-ID lists. Its value has one-byte
+`model` at offset 0, one-byte `index` at offset 1, then zero-based program IDs
+as one byte each. Preserve the exact list order; the app displays each ID plus
+one. For example, sequence 17 selects model 0, raw index 2 and programs 0–9:
+`aa 55 ff ff 14 00 11 00 c1 02 36 0c 00 02 00 01 02 03 04 05 06 07 08 09 56 04`.
+Model 1 loops and other models select single-play behavior. The raw index's
+numbering semantics are not established. Short type-6 tag-`36` notifications
+are playback data, **not accelerometer axes**.
 
 ## Firmware update — advanced only
 
 A distinct type-4 resource-upgrade stream transferred 360448 bytes in 377
-chunks, with 377 matching type-`84` ACKs. Its first chunk carries text metadata
+chunks, with 377 matching type-`84` ACKs. Like ordinary ACKs, each upgrade ACK
+has flags `81` and one raw status byte at offset 10; require the request sequence
+and status zero before continuing. Captured sequence-zero success is
+`aa 55 ff ff 07 00 00 00 81 84 00 09 04`. The first chunk carries text metadata
 with model, sum16 and a resource ID; the reconstructed image matches both that
 sum16 and its MD5. Device information changed from **V2.9.1#V18** before the
 transfer to **V2.9.1#V24** after disconnect/reconnect.

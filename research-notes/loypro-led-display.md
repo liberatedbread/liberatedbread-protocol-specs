@@ -61,18 +61,24 @@ repeated as a harmless probe.
 
 The real sequence is program header → graphic item → ascending media chunks →
 resource finalization, waiting for the matching status-zero ACK after every
-packet. Ordinary `82` ACKs carry one raw status byte at offset 10, not a TLV;
-the spec includes a captured success frame and a synthetic nonzero rejection.
-Raw GIF remains GIF; other graphics use YSTP01. The information/TLV
+packet. Every media chunk repeats the save/program/region/item TLV prefix before
+`12`/`13`. Ordinary `82` and upgrade `84` ACKs each carry one raw status byte at
+offset 10, not a TLV; the spec includes captured success and synthetic nonzero
+frames. Raw GIF remains GIF; other graphics use YSTP01. The information/TLV
 canvas is 48×16 while the captured GIF is 48×15; preserve those distinct sizes.
 All five captured YSTP01 streams fit the recovered header, palette and packed
 page-length formula. The spec now declares that encoding, with synthetic
 24-bit and 8-bit round-trip vectors; delay units and other variants stay open.
 
-Locally generated resource IDs use an eight-character program prefix plus MD5
-of the input description, encoded as 20 bytes. Hash original input bytes, not
-converted YSTP01. Captured cloud resources can use unrelated keys and zero
-timestamps; these are identifiers, not secrets.
+Locally generated resource IDs use an eight-character prefix from the one-based
+app/UI program number (`wire_program_index + 1`) plus MD5 of the input
+description, encoded as 20 bytes. Wire program zero uses `10000000`. Hash
+original input bytes, not converted YSTP01. Captured cloud resources can use
+unrelated keys and zero timestamps; these are identifiers, not secrets.
+
+Playback tag `36` has one-byte model and index fields followed by zero-based
+program IDs; the app displays those IDs plus one. The spec carries the captured
+sequence-17 selection packet and a synthetic media-chunk composition vector.
 
 ## Vehicle linkage and sensors
 
