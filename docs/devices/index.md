@@ -226,6 +226,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Quicklynks BM2 Battery Monitor](quicklynks-bm2.md) | BLE GATT + passive advertisements | Spec Available | None needed (read-only) | Quicklynks |
 | [WaterRower ComModule / SmartRow](waterrower-smartrow.md) | BLE FTMS + SmartRow ASCII | Spec Available | None needed (local telemetry) | WaterRower |
 | [Oral-B iO Smart Brush and iO Sense Charger](oral-b-io-smartbrush.md) | BLE GATT + manufacturer advertisements | Spec Available | None needed for brush reads; charger provisioning unresolved | Procter & Gamble |
+| [Eye-Fi X2 / Mobi / Mobi Pro Wi-Fi SD Cards](eye-fi-cards.md) | WiFi (card-initiated HTTP/SOAP 59278) | Spec Available (untested) | Existing card configuration required; reset-card activation unsolved | Eye-Fi (services discontinued) |
+| [Truma iNet X / iNet X Pro](truma-inet-x.md) | BLE (CBOR; strict read-only) | Spec Available (untested) | Add-device Just Works bond (medium) | Truma |
+| [Truma iNet Box (legacy)](truma-inet-box.md) | BLE Nordic UART (ASCII TRBT) | Spec Available (untested) | Pairing unknown; read-only confirmation (low) | Truma |
 | [94Fifty Smart Sensor Basketball](94fifty-basketball.md) | Bluetooth Classic | Spec Available (untested) | none (medium) | InfoMotion Sports Technologies Inc. |
 | [AB Shutter 3 and generic Bluetooth HID shutter remotes](ab-shutter-3.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Various OEMs |
 | [Acaia Coffee Scales (Pearl / Lunar / Pyxis)](acaia-coffee-scale.md) | BLE | Spec Available (untested) | ble_direct (medium) | Acaia |
