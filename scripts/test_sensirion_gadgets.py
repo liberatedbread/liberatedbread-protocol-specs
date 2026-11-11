@@ -354,3 +354,13 @@ def test_destructive_and_generation_specific_commands_are_not_overclaimed(
             feature["type"] == "firmware_update"
             for feature in spec.get("features", [])
         )
+
+
+
+def test_newer_transfer_declares_generation_specific_delivery(newer_spec: dict) -> None:
+    transfer = characteristic(newer_spec, "00008004-b38d-4985-720e-0f993a68ee41")
+
+    assert transfer["properties"] == ["notify", "indicate"]
+    generations = newer_spec["protocol_details"]["logger_generations"]
+    assert generations["arduino_1_5_0"]["data_transfer"]["delivery"] == "indicate"
+    assert "CCCD 02 00" in transfer["notes"]

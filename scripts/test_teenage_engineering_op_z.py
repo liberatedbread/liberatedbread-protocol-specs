@@ -59,6 +59,7 @@ class BleMidiReassembler:
         if header & 0xC0 != 0x80:
             raise ValueError("missing BLE-MIDI header bits")
         self.timestamp_high = header & 0x3F
+        self.previous_timestamp_low = None
         after_timestamp = False
         messages = []
         for byte in packet[1:]:

@@ -91,9 +91,11 @@ byte supplies its low seven bits and is not MIDI data:
 timestamp = ((header & 0x3f) << 7) | (timestamp_low & 0x7f)   # modulo 8192 ms
 ```
 
-If the low value decreases, advance the high group by 128 modulo 8192. The next
-body byte after a timestamp is MIDI even when it is another high-bit status
-byte.
+If the low value decreases from the preceding timestamp **within the same
+notification**, advance the high group by 128 modulo 8192. Reset that comparison
+at each new notification and trust its header; a decrease from the previous
+packet is not itself a wrap. The next body byte after a timestamp is MIDI even
+when it is another high-bit status byte.
 
 A client must retain the current message, expected data length, SysEx state and
 running status across notifications:

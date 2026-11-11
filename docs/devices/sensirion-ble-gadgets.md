@@ -126,7 +126,9 @@ These differences are real interoperability boundaries, not details to hide:
 - **Transfer UUID and delivery:** the PDF and Arduino source use `…8004`.
   The current web table accidentally repeats `…8003` for Data Transfer. The
   PDF says notifications; the current Arduino implementation sends
-  indications. The duplicate `…8003` is not an alias.
+  indications. Select the mode exposed by the discovered generation:
+  notifications use CCCD `01 00`, while current-Arduino indications use `02 00`.
+  The duplicate `…8003` is not an alias.
 - **MyCO2:** type `00 08` is now deprecated in favor of type 10, and its
   reserved advertisement word may be omitted. Logger type 7 retains a
   reserved word; current logger type 9 has no reserved word. The PDF's type-9
