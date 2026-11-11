@@ -135,3 +135,24 @@ def test_continue_response_resume_offset_is_device_supplied():
     assert expected["command_type"] == 0x8004
     assert value_at(raw, flow["continue_resume_offset"]) == expected["resume_offset"]
     assert expected["resume_offset"] == flow["confirmed_resume_offset"] == 7280
+
+
+
+def test_capability_response_matches_captured_u16_fields():
+    vectors = DETAILS["test_vectors"]
+    raw = bytes.fromhex(vectors["capability_response_hex"])
+    expected = vectors["capability_expected"]
+    responses = DETAILS["legacy_responses"]
+    layout = responses["query_layout"]
+    capability = responses["animation_text_capability"]
+
+    assert capability["response_type"] == 27
+    assert capability["full_frame_bytes"] == len(raw) == 9
+    assert value_at(raw, layout["total_length"]) == len(raw)
+    assert value_at(raw, layout["response_type"]) == 27
+    assert value_at(raw, layout["serial"]) == expected["serial"]
+    assert value_at(raw, layout["status"]) == expected["status"] == 0
+    for name in ("animation_frame_capacity", "character_capacity"):
+        assert value_at(raw, capability["fields"][name]) == expected[name]
+    assert capability["fields"]["optional_storage_bytes"]["offset"] == len(raw)
+    assert capability["fields"]["optional_storage_bytes"]["verification"] == "reported"

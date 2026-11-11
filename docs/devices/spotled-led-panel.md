@@ -63,6 +63,10 @@ status zero.
 | Version (17) | 15 | hardware type u16 BE, hardware version u32 BE, firmware version u32 BE |
 | DisplayInfo (19) | 13 | width u16 BE, height u16 BE, colour type u8, advertised frames u8, brightness u8, font count u8 |
 | BufferSize (21) | 9 | receive capacity u32 BE |
+| Animation/text capability (27) | 9 | animation frame capacity u16 BE, character capacity u16 BE |
+
+Newer capability responses may append a length-gated u32 storage size at byte 9;
+that extension is reported, not present in the captured base response.
 
 Transfer replies use two other layouts. Captured type-2 start and type-4
 finish acknowledgements are seven bytes:
