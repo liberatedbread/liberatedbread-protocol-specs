@@ -77,12 +77,44 @@ Useful read envelopes:
 - **Protocol version**, operation 1: 25-byte request
   `0000ffff12000100000000000000000001c1a1627076820501`. The response supplies
   `pv` and assigned client `addr`; retain that source address for the session.
-- **Topic registration**, operation 3, flags `0002`: CBOR `{tn: [...]}`.
+- **Topic registration**, operation 3, flags `0002`: send the four concrete
+  `{tn: [...]}` batches below with target zero and the learned source.
 - **Device list**, operation 2, flags `0001`: 18-byte header without CBOR.
   A reply may be `[0, {Devices: [group, ...]}]`.
 - **Group read**, operation 3, flags `0004`: template
   `000000050b00030000000000000000000400`; replace target at offset 0 and
   learned client source at offset 2, both little-endian.
+
+### Topic registration batches
+
+The strict-read wire sequence expands to protocol version → **four registration
+requests** → device list → one group read per discovered group. Each request is
+a definite-length CBOR map with text key `tn` and an array of exact-case UTF-8
+topic strings:
+
+```text
+1. AirCirculation, AirCooling, AirHeating, DeviceManagement, EnergySrc,
+   ErrorReset, FreshWater, GasBtl, GasControl, GreyWater
+2. Identify, L1Bat, L2Bat, LinePower, MobileIdentity, PowerSupply,
+   RoomClimate, Switches, Temperature, Transfer
+3. VBat, WaterHeating, AmbientLight, Panel, BatteryMngmt, Install, Connect,
+   TimerConfig, BleDeviceManagement, BluetoothDevice
+4. System, Resources, PowerMgmt
+```
+
+For broad discovery, send all four batches in order; `Devices` supplies source
+group IDs, not topic names. For selected telemetry, use nonempty exact-case
+subsets in order, split into requests of at most ten names. The ten-name limit
+is reported, not independently boundary-tested. An empty array is not an
+all-topics wildcard, and topic names do not determine group routing.
+
+For the fourth batch, the 32-byte CBOR body is
+`a162746e836653797374656d695265736f757263657369506f7765724d676d74`. With
+invented assigned source `0x1234`, the complete 50-byte request is
+`000034122b00030000000000000000000200a162746e836653797374656d695265736f757263657369506f7765724d676d74`;
+announce it on control as `01 32 00`. All four CBOR literals and the frame
+vector are reproduced by `scripts/test_truma_inet_specs.py`. These are
+source-derived reported findings, not a hardware-validated strict-read sequence.
 
 ## Control exchange and fragmentation
 

@@ -123,3 +123,74 @@ def test_legacy_vehicle_status_layout_scales_and_sentinels():
     assert "FD" in payload_format["parse_rules"][2]
     assert "unit" not in fields[14]
     assert "unit" not in fields[16]
+
+
+def cbor_text(value: str) -> bytes:
+    encoded = value.encode("utf-8")
+    assert len(encoded) < 24
+    return bytes([0x60 + len(encoded)]) + encoded
+
+
+def encode_topic_registration(topics: list[str]) -> bytes:
+    assert 1 <= len(topics) <= 10
+    return (
+        b"\xa1"
+        + cbor_text("tn")
+        + bytes([0x80 + len(topics)])
+        + b"".join(cbor_text(topic) for topic in topics)
+    )
+
+
+def build_topic_registration_frame(source: int, cbor: bytes) -> bytes:
+    return (
+        (0).to_bytes(2, "little")
+        + source.to_bytes(2, "little")
+        + (11 + len(cbor)).to_bytes(2, "little")
+        + (3).to_bytes(2, "little")
+        + bytes(8)
+        + (2).to_bytes(2, "little")
+        + cbor
+    )
+
+
+def test_inetx_topic_registration_batches_match_cbor_vectors():
+    strict = X_SPEC["protocol_details"]["strict_read"]
+    registration = strict["topic_registration"]
+    batches = registration["batches"]
+    topics = [topic for batch in batches for topic in batch["topics"]]
+
+    assert strict["sequence"][1]["wire_requests"] == len(batches) == 4
+    assert len(topics) == len(set(topics)) == 33
+    assert registration["verification"] == "reported"
+    for batch in batches:
+        assert 1 <= len(batch["topics"]) <= registration["max_topics_per_request"][
+            "value"
+        ]
+        cbor = encode_topic_registration(batch["topics"])
+        assert cbor.hex() == batch["cbor_hex"]
+        assert len(cbor) == batch["cbor_bytes"]
+        assert 11 + len(cbor) == batch["body_length"]
+        assert 18 + len(cbor) == batch["physical_frame_bytes"]
+
+
+def test_inetx_topic_registration_frame_and_control_vector():
+    registration = X_SPEC["protocol_details"]["strict_read"]["topic_registration"]
+    vector = registration["synthetic_frame"]
+    expected = vector["expected"]
+    batch = registration["batches"][vector["batch_index"]]
+    cbor = encode_topic_registration(batch["topics"])
+    raw = build_topic_registration_frame(vector["source"], cbor)
+
+    assert raw.hex() == vector["frame_hex"]
+    assert len(raw) == expected["physical_frame_bytes"] == 50
+    assert int.from_bytes(raw[0:2], "little") == expected["target"] == 0
+    assert int.from_bytes(raw[2:4], "little") == expected["source"] == 0x1234
+    assert int.from_bytes(raw[4:6], "little") == expected["body_length"] == 43
+    assert int.from_bytes(raw[6:8], "little") == expected["operation"] == 3
+    assert int.from_bytes(raw[8:16], "little") == expected["sequence"] == 0
+    assert int.from_bytes(raw[16:18], "little") == expected["flags"] == 2
+    assert len(raw[18:]) == expected["cbor_bytes"] == 32
+    assert raw[18:].hex() == batch["cbor_hex"]
+
+    announcement = b"\x01" + len(raw).to_bytes(2, "little")
+    assert announcement.hex(" ") == vector["control_announcement_hex"]

@@ -226,7 +226,7 @@ services:
               target_hi: { type: "uint8", description: "High byte of the discovered target group." }
               source_lo: { type: "uint8", description: "Low byte of the assigned client source." }
               source_hi: { type: "uint8", description: "High byte of the assigned client source." }
-        notes: "These are read envelopes only. Topic registration uses operation 3, flags 0x0002 and a CBOR tn array; build it with a real CBOR encoder."
+        notes: "These are read envelopes only. Build registrations from strict_read.topic_registration: four concrete CBOR {tn: [...]} batches with target zero, the learned source, operation 3 and flags 0x0002."
       - uuid: "fc314003-f3b2-11e8-8eb2-f2801f1b9fd1"
         name: "Data"
         properties: ["notify"]
@@ -284,7 +284,8 @@ protocol_details:
       - operation: 3
         name: "topic_registration"
         flags: "0x0002"
-        body: "CBOR {tn: [Topic, ...]}"
+        wire_requests: 4
+        body: "Send the four concrete CBOR batches in strict_read.topic_registration.batches in order"
       - operation: 2
         name: "device_list"
         flags: "0x0001"
@@ -293,6 +294,55 @@ protocol_details:
         name: "group_read"
         flags: "0x0004"
         body: "Replace target and learned source in group_read_template"
+    topic_registration:
+      verification: "reported"
+      target: 0
+      source: "The addr assigned by the protocol-version response, little-endian at frame offset 2"
+      operation: 3
+      sequence_number: 0
+      flags: "0x0002"
+      cbor_encoding: "Definite-length map {tn: array}; tn is a text key and every array entry is an exact-case UTF-8 topic text string"
+      max_topics_per_request:
+        value: 10
+        verification: "reported"
+        basis: "Observed batches and independent protocol references; not independently boundary-tested"
+      batches:
+        - name: "climate_and_tanks"
+          topics: ["AirCirculation", "AirCooling", "AirHeating", "DeviceManagement", "EnergySrc", "ErrorReset", "FreshWater", "GasBtl", "GasControl", "GreyWater"]
+          cbor_hex: "a162746e8a6e41697243697263756c6174696f6e6a416972436f6f6c696e676a41697248656174696e67704465766963654d616e6167656d656e7469456e657267795372636a4572726f7252657365746a467265736857617465726647617342746c6a476173436f6e74726f6c69477265795761746572"
+          cbor_bytes: 119
+          body_length: 130
+          physical_frame_bytes: 137
+        - name: "core"
+          topics: ["Identify", "L1Bat", "L2Bat", "LinePower", "MobileIdentity", "PowerSupply", "RoomClimate", "Switches", "Temperature", "Transfer"]
+          cbor_hex: "a162746e8a684964656e74696679654c31426174654c32426174694c696e65506f7765726e4d6f62696c654964656e746974796b506f776572537570706c796b526f6f6d436c696d6174656853776974636865736b54656d7065726174757265685472616e73666572"
+          cbor_bytes: 105
+          body_length: 116
+          physical_frame_bytes: 123
+        - name: "panel_and_ble"
+          topics: ["VBat", "WaterHeating", "AmbientLight", "Panel", "BatteryMngmt", "Install", "Connect", "TimerConfig", "BleDeviceManagement", "BluetoothDevice"]
+          cbor_hex: "a162746e8a64564261746c576174657248656174696e676c416d6269656e744c696768746550616e656c6c426174746572794d6e676d7467496e7374616c6c67436f6e6e6563746b54696d6572436f6e66696773426c654465766963654d616e6167656d656e746f426c7565746f6f7468446576696365"
+          cbor_bytes: 119
+          body_length: 130
+          physical_frame_bytes: 137
+        - name: "system"
+          topics: ["System", "Resources", "PowerMgmt"]
+          cbor_hex: "a162746e836653797374656d695265736f757263657369506f7765724d676d74"
+          cbor_bytes: 32
+          body_length: 43
+          physical_frame_bytes: 50
+      selection:
+        broad_discovery: "Send all four batches in the listed order before device_list; Devices supplies source group IDs, not topic names"
+        selected_reads: "Use nonempty exact-case subsets needed for telemetry, preserve their order, and split them into sequential requests of at most ten names"
+        empty_array: "Not a wildcard or all-topics request; no wildcard semantics are established"
+        group_routing: "Discover group targets with device_list; topic names do not determine group routing"
+      synthetic_frame:
+        batch_index: 3
+        source: 4660
+        source_note: "Invented assigned client address 0x1234 for this vector"
+        frame_hex: "000034122b00030000000000000000000200a162746e836653797374656d695265736f757263657369506f7765724d676d74"
+        control_announcement_hex: "01 32 00"
+        expected: { target: 0, source: 4660, operation: 3, sequence: 0, flags: 2, cbor_bytes: 32, body_length: 43, physical_frame_bytes: 50 }
     excluded: ["client-system-time", "client-last-message", "{tn,pn,v} setters", "measurement triggers", "reset/install/demo", "firmware", "bond management"]
     completeness_unknown: "Whether omitting clock/last-message frames changes availability or complete telemetry needs an owner-panel test."
   telemetry:
