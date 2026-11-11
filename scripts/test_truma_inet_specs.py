@@ -46,19 +46,24 @@ def test_inetx_device_list_and_group_read_lengths_and_flags():
     commands = characteristic(
         X_SPEC, "fc314002-f3b2-11e8-8eb2-f2801f1b9fd1"
     )["commands"]
-    device_list = bytes(commands["device_list"]["value"])
-
-    assert len(device_list) == 18
-    assert int.from_bytes(device_list[4:6], "little") == 11
-    assert int.from_bytes(device_list[6:8], "little") == 2
-    assert int.from_bytes(device_list[16:18], "little") == 1
-
     values = {
         "target_lo": 0x06,
         "target_hi": 0x04,
         "source_lo": 0x34,
         "source_hi": 0x12,
     }
+    device_list = bytes(
+        values.get(part.strip("{}"), part) if isinstance(part, str) else part
+        for part in commands["device_list"]["template"]
+    )
+
+    assert len(device_list) == 18
+    assert device_list[:4] == bytes.fromhex("00 00 34 12")
+    assert int.from_bytes(device_list[2:4], "little") == 0x1234
+    assert int.from_bytes(device_list[4:6], "little") == 11
+    assert int.from_bytes(device_list[6:8], "little") == 2
+    assert int.from_bytes(device_list[16:18], "little") == 1
+
     group_read = bytes(
         values.get(part.strip("{}"), part) if isinstance(part, str) else part
         for part in commands["group_read_template"]["template"]

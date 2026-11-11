@@ -80,7 +80,9 @@ Useful read envelopes:
 - **Topic registration**, operation 3, flags `0002`: send the four concrete
   `{tn: [...]}` batches below with target zero and the learned source.
 - **Device list**, operation 2, flags `0001`: 18-byte header without CBOR.
-  A reply may be `[0, {Devices: [group, ...]}]`.
+  Substitute the learned client source into `source_lo` and `source_hi` at
+  offset 2, little-endian, rather than sending a fixed `ffff` source. A reply
+  may be `[0, {Devices: [group, ...]}]`.
 - **Group read**, operation 3, flags `0004`: template
   `000000050b00030000000000000000000400`; replace target at offset 0 and
   learned client source at offset 2, both little-endian.
