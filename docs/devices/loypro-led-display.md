@@ -64,6 +64,13 @@ A logical 960-byte media chunk is a TLV inside an AA55 packet, not one ATT write
 TLV lengths are one byte below `0x80`, `81 LL` for 128–255, and `82 LL LH`
 (little-endian u16) for larger observed values.
 
+Ordinary `82` ACKs are the exception to TLV payloads: byte 10 is one raw status
+byte. A captured successful ACK for sequence `0x0016` is
+`aa 55 ff ff 07 00 16 00 81 82 00 1d 04`. Match flags `81`, type `82`, the
+request sequence and status zero before continuing. Nonzero is a rejection;
+no nonzero device error values or error-code taxonomy were captured. The YAML
+includes a synthetic nonzero vector solely to test that rejection path.
+
 ## Stored program upload
 
 **`08 02 00 00` deletes/replaces program zero. It is not an upload-ready probe.**

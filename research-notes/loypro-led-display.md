@@ -61,7 +61,9 @@ repeated as a harmless probe.
 
 The real sequence is program header → graphic item → ascending media chunks →
 resource finalization, waiting for the matching status-zero ACK after every
-packet. Raw GIF remains GIF; other graphics use YSTP01. The information/TLV
+packet. Ordinary `82` ACKs carry one raw status byte at offset 10, not a TLV;
+the spec includes a captured success frame and a synthetic nonzero rejection.
+Raw GIF remains GIF; other graphics use YSTP01. The information/TLV
 canvas is 48×16 while the captured GIF is 48×15; preserve those distinct sizes.
 All five captured YSTP01 streams fit the recovered header, palette and packed
 page-length formula. The spec now declares that encoding, with synthetic

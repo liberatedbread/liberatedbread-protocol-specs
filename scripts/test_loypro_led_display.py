@@ -262,3 +262,25 @@ def test_ystp01_palettized_two_page_vector_round_trip():
     assert decoded["bits_per_pixel"] == 8
     assert decoded["palette"] == palette
     assert decoded["pages"] == vector["expected_pages"]
+
+
+def test_ordinary_ack_status_layout_success_and_synthetic_rejection():
+    acknowledgement = DETAILS["aa55_framing"]["ordinary_ack"]
+    success = aa55(0x16, 0x82, b"\x00", flags=0x81)
+    rejection = aa55(0x16, 0x82, b"\x01", flags=0x81)
+
+    assert success == bytes.fromhex(acknowledgement["success_response_hex"])
+    assert rejection == bytes.fromhex(
+        acknowledgement["synthetic_nonzero_response_hex"]
+    )
+    status = acknowledgement["status"]
+    for raw, expected_status in ((success, 0), (rejection, 1)):
+        assert len(raw) == acknowledgement["full_frame_bytes"] == 13
+        assert len(raw) == int.from_bytes(raw[4:6], "little") + 6
+        assert int.from_bytes(raw[6:8], "little") == 0x16
+        assert raw[8] == 0x81
+        assert raw[9] == 0x82
+        assert raw[status["offset"]] == expected_status
+        assert int.from_bytes(raw[-2:], "little") == sum(raw[:-2]) & 0xFFFF
+    assert success[status["offset"]] == status["success_value"]
+    assert rejection[status["offset"]] != status["success_value"]
