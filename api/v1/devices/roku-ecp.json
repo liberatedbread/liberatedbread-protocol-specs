@@ -348,6 +348,22 @@
         }
       ]
     },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "No prompt, code or button. What a user may have to change instead is the Roku OS 14.1+ \"Control by mobile apps\" policy — Limited refuses keypresses and several queries (ecp_common.response_format.gating lists which), Enabled admits same-LAN clients, Permissive admits any source. It is a standing setting, not a timed pairing window.\n",
+        "required": false
+      },
+      "exclusivity": {
+        "recovery": "Nothing is paired, so nothing needs clearing. A 403 (or 400 with \"ECP command not allowed in Limited mode.\") is the on-device policy gate, not a pairing failure: raise Settings > System > Advanced system settings > Control by mobile apps > Network access from Limited to Enabled (same-LAN) or Permissive.\n",
+        "single_bond": false,
+        "single_connection": false
+      },
+      "notes": "Plain ECP on 8060 has no client authorisation: nothing is requested, issued or remembered, and any host that can reach the port is answered within the limits of the Control by mobile apps setting. ECP2 (protocol_details.ecp2) adds a challenge-response on a WebSocket that gets through Limited mode, but its \"client-id\" secret is a constant shared by every copy of Roku's own app, not a per-client pairing — there is still no prompt, nothing stored on the TV and nothing to revoke. Its alternative \"jwt\" method ties the session to a Roku account token fetched from Roku's cloud and is off by default. device.testing is untested, so despite the live probes recorded in `evidence` this block stays at medium.\n",
+      "required": false,
+      "security_mode": "none"
+    },
     "protocol": "wifi",
     "setup": {
       "confidence": "high",
@@ -773,7 +789,7 @@
   ],
   "evidence": {
     "limited_mode_probe": {
-      "apk_teardown": "Static analysis of the official Roku app: in Limited mode it rides \"ECP2\", an authenticated WebSocket session on the same port 8060. The teardown plus a live re-implementation against this fleet the same day showed the session accepts client-id auth whose secret ships in the app — no Roku account needed — and that query-apps and key-press both answer 200 over it on a Limited-mode TV. The full protocol is the top-level `ecp2` block. A line-by-line re-audit of the app's code on 2026-08-13 confirmed every ECP2 mechanism that block records: the client-id secret's encoded UUID, its nibble transform and the SHA-1 + Base64 response construction (the app's client-id challenge strategy), port 8060, the roku:ecp SSDP search target, the ecp-2 WebSocket subprotocol with the Android origin header on /ecp-session, the v1/ecp/token?assert=true JWT endpoint and its ecp2_jwt.enabled remote-config gate, and the app's 55-entry request-type table.\n",
+      "apk_teardown": "Static analysis of the official Roku app: in Limited mode it rides \"ECP2\", an authenticated WebSocket session on the same port 8060. The teardown plus a live re-implementation against this fleet the same day showed the session accepts client-id auth with a fixed shared secret (the one open-source ECP2 clients publish) — no Roku account needed — and that query-apps and key-press both answer 200 over it on a Limited-mode TV. The full protocol is the top-level `ecp2` block. A line-by-line re-audit of the app's code on 2026-08-13 confirmed every ECP2 mechanism that block records: the client-id secret's encoded UUID, its nibble transform and the SHA-1 + Base64 response construction (the app's client-id challenge-response code), port 8060, the roku:ecp SSDP search target, the ecp-2 WebSocket subprotocol with the Android origin header on /ecp-session, the v1/ecp/token?assert=true JWT endpoint and its ecp2_jwt.enabled remote-config gate, and the app's 55-entry request-type table.\n",
       "date": "2026-08-11",
       "results": [
         {
@@ -857,6 +873,11 @@
     {
       "title": "RoMote — open-source Android ECP remote",
       "url": "https://github.com/wseemann/RoMote"
+    },
+    {
+      "description": "Swift implementation of the ECP2 WebSocket session, including the client-id challenge response and its shared key (ECPProtocol.swift).",
+      "title": "msdrigg/roam — open-source Roku remote with an ECP2 client",
+      "url": "https://github.com/msdrigg/roam"
     },
     {
       "description": "Vendor manual covering the reset button and status light on the stick form factor.\n",
@@ -984,10 +1005,10 @@
   "protocol_details": {
     "ecp2": {
       "auth": {
-        "description": "On connect the device sends {\"notify\": \"authenticate\", \"param-challenge\": \"<base64>\", \"param-methods\": [...]}. Two methods were offered by every fleet TV: \"jwt\" — a token from https://auth.prod.mobile.roku.com/v1/ecp/token?assert=true tied to the signed-in Roku account, gated in the app by the remote-config flag ecp2_jwt.enabled, which defaults off — and \"client-id\", which needs NO account: answer {\"request\": \"authenticate\", \"request-id\": \"1\", \"param-response\": base64(SHA-1(challenge + secret))}. The secret is the app's own client id, shipped in the APK (the client-id challenge strategy): the UUID 95E610D0-7C29-44EF-FB0F-97F1FCE4C297 with every hex nibble n replaced by (24 - n) & 15, i.e. F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1 (uppercase, and the case is significant: this string is hashed, not parsed as a UUID). A successful answer gets {\"response\": \"authenticate\", \"status\": \"200\"} and the session then accepts the full vocabulary — in Limited mode included. Client-id is also the app's own fallback: when a jwt answer fails, the app retries the same challenge with client-id automatically.\n",
+        "description": "On connect the device sends {\"notify\": \"authenticate\", \"param-challenge\": \"<base64>\", \"param-methods\": [...]}. Two methods were offered by every fleet TV: \"jwt\" — a token from https://auth.prod.mobile.roku.com/v1/ecp/token?assert=true tied to the signed-in Roku account, gated in the app by the remote-config flag ecp2_jwt.enabled, which defaults off — and \"client-id\", which needs NO account: answer {\"request\": \"authenticate\", \"request-id\": \"1\", \"param-response\": base64(SHA-1(challenge + secret))}. The secret is a fixed client id shared by every ECP2 client, published in open-source re-implementations — msdrigg/roam's ECPProtocol.swift (see helpful_urls), and wseemann's RPListening and the Jaku WebSocket client carry it too: the UUID 95E610D0-7C29-44EF-FB0F-97F1FCE4C297 with every hex nibble n replaced by (24 - n) & 15, i.e. F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1 (uppercase, and the case is significant: this string is hashed, not parsed as a UUID). A successful answer gets {\"response\": \"authenticate\", \"status\": \"200\"} and the session then accepts the full vocabulary — in Limited mode included. Client-id is also the app's own fallback: when a jwt answer fails, the app retries the same challenge with client-id automatically.\n",
         "jwt_response_format": {
           "confidence": "medium",
-          "confidence_notes": "Read from the app's JWT challenge-response strategy but never exercised against hardware: the fleet session authenticated with client-id, and the ecp2_jwt.enabled flag gates the jwt path off by default, so this construction is app-derived only.\n",
+          "confidence_notes": "Read from the app's JWT challenge-response code but never exercised against hardware: the fleet session authenticated with client-id, and the ecp2_jwt.enabled flag gates the jwt path off by default, so this construction is app-derived only.\n",
           "description": "The jwt method's on-wire param-response: the literal prefix \"JWT:\" followed by base64 of the token bytes XORed byte-wise with the decoded challenge and the device ESN — token and ESN taken as US-ASCII, the challenge base64-decoded, and challenge and ESN repeated cyclically over the token length.\n"
         },
         "verification": "confirmed"
