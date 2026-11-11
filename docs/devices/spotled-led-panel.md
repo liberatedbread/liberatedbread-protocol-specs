@@ -52,16 +52,26 @@ playlist/object queries → receive capacity. The three queries above are
 sufficient for this documented upload path. Notifications are not ATT
 read-back responses.
 
-### Response layout
+### Response layouts
 
-Base responses begin `[length][type][serial_be16][status]`, with payload from
-byte 5 and success status zero.
+Query responses 17, 19, 21 and 27 begin
+`[length][type][serial_be16][status]`, with payload from byte 5 and success
+status zero.
 
-| Response | Full bytes | Fields after the common header |
+| Response | Full bytes | Fields after the common query header |
 |---|---:|---|
 | Version (17) | 15 | hardware type u16 BE, hardware version u32 BE, firmware version u32 BE |
 | DisplayInfo (19) | 13 | width u16 BE, height u16 BE, colour type u8, advertised frames u8, brightness u8, font count u8 |
 | BufferSize (21) | 9 | receive capacity u32 BE |
+
+Transfer replies use two other layouts. Captured type-2 start and type-4
+finish acknowledgements are seven bytes:
+`[length][type][serial_be16][status][command_type_be16]`. Require status zero
+and matching serial and command type. ContinueSending type 255 instead is ten
+bytes: `[length][type][serial_be16][command_type_be16][resume_offset_be32]`.
+It has no status byte; match its response type, serial and command type, then
+use the offset at byte 6 rather than applying either status-bearing layout.
+PauseSending type 254 is separate and was not captured.
 
 Newer DisplayInfo responses may append a length-gated light-state byte. The
 tested geometry was 96×16, colour type 255, advertised frame count 20,
@@ -108,16 +118,19 @@ The checksum sums the covered bytes; if the sum exceeds `0xff`, negate with
 
 ## Upload flow control
 
-1. Send SendingDataStart and require type 2 with matching serial/type/status 0.
+1. Send SendingDataStart and require type 2 with status zero and matching
+   serial and command type.
 2. Serialize the complete payload once, then slice it into raw writes no larger
    than `MTU − 3`. Do not add a length or checksum to each ATT chunk.
 3. Pace writes and respond to the device. The official app chose 182-byte
    writes after negotiating MTU 512; negotiated MTU alone does not select the
    application's chunk size.
-4. ContinueSending type 255 carries the offset to **resume from**. Use it, not
-   the client's cursor.
-5. Send SendingDataFinish and require **type 4 with status zero**, not type 2.
-   PauseSending type 254 alone does not diagnose MTU.
+4. ContinueSending type 255 carries the command type at bytes 4–5 and the
+   offset to **resume from** at bytes 6–9. Use that offset, not the client's
+   cursor, and do not apply either status-bearing response layout.
+5. Send SendingDataFinish and require **type 4 with status zero and matching
+   serial and command type**, not type 2. PauseSending type 254 alone does not
+   diagnose MTU.
 
 The official capture paused after exactly 7280 data bytes and resumed both
 13902-byte three-frame transfers successfully.

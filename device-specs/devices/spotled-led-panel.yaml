@@ -67,15 +67,17 @@ device:
     (~sum)+1 and keep the low byte. Preserve the conditional: a sum already
     below 0x100 is emitted unchanged.
 
-    UPLOAD FLOW CONTROL: send SendingDataStart and require type-2 status zero.
-    Serialize the complete data payload once, then slice it into raw writes;
-    never add a length/checksum to each ATT chunk. The official app uses 182-byte
-    application chunks in the captured legacy session even after MTU 512 was
-    negotiated; MTU-3 is a ceiling, not a promise of the app's chosen size.
-    Pace writes and react to responses. ContinueSending (type 255) carries the
-    offset to RESUME FROM, not the client's cursor. The capture paused after
-    exactly 7280 bytes and resumed both 13902-byte transfers successfully.
-    Finish with SendingDataFinish and require type-4 status zero. PauseSending
+    UPLOAD FLOW CONTROL: send SendingDataStart and require type-2 status zero
+    with matching serial and command type. Serialize the complete data payload
+    once, then slice it into raw writes; never add a length/checksum to each ATT
+    chunk. The official app uses 182-byte application chunks in the captured
+    legacy session even after MTU 512 was negotiated; MTU-3 is a ceiling, not a
+    promise of the app's chosen size. Pace writes and react to responses.
+    ContinueSending (type 255) has no status byte: it carries the command type
+    at bytes 4-5 and the offset to RESUME FROM at bytes 6-9, not the client's
+    cursor. The capture paused after exactly 7280 bytes and resumed both
+    13902-byte transfers successfully. Finish with SendingDataFinish and require
+    type-4 status zero with matching serial and command type. PauseSending
     (type 254) is not by itself an MTU diagnosis.
 
     TEXT: rendering client-side into animation/type-96 frames is the capture-
@@ -239,7 +241,7 @@ services:
             value: [0x04, 0x14, 0x00, 0x00]
             verification: "confirmed"
           sending_data_start:
-            description: "Announce a data payload; require response type 2 with matching serial/type and status zero."
+            description: "Announce a data payload; require response type 2 with status zero and matching serial and command type. The acknowledgement carries status at byte 4 and command type at bytes 5-6."
             template: [0x0A, 0x01, "{serial_hi}", "{serial_lo}", "{type_hi}", "{type_lo}", "{len_b3}", "{len_b2}", "{len_b1}", "{len_b0}"]
             verification: "confirmed"
             parameters:
@@ -252,7 +254,7 @@ services:
               len_b1: { type: "uint8" }
               len_b0: { type: "uint8" }
           sending_data_finish:
-            description: "Finish a data payload; require response type 4 with matching serial/type and status zero, not type 2."
+            description: "Finish a data payload; require response type 4, not type 2, with status zero and matching serial and command type. The acknowledgement carries status at byte 4 and command type at bytes 5-6."
             template: [0x0A, 0x03, "{serial_hi}", "{serial_lo}", "{type_hi}", "{type_lo}", "{len_b3}", "{len_b2}", "{len_b1}", "{len_b0}"]
             verification: "confirmed"
             parameters:
@@ -334,7 +336,7 @@ features:
       DynamicColorFrame uploads; decoded frames match camera images, including
       RGB order. Each frame record is 4620 bytes. Three-frame 13902-byte
       transfers pause at 7280 bytes, resume from that offset, and finish with
-      status zero. This proves three frames, not the advertised 20-frame limit
+      matching type-4 acknowledgements. This proves three frames, not the advertised 20-frame limit
       or arbitrary geometry. Earlier custom-client three/eight-frame attempts
       failed; their serialization difference remains unresolved.
   - type: "firmware_update"
@@ -391,12 +393,32 @@ protocol_details:
     protocol_selection: "PIXELY GLOW reads a big-endian u16 protocol value from a seven-byte manufacturer AD structure and selects protocol 3 at >= 0x0300; this captured value selects legacy behavior."
   legacy_responses:
     verification: "confirmed"
-    common_layout:
+    query_layout:
+      response_types: [17, 19, 21, 27]
       total_length: { offset: 0, length: 1, endianness: "big" }
       response_type: { offset: 1, length: 1 }
       serial: { offset: 2, length: 2, endianness: "big" }
       status: { offset: 4, length: 1, success_value: 0 }
       payload: { offset: 5 }
+    transfer_ack_layout:
+      response_types: [2, 4]
+      total_length: { offset: 0, length: 1, endianness: "big" }
+      response_type: { offset: 1, length: 1 }
+      serial: { offset: 2, length: 2, endianness: "big" }
+      status: { offset: 4, length: 1, success_value: 0 }
+      command_type: { offset: 5, length: 2, endianness: "big" }
+      matching_rule: "Require response type 2 or 4 as applicable, status zero, and the request's serial and command type."
+    continue_layout:
+      response_types: [255]
+      total_length: { offset: 0, length: 1, endianness: "big" }
+      response_type: { offset: 1, length: 1 }
+      serial: { offset: 2, length: 2, endianness: "big" }
+      command_type: { offset: 4, length: 2, endianness: "big" }
+      status_present: false
+      matching_rule: "Require response type 255 and the request's serial and command type. This reply has no status byte; do not apply query_layout or transfer_ack_layout."
+    transfer_acknowledgements:
+      sending_data_start: { response_type: 2, full_frame_bytes: 7 }
+      sending_data_finish: { response_type: 4, full_frame_bytes: 7 }
     version:
       response_type: 17
       full_frame_bytes: 15
@@ -422,10 +444,17 @@ protocol_details:
         capacity_bytes: { offset: 5, length: 4, endianness: "big", unit: "bytes" }
     flow_control:
       continue_response_type: 255
-      pause_response_type: 254
+      continue_full_frame_bytes: 10
       continue_resume_offset: { offset: 6, length: 4, endianness: "big", unit: "bytes" }
+      pause_response_type: 254
+      pause_recovery_code:
+        offset: 7
+        length: 1
+        retry_value: 0
+        verification: "reported"
+        note: "Static app finding only; nonzero aborts the transfer. No PauseSending reply was captured."
       confirmed_resume_offset: 7280
-      rule: "Resume from the device offset; deduplicate retransmitted ATT chunks and require final type-4 status zero."
+      rule: "For ContinueSending, match response type, serial and command type, resume from the device offset, and deduplicate retransmitted ATT chunks. Do not read a status byte from type 255. Start and finish replies separately require status zero at byte 4."
   colour_types:
     verification: "reported"
     dynamic_colour_frame_record: 96
@@ -487,6 +516,18 @@ protocol_details:
       advertised_max_frames: 20
       brightness: 100
       word_stock: 1
+    start_response_hex: "07 02 00 06 00 80 04"
+    start_expected:
+      response_type: 2
+      serial: 6
+      status: 0
+      command_type: 32772
+    finish_response_hex: "07 04 00 06 00 80 04"
+    finish_expected:
+      response_type: 4
+      serial: 6
+      status: 0
+      command_type: 32772
     continue_response_hex: "0a ff 00 01 80 04 00 00 1c 70"
     continue_expected:
       response_type: 255
