@@ -220,9 +220,13 @@ protocol_details:
         local_profile: "Verify the second credential in constant time and bind the expected item to this card/session."
       - operation: "UploadPhoto"
         path: "/api/soap/eyefilm/v1/upload"
-        multipart_fields: ["SOAPENVELOPE", "FILENAME"]
+        soap_action: '"urn:UploadPhoto"'
+        verification: "reported"
+        multipart_fields: ["SOAPENVELOPE", "FILENAME", "INTEGRITYDIGEST"]
+        multipart_order: "required_in_listed_order"
+        integrity_digest_format: "32 lowercase hexadecimal characters"
         file_content: "TAR archive containing media first and an optional event log second; filesize is TAR bytes."
-        response: "UploadPhotoResponse with Boolean success only after complete safe storage."
+        response: "UploadPhotoResponse with Boolean success only after the request matches the authorized card/session/item, INTEGRITYDIGEST verifies against that authorized item's upload key, and storage is completely and safely finished; otherwise success=false."
       - operation: "MarkLastPhotoInRoll"
         path: "/api/soap/eyefilm/v1"
         soap_action: '"urn:MarkLastPhotoInRoll"'
@@ -263,7 +267,27 @@ protocol_details:
     initial_implementation: "offset=0 is the conservative first profile; nonzero resume needs an interruption capture"
     integrity_digest:
       verification: "reported"
-      algorithm: "Invert the 16-bit Internet checksum of each 512-byte TAR block, concatenate the two-byte values, then MD5 them with the 16-byte upload key."
+      block_bytes: 512
+      word_byte_order: "big-endian"
+      checksum_byte_order: "big-endian"
+      coverage: "Only complete 512-byte TAR blocks are hashed; exclude a trailing partial block."
+      output_format: "32 lowercase hexadecimal characters"
+      algorithm: "For each complete 512-byte TAR block, compute the 16-bit Internet checksum over big-endian 16-bit words with end-around carry and invert it. Serialize each inverted sum as two big-endian bytes, concatenate them in block order, append the authorized item's 16-byte upload key, MD5 the result, and emit 32 lowercase hexadecimal characters."
+      verification_policy: "Recompute and compare INTEGRITYDIGEST using the upload key bound to the authorized card/session/item before returning UploadPhoto success."
+      test_vectors:
+        synthetic_512_byte_tar_block:
+          tar_bytes_hex: >-
+            000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+            404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f
+            808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+            c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+            000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+            404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f
+            808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+            c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+          upload_key: "00112233445566778899aabbccddeeff"
+          expected_block_checksum_hex: "7f80"
+          expected_integrity_digest: "9190630d60a776ce999f3e1563172826"
   archive_policy:
     initial_profile: "single-card JPEG-only receiver with bounded temporary spooling"
     validate_before_extract: true

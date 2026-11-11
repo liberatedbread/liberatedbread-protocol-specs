@@ -24,7 +24,7 @@ is a host-implementation contract.
 |---|---|---|
 | StartSession | `POST /api/soap/eyefilm/v1`, `SOAPAction: "urn:StartSession"` | Read card MAC, client nonce and transfer fields; return credential, fresh server nonce and `upsyncallowed=false` |
 | GetPhotoStatus | Same path, `SOAPAction: "urn:GetPhotoStatus"` | Verify second credential and item metadata; return `fileid` and `offset` |
-| UploadPhoto | `POST /api/soap/eyefilm/v1/upload` | Accept multipart `SOAPENVELOPE` and `FILENAME`; the latter is a TAR archive |
+| UploadPhoto | `POST /api/soap/eyefilm/v1/upload`, `SOAPAction: "urn:UploadPhoto"` | Require multipart parts in order: `SOAPENVELOPE`, `FILENAME`, `INTEGRITYDIGEST`; `FILENAME` is a TAR archive and the digest is 32 lowercase hex characters |
 | MarkLastPhotoInRoll | Base path, matching SOAP action | Close/expire the roll using a capture-selected compatibility response |
 
 Match XML elements by local name, not namespace prefix. Bound metadata and
@@ -68,9 +68,22 @@ protocol lacks resume. Vendor receiver analysis establishes state keyed by
 4 KiB and `offset=filesize` for complete items. The `filesignature` algorithm
 is unknown. Start with offset zero until an interruption capture exists.
 
-A separate reported integrity digest inverts the 16-bit Internet checksum of
-each 512-byte TAR block, concatenates those two-byte values, then MD5s them
-with the 16-byte upload key. It remains capture-unverified.
+`INTEGRITYDIGEST` is exactly 32 lowercase hexadecimal characters. The reported
+algorithm covers each complete 512-byte TAR block: compute the 16-bit Internet
+checksum over big-endian 16-bit words with end-around carry, invert it, and
+serialize the result as two **big-endian** bytes. Concatenate those checksum
+bytes in block order, append the authorized item's 16-byte upload key, then MD5
+the result. A trailing partial block is not covered.
+
+The YAML and `scripts/test_eye_fi_cards.py` carry a reproducible synthetic
+vector: bytes `00` through `ff` repeated twice produce block checksum `7f80`
+and, with the invented X2 key, digest `9190630d60a776ce999f3e1563172826`.
+This checks the transcription only; the wire algorithm remains capture-unverified.
+
+Before returning success, match the upload metadata and TAR size to the item
+authorized by GetPhotoStatus for this card/session, then recompute and compare
+`INTEGRITYDIGEST` using that authorized item's upload key. Reject a mismatch;
+do not reuse a key selected only from unverified upload metadata.
 
 **Do not deploy the old extraction code on an untrusted network.** A first
 receiver should be single-card and JPEG-only:
