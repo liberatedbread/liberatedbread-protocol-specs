@@ -120,6 +120,26 @@ Effects are 0 none, 1 up, 2 down, 3 left, 4 right, 5 stack, 6 expand, 7 laser.
 The checksum sums the covered bytes; if the sum exceeds `0xff`, negate with
 `(~sum)+1` and keep the low byte. A smaller sum is emitted unchanged.
 
+### Multi-frame animation container
+
+The captured animation is not three bare frame records. Its record order is:
+
+1. **FrameAnimation**, 9 bytes: length, type 11, u16 BE frame count, checksum.
+2. That many **DynamicColorFrame** records. Each has length, type 96, u16 BE
+   width and height, u8 depth, the bitmap and checksum. RGB888 pixels are R,G,B
+   per pixel, left to right then top to bottom. Record length is
+   `12 + width * height * (depth / 8)`; a 96×16 RGB888 frame is 4620 bytes.
+3. **Time**, 10 bytes: length, type 7, u8 time type, u16 BE milliseconds,
+   checksum. The capture uses type 0 and 200 ms.
+4. **SpecialEffects**, 8 bytes: length, type 8, one effect byte, checksum.
+
+Thus three 96×16 frames have `9 + 3 * 4620 + 10 + 8 = 13887` bytes of records;
+the separate 15-byte data header brings the payload to 13902 bytes. The spec's
+`synthetic_three_frame_vector` uses solid red, green and blue frames and has
+SHA-256 `b5ea06e26a8327c98d799fd9c5df1d7587ec828b006010e9010fd61e0f53d5d6`.
+`scripts/test_spotled_led_panel.py` builds and parses that complete payload,
+including every checksum and the 7280-byte receive-window split.
+
 ## Upload flow control
 
 1. Send SendingDataStart and require type 2 with status zero and matching
