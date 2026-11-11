@@ -266,6 +266,14 @@ spec's `device.setup` block; the patterns are explained in
 | [Pix Backpack / Pix Mini](pix-backpack.md) | BLE | Spec Available (untested) | ble_direct (medium) | Pix Inc. |
 | [Weber iGrill Bluetooth Thermometers](weber-igrill.md) | BLE | Spec Available (untested) | ble_direct (medium) | Weber-Stephen Products (formerly iDevices) |
 | [LOY / LOYPRO Helmet LED Displays](loypro-led-display.md) | BLE | Minimally verified (information query) | Read-only confirmation (high) | LOY / YSKJ OEM family |
+| [Canon Ivy 2 / Zoemini 2 / iNSPiC PV-223](canon-ivy-zoemini.md) | Bluetooth Classic (RFCOMM/SPP) | Spec Available (untested) | bt_classic_pairing (medium) | Canon |
+| [KING JIM TEPRA Lite LR30](king-jim-tepra-lite.md) | BLE | Spec Available (untested) | ble_direct (medium) | KING JIM |
+| [Root Coding Robot (RT0 / RT1)](sam-root-robot.md) | BLE | Spec Available (untested) | ble_direct (medium) | Root Robotics / SAM Labs |
+| [Brother Skitch PP1](brother-skitch-pp1.md) | BLE | Spec Available (untested; information/status) | Pairing unknown (low) | Brother |
+| [Genki Wave](genki-wave.md) | BLE + BLE-MIDI | Spec Available (untested) | Manual selection (low) | Genki |
+| [Teenage Engineering OP-Z](teenage-engineering-op-z.md) | BLE-MIDI + USB | Spec Available (untested) | Manual BLE-MIDI selection (low) | teenage engineering |
+| [Sensirion BLE Gadgets](sensirion-ble-gadgets.md) | BLE (passive + GATT logger) | Spec Available (untested) | Model-specific (low) | Sensirion |
+| [Sensirion SHT31 Smart Humigadget](sensirion-sht31-smart-gadget.md) | BLE | Spec Available (untested) | ble_direct (medium) | Sensirion |
 
 ## Not everything here was liberated
 

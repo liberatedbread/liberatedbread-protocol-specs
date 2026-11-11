@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **November discovery follow-up: eight new protocol specs.** Canon PV-223
+  gains a Classic RFCOMM/SPP client surface; KING JIM TEPRA Lite LR30, Root
+  RT0/RT1 and Brother Skitch PP1 gain BLE protocols. Genki Wave and OP-Z gain
+  separate API/BLE-MIDI paths, while Sensirion's newer passive/logger gadgets
+  and legacy SHT31 Smart Humigadget remain explicitly split. All are
+  source-derived and untested, with setup, pairing, reset and rejoin boundaries
+  plus independent standard-library vectors. Destructive design replacement,
+  motion, firmware activation and unsupported variants stay out of scope.
 - **November research follow-up: three richer LED protocols and three new
   device families.** SPOTLED gains the official one-/three-frame RGB888
   capture, 7280-byte receive-window resume, transient Just Works pairing
@@ -536,6 +544,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **PicoBrew and Wink local-control claims are bounded by current evidence.**
+  PicoBrew no longer presents session-log closure as an emergency stop or host
+  tests as appliance verification; the blank-screen heater warning and
+  unintended firmware-delivery risk are explicit. Wink's stock API is
+  cloud-gated, while rooted MQTT is limited to already-rooted Hub 1 firmware
+  2.49/2.66 with already-paired devices. No durable Hub 2 path is claimed.
 - **BLE matching tightened from the collision research.** Bare FFF0 was
   already excluded from identification; this pass closes adjacent paths.
   CoolLEDX and ThermoPro now use exact advertised names, so incompatible
