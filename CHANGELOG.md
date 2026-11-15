@@ -553,6 +553,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   handset-only. Cooling profiles are documented as fixed per-firmware rows,
   and the flash-voltage and NTC safety tables gain confirmed read formats with
   deliberately no write templates. Locked-unit activation remains untested.
+- **Research sweep 2026-11-14: ten specs synced with newer research notes.**
+  Lutron Caséta pairing now starts from the public initial LAP certificate and
+  a 180-second physical-access window (it previously claimed 8083 needed no
+  client certificate). Kasa gains reboot, factory-reset and gated firmware
+  commands, and its firmware URL comes from the app, not the cloud. Orbit
+  B-hyve firmware metadata is fetchable without a login. SwitchBot gains its
+  account key-provisioning route and public firmware bucket. TTLock documents
+  the full local key set. The Mi Band 7 no longer claims the legacy 00000009
+  handshake; its chunked FEE0 channel is recorded from a public capture.
+  LYWSD03MMC gains the Telink Flasher bindkey route, and the
+  keeping-devices-alive guide no longer calls post-2025 units unflashable.
+  Furbo's "no traffic leaves the house" claim is weakened to match the TUTK
+  master-server lookup, and Instant Pot's Cancel is no longer implied to be
+  an emergency stop. Kwikset Kevo facts checked only against the app move from
+  `confirmed` to `reported`. Everything new is `reported` or `hypothesis`; no
+  `device.testing` status changed.
 - **PicoBrew and Wink local-control claims are bounded by current evidence.**
   PicoBrew no longer presents session-log closure as an emergency stop or host
   tests as appliance verification; the blank-screen heater warning and
