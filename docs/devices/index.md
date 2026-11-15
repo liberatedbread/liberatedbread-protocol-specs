@@ -120,7 +120,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
 | [Beurer PO60 Pulse Oximeter](beurer-po60-pulse-oximeter.md) | BLE | Spec Available | BLE passkey bonding (medium) | Beurer |
 | [Beurer Series 800 (BM92) Blood Pressure Monitor](beurer-series800-blood-pressure.md) | BLE (standard BP profile) | Spec Available | BLE bonding (medium) | Beurer |
-| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Capture verified (stock app) | None — offline MAC-derived unlock (reported) | FOREO |
+| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Minimally verified (replay; unlock untested) | None — offline MAC-derived unlock (reported); Pro is app-gated only | FOREO |
 | [Braun Silk-expert Pro 5 IPL](braun-silk-expert-pro5.md) | BLE | Spec Available | BLE bonding (medium) | Braun / P&G |
 | [Silk'n Infinity / Silk'n 7 IPL](silkn-infinity.md) | BLE | Spec Available | None needed | Silk'n (Home Skinovations) |
 | [Hyperice Hypervolt Plus](hyperice-hypervolt-plus.md) | BLE | Spec Available | None needed | Hyperice |

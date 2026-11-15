@@ -544,6 +544,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **FOREO Peach 2 replayed on hardware; Pro is app-gated only.** An
+  independent BLE client drove an active PEACH2 F.REV.K from the spec: the
+  GATT table matched exactly, and a direct `0AD0 06` Pro write was accepted
+  and persisted with no account, so `device.testing` is now `verified` /
+  `minimally-verified`. FFF1 `0A01` is corrected from "IPL intensity" to the
+  T-Sonic vibration motor (renamed `set_tsonic_level`); IPL intensity is
+  handset-only. Cooling profiles are documented as fixed per-firmware rows,
+  and the flash-voltage and NTC safety tables gain confirmed read formats with
+  deliberately no write templates. Locked-unit activation remains untested.
 - **Research sweep 2026-11-14: ten specs synced with newer research notes.**
   Lutron Caséta pairing now starts from the public initial LAP certificate and
   a 180-second physical-access window (it previously claimed 8083 needed no
