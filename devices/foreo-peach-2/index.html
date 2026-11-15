@@ -7264,7 +7264,7 @@
 
 <h1 id="foreo-peach-2-ipl-hair-removal">FOREO Peach 2 (IPL hair removal)<a class="headerlink" href="#foreo-peach-2-ipl-hair-removal" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p><strong>Status</strong>: Capture verified (stock app; no replacement-client replay)
+<p><strong>Status</strong>: Minimally verified (replacement-client replay 2026-11-14; locked-unit unlock untested)
 <strong>Protocol</strong>: BLE
 <strong>Manufacturer</strong>: FOREO AB (active; cloud not required for local control)</p>
 </blockquote>
@@ -7288,20 +7288,28 @@ command dialects and app-side subscription enforcement.</p>
 <p>A 2026-11-07 Android HCI capture then recorded two stock-app connections to an
 already-activated PEACH2 running <code>PEACH2 F.REV.K</code>. It confirms the FFF0 GATT layout,
 security-access write, no-pairing session, 0A20 read, new-dialect intensity/mode writes,
-and seven-byte cooling profile. It does <strong>not</strong> show a locked-unit activation, Pro-mode
-write or replacement client implementing this spec.</p>
-<p>Two findings remain important but have different evidence levels:</p>
+and seven-byte cooling profile.</p>
+<p>On <strong>2026-11-14</strong> a standalone BlueZ/bleak client written from the spec alone drove an
+already-active PEACH2 F.REV.K over seven connections. The live GATT table matched the
+spec exactly, every documented query and write-back behaved as written, and a direct
+Pro-mode write was accepted. Neither source shows a locked-unit activation.</p>
+<p>Three findings matter most, at different evidence levels:</p>
 <ol>
 <li><strong>Offline unlock is app-derived.</strong> Static analysis shows that the activation bytes
    are a keyless permutation of the device BLE MAC, so the cloud registration call is
    not needed by the firmware. The captured unit already returned activation state 01,
    so the actual locked-unit write was not verified.</li>
-<li><strong>Pro mode is gated by the app, but direct firmware acceptance is unknown.</strong> Normal
-   Pro selection requires an active eligible subscription; a separate testing flag
-   bypasses that UI branch. Once permitted, the app writes <code>0ad0 06</code>. The capture has
-   seven Basic writes (<code>0ad0 01</code>) and no Pro write, so it proves neither a downgrade nor
-   firmware behavior outside the entitlement path. Security access on 0A10 is not a Pro
-   unlock token.</li>
+<li><strong>Pro mode is gated only in the app; the firmware accepts it directly.</strong> Normal Pro
+   selection in the stock app requires an active eligible subscription (a separate
+   testing flag bypasses that branch), after which the app writes <code>0ad0 06</code>. There is
+   no token or key. In the replay, a client with no FOREO account wrote <code>0ad0 06</code>, got
+   the usual <code>01</code> acknowledgement, read back <code>06</code>, and still read <code>06</code> after
+   reconnecting. Static analysis says the stock app writes Basic back on connect when
+   it considers the subscription inactive. Pro unlocks the app's "5 extra boost
+   intensities" and is meant for non-sensitive areas and experienced users.</li>
+<li><strong><code>0a 01</code> is the T-Sonic motor, not IPL intensity.</strong> The app names the opcode a motor
+   level and shows it under a T-Sonic heading. IPL intensity is chosen only with the
+   handset's +/- buttons; no BLE command for it was found.</li>
 </ol>
 <h2 id="initial-setup">Initial setup<a class="headerlink" href="#initial-setup" title="Permanent link">&para;</a></h2>
 <table>
@@ -7336,14 +7344,17 @@ write or replacement client implementing this spec.</p>
 </table>
 <ol>
 <li>Select the model and scan for its <strong>exact</strong> configured name. The app disables fuzzy
-   matching and uses a 30-second timeout. It also interprets an activation-state marker
-   from the raw advertisement; the specific flag in this capture is undecoded.</li>
+   matching and uses a 30-second timeout. The advertisement carries manufacturer data
+   (company ID <code>0xffff</code>) of the form <code>ff ff &lt;MAC m0…m5&gt; ff 01</code>; the trailing <code>01</code> is the
+   likely activation flag on an active unit. A locked unit's value is unobserved.</li>
 <li>Connect without bonding and discover services. FFF0 contains FFF1, 0A10 and 0A20 on
-   the captured firmware.</li>
+   the captured firmware. Under BlueZ the first attempt dropped during service discovery
+   in 4 of 7 sessions; retry the connect.</li>
 <li>Write security access <code>01 a1 &lt;MAC[3]&gt; &lt;MAC[4]&gt; &lt;MAC[5]&gt;</code> to 0A10. The live write
    matched this derivation exactly; the app retries up to three times. After the ATT
    Write Response, it waits <strong>500 ms</strong> and validates no challenge response. This is
-   connection setup, not Pro activation.</li>
+   connection setup, not Pro activation. The active F.REV.K unit did <strong>not</strong> enforce it:
+   FFF1 queries and writes worked on a connection that skipped it. Send it anyway.</li>
 <li>Read SW revision 2A28. The captured suffix <code>K</code> selects the new dialect.</li>
 <li>Read 0A20. If it starts with <code>00</code>, static analysis says to write
    <code>01 02 &lt;8-byte chipId&gt;</code>. If it already starts with <code>01</code>, do not rewrite it.</li>
@@ -7374,7 +7385,8 @@ security handshake from the new client. There is no bond to forget.</p>
 <h2 id="protocol-summary">Protocol summary<a class="headerlink" href="#protocol-summary" title="Permanent link">&para;</a></h2>
 <p>FFF1 commands are raw <code>opcode || payload</code>, with <code>0a</code> for set and <code>0b</code> for query. Write
 the query, then <strong>read FFF1 back</strong>. <code>ff ff ff ff</code> means busy; the app retries up to
-five times. Observed settings writes returned an 18-byte value beginning <code>01</code>.</p>
+five times. Observed settings writes returned an 18-byte value beginning <code>01</code>. Roughly one
+write in five returned busy in the replay; re-send the write itself, not just the read.</p>
 <h3 id="captured-gatt-structure">Captured GATT structure<a class="headerlink" href="#captured-gatt-structure" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -7418,7 +7430,7 @@ five times. Observed settings writes returned an 18-byte value beginning <code>0
 </tr>
 <tr>
 <td><code>00000a0d-0000-1000-8000-00805f9b34fb</code></td>
-<td>Vibrator setting; 15 one-byte notifications, vocabulary unknown</td>
+<td>Vibrator (T-Sonic) setting; 15 one-byte notifications, vocabulary unknown</td>
 </tr>
 <tr>
 <td><code>0000181c-0000-1000-8000-00805f9b34fb</code></td>
@@ -7452,28 +7464,28 @@ CoreBluetooth UUID must not substitute it.</p>
 <tbody>
 <tr>
 <td><code>0a 01 &lt;level&gt;</code></td>
-<td>Set intensity 0–5</td>
-<td>Levels 3 and 5 captured</td>
+<td>Set T-Sonic motor level 0–5 (not IPL output)</td>
+<td>Levels 3 and 5 captured; replayed</td>
 </tr>
 <tr>
 <td><code>0b 01</code></td>
-<td>Read intensity, first byte</td>
+<td>Read T-Sonic level, first byte</td>
 <td>Returned 5</td>
 </tr>
 <tr>
 <td><code>0a d0 01</code></td>
 <td>Basic removal mode</td>
-<td>Seven captured writes</td>
+<td>Seven captured writes; replayed</td>
 </tr>
 <tr>
 <td><code>0a d0 06</code></td>
 <td>Pro removal mode</td>
-<td>App constant; not captured, direct acceptance unknown</td>
+<td>Replay: accepted with no subscription, persisted</td>
 </tr>
 <tr>
 <td><code>0b d0</code></td>
 <td>Read mode; 01 Basic, ≥6 Pro</td>
-<td>Basic captured</td>
+<td>Basic captured; Pro (06) replayed</td>
 </tr>
 <tr>
 <td><code>0a c0 0a</code></td>
@@ -7482,8 +7494,8 @@ CoreBluetooth UUID must not substitute it.</p>
 </tr>
 <tr>
 <td><code>0a c4 &lt;7 bytes&gt;</code></td>
-<td>New cooling profile</td>
-<td>Several captured; mapping incomplete</td>
+<td>New cooling profile, one per level</td>
+<td>Levels 0, 1 and 5 seen on hardware</td>
 </tr>
 <tr>
 <td><code>0b c4 00 07</code></td>
@@ -7512,25 +7524,73 @@ CoreBluetooth UUID must not substitute it.</p>
 </tr>
 </tbody>
 </table>
-<p>The cooling profile is not a one-byte level. One wire example is
-<code>0a c4 14 0d 21 02 1c 14 14</code>; it is evidence of the seven-byte layout, not a universal
-recommended setting. Read the current profile first and do not send arbitrary values
-on an IPL device. A separate <code>0a b1 a5</code> write was accepted after calibration polling,
-but its semantics are unknown.</p>
+<p>The cooling profile is not a one-byte level, but the stock app does not compose it
+either. It picks one of six fixed profiles per SW revision from its bundled model
+config. On F.REV.I–K the first byte is the level as a percentage:</p>
+<table>
+<thead>
+<tr>
+<th>Level</th>
+<th>F.REV.I–K profile</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>22 1b 21 02 1c 14 14</code></td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>14 0d 21 02 1c 14 14</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>28 0d 21 02 1c 14 14</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>3c 0d 21 02 1c 14 14</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>50 0d 21 02 1c 14 14</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>64 0d 21 02 1c 14 14</code></td>
+</tr>
+</tbody>
+</table>
+<p>The full per-firmware table, including older and eight-byte F.REV.L rows, is in the
+spec's <code>protocol_details.cooling_profiles</code>. Send only the row for the unit's revision;
+do not send arbitrary values on an IPL device. A separate <code>0a b1 a5</code> write was accepted
+after calibration polling, but its semantics are unknown.</p>
+<p><strong>Flash energy is a vendor table, not a user setting.</strong> <code>0b d1</code> reads the per-level flash
+voltage table. In Pro mode on F.REV.K it held ten entries, <code>06 0a 0f 15 19 18 1b 1d 20 23</code>,
+while the handset still offers five levels. The likely reading is that Pro's "boost
+intensities" make the same five levels use the upper five entries, but that is unconfirmed.
+The stock app rewrites this table, and the head/body NTC thresholds (<code>37 32</code>, <code>50 46</code>) and
+temperature-enable (<code>02</code>), from its server config on connect. The spec documents their read
+formats but deliberately gives no write templates: raising flash energy or moving a thermal
+cut-out on an IPL device can cause burns.</p>
+<p>The Pro MAX config also defines an "IPL speed" setting (Fast / Balanced) on opcode
+<code>0a a3</code>, read with <code>0b a3 0a</code>. Its bytes are undecoded and no Pro MAX was examined.</p>
 <p>Duo Basic is <code>0a a2 02 02 02 02 02</code>; Duo Pro is <code>0a a2 03 03 03 03 03</code>. These are
 model-specific app constants, not observed traffic. Duo's Pro switch is hidden in the
 app.</p>
 <h2 id="cloud-dependency">Cloud dependency<a class="headerlink" href="#cloud-dependency" title="Permanent link">&para;</a></h2>
 <p>No cloud is needed for the captured local control path. FOREO's servers handle account
 registration and subscription entitlement. Offline locked-unit activation is
-implementable from static analysis but unverified. Pro's confirmed entitlement gate is
-in the app; direct firmware acceptance outside that path is unknown.</p>
+implementable from static analysis but unverified. Pro's entitlement gate is only in
+the app: the firmware accepted a direct Pro write with no account.</p>
 <h2 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Locked-unit activation and persistence, plus the exact advertisement activation flag.</li>
+<li>Locked-unit activation and persistence, plus a locked unit's advertisement flag.</li>
 <li>Registration-server behavior after the PEACH2/GO/Pro Max pre-connect API exception.</li>
-<li>Direct Pro-mode acceptance, Duo command behavior and old-dialect suffix edge cases.</li>
-<li>Cooling-profile fields, NTC/accelerometer/vibrator conversion, other notification
+<li>How Pro maps the five handset levels onto the ten-entry voltage table; Pro acceptance on other firmware, Pro MAX and
+  Duo; Duo command behavior and old-dialect suffix edge cases.</li>
+<li>Whether any BLE command touches IPL intensity.</li>
+<li>Fixed cooling-profile bytes, NTC/accelerometer/vibrator conversion, other notification
   streams and the 0AB1 write.</li>
 <li>Temperature/NTC/voltage payload layouts and read-back formats.</li>
 <li>OTA entry, image transfer, update-mode identity and recovery; 0A08 is not a verified
