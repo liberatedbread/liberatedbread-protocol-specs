@@ -17,8 +17,8 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     week by week in [Weekly Device Sweeps](weekly-sweeps.md). Done so far from
     *Do these next*: #1 Instant Pot, #2 AM43, #3 JuiceBox, #5 Sengled, #7 Yummly,
     #6 BiSecur, #8 LIVISI, #11 AirPort ACP, #12 Philips air purifiers, #15
-    Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels id, #19 TRÅDFRI gateway, #22
-    Insteon Hub, #23 Furby Connect, #24 Nissan Leaf; from the category tables: Orbit B-hyve, the Elgato
+    Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels id, #19 TRÅDFRI gateway, #21 Echelon Connect, #22
+    Insteon Hub, #23 Furby Connect, #24 Nissan Leaf, #25 Slingbox, #26 Cozmo; from the category tables: Orbit B-hyve, the Elgato
     classic-HTTP family, SolarEdge (as Modbus TCP, not the SetApp web API), Qingping, Eurotronic Comet
     Blue, Big Ass Fans, RadonEye, Anova, Weber iGrill, Acaia, Furbo (identify-only), Boosted, Lippert
     OneControl (incomplete) and InMotion; from *Graduate these research

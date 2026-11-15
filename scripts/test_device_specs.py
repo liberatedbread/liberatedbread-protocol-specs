@@ -1153,6 +1153,13 @@ ENTITYLESS_CONTROL_SURFACES = {
     "logitech-harmony-hub": "The local WebSocket envelope is unconfirmed "
                             "(the spec says so), so binding entities to it "
                             "would promise a control nobody has driven.",
+    "anki-cozmo": "Cozmo's commands ride a selective-repeat ARQ session "
+                  "over UDP 5551 (reset handshake, per-packet sequence and "
+                  "ack, keep-alive pings); no generic renderer can open it, "
+                  "so the commands document the vocabulary.",
+    "slingbox": "A persistent binary TCP session with a per-session TEA "
+                "key; IR needs a remote code from the owner's setup, so "
+                "no one-tap binding can fill its parameters.",
     "parrot-arsdk-drone": "ARSDK is a binary UDP protocol after a TCP "
                           "handshake; the commands document it, and no "
                           "generic renderer reaches it.",
