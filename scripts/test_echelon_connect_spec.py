@@ -204,5 +204,34 @@ def test_entity_bindings_resolve():
             assert target in cmds
 
 
+TREADMILL_PREFIXES = {"ECH-STRIDE", "ECH-UK-", "ECH-FR-", "ECH-SD-SPT", "STRIDE"}
+
+
+def _variant_for(name):
+    """Longest matching variant prefix, as a consumer would pick it."""
+    hits = [
+        v for v in SPEC["device"]["variants"]
+        if name.startswith(v["identification"]["local_name_prefix"])
+    ]
+    return max(hits, key=lambda v: len(v["identification"]["local_name_prefix"]))["model"]
+
+
+def test_every_treadmill_name_selects_a_variant_with_the_treadmill_entities():
+    prefixes = {
+        v["identification"]["local_name_prefix"]: v["model"]
+        for v in SPEC["device"]["variants"]
+        if v["model"].startswith("Stride treadmill")
+    }
+    assert set(prefixes) == TREADMILL_PREFIXES
+    treadmill_models = set(prefixes.values())
+    for entity in SPEC["entities"]:
+        scoped = set(entity.get("variants", []))
+        if scoped & treadmill_models:
+            assert scoped >= treadmill_models, entity["name"]
+    for name in ("ECH-STRIDE-1A2B", "ECH-UK-0001", "ECH-FR-0001",
+                 "ECH-SD-SPT-0001", "STRIDE-0001", "STRIDE6S-0001"):
+        assert _variant_for(name) in treadmill_models, name
+    assert _variant_for("ECH-0001") == "Connect bike"
+
 def test_scope_statement_present():
     assert "July 2025" in SPEC["protocol_details"]["scope"]
