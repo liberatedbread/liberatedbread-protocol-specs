@@ -71,25 +71,25 @@
         "method": "PUT",
         "path": "/Users/{userId}/Locks/{lockId}/Commands",
         "returns": "Remote lock/unlock relay via the Kevo Plus gateway (gateway command types: LOCK=1, UNLOCK=2, BOLT_POSITION_QUERY=4, DEVICE_STATE_UPDATE=5, DEVICE_STATE_QUERY=6, TIME_SYNC=8, QUERY_HISTORY=16)",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "method": "GET",
         "path": "/Locks/{lockId}/Firmwares",
         "returns": "JSON {certificate, image, version} — base64 TLV upgrade header cert + opaque firmware blob + version string, fed to opcode 0x9B",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "method": "PUT",
         "path": "/Locks/{lockId}/Communications",
         "returns": "Time sync: body {\"certificate\": <base64 LIC>}; 200 response field `serverTimingInformationCertificate` is relayed to the lock as DIQR command 0x18 field 0x60",
-        "verification": "confirmed"
+        "verification": "reported"
       },
       {
         "method": "POST",
         "path": "/Locks/{lockId}/History",
         "returns": "Lock history upload: body {\"certificate\": <base64 history cert from LIC field 0x60>}",
-        "verification": "confirmed"
+        "verification": "reported"
       }
     ],
     "failure_mode": "Already happened: ASSA ABLOY shut down the Kevo app and web portal on 2025-11-14. Remote lock/unlock, eKey management, lock history and Kevo Plus gateway relay all stopped (every gateway command transited this cloud — the app even surfaced literal '504 - Gateway timeout' strings when the relay failed). Local BLE control, the physical key and key fobs are unaffected. UniKey (a separate company) has offered continued service to customers; local operation does not depend on it.\n",
@@ -112,7 +112,7 @@
     "manufacturer": "Kwikset / ASSA ABLOY (UniKey Technologies platform)",
     "manufacturer_status": "shutdown",
     "name": "Kwikset Kevo",
-    "notes": "Touch-to-open smart deadbolt built on UniKey's BLE platform. ASSA ABLOY shut down the Kevo app and web portal on 2025-11-14 (confirmed against kwikset.com and ca.weiserlock.com support notices); the physical key and key fobs still work, which proves the lock-side BLE auth is fully self-contained. Local BLE is now the only electronic control path.\nINVERTED BLE ROLES — the single most important fact about this device: the LOCK is the BLE central and GATT client. It scans, connects, and drives the session with reads and writes. The phone (or fob, or a local controller) is the PERIPHERAL: it advertises manufacturer data under company ID 0x015E and HOSTS the single GATT service listed below. There are no NOTIFY characteristics; phone-to-lock data rides GATT read responses because the lock polls. A local controller must therefore run as a BLE peripheral with a GATT server (Linux BlueZ supports this), not as the usual scanning central. This is why the Android app required Android 5.0+ (first release with peripheral mode).\nSecurity is entirely application-layer: no BLE pairing/bonding, no link-layer encryption (per NCC Group's 2022 advisory). Authentication is an HMAC-SHA256 challenge-response over a per-lock shared secret derived from X25519 ECDH during enrollment.\nThere is NO WiFi/LAN protocol anywhere in the system (swept the whole app: no DatagramSocket/MulticastSocket/NsdManager/WifiManager use anywhere in the vendor code). The Kevo Plus gateway (RPU) is wired Ethernet + BLE only; every gateway command historically transited the UniKey cloud. Its vendor-documented \"Local Debug\" ports (TCP 499/11000) appear nowhere in the app and have never been publicly investigated — the most interesting unexplored local surface.\nResearch status: phone-side protocol fully mapped from the vendor app (service/characteristic UUIDs, properties, opcodes, advertisement format, HMAC construction, secret derivation, enrollment state machines, DBU client challenge-response and the absence of LAN code were all re-verified). Lock-side firmware behaviour, TLV certificate field names, LIC/time-sync layout and the trailing bytes of the lock advertisement need one over-the-air capture (no link-layer encryption, so any LE sniffer works).\n",
+    "notes": "Touch-to-open smart deadbolt built on UniKey's BLE platform. ASSA ABLOY shut down the Kevo app and web portal on 2025-11-14 (confirmed against kwikset.com and ca.weiserlock.com support notices); the physical key and key fobs still work, which proves the lock-side BLE auth is fully self-contained. Local BLE is now the only electronic control path.\nPower (2nd-gen installation guide): four AA cells in a battery pack in the interior assembly; the guide asks for new non-rechargeable alkalines. Owner-visible indications on the interior light ring: top two LEDs solid red = the lock's AA cells are low; bottom LED solid red = the fob's CR2025 is low; side LEDs flashing red = the bolt has jammed. The status flash after an operation is amber for locked, green for unlocked, and red when the AA cells are low. These are the visible counterparts of the battery byte in the 0x04 verdict STATUS and of the LIC lock-status jammed values.\nINVERTED BLE ROLES — the single most important fact about this device: the LOCK is the BLE central and GATT client. It scans, connects, and drives the session with reads and writes. The phone (or fob, or a local controller) is the PERIPHERAL: it advertises manufacturer data under company ID 0x015E and HOSTS the single GATT service listed below. There are no NOTIFY characteristics; phone-to-lock data rides GATT read responses because the lock polls. A local controller must therefore run as a BLE peripheral with a GATT server (Linux BlueZ supports this), not as the usual scanning central. This is why the Android app required Android 5.0+ (first release with peripheral mode).\nSecurity is entirely application-layer: no BLE pairing/bonding, no link-layer encryption (per NCC Group's 2022 advisory). Authentication is an HMAC-SHA256 challenge-response over a per-lock shared secret derived from X25519 ECDH during enrollment.\nThere is NO WiFi/LAN protocol anywhere in the system (swept the whole app: no DatagramSocket/MulticastSocket/NsdManager/WifiManager use anywhere in the vendor code). The Kevo Plus gateway (RPU) is wired Ethernet + BLE only; every gateway command historically transited the UniKey cloud. Its vendor-documented \"Local Debug\" ports (TCP 499/11000) appear nowhere in the app and have never been publicly investigated — the most interesting unexplored local surface.\nResearch status: phone-side protocol fully mapped from the vendor app (service/characteristic UUIDs, properties, opcodes, advertisement format, HMAC construction, secret derivation, enrollment state machines, DBU client challenge-response and the absence of LAN code were all re-verified). Lock-side firmware behaviour, TLV certificate field names, LIC/time-sync layout and the trailing bytes of the lock advertisement need one over-the-air capture (no link-layer encryption, so any LE sniffer works).\n",
     "pairing": {
       "bonding": "none",
       "confidence": "medium",
@@ -246,6 +246,19 @@
         "type": "static_analysis"
       },
       {
+        "artifact": "com.unikey.kevo v2.9.1.21765p",
+        "description": "Cross-check build: the version NCC Group tested for its 2022 advisory. Its protocol constants (service and characteristic UUIDs, opcodes, STATUS types) are identical to v3.1.1, so the recovered protocol is not specific to the last app release. Says nothing about lock firmware generations.\n",
+        "notes": "md5 864bd6f5021e9167d5276810a1c3beab (sha256 not recorded).",
+        "obtained_via": "third-party APK mirror, 2026-08",
+        "type": "static_analysis"
+      },
+      {
+        "artifact": "Kevo 2nd Generation Installation and User Guide (11 pages, PDF 1.5, dated 2017-09-06)",
+        "description": "Source of the factory-reset procedure, the four-AA power supply and the light-ring low-battery / jam indications. Hardware evidence for the 2nd generation only; it describes no protocol. Its safeguards section also warns that the inside/outside sensor's accuracy cannot be guaranteed -- consistent with the NCC relay finding.\n",
+        "type": "vendor_manual",
+        "url": "https://s7d5.scene7.com/is/content/BDHHI/Kwikset/Tech-Docs/5064452.pdf"
+      },
+      {
         "description": "NCC Group 2022 advisory: TTO relay attack (CVSS 6.8), no link-layer encryption, inverted BLE roles",
         "type": "public_research",
         "url": "https://www.nccgroup.com/research/technical-advisory-kwiksetweiser-ble-proximity-authentication-in-kevo-smart-locks-vulnerable-to-relay-attacks/"
@@ -344,7 +357,7 @@
           "hex": "0x12",
           "id": 18,
           "name": "Bolt position query",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         "firmware_upgrade": {
           "advanced": true,
@@ -354,7 +367,7 @@
           "hex": "0x9B",
           "id": 155,
           "name": "Firmware upgrade",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         "lock": {
           "description": "Lock the deadbolt",
@@ -362,7 +375,7 @@
           "hex": "0x13",
           "id": 19,
           "name": "Lock",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         "lock_history": {
           "description": "Request lock event history (uploaded to cloud in the official app; usable locally). The DIQR request carries field 0xBC = the last-seen history sequence number (low 4 bytes, LE); the result cert's field 0x60 holds the history cert, and result code 2 (CONTINUE) means more pages — re-issue 0x19. The history record layout inside the cert was only ever parsed server-side (POST /Locks/{lockId}/History), so individual event decoding is still unknown.\n",
@@ -370,7 +383,7 @@
           "hex": "0x19",
           "id": 25,
           "name": "Lock history",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         "null_command": {
           "description": "No pending command (also 0xFF dequeue sentinel)",
@@ -378,7 +391,7 @@
           "hex": "0x00",
           "id": 0,
           "name": "null / dequeue sentinel",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         "tap_to_enroll": {
           "description": "Tap-to-enroll a new authorized device (locks and Kevo Plus gateway; gateway enrolls as hardware type 19 / product descriptor RPU1)",
@@ -386,7 +399,7 @@
           "hex": "0x15",
           "id": 21,
           "name": "Tap to enroll",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         "toggle": {
           "description": "Toggle lock/unlock — the touch-to-open command",
@@ -394,7 +407,7 @@
           "hex": "0x10",
           "id": 16,
           "name": "Lock toggle",
-          "verification": "confirmed"
+          "verification": "reported"
         },
         "unlock": {
           "description": "Unlock the deadbolt",
@@ -402,7 +415,7 @@
           "hex": "0x14",
           "id": 20,
           "name": "Unlock",
-          "verification": "confirmed"
+          "verification": "reported"
         }
       },
       "crypto": {
@@ -449,7 +462,10 @@
         "Lock history record layout inside the field-0x60 history cert (parsed only server-side)",
         "Server-side computation of the timing certificate behind time sync (cloud-mediated; dead with the shutdown)",
         "Whether the lock prunes self-enrolled devices that never appear in the cloud (the 0xF0 wipe verdict exists)",
-        "What listens on the gateway's TCP 499/11000 (and 8100/8301/13252) 'Local Debug' ports (verified absent from the app)"
+        "What listens on the gateway's TCP 499/11000 (and 8100/8301/13252) 'Local Debug' ports (verified absent from the app)",
+        "Scale of the battery byte (byte[1] of the 0x04 verdict STATUS, and LIC field 0xB4): the app treats it as a battery level; whether it is a 0-100 percentage or a raw gauge value is not traced, so a client should not label it % without a capture",
+        "Where the answer to the 0x12 bolt-position query lands on the legacy STATUS route. The 0x04 verdict carries only result and battery -- never infer bolt state from it. Hypothesis, not traced: the bolt-position-family STATUS writes (byte[3]=0x12) carry it in byte[0], whose values the app reacts to (1/2/9/10) coincide with the LIC 0xB5 lock-status enum (locked / unlocked / jammed-locked / jammed-unlocked)",
+        "Whether every 2nd-generation (and Convert) firmware accepts the exchanges recovered from the app; the vendor manuals describe hardware, not protocol generations"
       ],
       "session_flow": {
         "battery_reporting": "Byte[1] of the 0x04 verdict STATUS; no separate battery opcode.",
@@ -463,7 +479,7 @@
       },
       "time_sync": {
         "description": "Time sync is cloud-mediated (the app's time-sync service and its lock-information store and uploader): the app PUTs the base64 LIC to /Locks/{lockId}/Communications as {\"certificate\": ...}; a 200 response carries JSON field `serverTimingInformationCertificate` (base64). On the next session the app queues DIQR command 0x18 (24) and writes that certificate into field 0x60 of the cert sent to the lock. The server-side computation of the timing cert is not in the app, so post-shutdown time sync requires reimplementing that step (or accepting unsynced schedules).\n",
-        "verification": "confirmed"
+        "verification": "reported"
       }
     }
   },
