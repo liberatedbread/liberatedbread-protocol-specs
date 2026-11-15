@@ -502,3 +502,43 @@ device change.
 - **Eargo / Lexie**: still no coverage confirming whether the apps or the
   cloud went off after 2026-10-22.
 - **June Oven** and **Futurehome**: already logged; nothing new.
+
+## 2026-11-15
+
+### Added this week
+
+Three *Do these next* picks. Every spec is `testing: untested`; wire facts
+from open clients are `reported`.
+
+| Spec | Source | Notes |
+|---|---|---|
+| [Slingbox](../devices/slingbox.md) | #25 | UDP 5004 discovery (product id, name, control port), the control connection's HTTP-style opening and its 32-byte binary header, TEA encryption under the fixed key then the 0xC6 session key, admin/guest login, input select (`advanced`), stream settings, IR button numbers, Pro-HD tuning, keep-alive and logout. How the video payload is decrypted (older boxes' ASF walk, the 350/500 HLS keys) is left out pending the DMCA §1201 review the backlog row asks for. The IR code database is not reproduced. Header and login layouts agree across Slinger, SlingboxLib and slingboxstream-py; the session-key rule is in two of them. `scripts/test_slingbox_spec.py`. |
+| [Anki Cozmo Robot](../devices/anki-cozmo.md) | #26 | Joining the robot's AP (passphrase shown on its face, never recorded), the 14-byte frame header, selective-repeat ARQ with cumulative acks, the start-up sequence and 0.5 s keep-alive, drive/turn (`advanced`), head, lift, stop, cliff stop, volume, face image and audio structure, the 91-byte RobotState layout, and the firmware chunk transfer (`advanced`). From pycozmo (MIT); every example is rebuilt from invented values. `scripts/test_anki_cozmo_spec.py`. |
+| [Echelon Connect Bikes and Stride Treadmills](../devices/echelon-connect.md) | #21 | Pre-July-2025 firmware only; the spec says once that later firmware waits for a server challenge and that it does not apply there, and nothing more. Identification by service plus name prefix, the `f0 type len payload sum8` frame, subscribe-then-query initialisation, bike cadence/resistance/elapsed time, treadmill speed/incline/heart rate. Treadmill speed, incline and start are `advanced`, under a `safety_advisory` (warning). Bike facts agree across QZ and Gymnasticon; treadmill facts are QZ only. `scripts/test_echelon_connect_spec.py`. |
+
+Slingbox and Cozmo join `ENTITYLESS_CONTROL_SURFACES`: both need a live
+session (TEA keys, ARQ sequence numbers) that no generic renderer opens.
+
+Schema gaps that came up, each in its spec's `protocol_details` or
+`remaining_unknowns`: no variant match on a discovery reply's numeric
+product id and no TEA-framed binary command body (Slingbox); no binary UDP
+request template with typed holes, no session/ARQ layer around commands, no
+byte offsets in `payload_formats`, and no `robot` taxonomy domain (Cozmo);
+initialisation steps and characteristic commands that cannot be limited to
+one variant, no "echo this notification back" acknowledgement, and one
+`format_match` per characteristic (Echelon).
+
+### New candidates
+
+| Device | Why now | Local path | Notes |
+|---|---|---|---|
+| ecobee Switch+ (smart light switch with Alexa) | ecobee [announced](https://mobilesyrup.com/2026/11/11/ecobee-switch-end-smart-features-compensation/) on 2026-11-11 that the Switch+ loses app setup, control, configuration and Alexa on 2027-03-02; a factory reset after that date loses them too. Owners get a US$25 / C$35 gift card, claimable until 2027-06-30. | HomeKit (HAP), which ecobee says continues "as long as supported by Apple". | Pair it to Apple Home before 2027-03-02 and don't factory-reset it afterwards. HAP is a public protocol, so this is a link-don't-spec item unless a non-HAP local surface turns up ([HA community thread](https://community.home-assistant.io/t/ecobee-cancels-the-switch/1028738)). The repo only has `research-notes/ecobee-thermostat`. |
+
+### Status changes to items already listed
+
+- **Samsung SmartThings Tracker**: ended 2026-10-31; SmartTags moved to
+  Samsung Find, so they are not orphaned and need no spec.
+- **Fitbit Web API**: stopped 2026-11-02. That is a cloud API, not a device
+  path, so nothing to add.
+- **Eargo / Lexie**: still no coverage confirming the apps or cloud went
+  off after 2026-10-22.

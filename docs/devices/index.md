@@ -274,6 +274,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Teenage Engineering OP-Z](teenage-engineering-op-z.md) | BLE-MIDI + USB | Spec Available (untested) | Manual BLE-MIDI selection (low) | teenage engineering |
 | [Sensirion BLE Gadgets](sensirion-ble-gadgets.md) | BLE (passive + GATT logger) | Spec Available (untested) | Model-specific (low) | Sensirion |
 | [Sensirion SHT31 Smart Humigadget](sensirion-sht31-smart-gadget.md) | BLE | Spec Available (untested) | ble_direct (medium) | Sensirion |
+| [Slingbox (all models)](slingbox.md) | LAN (UDP 5004 discovery, TCP control + ASF stream) | Spec Available (untested) | Admin or guest password from the box's setup (medium) | Sling Media / DISH (servers shut down 2022-11-09) |
+| [Anki Cozmo Robot](anki-cozmo.md) | WiFi (robot AP, UDP 5551) | Spec Available (untested) | Join the robot's AP; passphrase shown on its face (medium) | Anki / Digital Dream Labs (shutdown) |
+| [Echelon Connect Bikes and Stride Treadmills](echelon-connect.md) | BLE | Spec Available (untested; pre-July-2025 firmware only) | None needed (connect and subscribe) | Echelon (active; later firmware requires a server challenge) |
 
 ## Not everything here was liberated
 
