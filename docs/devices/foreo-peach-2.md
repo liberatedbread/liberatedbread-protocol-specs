@@ -177,6 +177,15 @@ spec's `protocol_details.cooling_profiles`. Send only the row for the unit's rev
 do not send arbitrary values on an IPL device. A separate `0a b1 a5` write was accepted
 after calibration polling, but its semantics are unknown.
 
+**Flash energy is a vendor table, not a user setting.** `0b d1` reads the per-level flash
+voltage table. In Pro mode on F.REV.K it held ten entries, `06 0a 0f 15 19 18 1b 1d 20 23`,
+while the handset still offers five levels. The likely reading is that Pro's "boost
+intensities" make the same five levels use the upper five entries, but that is unconfirmed.
+The stock app rewrites this table, and the head/body NTC thresholds (`37 32`, `50 46`) and
+temperature-enable (`02`), from its server config on connect. The spec documents their read
+formats but deliberately gives no write templates: raising flash energy or moving a thermal
+cut-out on an IPL device can cause burns.
+
 The Pro MAX config also defines an "IPL speed" setting (Fast / Balanced) on opcode
 `0a a3`, read with `0b a3 0a`. Its bytes are undecoded and no Pro MAX was examined.
 
@@ -195,7 +204,7 @@ the app: the firmware accepted a direct Pro write with no account.
 
 - Locked-unit activation and persistence, plus a locked unit's advertisement flag.
 - Registration-server behavior after the PEACH2/GO/Pro Max pre-connect API exception.
-- The handset's level range in Pro mode; Pro acceptance on other firmware, Pro MAX and
+- How Pro maps the five handset levels onto the ten-entry voltage table; Pro acceptance on other firmware, Pro MAX and
   Duo; Duo command behavior and old-dialect suffix edge cases.
 - Whether any BLE command touches IPL intensity.
 - Fixed cooling-profile bytes, NTC/accelerometer/vibrator conversion, other notification

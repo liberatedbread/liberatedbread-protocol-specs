@@ -34,9 +34,11 @@ device:
       serial read, FFF1 queries 0B01 / 0BD0 / 0BC4 0007, write-backs of
       0A01 and 0AD0 01 with 01-prefixed acknowledgements, a 0AD0 06 Pro
       write that read back 06 and persisted across reconnects, and 0A44
-      notifications. Not driven: the locked-unit activation write (no locked
-      unit), 0A30 wake-up, cooling writes, the 0AB*/0AD1 threshold and
-      voltage opcodes, old-dialect and Duo paths, and OTA. Earlier evidence:
+      notifications, plus read-only 0BB2 / 0BB4 / 0BB5 / 0BD1 table
+      queries and a T-Sonic write from 5 to 2. Not driven: the locked-unit
+      activation write (no locked unit), 0A30 wake-up, cooling writes, any
+      write to the 0AB*/0AD1 safety tables (deliberately), old-dialect and
+      Duo paths, and OTA. Earlier evidence:
       the 2026-11-07 stock-app HCI capture of the same model.
   protocol: "ble"
   transport: "ble-gatt"
@@ -470,8 +472,16 @@ services:
               profile:
                 type: "bytes"
                 min_length: 7
-                max_length: 7
-                description: "Seven-byte profile as returned by get_cooling_new. Read-back carries these seven bytes followed by zeroes."
+                max_length: 8
+                description: >
+                  The cooling row for the unit's SW revision from
+                  protocol_details.cooling_profiles: seven bytes on F.REV.D–K
+                  and PEACH2GO F.REV.B–C (capture-confirmed on F.REV.K), eight
+                  bytes on PEACH2 F.REV.L, PEACH2GO F.REV.D and Pro MAX
+                  F.REV.A–B, where the eighth byte carries the level (app
+                  config only; those firmwares were not examined, and how
+                  get_cooling_new reports the eighth byte is unknown).
+                  Read-back carries the profile followed by zeroes.
           set_auto_fan:
             description: "Enable automatic fan control (0AC0 0A). Accepted on the captured new-dialect unit as well as documented for the old dialect."
             value: [0x0A, 0xC0, 0x0A]
@@ -496,33 +506,69 @@ services:
             value: [0x0B, 0xC4, 0x00, 0x07]
             verification: "confirmed"
           set_temperature_enable:
-            description: "Temperature-enable set. Payload layout not recovered — only the 0AB2 opcode is known."
-            verification: "hypothesis"
+            description: >
+              Temperature-enable set: 0AB2 followed by one byte. The stock
+              app reads 0BB2 on connect and, if the value differs from its
+              model config, writes the config value back. Deliberately given
+              no executable template here.
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes the handset's temperature-protection setting, a safety parameter the vendor pushes from its model config. Never write a value other than the one the unit already reports."
           get_temperature_enable:
-            description: "Temperature-enable read."
+            description: "Temperature-enable read; the first byte of the read-back is the setting. The replay read 02 on F.REV.K, matching the app's model config."
             value: [0x0B, 0xB2]
-            verification: "reported"
+            verification: "confirmed"
           set_head_ntc_threshold:
-            description: "Head-NTC (temperature) threshold set. Payload layout not recovered — only the 0AB4 opcode is known."
-            verification: "hypothesis"
+            description: >
+              Head-NTC (temperature) threshold set: 0AB4 followed by the
+              threshold list, one byte per entry, as the app's config holds
+              it. The app rewrites it on connect when 0BB4 differs. No
+              executable template, deliberately.
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Moves a thermal cut-out threshold on an IPL handset; a wrong value can let the treatment head overheat against skin. Do not write it."
           get_head_ntc_threshold:
-            description: "Head-NTC threshold read."
+            description: "Head-NTC threshold read; the leading non-zero bytes are the threshold list. The replay read 37 32 (55, 50), matching the app's model config; units not established."
             value: [0x0B, 0xB4]
-            verification: "reported"
+            verification: "confirmed"
           set_body_ntc_threshold:
-            description: "Body-NTC threshold set. Payload layout not recovered — only the 0AB5 opcode is known."
-            verification: "hypothesis"
+            description: >
+              Body-NTC threshold set: 0AB5 followed by the threshold list,
+              one byte per entry. Same check-and-rewrite pattern as the head
+              threshold. No executable template, deliberately.
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Moves a thermal cut-out threshold on an IPL handset. Do not write it."
           get_body_ntc_threshold:
-            description: "Body-NTC threshold read."
+            description: "Body-NTC threshold read; the leading non-zero bytes are the threshold list. The replay read 50 46 (80, 70), matching the app's model config; units not established."
             value: [0x0B, 0xB5]
-            verification: "reported"
+            verification: "confirmed"
           set_flash_voltage_table:
-            description: "Flash voltage table set. Payload layout not recovered — only the 0AD1 opcode is known."
-            verification: "hypothesis"
-          get_flash_voltage_table:
-            description: "Flash voltage table read."
-            value: [0x0B, 0xD1]
+            description: >
+              Flash voltage table set: 0AD1 followed by the per-level table,
+              one byte per entry. The stock app reads 0BD1 on connect and
+              rewrites the table from its server-delivered model config when
+              the read-back does not start with it. This is FOREO's energy
+              calibration, not a user setting, and it is the only per-level
+              energy control found: there is no BLE command for the handset
+              level itself. No executable template, deliberately. The
+              five-entry table in the app's bundled offline config is stale
+              (that entry is marked deleted, and the live unit holds ten
+              entries), so never "restore" it.
             verification: "reported"
+            advanced: true
+            advanced_reason: "Directly sets flash energy per intensity level on an IPL device. Raising it can exceed the output the skin-tone and eye-safety design assumes and cause burns or eye injury. Read only; never write."
+          get_flash_voltage_table:
+            description: >
+              Flash voltage table read. In Pro mode on F.REV.K the replay read
+              ten entries, 06 0A 0F 15 19 18 1B 1D 20 23, then zeros. Units
+              are not established. The handset still offers five levels in Pro
+              (owner observation), so the likely reading is that levels 1–5
+              use entries 1–5 in Basic and entries 6–10 (the app's "5 extra
+              boost intensities") in Pro. That mapping is a hypothesis; see
+              remaining_unknowns.
+            value: [0x0B, 0xD1]
+            verification: "confirmed"
 
       - uuid: "00000a01-0000-1000-8000-00805f9b34fb"
         name: "Direct characteristic 0A01 (role unverified)"
@@ -803,7 +849,9 @@ protocol_details:
       observed); removal mode 01 means Basic and >= 6 means Pro (0BD0; 06
       observed after 0AD0 06). The new 0BC4 0007 query returned an 18-byte
       value whose first seven bytes are the cooling profile accepted by 0AC4.
-      Layouts for 0BA2, 0BB2/0BB4/0BB5 and 0BD1 remain unpinned.
+      0BB2 returns one byte and 0BB4 / 0BB5 / 0BD1 return their tables as
+      leading bytes followed by zeros (replay-confirmed on F.REV.K). The
+      0BA2 layout remains unpinned.
     capture_verified_vectors:
       - command: "0a c0 0a"
         meaning: "Enable automatic fan; write acknowledged."
@@ -837,6 +885,21 @@ protocol_details:
         - command: "0b d0"
           response_prefix: "06"
           meaning: "Pro read back immediately and again after a fresh connection."
+        - command: "0b d1"
+          response_prefix: "06 0a 0f 15 19 18 1b 1d 20 23"
+          meaning: "Ten-entry flash voltage table, read in Pro mode; read only."
+        - command: "0b b4"
+          response_prefix: "37 32"
+          meaning: "Head-NTC thresholds 55 / 50, matching the app's model config."
+        - command: "0b b5"
+          response_prefix: "50 46"
+          meaning: "Body-NTC thresholds 80 / 70, matching the app's model config."
+        - command: "0b b2"
+          response_prefix: "02"
+          meaning: "Temperature-enable 02, matching the app's model config."
+        - command: "0a 01 02"
+          response_prefix: "01"
+          meaning: "T-Sonic level lowered from 5 to 2; 0B01 then read 02."
   cooling_profiles:
     verification: "reported"
     verification_note: "Table taken from the stock app's bundled per-model settings config. The F.REV.I–K level-0, level-1 and level-5 rows match bytes seen on hardware (capture and replay); the rest are app-derived."
@@ -962,8 +1025,8 @@ remaining_unknowns:
   - "Locked/factory-unit behavior: the advertisement's trailing activation byte on a locked unit (01 on an active one), whether locked units accept security access immediately or enforce it, and whether they accept the documented 01 02 chipId write. Every unit examined was already active."
   - "Complete registration/server behavior after the PEACH2/GO/Pro Max pre-connect API exception; the exception itself does not prove registration is unnecessary."
   - "0A30 wake-up, 0A07 chip ID and 2A19 battery were absent from the captured new-dialect GATT table; their presence and containing services on other firmware remain unknown."
-  - "The fixed (non-level) bytes of the 0AC4 cooling profiles and whether F.REV.L / Pro MAX accept their eight-byte rows; read-back layouts for 0BA2, 0BB2/0BB4/0BB5 and 0BD1; payload layouts for 0AB2/0AB4/0AB5/0AD1 set opcodes; what the Pro MAX 0AA3 IPL-speed bytes control."
-  - "How many intensity levels the handset buttons offer in Pro mode and how they map to energy; the app says five extra boost intensities, but the handset display was not checked during the replay."
+  - "The fixed (non-level) bytes of the 0AC4 cooling profiles, whether F.REV.L / Pro MAX accept their eight-byte rows and how 0BC4 0007 reports the eighth byte; the 0BA2 read-back layout; what the Pro MAX 0AA3 IPL-speed bytes control."
+  - "How Pro's 'five extra boost intensities' are applied. The handset still offers five levels in Pro (owner observation, 2026-11-14) and the flash voltage table holds ten entries, so levels 1–5 most likely select entries 6–10 in Pro; confirming that needs a 0BD1 read in Basic and an observation of which entry a flash uses, neither done. Units of the voltage entries are unknown."
   - "Whether any BLE command sets or reads the handset's IPL intensity. None was found in the app's Peach settings flows."
   - "Whether a handshake-less connection can do anything the handshake normally gates. On the active F.REV.K unit nothing tested required it."
   - "Units and conversion formulas for body/head NTC (0A18/0A19), accelerometer axes/units (0A0C), the vibrator-setting vocabulary (0A0D), the unknown 0A44/0A09 streams, and the accepted 0AB1 A5 write."

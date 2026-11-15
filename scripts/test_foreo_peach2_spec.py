@@ -78,7 +78,7 @@ def test_capture_verified_cooling_profile_layout() -> None:
     assert commands["get_cooling_new"]["value"] == [0x0B, 0xC4, 0x00, 0x07]
     assert commands["set_cooling"]["template"] == [0x0A, 0xC4, "{profile}"]
     profile = commands["set_cooling"]["parameters"]["profile"]
-    assert profile["min_length"] == profile["max_length"] == 7
+    assert profile["min_length"] == 7 and profile["max_length"] == 8
 
     vectors = spec["protocol_details"]["command_protocol"][
         "capture_verified_vectors"
