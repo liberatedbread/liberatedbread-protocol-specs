@@ -34,7 +34,9 @@ requirement.
 Name prefix: `Truma iNetX`. The name can arrive in a scan response, so an
 initial passive scan may see only the service. Community evidence reports a
 rapidly rotating resolvable private address: **do not use the MAC as durable
-identity** or change host privacy settings to make it stable. Bonding is
+identity** or change host privacy settings to make it stable. Whether the name
+carries a per-unit suffix is unverified; if every panel advertises the plain
+prefix, the name alone cannot tell two panels apart. Bonding is
 reported as Just Works only in the panel's add-device mode, with about four
 slots. Do not clear bonds for telemetry setup. Linux/ESPHome connectivity
 reports are host-specific, not blanket proof that a kernel or proxy cannot

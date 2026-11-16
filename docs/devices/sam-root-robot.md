@@ -51,8 +51,9 @@ string. This spec accepts only payloads beginning:
 | `52 54 30` | ASCII `RT0` | Root RT0 |
 | `52 54 31` | ASCII `RT1` | Root RT1 |
 
-Use the identifier service as the scan filter and the RT0/RT1 type as a second
-required condition. The name is not a stable matcher because the protocol can
+Match on the RT0/RT1 manufacturer type alone. The identifier service is shared
+with the Create 3 / Ci3 and other robots, and scanners OR their matchers, so it is
+not a scan matcher here; confirm it in the GATT table after connecting. The name is not a stable matcher because the protocol can
 rename it. Nordic UART is shared by unrelated products and is not a discovery
 signal. The source does not say whether bytes can follow the three-character
 robot type, so matching is by prefix rather than whole-payload equality.
@@ -63,13 +64,14 @@ robot type, so matching is by prefix rather than whole-payload equality.
 |----------|-------|
 | Setup required | No |
 | Method | `ble_direct` |
-| Discovery | Root Identifier Service plus RT0/RT1 manufacturer type |
+| Discovery | RT0/RT1 manufacturer type; Root Identifier Service checked after connecting |
 | Passphrase protection | `not_applicable` |
 | Confidence | Medium (official public source; not replayed here) |
 
 1. Power on the robot and keep it stationary for initial read-only checks.
-2. Scan for the Root Identifier Service and require an RT0/RT1 manufacturer type.
-3. Connect and discover GATT without starting OS pairing.
+2. Scan for an RT0/RT1 manufacturer type (company ID 0x0600).
+3. Connect and discover GATT without starting OS pairing; confirm the Root
+   Identifier Service is present.
 4. **Subscribe to robot TX first** and wait for the subscription to complete.
 5. Send `get_main_board_versions` and accept only protocol 1.0–1.3 for this spec.
 6. Optionally read the name, Device Information or battery state.
@@ -118,10 +120,11 @@ Device Information contains:
 | `00002a29-0000-1000-8000-00805f9b34fb` | Manufacturer Name | Manufacturer string, reported as a 13-byte field |
 | `00008bb6-0000-1000-8000-00805f9b34fb` | Robot State | Two bytes; also present in advertising |
 
-Robot State's second byte carries battery percentage in its low seven bits. The
-first byte contains bump/touch/cliff flags, but the pinned source's diagram has
-two leading zeroes plus seven flag labels, which cannot fit in one byte. This
-spec therefore does **not** invent individual flag masks.
+Robot State's second byte carries battery percentage in its low seven bits and the
+first byte bump/touch/cliff flags. That order is unverified: upstream calls the flags
+byte "MSB" and the battery byte "LSB" without saying which is sent first. The pinned
+source's flags diagram has two leading zeroes plus seven flag labels, which cannot fit
+in one byte. This spec therefore does **not** invent individual flag masks.
 
 Nordic UART names are from the **robot's** perspective:
 

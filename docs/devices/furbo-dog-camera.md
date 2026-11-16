@@ -130,16 +130,19 @@ sessions need no change afterwards.
 
 | Property | Value |
 |----------|-------|
-| Pairing required | No |
-| Security mode | `none` |
+| Pairing required | Yes (a cloud-issued per-device key, not a radio pairing) |
+| Security mode | `app_layer` |
 | Bonding | `none` |
-| PIN source | not applicable |
+| PIN source | `vendor_app`: the cloud-issued UID and AuthKey |
 | One central at a time | Unknown |
 | One bond at a time | No (nothing bonds) |
-| Confidence | low (from the app) |
+| Confidence | medium (open implementations; not replayed here) |
 
-**Entering pairing mode**: nothing to pair. Setup mode (above) is what makes
-the camera advertise.
+**Entering pairing mode**: nothing to press. The local P2P session needs the
+camera's UID and its 8-character AuthKey (the P2P account id and key too), which
+only the Furbo cloud issues to the owner's account; a modern camera refuses the
+AV session without them. Nothing bonds at the radio: setup mode (above) is only
+what makes the camera advertise for Wi-Fi provisioning.
 
 **Unpairing**: nothing bonds. Ownership lives in the cloud account; "Remove
 Device" in the app clears it.

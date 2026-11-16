@@ -516,3 +516,9 @@ def test_manual_core_control_confirmations_stay_scoped(commands):
 
     assert commands["set_brightness"]["verification"] == "reported"
     assert commands["get_emeter"]["verification"] == "reported"
+
+
+def test_reboot_is_advanced_because_the_load_may_lose_power(commands):
+    reboot = commands["reboot"]
+    assert reboot["advanced"] is True
+    assert "unverified" in reboot["advanced_reason"]

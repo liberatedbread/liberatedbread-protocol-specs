@@ -316,3 +316,9 @@ def test_unresolved_physical_units_are_not_invented():
                 assert "unit" not in field, (format_name, field["name"])
     for field in fields("SpectrogramData")[:-1]:
         assert "unit" not in field, field["name"]
+
+
+def test_discovery_is_manual_selection_not_a_generic_name_match():
+    discovery = SPEC["device"]["discovery"]
+    assert "methods" not in discovery
+    assert discovery["none"].startswith("Manual selection only.")

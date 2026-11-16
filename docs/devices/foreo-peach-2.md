@@ -9,7 +9,7 @@
 !!! danger "IPL can permanently damage skin and eyes"
     This handset emits intense pulsed light, up to 7.3 J/cm². Misuse can cause burns,
     blistering, discoloration, scarring or serious eye injury. Patch-test first, match
-    intensity to skin tone, never treat broken, tanned, tattooed or moled skin, and keep
+    the handset intensity to skin tone, never treat broken, tanned, tattooed or moled skin, and keep
     it away from eyes. This project is experimental and unaffiliated; FOREO's manual and
     safety guidance govern. Do not bypass the skin-contact or eye-safety interlocks.
 
@@ -24,7 +24,7 @@ command dialects and app-side subscription enforcement.
 
 A 2026-11-07 Android HCI capture then recorded two stock-app connections to an
 already-activated PEACH2 running `PEACH2 F.REV.K`. It confirms the FFF0 GATT layout,
-security-access write, no-pairing session, 0A20 read, new-dialect intensity/mode writes,
+security-access write, no-pairing session, 0A20 read, new-dialect T-Sonic/removal-mode writes,
 and seven-byte cooling profile.
 
 On **2026-11-14** a standalone BlueZ/bleak client written from the spec alone drove an
@@ -40,7 +40,7 @@ Three findings matter most, at different evidence levels:
    so the actual locked-unit write was not verified.
 2. **Pro mode is gated only in the app; the firmware accepts it directly.** Normal Pro
    selection in the stock app requires an active eligible subscription (a separate
-   testing flag bypasses that branch), after which the app writes `0ad0 06`. There is
+   vendor test-device flag bypasses that branch), after which the app writes `0ad0 06`. There is
    no token or key. In the replay, a client with no FOREO account wrote `0ad0 06`, got
    the usual `01` acknowledgement, read back `06`, and still read `06` after
    reconnecting. Static analysis says the stock app writes Basic back on connect when
@@ -211,7 +211,9 @@ the app: the firmware accepted a direct Pro write with no account.
 - Whether any BLE command touches IPL intensity.
 - Fixed cooling-profile bytes, NTC/accelerometer/vibrator conversion, other notification
   streams and the 0AB1 write.
-- Temperature/NTC/voltage payload layouts and read-back formats.
+- Units of the NTC thresholds and flash voltage entries, and the 0BA2 read-back layout. The
+  other read-back formats (0B01, 0BD0, 0BC4 0007, 0BB2/0BB4/0BB5/0BD1) were pinned by the
+  2026-11-14 replay.
 - OTA entry, image transfer, update-mode identity and recovery; 0A08 is not a verified
   trigger.
 - Single-central exclusivity and whether any model exposes a remote-fire command.

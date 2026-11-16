@@ -71,8 +71,6 @@ device:
     bootloader, firmware-upload or firmware-activation operation.
 
   identification:
-    service_uuids:
-      - "48c5d828-ac2a-442d-97a3-0c9822b04979"
     manufacturer_data:
       company_id: 1536
       company_id_hex: "0x0600"
@@ -81,41 +79,43 @@ device:
         bytes 00 06). The payload begins with the ASCII robot type RT0 or RT1
         for this spec. Ci3 is documented by upstream but deliberately excluded.
     notes: >
-      Require the Root Identifier Service and an RT0/RT1 manufacturer type as
-      a narrowing pair. The service is the preferred scan filter because the
-      local name is owner-renamable, but the same service family also covers
-      robots outside this spec. Nordic UART is not an identification signal.
+      Match on the RT0/RT1 manufacturer type only; the local name is
+      owner-renamable. The Root Identifier Service
+      (48c5d828-ac2a-442d-97a3-0c9822b04979) is deliberately not a scan
+      matcher: it is shared with the iRobot Create 3 (Ci3) and other robots
+      outside this spec, and consumers OR scan matchers, so listing it would
+      claim those robots too. Use it as a post-connect check instead: after
+      connecting, confirm the Root Identifier Service is present in the GATT
+      table. Nordic UART is not an identification signal.
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "48c5d828-ac2a-442d-97a3-0c9822b04979"
           manufacturer_data:
             company_id: 1536
             match: "prefix"
             pattern: "525430"
             description: >
               RT0: manufacturer payload after the two company-ID bytes starts
-              with ASCII "RT0" (52 54 30). Require the Root Identifier Service
-              as well; do not accept the service alone as proof of RT0.
+              with ASCII "RT0" (52 54 30). Confirm the Root
+              Identifier Service after connecting; never accept the service
+              alone as proof of RT0.
         notes: >
           Root RT0 candidate. The published protocol does not say whether any
           bytes follow the three-byte robot type, hence a prefix rather than an
           exact whole-payload match.
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "48c5d828-ac2a-442d-97a3-0c9822b04979"
           manufacturer_data:
             company_id: 1536
             match: "prefix"
             pattern: "525431"
             description: >
               RT1: manufacturer payload after the two company-ID bytes starts
-              with ASCII "RT1" (52 54 31). Require the Root Identifier Service
-              as well; do not accept the service alone as proof of RT1.
+              with ASCII "RT1" (52 54 31). Confirm the Root
+              Identifier Service after connecting; never accept the service
+              alone as proof of RT1.
         notes: >
           Root RT1 candidate. Ci3 and every other robot-type string are out of
           scope until separately established for this protocol revision.
@@ -267,9 +267,10 @@ services:
   - uuid: "48c5d828-ac2a-442d-97a3-0c9822b04979"
     name: "Root Identifier Service"
     notes: >
-      Empty by design: upstream specifies no characteristics. Advertise-filter
-      on this vendor-specific UUID to find Root candidates, then apply the
-      RT0/RT1 manufacturer-type restriction in device.identification.
+      Empty by design: upstream specifies no characteristics. Post-connect
+      check only: it is shared with the iRobot Create 3 and other robots, so
+      it is not a scan matcher here; the RT0/RT1 manufacturer type in
+      device.identification is what selects this spec.
 
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information"
@@ -302,7 +303,11 @@ services:
             name: "state_flags"
             type: "uint8"
             notes: >
-              Bump, touch and cliff flags. The pinned source's binary diagram
+              Unverified byte order: upstream labels the flags byte "MSB" and
+              the battery byte "LSB" of a two-byte bitfield but does not state
+              which is sent first; flags at offset 0 and battery at offset 1
+              is this spec's assumption, not confirmed on hardware. Bump,
+              touch and cliff flags. The pinned source's binary diagram
               has two leading zeroes plus seven flag labels, which cannot fit
               one byte; individual masks are therefore not asserted here.
           - offset: 1
@@ -312,7 +317,7 @@ services:
             mask: 0x7F
             unit: "%"
             device_class: "battery"
-            notes: "Low seven bits carry battery percent; bit 7 is outside the documented value."
+            notes: "Low seven bits carry battery percent; bit 7 is outside the documented value. Offset 1 is assumed, not stated upstream (see state_flags); unverified."
         notes: >
           Two-byte value also carried in advertising, allowing a scanner to
           distinguish a robot being touched before connecting. Read exactly two
@@ -722,6 +727,7 @@ local_access:
     - "Create 3 / Ci3 and protocol versions newer than Root 1.3"
 
 remaining_unknowns:
+  - "Robot State byte order: upstream names an MSB (flags) and LSB (battery) byte but not which is sent first; flags at offset 0 is assumed."
   - "No owner advertisement/GATT dump or read-only packet exchange on current RT0/RT1 firmware exists here. All wire facts remain reported, and device.testing remains untested."
   - "The pinned source is from 2024 and calls Root protocol 1.3 current and 1.4 planned. Whether current SAM-supported firmware changed the Root protocol is unknown; query versions rather than assuming continuity."
   - "No factory-reset procedure, persistent-state clearing list or maximum simultaneous-central count is established. Stop-and-reset is not a factory reset."
