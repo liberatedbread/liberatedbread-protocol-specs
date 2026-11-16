@@ -127,7 +127,10 @@ def test_exact_scan_names_sensor_roles_and_pro_boundary() -> None:
     )
 
     enforcement = spec["protocol_details"]["paywall"]["enforcement"]
-    assert "testing == 1" in spec["protocol_details"]["paywall"]["mechanism"]
+    mechanism = " ".join(spec["protocol_details"]["paywall"]["mechanism"].split())
+    assert "vendor test-device flag" in mechanism
+    # Clean-room: the vendor app's own field expression must stay paraphrased.
+    assert "testing ==" not in mechanism
     assert "unconditionally" not in enforcement
     assert "firmware does not enforce entitlement" in enforcement
 
