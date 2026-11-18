@@ -15,6 +15,7 @@
 #
 # Devices:
 #   June Intelligent Oven (june-oven)
+#   June Intelligent Oven (Project July, second generation) (june-oven-project-july)
 #   LG webOS TV Second Screen Protocol (lg-webos)
 #   TP-Link Kasa Smart Plug (tplink-kasa-smart-plug)
 #
@@ -77,6 +78,7 @@ add name=devices-ota.walker-cloud.com type=NXDOMAIN comment="liberatedbread:all:
 add name=devs-gw.tplinkcloud.com type=NXDOMAIN comment="liberatedbread:all: tplink-kasa-smart-plug"
 add name=devs.tplinkcloud.com type=NXDOMAIN comment="liberatedbread:all: tplink-kasa-smart-plug"
 add name=download.tplinkcloud.com type=NXDOMAIN comment="liberatedbread:all: tplink-kasa-smart-plug"
+add name=downloads.project-july.org type=NXDOMAIN comment="liberatedbread:all: june-oven-project-july"
 add name=emp.lgsmartplatform.com match-subdomain=yes type=NXDOMAIN comment="liberatedbread:all: lg-webos"
 add name=lgad.cjpowercast.com.edgesuite.net type=NXDOMAIN comment="liberatedbread:all: lg-webos"
 add name=lgsmartad.com match-subdomain=yes type=NXDOMAIN comment="liberatedbread:all: lg-webos"
