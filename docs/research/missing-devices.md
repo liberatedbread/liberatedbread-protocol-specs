@@ -27,6 +27,13 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     cameras, Combustion Probe V1/V2+, Hunter NODE-BT (two-station core),
     Easee Charge Max, and ANT Smart BMS legacy/2021+ telemetry.
 
+    Follow-up protocols now covered: [PineTime with InfiniTime 1.16.0](../devices/pinetime-infinitime.md),
+    [original NeuroSky MindWave Mobile](../devices/neurosky-mindwave.md),
+    [MyKronoz ZeTime](../devices/mykronoz-zetime.md),
+    [Bangle.js 1 and 2](../devices/banglejs-watches.md), and
+    [YUNMAI Mini / SE / X / Mini 2S](../devices/yunmai-scales.md). All are
+    source-derived and untested, with their remaining gaps kept per spec.
+
 This page answers one question: **which locally-controllable devices does the
 catalogue still lack, and which of them should be written up next?** It follows
 the older [candidates survey](device-candidates.md), which was checked against

@@ -1,0 +1,708 @@
+# Pine64 PineTime with InfiniTime 1.16.0 — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: InfiniTime firmware/docs at 9ad16304f5fd526b781a760cf1313813d232645e,
+# the official Pine64 wiki/quick-start and Gadgetbridge's model page. No hardware,
+# capture, account, cloud request, firmware image or health-data collection was used.
+# Proprietary factory firmware, other open firmware and other InfiniTime versions
+# are deliberately out of scope.
+
+device:
+  name: "Pine64 PineTime (InfiniTime 1.16.0)"
+  manufacturer: "Pine Store Limited (PINE64)"
+  manufacturer_status: "active"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/InfiniTimeOrg/InfiniTime"
+    license: "GPL-3.0"
+    upstream_docs:
+      - url: "https://github.com/InfiniTimeOrg/InfiniTime/blob/9ad16304f5fd526b781a760cf1313813d232645e/doc/ble.md"
+        title: "InfiniTime 1.16 BLE overview"
+        covers: "Companion discovery, standard/custom UUIDs, ANS, music and legacy DFU."
+      - url: "https://github.com/InfiniTimeOrg/InfiniTime/blob/9ad16304f5fd526b781a760cf1313813d232645e/doc/SimpleWeatherService.md"
+        title: "InfiniTime Simple Weather Service"
+        covers: "Current-weather v0/v1 and forecast v0 binary layouts."
+      - url: "https://github.com/InfiniTimeOrg/InfiniTime/blob/9ad16304f5fd526b781a760cf1313813d232645e/doc/BLEFS.md"
+        title: "InfiniTime BLE FS"
+        covers: "File commands, responses and signed LittleFS statuses."
+    notes: >
+      Open firmware and public protocol documentation are the authority here.
+      Source commit CMakeLists declares version 1.16.0; this is not a family-wide
+      claim about other PineTime firmware or future MOY_* targets.
+  testing:
+    status: untested
+    notes: >
+      No PineTime was connected or updated from this document. Every protocol fact is
+      reported from the pinned open firmware/documentation, not independently confirmed
+      on hardware. Test vectors use invented weather/file values only.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "wearable"
+  type: "smartwatch"
+  companion_apps:
+    - name: "Gadgetbridge"
+      package: "nodomain.freeyourgadget.gadgetbridge"
+      role: "primary"
+      platform: "android"
+      url: "https://f-droid.org/en/packages/nodomain.freeyourgadget.gadgetbridge/"
+      notes: "Account-free local companion; PineTime is listed pair-free. Step history/sleep are not claimed."
+    - name: "InfiniLink"
+      role: "alternative"
+      platform: "ios"
+      url: "https://github.com/InfiniTimeOrg/InfiniLink"
+      notes: "Independent iOS companion; no feature-parity claim is made here."
+  notes: >
+    Scope is exactly InfiniTime 1.16.0 on PineTime. Read Firmware Revision and stop
+    before writes on any other version. The older 00040000 weather service is not a
+    fallback: Simple Weather 00050000 replaced it in 1.14 and is the only weather
+    layout in this spec.
+
+    BLE roles are bidirectional. The phone connects as GATT client to watch-hosted
+    battery/HR/DFU/music/navigation/call/motion/weather/FS and to watch-hosted CTS/ANS.
+    Independently, the watch is a GATT CLIENT that discovers CTS and ANS hosted by the
+    COMPANION: it reads phone Current Time and subscribes to phone New Alert. A client
+    that only enumerates watch services misses that reverse path. Both directions are
+    declared separately in protocol_details.ble_roles; do not assume one service UUID
+    implies one direction throughout a session.
+  identification:
+    local_names: ["InfiniTime"]
+    notes: >
+      The firmware device name is InfiniTime. Match the name only as a candidate, then
+      read 00002a26-0000-1000-8000-00805f9b34fb and require exactly 1.16.0 before
+      writes. Other PineTime firmware is not supported by this spec.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "InfiniTime"
+        verification: "reported"
+        notes: >
+          InfiniTime advertises on startup. Disconnect another companion if the watch
+          is occupied, then confirm firmware 1.16.0 and the actual service set instead
+          of assuming every optional surface is enabled.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, account or bond is needed for the documented local surfaces.
+      Medium confidence follows public firmware and working open companions; no flow
+      was replayed by this project. DFU and BLE FS can be disabled in watch settings
+      and require an explicit advanced opt-in.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for InfiniTime, read firmware 1.16.0, subscribe to watch notifications,
+          and optionally host CTS/ANS on the companion so the watch can discover them.
+          Enable DFU/file access only for a deliberate operation.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Disconnect the old companion and scan for the exact name InfiniTime."
+            actor: "client"
+            expect: "One candidate watch is found."
+          - action: "Read Firmware Revision 00002a26-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+            expect: "UTF-8 string exactly 1.16.0; otherwise stop before writes."
+          - action: "Subscribe to battery, heart rate, motion, music-event and call-event notifications as needed, and to BLE FS transfer before file commands."
+            actor: "client"
+          - action: "For reverse time/alert sync, host CTS 1805 and ANS 1811 on the companion and let the watch discover/read Current Time and subscribe to New Alert."
+            actor: "client"
+            expect: "The watch obtains time from the companion and receives phone-hosted alerts; this is separate from writes to watch-hosted CTS/ANS."
+          - action: "Leave firmware update and mutating BLE FS operations disabled unless explicitly enabled and intended."
+            actor: "user"
+        troubleshooting:
+          - symptom: "Time or alerts never arrive although watch GATT writes work."
+            causes:
+              - "The companion implemented only a GATT client. The watch also acts as a client and must find CTS/ANS hosted on the companion."
+          - symptom: "Weather is ignored on an older/newer firmware."
+            causes:
+              - "This spec covers only 1.16.0 Simple Weather. Do not write the legacy 00040000 layout or assume a future message version."
+          - symptom: "BLE FS/DFU returns insufficient authorization."
+            causes:
+              - "Firmware & files access is disabled in settings. Enable it deliberately, preferably only until reboot."
+          - symptom: "Daily step total looks incomplete."
+            causes:
+              - "Gadgetbridge reports steps are advertised mainly while the screen is on; this is not a reliable historical activity database."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: "No owner-level full factory reset or exact clearing scope was established for InfiniTime 1.16.0."
+      description: >
+        The quick-start and pinned settings/OTA documentation establish firmware
+        validation and recovery, not a general erase/settings reset. A reboot, firmware
+        rollback, or validate action is not a factory reset. No reset bytes or button
+        hold are invented here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Disconnect the previous companion and connect the new one. There is no vendor
+        account binding; repeat the firmware-version and service-role checks.
+      steps:
+        - action: "Disconnect the old companion and scan for InfiniTime."
+          actor: "client"
+        - action: "Read firmware 1.16.0 and rediscover both watch-hosted and companion-hosted roles."
+          actor: "client"
+          expect: "The new client has the expected notifications and, if used, its own CTS/ANS server is discovered."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["Watch settings and BLE FS files", "Optional host Bluetooth state (no bond required)"]
+      issued_to_client: []
+      notes: >
+        No Pine64 account, Wi-Fi passphrase, cloud token or application encryption key
+        is used. BLE FS contents and health-adjacent readings need owner-controlled
+        handling even though no credentials protect them.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Disconnect Gadgetbridge, InfiniLink, itd, Siglo or another central before switching clients; no reset or account unbind is needed."
+    enter_pairing_mode:
+      required: false
+      notes: "The firmware advertises on startup and Gadgetbridge marks PineTime pair-free."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "No bond is created for the covered path; disconnect and optionally forget an OS convenience entry."
+    notes: >
+      Pair-free means no pairing/bond is required, not that a user cannot choose a
+      host-specific security configuration. No application-layer credential follows.
+  variants:
+    - model: "PineTime InfiniTime 1.16.0"
+      identification: {model_prefix: "1.16.0"}
+      notes: >
+        The sole supported target, identified after connection by Firmware Revision.
+        Sealed and developer-kit PineTime share this protocol only when running that
+        exact firmware; non-InfiniTime and other versions are excluded.
+
+services:
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    characteristics:
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision"
+        properties: ["read"]
+        notes: "UTF-8 version string. This spec proceeds only for exactly 1.16.0."
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    initialization:
+      - characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+        format:
+          - {offset: 0, length: 1, name: "battery_level", type: "uint8", unit: "%", device_class: "battery", notes: "0-100 percent."}
+  - uuid: "0000180d-0000-1000-8000-00805f9b34fb"
+    name: "Heart Rate Service"
+    initialization:
+      - characteristic: "00002a37-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+    characteristics:
+      - uuid: "00002a37-0000-1000-8000-00805f9b34fb"
+        name: "Heart Rate Measurement"
+        properties: ["read", "notify"]
+        format_match: {offset: 0, value: 0, notes: "Current firmware emits flags 0 and one uint8 BPM. Any other flags require the full SIG parser."}
+        format:
+          - {offset: 0, length: 1, name: "flags", type: "uint8", notes: "SIG flags: bit 0 selects uint8 versus uint16 heart rate and other bits select optional fields."}
+          - {offset: 1, length: 1, name: "heart_rate", type: "uint8", unit: "bpm", notes: "Valid only when flags bit 0 is 0. Do not hard-code a two-byte parser when extended fields are present."}
+  - uuid: "00001805-0000-1000-8000-00805f9b34fb"
+    name: "Current Time Service (watch-hosted)"
+    notes: >
+      Watch-hosted CTS, distinct from the companion-hosted CTS the watch discovers as
+      a client. Current Time is read/write here; the companion-hosted direction is in
+      protocol_details.ble_roles.companion_cts.
+    characteristics:
+      - uuid: "00002a2b-0000-1000-8000-00805f9b34fb"
+        name: "Current Time"
+        properties: ["read", "write"]
+        notes: "Ten bytes: year u16 LE, month/day/hour/minute/second, weekday, fractions256, adjust reason. The 1.16 source ignores fractions/reason when writing."
+        commands:
+          set_current_time:
+            description: "Write the standard ten-byte current-time value to watch-hosted CTS; separate from the watch reading companion-hosted CTS."
+            verification: "reported"
+            template: ["{year}", "{month}", "{day}", "{hour}", "{minute}", "{second}", "{weekday}", "{fractions256}", "{adjust_reason}"]
+            parameters:
+              year: {type: "uint16", endianness: "little", min: 2000, max: 2099}
+              month: {type: "uint8", min: 1, max: 12}
+              day: {type: "uint8", min: 1, max: 31}
+              hour: {type: "uint8", min: 0, max: 23, unit: "h"}
+              minute: {type: "uint8", min: 0, max: 59, unit: "min"}
+              second: {type: "uint8", min: 0, max: 59, unit: "s"}
+              weekday: {type: "uint8", min: 0, max: 7, description: "SIG weekday code; 0 is unknown/not used by the 1.16 writer."}
+              fractions256: {type: "uint8", min: 0, max: 255, default: 0, description: "Fractions of a second in 1/256-second units; ignored by the 1.16 writer."}
+              adjust_reason: {type: "uint8", min: 0, max: 255, default: 1, description: "SIG adjust-reason bit field; ignored by the 1.16 writer."}
+      - uuid: "00002a0f-0000-1000-8000-00805f9b34fb"
+        name: "Local Time Information"
+        properties: ["read", "write"]
+        notes: "Two signed bytes: timezone and DST offset, using the SIG Local Time Information encoding. Read before writing; no custom fixed timezone constant is supplied."
+  - uuid: "00001811-0000-1000-8000-00805f9b34fb"
+    name: "Alert Notification Service (watch-hosted)"
+    notes: >
+      Watch-hosted ANS accepts direct New Alert writes and carries the custom call
+      event. Independently, the watch discovers and subscribes to a companion-hosted
+      ANS; see protocol_details.ble_roles.companion_ans.
+    initialization:
+      - characteristic: "00020001-78fc-48fe-8e23-433b3a1942d0"
+        subscribe: true
+        notes: "Watch-to-companion call accept/decline/mute events."
+    characteristics:
+      - uuid: "00002a46-0000-1000-8000-00805f9b34fb"
+        name: "New Alert"
+        properties: ["write"]
+        notes: "Category, count, 00 separator, then NUL-separated UTF-8 fields. See protocol_details.ans for category table and exact examples; not a fixed-length characteristic."
+      - uuid: "00020001-78fc-48fe-8e23-433b3a1942d0"
+        name: "Call event"
+        properties: ["notify"]
+        format:
+          - {offset: 0, length: 1, name: "call_event", type: "uint8", values: {0: "decline", 1: "accept", 2: "mute"}}
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic legacy DFU"
+    notes: >
+      Documentary surface only. A dedicated updater must own control notifications,
+      the full command sequence, .dat/.bin bytes, receipts, CRC and recovery before
+      any write is attempted. No generic initialization, partial command or bare
+      framing is exposed. Update runs in the normal application, not a separately
+      identified DfuTarg mode. Only matching official 1.16 images belong here.
+    characteristics:
+      - uuid: "00001531-1212-efde-1523-785feabcd123"
+        name: "DFU Control Point"
+        properties: ["write", "notify"]
+        role: "command"
+        notes: >
+          Control-point writes and notifications are deliberately not exposed as
+          generic commands. protocol_details.dfu documents the required sequence.
+      - uuid: "00001532-1212-efde-1523-785feabcd123"
+        name: "DFU Packet"
+        properties: ["write_without_response"]
+        role: "bulk"
+        notes: >
+          Image/init bytes require a dedicated implementation. No bare framing or
+          byte-parameter command is declared; 20 bytes is the segment limit only.
+      - uuid: "00001534-1212-efde-1523-785feabcd123"
+        name: "DFU Revision"
+        properties: ["read"]
+        format:
+          - {offset: 0, length: 2, name: "dfu_revision", type: "uint16", endianness: "little", notes: "0x0008 in the pinned firmware."}
+  - uuid: "00000000-78fc-48fe-8e23-433b3a1942d0"
+    name: "InfiniTime Music Service"
+    initialization:
+      - characteristic: "00000001-78fc-48fe-8e23-433b3a1942d0"
+        subscribe: true
+    characteristics:
+      - uuid: "00000001-78fc-48fe-8e23-433b3a1942d0"
+        name: "Music events"
+        properties: ["notify"]
+        format:
+          - {offset: 0, length: 1, name: "event", type: "uint8", values: {0: "play", 1: "pause", 3: "next", 4: "previous", 5: "volume up", 6: "volume down", 224: "app opened"}}
+      - uuid: "00000002-78fc-48fe-8e23-433b3a1942d0"
+        name: "Playback status"
+        properties: ["read", "write"]
+        commands:
+          set_playing:
+            description: "Set phone playback state shown by the watch: 01 playing, 00 paused."
+            verification: "reported"
+            template: ["{playing}"]
+            parameters:
+              playing: {type: "uint8", min: 0, max: 1, labels: ["paused", "playing"]}
+      - uuid: "00000003-78fc-48fe-8e23-433b3a1942d0"
+        name: "Artist"
+        properties: ["read", "write"]
+        notes: "UTF-8; firmware caps display strings at 40 bytes and truncates longer values with an ellipsis."
+      - uuid: "00000004-78fc-48fe-8e23-433b3a1942d0"
+        name: "Track"
+        properties: ["read", "write"]
+        notes: "UTF-8, same 40-byte firmware display cap."
+      - uuid: "00000005-78fc-48fe-8e23-433b3a1942d0"
+        name: "Album"
+        properties: ["read", "write"]
+        notes: "UTF-8, same 40-byte firmware display cap."
+  - uuid: "00010000-78fc-48fe-8e23-433b3a1942d0"
+    name: "InfiniTime Navigation Service"
+    characteristics:
+      - uuid: "00010001-78fc-48fe-8e23-433b3a1942d0"
+        name: "Navigation icon flag"
+        properties: ["read", "write"]
+        notes: "UTF-8 icon name from protocol_details.navigation.icon_examples; do not send an unlisted icon and expect an image."
+      - uuid: "00010002-78fc-48fe-8e23-433b3a1942d0"
+        name: "Navigation narrative"
+        properties: ["read", "write"]
+        notes: "UTF-8 instruction text supplied by the companion."
+      - uuid: "00010003-78fc-48fe-8e23-433b3a1942d0"
+        name: "Maneuver distance"
+        properties: ["read", "write"]
+        notes: "Short UTF-8 display string such as 50 m; it is not a fixed numeric unit."
+      - uuid: "00010004-78fc-48fe-8e23-433b3a1942d0"
+        name: "Route progress"
+        properties: ["read", "write"]
+        format:
+          - {offset: 0, length: 1, name: "progress", type: "uint8", unit: "%", notes: "0-100 route completion."}
+  - uuid: "00030000-78fc-48fe-8e23-433b3a1942d0"
+    name: "InfiniTime Motion Service"
+    initialization:
+      - characteristic: "00030001-78fc-48fe-8e23-433b3a1942d0"
+        subscribe: true
+      - characteristic: "00030002-78fc-48fe-8e23-433b3a1942d0"
+        subscribe: true
+    characteristics:
+      - uuid: "00030001-78fc-48fe-8e23-433b3a1942d0"
+        name: "Step count"
+        properties: ["read", "notify"]
+        format:
+          - {offset: 0, length: 4, name: "steps", type: "uint32", endianness: "little", unit: "steps", notes: "Current session count; not a historical database."}
+      - uuid: "00030002-78fc-48fe-8e23-433b3a1942d0"
+        name: "Raw motion XYZ"
+        properties: ["read", "notify"]
+        format:
+          - {offset: 0, length: 2, name: "x", type: "int16", endianness: "little", scale: 0.0009765625, unit: "g", notes: "1024 raw units = 1 g."}
+          - {offset: 2, length: 2, name: "y", type: "int16", endianness: "little", scale: 0.0009765625, unit: "g"}
+          - {offset: 4, length: 2, name: "z", type: "int16", endianness: "little", scale: 0.0009765625, unit: "g"}
+  - uuid: "00050000-78fc-48fe-8e23-433b3a1942d0"
+    name: "InfiniTime Simple Weather Service"
+    notes: >
+      Only this service/layout is in scope. The legacy 00040000 service is not accepted.
+      Writes carry complete characteristic values; do not invent a 20-byte application
+      fragmentation scheme. Negotiate ATT long writes/adequate MTU through the host.
+    characteristics:
+      - uuid: "00050001-78fc-48fe-8e23-433b3a1942d0"
+        name: "Simple Weather data"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Type/version byte pair then fixed message body: current v0=49 bytes,
+          current v1=53 bytes, forecast v0=36 bytes. All multibyte numbers are LE.
+          See protocol_details.simple_weather for strict lengths and sentinels.
+  - uuid: "0000febb-0000-1000-8000-00805f9b34fb"
+    name: "BLE File Transfer"
+    notes: >
+      Adafruit-derived BLE FS version 4, with InfiniTime signed LittleFS errors.
+      File access can be disabled in settings. Read/list operations are the least-risk
+      first capture; write/mkdir/delete/move are advanced and optional.
+    initialization:
+      - characteristic: "adaf0200-4669-6c65-5472-616e73666572"
+        subscribe: true
+        notes: "Every file command has a response here; parse the complete response header before data."
+    characteristics:
+      - uuid: "adaf0100-4669-6c65-5472-616e73666572"
+        name: "BLE FS protocol version"
+        properties: ["read"]
+        format:
+          - {offset: 0, length: 2, name: "version", type: "uint16", endianness: "little", notes: "Version 4 in InfiniTime 1.16.0."}
+      - uuid: "adaf0200-4669-6c65-5472-616e73666572"
+        name: "BLE FS transfer"
+        properties: ["read", "write", "notify"]
+        role: "bulk"
+        notes: >
+          Commands/responses are complete protocol packets, not fixed-size 20-byte
+          notifications. Exact command layouts and status semantics are in
+          protocol_details.ble_fs. Mutating commands are advanced and not bound to
+          ordinary one-tap entities.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu"]
+      transport: "ble"
+      services: ["00001530-1212-efde-1523-785feabcd123"]
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "public_url"
+        format: "nrfutil DFU zip containing application .bin and matching .dat init packet"
+        notes: "Use only officially produced images matching PineTime/InfiniTime 1.16. The .dat carries expected CRC; do not synthesize it."
+      enter:
+        how: "in_place"
+        notes: "The running application accepts 01 04 after advanced opt-in; no separate bootloader-entry command is claimed."
+      dfu_mode:
+        notes: "No separate DfuTarg identity or address offset is established for this in-place update path."
+      recovery:
+        interrupted: "unknown"
+        notes: "After successful activation, validate firmware in watch settings or the previous image may be restored. Interrupted-transfer behavior needs a recoverable-unit test."
+      verification: "reported"
+      notes: "Nine documented steps, 20-byte data segments, receipt counts and CRC validation. No generic/partial updater is exposed; a dedicated implementation owns the whole flow. Never mix with MCUBoot recovery or an arbitrary image."
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "battery_level"}
+  - platform: "sensor"
+    name: "Heart Rate"
+    unit: "bpm"
+    state_characteristic: "00002a37-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "heart_rate"}
+    notes: "Valid for current flags=0 frames; extended SIG formats require a full parser."
+  - platform: "sensor"
+    name: "Steps"
+    unit: "steps"
+    state_characteristic: "00030001-78fc-48fe-8e23-433b3a1942d0"
+    state_mapping: {value: "steps"}
+    notes: "Current advertised count, mainly while screen is on; not reliable end-of-day history or sleep tracking."
+
+protocol_details:
+  firmware_scope:
+    supported: ["1.16.0"]
+    read_characteristic: "00002a26-0000-1000-8000-00805f9b34fb"
+    unsupported_action: "Stop before any write; do not fall back to legacy weather or another version's layout."
+  ble_roles:
+    companion_cts:
+      direction: "Companion is GATT server; PineTime is GATT client."
+      service: "00001805-0000-1000-8000-00805f9b34fb"
+      characteristic: "00002a2b-0000-1000-8000-00805f9b34fb"
+      operation: "Watch discovers service and reads the 10-byte Current Time value."
+      value_layout: "year u16 LE; month/day/hour/minute/second u8; weekday u8; fractions256 u8; adjust reason u8."
+    companion_ans:
+      direction: "Companion is GATT server; PineTime is GATT client."
+      service: "00001811-0000-1000-8000-00805f9b34fb"
+      characteristic: "00002a46-0000-1000-8000-00805f9b34fb"
+      operation: "Watch discovers New Alert and subscribes through its CCCD. Companion emits alert values; watch consumes them."
+    watch_cts:
+      direction: "PineTime is GATT server; companion is GATT client."
+      service: "00001805-0000-1000-8000-00805f9b34fb"
+      operation: "Companion may read/write watch Current Time and Local Time Information; this does not replace companion-hosted discovery."
+    watch_ans:
+      direction: "PineTime is GATT server; companion is GATT client."
+      service: "00001811-0000-1000-8000-00805f9b34fb"
+      operation: "Companion writes New Alert directly; watch emits custom call-event notifications on 00020001-78fc-48fe-8e23-433b3a1942d0."
+    role_test_requirement: "Tests must assert all four roles independently, not merely assert UUID presence in the watch service table."
+  cts:
+    length: 10
+    fields:
+      - {offset: 0, length: 2, name: "year", type: "uint16", endianness: "little"}
+      - {offset: 2, length: 1, name: "month", type: "uint8"}
+      - {offset: 3, length: 1, name: "day", type: "uint8"}
+      - {offset: 4, length: 1, name: "hour", type: "uint8", unit: "h"}
+      - {offset: 5, length: 1, name: "minute", type: "uint8", unit: "min"}
+      - {offset: 6, length: 1, name: "second", type: "uint8", unit: "s"}
+      - {offset: 7, length: 1, name: "weekday", type: "uint8"}
+      - {offset: 8, length: 1, name: "fractions256", type: "uint8", scale: 0.00390625, unit: "s"}
+      - {offset: 9, length: 1, name: "adjust_reason", type: "uint8"}
+    test_vector: {value_hex: "ea 07 0b 11 0c 22 38 03 00 01", decoded: "2026-11-17 12:34:56, weekday 3, fraction 0, reason 1"}
+  ans:
+    value: "category:u8 | count:u8 | 00 | NUL-separated UTF-8 text fields"
+    categories: {0: "simple alert", 1: "email", 2: "news", 3: "call", 4: "missed call", 5: "SMS/MMS", 6: "voicemail", 7: "schedule", 8: "high-priority alert", 9: "instant message", 255: "all alerts"}
+    empty_rule: "Firmware ignores a packet of three bytes or fewer; at least one text byte is needed after the separator."
+    examples:
+      simple: {hex: "00 01 00 54 65 73 74 20 54 69 74 6c 65 00 54 65 73 74 20 42 6f 64 79", decoded: "one simple alert, title Test Title, body Test Body"}
+      call: {hex: "03 01 00 41 6c 65 78", decoded: "one call, caller Alex (invented)"}
+    call_events: {0: "decline", 1: "accept", 2: "mute"}
+  music:
+    event_values: {0: "play", 1: "pause", 3: "next", 4: "previous", 5: "volume up", 6: "volume down", 224: "app opened"}
+    status_values: {0: "paused", 1: "playing"}
+    metadata_encoding: "UTF-8; 40-byte display cap with ellipsis in firmware."
+  navigation:
+    fields:
+      flag: "00010001-78fc-48fe-8e23-433b3a1942d0, UTF-8 icon name"
+      narrative: "00010002-78fc-48fe-8e23-433b3a1942d0, UTF-8 instruction"
+      maneuver_distance: "00010003-78fc-48fe-8e23-433b3a1942d0, short UTF-8 distance display"
+      progress: "00010004-78fc-48fe-8e23-433b3a1942d0, uint8 percent 0-100"
+    icon_examples: ["arrive", "continue", "continue-left", "continue-right", "depart", "ferry", "flag", "fork", "merge-left", "merge-right", "roundabout", "turn-left", "turn-right", "uturn"]
+    full_list_source: "InfiniTime 1.16 doc/NavigationService.md; turn-stright is an upstream spelling in that list."
+  simple_weather:
+    endianness: "little for every multibyte integer"
+    current:
+      versions: {0: "49 bytes without sun times", 1: "53 bytes with signed sunrise/sunset"}
+      fields:
+        - {offset: 0, length: 1, name: "type", values: {0: "current"}}
+        - {offset: 1, length: 1, name: "version", allowed: [0, 1]}
+        - {offset: 2, length: 8, name: "timestamp", type: "uint64", unit: "s", notes: "Local-time UNIX seconds in the timezone used to set watch time."}
+        - {offset: 10, length: 2, name: "temperature", type: "int16", scale: 0.01, unit: "C"}
+        - {offset: 12, length: 2, name: "minimum_temperature", type: "int16", scale: 0.01, unit: "C"}
+        - {offset: 14, length: 2, name: "maximum_temperature", type: "int16", scale: 0.01, unit: "C"}
+        - {offset: 16, length: 32, name: "location", type: "string", notes: "UTF-8 bytes, zero padded; firmware adds its own terminator. No NUL required in the 32-byte field."}
+        - {offset: 48, length: 1, name: "icon", values: {0: "sun/clear", 1: "few clouds", 2: "clouds", 3: "heavy clouds", 4: "clouds and rain", 5: "rain", 6: "thunderstorm", 7: "snow", 8: "mist/smog", 255: "unknown (firmware enum)"}}
+        - {offset: 49, length: 2, name: "sunrise", type: "int16", unit: "min", version: 1, notes: "Minutes since midnight; 0 sun already up, -1 unknown, -2 no sunrise."}
+        - {offset: 51, length: 2, name: "sunset", type: "int16", unit: "min", version: 1, notes: "Minutes since midnight; -1 unknown, -2 no sunset."}
+      sun_validation: "Version 1 accepts each in -2..1439. If either is -1, values are out of range, sunrise is -2 without sunset -2, or nonnegative sunrise >= sunset, firmware treats both as unknown."
+    forecast:
+      versions: {0: "36 bytes"}
+      fields:
+        - {offset: 0, length: 1, name: "type", values: {1: "forecast"}}
+        - {offset: 1, length: 1, name: "version", allowed: [0]}
+        - {offset: 2, length: 8, name: "timestamp", type: "uint64", unit: "s"}
+        - {offset: 10, length: 1, name: "number_of_days", type: "uint8", min: 0, max: 5, notes: "Firmware clamps larger values to five; a strict client should reject them instead."}
+        - {offset: 11, length: 25, name: "five_day_slots", notes: "Five records of min:int16 LE (0.01 C), max:int16 LE (0.01 C), icon:u8. Zero-fill unused slots."}
+      day_slot_offsets: [11, 16, 21, 26, 31]
+    malformed_rule: "Reject unknown type/version and any message shorter than its fixed layout before reading fields. Do not substitute the legacy 00040000 weather layout."
+    test_vectors:
+      current_v1:
+        fields: {timestamp: 0, temperature_raw: -350, minimum_raw: -700, maximum_raw: 200, location: "Oslo", icon: 7, sunrise: 480, sunset: 960}
+        expected: "-3.50 C current, -7.00 C min, 2.00 C max, snow, location Oslo; 53 bytes"
+      forecast_v0:
+        fields: {timestamp: 0, number_of_days: 1, day0_min_raw: -700, day0_max_raw: 200, day0_icon: 7}
+        expected: "One snow day; remaining four slots all zero; 36 bytes"
+  ble_fs:
+    verification: "reported"
+    version: 4
+    endianness: "little for every multibyte integer"
+    paths: "Absolute UTF-8 paths begin /. No NUL terminator is sent. Cap at 255 bytes plus local terminator for memory safety; firmware's 256-byte array/length handling must not be relied on."
+    status: "Signed int8. 0x01 is success; negative values are LittleFS errors, NOT Adafruit unsigned status codes. Never print a negative status as 0..255 without sign conversion."
+    commands:
+      read_begin:
+        request: "10 | pad:1 | path_length:u16 | chunk_offset:u32 | chunk_size:u32 | path"
+        request_header_length: 12
+        response: "11 | status:i8 | pad:2 | chunk_offset:u32 | total_length:u32 | chunk_length:u32 | data"
+        response_header_length: 16
+      read_continue:
+        request: "12 | 01 | pad:2 | chunk_offset:u32 | chunk_size:u32"
+        request_header_length: 12
+        response: "Same 11 response; repeat until requested bytes are complete. No close command."
+      write_begin:
+        request: "20 | pad:1 | path_length:u16 | offset:u32 | modification_time_ns:u64 | total_size:u32 | path"
+        request_header_length: 20
+        response: "21 | status:i8 | pad:2 | offset:u32 | modification_time_ns:u64 | free_space:u32"
+        response_header_length: 20
+        advanced: true
+        optional: true
+        advanced_reason: "Creates/overwrites owner files and can consume all watch storage."
+      write_continue:
+        request: "22 | 01 | pad:2 | offset:u32 | data_length:u32 | data"
+        request_header_length: 12
+        response: "Same 21 response; stop when reported free space is zero. No close command."
+        advanced: true
+        optional: true
+        advanced_reason: "Writes file bytes; offset/length mismatch can corrupt the intended file."
+      delete:
+        request: "30 | pad:1 | path_length:u16 | path"
+        request_header_length: 4
+        response: "31 | status:i8"
+        response_header_length: 2
+        advanced: true
+        optional: true
+        advanced_reason: "Deletes owner files/directories; no recycle operation is documented."
+      mkdir:
+        request: "40 | pad:1 | path_length:u16 | pad:4 | modification_time_ns:u64 | path"
+        request_header_length: 16
+        response: "41 | status:i8 | pad:6 | modification_time_ns:u64"
+        response_header_length: 16
+        advanced: true
+        optional: true
+        advanced_reason: "Changes watch filesystem layout; enable only for a selected destination."
+      list_directory:
+        request: "50 | pad:1 | path_length:u16 | path"
+        request_header_length: 4
+        response: "51 | status:i8 | path_length:u16 | entry:u32 | total_entries:u32 | flags:u32 | modification_time_ns:u64 | file_size:u32 | relative_path"
+        response_header_length: 28
+        termination: "Responses continue until entry == total_entries; final has empty path. Flags bit 0 marks a directory."
+      move:
+        request: "60 | pad:1 | old_path_length:u16 | new_path_length:u16 | old_path | pad:1 | new_path"
+        request_fixed_length: "7 + old_path_length + new_path_length"
+        response: "61 | status:i8"
+        response_header_length: 2
+        advanced: true
+        optional: true
+        advanced_reason: "Renames/moves owner files or directories and can break installed resources."
+    response_matching: "Read response is 11 for both 10/12 requests; write response 21 for both 20/22; delete 31, mkdir 41, list 51, move 61. Match status before variable data and bounds-check every declared length."
+    test_vectors:
+      list_request: {path: "/", expected_hex: "50 00 01 00 2f"}
+      read_request: {path: "/boot.txt", offset: 0, chunk_size: 4, expected_hex: "10 00 09 00 00 00 00 00 04 00 00 00 2f 62 6f 6f 74 2e 74 78 74"}
+      read_response: {hex: "11 01 00 00 00 00 00 00 09 00 00 00 04 00 00 00 62 6f 6f 74", decoded: "success, offset 0, total 9, chunk boot; remaining 5 bytes require read_continue"}
+      list_final_response: {hex: "51 01 00 00 02 00 00 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00", decoded: "entry 2 == total 2, empty path terminates listing"}
+  dfu:
+    implementation: "documentation_only"
+    required_handler: "One dedicated implementation must own control-point subscription, sequencing, image bytes, notifications, receipts, CRC failure and recovery before any write is attempted; no generic or partial updater is exposed."
+    control_writes:
+      begin_dfu: {hex: "01 04", advanced: true, optional: true}
+      init_packet_begin: {hex: "02 00", advanced: true, optional: true, prerequisite: "Wait 10 01 01 after image sizes."}
+      init_packet_complete:
+        hex: "02 01"
+        advanced: true
+        optional: true
+        description: "Write the matching .dat packet FIRST, then send 02 01, and only after sending it wait for 10 02 01."
+      receipt_every_ten_segments: {hex: "08 0a", advanced: true, optional: true, prerequisite: "Wait 10 02 01 after init_packet_complete."}
+      receive_firmware_image: {hex: "03", advanced: true, optional: true}
+      validate_firmware_image: {hex: "04", advanced: true, optional: true, prerequisite: "Wait 10 03 01 after complete image."}
+      activate_image_and_reset: {hex: "05", advanced: true, optional: true, prerequisite: "Require 10 04 01; never activate after CRC failure."}
+    packet_writes:
+      application_image_size: "Eight zero bytes for SoftDevice/bootloader sizes, then application size as u32 LE."
+      dfu_init_packet: "The exact .dat bytes supplied with the selected official image; never synthesize them."
+      firmware_segment: "At most 20 bytes per segment; every receipt count must equal the actual number of bytes sent."
+    sequence:
+      - "Control begin_dfu 01 04."
+      - "Packet: SoftDevice u32 LE=0, bootloader u32 LE=0, application size u32 LE."
+      - "Wait control 10 01 01; control init_packet_begin 02 00."
+      - "Packet .dat; control init_packet_complete 02 01; wait 10 02 01."
+      - "Control 08 0a for receipts each ten segments; control 03."
+      - "Packet image in <=20-byte segments. Receipt 11 + received_bytes:u32 LE must equal bytes sent."
+      - "Wait 10 03 01; control 04; require 10 04 01 (a CRC failure is terminal)."
+      - "Control 05 to activate/reboot; then validate in watch settings or previous image may boot."
+    crc: "The pinned source validates CRC-16 with polynomial 0x1021, initial 0xffff, over the complete application image; the matching .dat supplies the expected value."
+    safety: "Advanced and optional at every step. No hardware verification, alternate bootloader flow, or non-official image is claimed."
+
+evidence:
+  firmware_source: >
+    InfiniTime at 9ad16304f5fd526b781a760cf1313813d232645e declares 1.16.0. Its BLE
+    implementations establish both client/server CTS/ANS roles, exact GATT properties,
+    Simple Weather lengths/endian/sentinels, BLE FS packed layouts/statuses and the
+    legacy DFU state machine. Public docs are used beside, not instead of, those facts.
+  official_device_documentation: >
+    Pine64's wiki identifies PineTime/nRF52832 and InfiniTime as default OS and lists
+    independent companions. The quick-start/FCC artifacts identify the product; no
+    proprietary factory firmware behavior is inferred.
+  companion_documentation: >
+    Gadgetbridge's model page supplies pair-free support and the limitation that steps
+    are advertised mainly with the screen on, without a sleep/history claim.
+  negative_findings: >
+    No hardware capture, clinical validation, firmware binary or general factory-reset
+    procedure was found. Legacy weather is incompatible. BLE FS uses signed LittleFS
+    statuses, not upstream Adafruit unsigned statuses. File/DFU authorization can be
+    disabled and was not bypassed.
+  open_questions: >
+    A 1.16.0 GATT/companion-service dump is still needed for live role behavior, HR
+    extended formats, motion cadence, weather long writes and a small FS read/list.
+    Reset scope, maximum centrals and interrupted DFU recovery also remain unverified.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "InfiniTimeOrg/InfiniTime at 9ad16304f5fd526b781a760cf1313813d232645e"
+      url: "https://github.com/InfiniTimeOrg/InfiniTime"
+      description: "Authoritative 1.16.0 firmware and BLE protocol source/docs."
+    - type: "vendor_documentation"
+      artifact: "PineTime quick-start guide and FCC grant 2AWAG-PINETIME"
+      url: "https://wiki.pine64.org/wiki/PineTime"
+      description: "Product/default-OS/companion identity, not a hardware protocol replay."
+
+remaining_unknowns:
+  - "Live 1.16.0 companion-service discovery and notification behavior on each host stack."
+  - "Heart-rate extended SIG formats and sensor cadence; current two-byte example is not a universal parser."
+  - "Historical activity/sleep behavior; only current motion values are documented and step advertisements can be missed while screen is off."
+  - "Maximum simultaneous centrals and any owner-level full factory reset/clearing scope."
+  - "BLE FS behavior at long paths/large transfers, exact host long-write requirements, and all negative LittleFS conditions."
+  - "Interrupted DFU recovery and exact image/signature policy; never test first on an unrecoverable unit."
+
+helpful_urls:
+  - title: "InfiniTime 1.16 BLE protocol overview"
+    url: "https://github.com/InfiniTimeOrg/InfiniTime/blob/9ad16304f5fd526b781a760cf1313813d232645e/doc/ble.md"
+    kind: "protocol_writeup"
+    description: "Pinned service UUIDs, companion CTS/ANS roles, ANS/music formats and nine-step legacy DFU."
+  - title: "InfiniTime 1.16 Simple Weather Service"
+    url: "https://github.com/InfiniTimeOrg/InfiniTime/blob/9ad16304f5fd526b781a760cf1313813d232645e/doc/SimpleWeatherService.md"
+    kind: "protocol_writeup"
+    description: "Current/forecast type-version layouts, temperatures, icons and sun-time sentinels."
+  - title: "InfiniTime 1.16 BLE FS"
+    url: "https://github.com/InfiniTimeOrg/InfiniTime/blob/9ad16304f5fd526b781a760cf1313813d232645e/doc/BLEFS.md"
+    kind: "protocol_writeup"
+    description: "Read/write/delete/mkdir/list/move packets and signed LittleFS status deviation."
+  - title: "PineTime quick-start guide (official PDF)"
+    url: "https://wiki.pine64.org/wiki/Special:Redirect/file/PineTime_Quick_Start_Guide.pdf"
+    kind: "manual"
+    description: "Official PineTime quick-start for the sealed watch; protocol scope here additionally requires InfiniTime 1.16.0."
+  - title: "Gadgetbridge PineTime support notes"
+    url: "https://gadgetbridge.org/gadgets/wearables/pine64/"
+    kind: "implementation"
+    description: "Pair-free local companion and step/sleep support limitations."

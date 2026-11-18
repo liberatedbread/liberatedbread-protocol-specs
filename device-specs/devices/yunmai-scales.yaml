@@ -1,0 +1,441 @@
+# YUNMAI Mini / SE / X / Mini 2S BLE scales — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: openScale at 35a67c7eea706d0c0cbd6a48b98f7b352960d0a1, including
+# its Yunmai handlers/tests and one address-zeroed public M1827CH fixture; the
+# archived vendor app 3.10 corroborates FFE4/FFE9. No new captures, profiles,
+# health history, account or cloud traffic was used.
+
+device:
+  name: "YUNMAI Mini / SE / X / Mini 2S"
+  manufacturer: "YUNMAI"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/oliexdev/openScale"
+    license: "GPL-3.0"
+    notes: >
+      No official protocol documentation was found. openScale supplies the public
+      implementation and regression corpus; the vendor app independently corroborates
+      only the connected FFE4/FFE9 characteristic pair, not broad model compatibility.
+  testing:
+    status: untested
+    detail: "capture-verified"
+    notes: >
+      No scale was driven by this project. Capture detail applies ONLY to the public
+      M1827CH final advertisement whose address-echo bytes were zeroed in openScale's
+      test; X international and connected Mini/SE remain static-analysis evidence.
+      Upstream's focused 28/28 tests are not this project's hardware verification.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "scale"
+  category_hierarchy: ["measurement", "health", "body_composition"]
+  type: "body-composition-scale"
+  integration: "supported"
+  companion_apps:
+    - name: "openScale"
+      package: "com.health.openscale"
+      role: "primary"
+      platform: "android"
+      url: "https://f-droid.org/packages/com.health.openscale/"
+      notes: "Account-free local measurement/storage; body-composition values are estimates, not medical measurements."
+    - name: "YUNMAI"
+      package: "com.yunmai.scaleen"
+      role: "historical"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.yunmai.scaleen"
+      notes: "Vendor app 3.10 was analyzed only for corroboration; its account/cloud features and broad model list are outside this spec."
+  notes: >
+    This spec covers TWO incompatible transports. Mini and SE connect to FFE0/FFE5
+    and exchange XOR-checked frames. X (YMBS-M268) and Chinese Mini 2S (M1827CH)
+    need no GATT connection: they broadcast weight/impedance in a nameless 16-byte
+    manufacturer AD structure with service 0x1320. Mini 2 Wi-Fi, Mini 2, Color, Pro,
+    3G and other regional names in the vendor app are NOT automatically covered.
+
+    Raw weight and impedance are the emphasized values. Any body-fat/muscle/water/
+    bone/visceral-fat calculation is a vendor/openScale estimate requiring an owner
+    profile, not a medically validated measurement. Broadcast weight and impedance
+    are visible to any compatible receiver in radio range; there is no pairing or
+    encryption on that path.
+
+    Connected measurement deliberately has NO generic entity binding: a dedicated
+    handler must validate packet length, XOR, protocol version, target user and
+    nonzero weight before publishing. The independent configuration commands remain
+    a supported surface, so this is not identify-only. Advertised Mini/SE names are
+    candidates only: openScale PR1287 records connected variants that omit the final
+    checksum byte. Those units are OUT OF SCOPE until a sanitized checksum-less
+    vector and model mapping exist; XOR validation is never weakened on units with it.
+  identification:
+    local_name_prefixes:
+      - "YUNMAI-SIGNAL"
+      - "YUNMAI-ISM"
+      - "YUNMAI-ISC2P"
+      - "YUNMAI-ISSE"
+    local_names: ["YUNMAI-Scale-3"]
+    notes: >
+      Connected-name matchers come directly from openScale. X/Mini 2S have NO local
+      name and their first two manufacturer bytes are address bytes, not a fixed SIG
+      company ID, so identification.manufacturer_data is deliberately absent.
+      Service 0x1320 alone is only a saved-device/candidate hint: a live assignment
+      requires protocol_details.broadcast_transport's full 14-byte payload, known
+      signature, checksum and reversed-address echo. Never force an unknown YUNMAI
+      model into either parser merely because its name contains YUNMAI.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["YUNMAI-SIGNAL", "YUNMAI-ISM", "YUNMAI-ISC2P", "YUNMAI-ISSE"]
+        verification: "reported"
+        notes: "Connected Mini/SE path. Exact YUNMAI-Scale-3 is also accepted through identification.local_names."
+      - type: "ble_scan"
+        ble:
+          notes: >
+            Bespoke broadcast matcher: nameless advertisement, service
+            00001320-0000-1000-8000-00805f9b34fb, and full manufacturer-frame
+            validation. It deliberately has no generic company-ID/service-only match,
+            because either would overclaim unrelated devices. Parse every manufacturer
+            entry and require signature/checksum/address echo before assigning data.
+        verification: "reported"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The broadcast parser additionally requires that the six address bytes echoed
+        in the AD structure match the actual scan address reversed. CoreBluetooth may
+        hide that address, making passive identity/dedup unavailable on that host.
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No account or network provisioning is needed. X/Mini 2S measurements are passive;
+      Mini/SE need an owner-selected local 16-bit user ID and profile before measuring.
+      Medium confidence for documented openScale paths, but this project has no new capture.
+    methods:
+      - type: "ble_direct"
+        name: "X / Mini 2S passive advertisements"
+        role: "variant"
+        verified: false
+        description: >
+          For YMBS-M268 and M1827CH only: scan without connecting, validate service
+          0x1320 and every manufacturer frame, then publish one final per rearm cycle.
+          Do not attempt profile/time/user writes on this transport.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Step on the X or Mini 2S to wake it."
+            actor: "user"
+          - action: "Passively collect nameless advertisements and validate service/signature/checksum/address echo."
+            actor: "client"
+            expect: "Only exact 14-byte Android-split payloads with known signature and matching address are accepted."
+          - action: "Ignore live/stable for final publication, publish one state-03 final, then suppress repeats until a later live/stable frame rearms."
+            actor: "client"
+            expect: "One measurement per cycle, with zero final impedance allowed for weight-only."
+      - type: "ble_direct"
+        name: "Mini / SE connected profile and measurement"
+        role: "variant"
+        verified: false
+        description: >
+          For named Mini/SE only: connect, subscribe to FFE4, write an owner-selected
+          profile and current time on FFE9, query protocol version, then step on the
+          scale. Persist the 16-bit user ID for future history/duplicate handling.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Choose/store a nonzero 16-bit user ID and supply the owner profile to be encoded; test data must be synthetic."
+            actor: "user"
+          - action: "Connect and subscribe to FFE4 before starting measurement."
+            actor: "client"
+          - action: "Write set_user, set_time and query_protocol_version on FFE9 with XOR checksums."
+            actor: "client"
+            expect: "Final responses are accepted only when response type, packet length/checksum, protocol bounds and target user ID all match."
+          - action: "Step on the scale and ignore live type-01 updates until a valid final type-02 frame arrives."
+            actor: "user"
+        troubleshooting:
+          - symptom: "A connected final frame is discarded as Target user changed."
+            causes:
+              - "The four-byte target field does not match the stored 16-bit user ID. Resend that user's profile or reconnect; never attach it to whichever local profile is active."
+          - symptom: "Weight decodes but an inline composition read is wrong or out of bounds."
+            causes:
+              - "Check protocol version and packet size first: <0x1e is 18 bytes, 0x1e/0x1f is 20; >=0x20 is not claimed."
+          - symptom: "Only repeated finals, no new measurement."
+            causes:
+              - "Broadcast dedup is armed. A later valid live/stable frame rearms; repeated state-03 frames do not create new history."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: "No model-specific full factory reset or clearing scope was established."
+      description: >
+        No official model-specific owner manual was located. Battery removal is not
+        asserted to erase user profiles/history and is not listed as a reset. Guest
+        measurements and local-only storage reduce cloud exposure but do not prove a reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no bond/account binding to move. A new connected client selects and
+        stores its own 16-bit user ID/profile; a broadcast client simply scans. The
+        owner must understand that a new connected profile ID may not match old records.
+      steps:
+        - action: "Disconnect the old connected client, if any, and wake the scale."
+          actor: "user"
+        - action: "For Mini/SE, provision the new client's user ID/profile; for X/Mini 2S resume passive scanning."
+          actor: "client"
+          expect: "New final frames match the intended transport and, for connected frames, target user ID."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["Connected-scale user profile/history (exact reset scope unknown)"]
+      issued_to_client: []
+      notes: >
+        No Wi-Fi/cloud key or BLE bond is used. The client must persist the locally
+        generated 16-bit user ID and owner profile for connected decoding. Broadcasts
+        are unencrypted radio telemetry, not private measurements.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Disconnect the previous GATT client before connecting another. Broadcast variants need no disconnect and cannot be paired to hide measurements."
+    enter_pairing_mode:
+      required: false
+      notes: "Wake/step on the scale; no pairing button or PIN is part of either documented path."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "No bond exists to revoke."
+    notes: >
+      Absence of pairing is not profile authorization: connected final frames still
+      require the target user ID to match, and broadcast frames still require address echo.
+  variants:
+    - model: "Mini (connected, checksum-bearing only)"
+      identification:
+        local_name_prefix: "YUNMAI-SIGNAL"
+      notes: >
+        Also accepts YUNMAI-ISM*, YUNMAI-ISC2P* and exact YUNMAI-Scale-3 as CANDIDATES
+        only. Measurement support is limited to units whose captured response passes
+        the documented XOR check; openScale PR1287's checksum-less variants are excluded
+        pending a sanitized vector/model mapping. Protocol <0x1e has 18-byte final;
+        0x1e/0x1f has 20-byte final.
+    - model: "SE (connected, checksum-bearing only)"
+      identification:
+        local_name_prefix: "YUNMAI-ISSE"
+      notes: "Same candidate-name and mandatory-XOR gate as Mini; complete history/unit management is not claimed. Checksum-less variants are unresolved and excluded."
+    - model: "X YMBS-M268 (broadcast)"
+      identification:
+        service_uuids: ["00001320-0000-1000-8000-00805f9b34fb"]
+      notes: "Nameless; international signature 0b 74 17 plus checksum/address echo required. Service UUID alone is only a candidate hint."
+    - model: "Mini 2S M1827CH (broadcast)"
+      identification:
+        service_uuids: ["00001320-0000-1000-8000-00805f9b34fb"]
+      notes: "Nameless Chinese variant; signature 06 52 11 with otherwise identical layout and one sanitized public final-frame fixture."
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Mini / SE measurement service"
+    notes: "Connected variants only; X/Mini 2S must not be connected for this protocol."
+    initialization:
+      - characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+        notes: "Subscribe before profile/start writes so no final response is missed."
+    characteristics:
+      - uuid: "0000ffe4-0000-1000-8000-00805f9b34fb"
+        name: "Measurement notifications"
+        properties: ["notify"]
+        role: "notify"
+        format_match: {offset: 3, value: 0x02, notes: "Final common fields only; type/version/length/checksum validation is in protocol_details."}
+        format:
+          - {offset: 0, length: 1, name: "leader", type: "uint8", notes: "0x0d."}
+          - {offset: 1, length: 1, name: "protocol_version", type: "uint8", notes: "<0x1e => 18-byte final; 0x1e/0x1f => 20; >=0x20 unsupported."}
+          - {offset: 2, length: 1, name: "packet_size", type: "uint8", unit: "bytes", notes: "Whole response length including leader and XOR."}
+          - {offset: 3, length: 1, name: "response_type", type: "uint8", values: {1: "live/unstable (ignored)", 2: "final measurement"}}
+          - {offset: 4, length: 1, name: "reserved", type: "uint8", notes: "0x00 in documented final layout."}
+          - {offset: 5, length: 4, name: "timestamp", type: "uint32", endianness: "big", unit: "s", notes: "UNIX seconds; values before 1980-01-01 UTC are implausible and fall back to host time."}
+          - {offset: 9, length: 4, name: "target_user_id", type: "uint32", endianness: "big", notes: "Must equal the stored 16-bit ID zero-extended; mismatch requires profile resynchronization."}
+          - {offset: 13, length: 2, name: "weight", type: "uint16", endianness: "big", scale: 0.01, unit: "kg", device_class: "weight", notes: "Reject zero/non-finite decoded weight."}
+          - {offset: 15, length: 2, name: "impedance", type: "uint16", endianness: "big", unit: "ohm", notes: "Raw resistance; zero is not a valid composition input."}
+  - uuid: "0000ffe5-0000-1000-8000-00805f9b34fb"
+    name: "Mini / SE command service"
+    characteristics:
+      - uuid: "0000ffe9-0000-1000-8000-00805f9b34fb"
+        name: "Command writes"
+        properties: ["write"]
+        role: "command"
+        notes: "Requests are 0d | packet_size | command | payload | XOR. XOR covers bytes 1 through penultimate; packet_size is total bytes including 0d/checksum."
+        commands:
+          query_protocol_version:
+            description: "Five-byte query: 0d 05 13 00 16; use the answer to select final-frame bounds before measurement."
+            verification: "reported"
+            value: [0x0d, 0x05, 0x13, 0x00, 0x16]
+          set_time:
+            description: "Set current UNIX time with u32 BE and five zero reserved bytes."
+            verification: "reported"
+            template: [0x0d, 0x0d, 0x11, "{timestamp}", 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              timestamp: {type: "uint32", endianness: "big", min: 315532800, max: 4294967295, unit: "s"}
+              checksum: {type: "uint8", auto: "xor_checksum", checksum_start: 1}
+          set_user:
+            description: "Set the owner-selected profile. Persist its 16-bit ID; response target mismatch must not be assigned to another local user."
+            verification: "reported"
+            template: [0x0d, 0x12, 0x10, 0x01, 0x00, 0x00, "{user_id}", "{height_cm}", "{sex_code}", "{age}", 0x55, 0x5a, 0x00, 0x00, "{unit_code}", "{activity_code}", "{checksum}"]
+            parameters:
+              user_id: {type: "uint16", endianness: "big", min: 1, max: 65535}
+              height_cm: {type: "uint8", min: 40, max: 240, unit: "cm"}
+              sex_code: {type: "uint8", min: 1, max: 2, labels: ["code 1 (openScale male)", "code 2 (openScale female)"]}
+              age: {type: "uint8", min: 1, max: 255, unit: "years"}
+              unit_code: {type: "uint8", min: 1, max: 2, labels: ["kg", "lb/stones sent as lb"]}
+              activity_code: {type: "uint8", min: 0, max: 1, labels: ["ordinary", "heavy/extreme activity"]}
+              checksum: {type: "uint8", auto: "xor_checksum", checksum_start: 1}
+
+protocol_details:
+  connected_transport:
+    applies_to: ["Mini (connected, checksum-bearing only)", "SE (connected, checksum-bearing only)"]
+    verification: "reported"
+    generic_measurement_entities: false
+    handler_required: "A dedicated connected-measurement handler must complete all response checks before publishing weight/impedance. Configuration commands remain independently consumable; no generic measurement entity exists."
+    checksum_variant_gate: "Advertised Mini/SE names are only candidates. Accept measurement decoding only after a response with valid declared length and XOR. openScale PR1287 reports checksum-less connected variants; they are excluded until a sanitized vector and model mapping exist. Never bypass XOR on a checksum-bearing unit."
+    request:
+      layout: "0d | packet_size:u8 | command:u8 | payload | xor:u8"
+      checksum: "XOR of bytes 1 through the byte before checksum, inclusive; packet_size is total request bytes."
+    response:
+      layout: "0d | protocol_version:u8 | packet_size:u8 | response_type:u8 | payload | xor:u8"
+      checksum: "Same XOR span; reject any mismatch before decoding."
+      packet_size: "Whole response length including 0d and final XOR; require it to equal actual buffer length."
+      live: "Type 01 is live/unstable and is not published as a final measurement. Unknown types are rejected."
+      final_layouts:
+        - protocol: "below 0x1e (0x13 is the specifically documented example)"
+          exact_length: 18
+          fields: "timestamp @5 u32 BE, target @9 u32 BE, weight @13 u16 BE *0.01 kg, impedance @15 u16 BE ohms, XOR @17. No inline fat field."
+        - protocol: "0x1e and 0x1f"
+          exact_length: 20
+          fields: "Same common fields plus vendor composition value @17 u16 BE *0.01 percent; XOR @19. Meaning is vendor-specific and not clinically asserted."
+        - protocol: "0x20 and above"
+          supported: false
+          action: "Reject as unknown instead of reading beyond an 18-byte buffer or assuming 0x1e/0x1f layout."
+      target_user: "u32 BE at 9 must equal zero-extended stored 16-bit ID. On mismatch resynchronize profile or reconnect; never attach to active local user by default."
+      timestamp_fallback: "If timestamp is before 1980-01-01 UTC, use host receive time."
+      sequence: "Subscribe FFE4; write set_user, set_time, query_protocol_version on FFE9; ask user to step on scale; accept only valid final type 02."
+      capability_boundary: "Body-composition read is implemented upstream, but complete history, time sync, user sync and unit configuration are known capabilities not all claimed finished. This spec does not advertise history download."
+    test_vectors:
+      set_time:
+        timestamp: 315532800
+        frame_hex: "0d 0d 11 12 ce a6 00 00 00 00 00 00 66"
+      older_final:
+        frame_hex: "0d 13 12 02 00 12 ce a6 00 00 00 30 39 1f 40 01 f4 da"
+        decoded: {protocol: 19, timestamp: 315532800, target_user_id: 12345, weight_kg: 80.0, impedance: 500}
+        note: "Synthetic profile/measurement; checksum is independently computed in the test."
+      newer_final:
+        protocol: 30
+        length: 20
+        note: "Test constructs the same common values plus invented inline 25.00 percent and validates version bounds, not medical meaning."
+  broadcast_transport:
+    applies_to: ["X YMBS-M268 (broadcast)", "Mini 2S M1827CH (broadcast)"]
+    verification: "reported"
+    connection: "None. Nameless advertisements with service 00001320-0000-1000-8000-00805f9b34fb."
+    candidate_rule: "Service UUID alone is acceptable only to reopen a saved candidate, never to assign a new measurement; every live frame requires full validation."
+    full_ad_structure:
+      length: 16
+      fields:
+        - {offset: 0, length: 6, name: "device_address_reversed", notes: "Bytes 0-1 become Android manufacturer ID; they are not a SIG company assignment."}
+        - {offset: 6, length: 3, name: "signature", values: {"0b 74 17": "international YMBS-M268", "06 52 11": "Chinese M1827CH"}}
+        - {offset: 9, length: 1, name: "session", notes: "Per-weigh-in byte of unknown purpose; validate but do not compare or decode it."}
+        - {offset: 10, length: 1, name: "state", values: {1: "live", 2: "stable", 3: "final with impedance"}}
+        - {offset: 11, length: 2, name: "weight", type: "uint16", endianness: "big", scale: 0.01, unit: "kg"}
+        - {offset: 13, length: 2, name: "impedance", type: "uint16", endianness: "big", unit: "ohm", notes: "Zero until final; zero final gives weight-only."}
+        - {offset: 15, length: 1, name: "checksum", algorithm: "XOR bytes 9 through 14"}
+    android_split:
+      manufacturer_id: "(address_octet[4] << 8) | address_octet[5]"
+      payload_length: 14
+      payload_fields: "Original offsets 2-15 become payload offsets 0-13: remaining address echo @0-3, signature @4-6, session @7, state @8, weight @9-10 BE, impedance @11-12 BE, XOR @13 over payload 7-12."
+      address_echo: "For actual address a0:a1:a2:a3:a4:a5, require manufacturer_id=(a4<<8)|a5 and payload[0..3]=a3,a2,a1,a0. Reject relocated/replayed frames."
+      malformed_rule: "Reject wrong length, signature, checksum or address echo; unknown states are ignored and never publish/rearm."
+    final_rearming:
+      - "Start armed. Live 01 or stable 02 sets armed=true and is consumed without final publication."
+      - "Final 03 publishes once only when armed and decoded weight >0, then sets armed=false."
+      - "Repeated final while disarmed is consumed without publication. A later valid live/stable frame rearms; session byte is not needed for that decision."
+      - "Invalid final weight does not publish and does not manufacture a new measurement."
+    synthetic_example:
+      address: "00:00:5e:00:53:01"
+      manufacturer_id: 21249
+      payload_prefix_hex: "00 5e 00 00 0b 74 17"
+      note: "Invented address in the documentation range; test builds final weight 80.00 kg, impedance 500 ohms and its XOR."
+    public_sanitized_m1827ch:
+      evidence: "openScale public test fixture, final state 03, with all six address-echo bytes zeroed and address 00:00:00:00:00:00."
+      manufacturer_id: 0
+      payload_hex: "00 00 00 00 06 52 11 7f 03 22 3d 01 62 00"
+      decoded: {weight_kg: 87.65, impedance_ohm: 354, session: 127, checksum: 0}
+      scope: "Only public captured evidence in this spec. No identity, location, account or additional health history is retained; all other vectors are invented."
+    privacy: "Broadcast measurements are unencrypted and receivable in range; address echo is replay/identity validation, not encryption."
+  composition_estimates:
+    rule: "Optional client-side estimates only. Require an owner profile and nonzero impedance; do not turn inline/derived values into medical claims."
+    history_boundary: "No complete history sync, profile manager, unit manager or Wi-Fi variant support is claimed."
+
+evidence:
+  public_implementation: >
+    openScale at 35a67c7eea706d0c0cbd6a48b98f7b352960d0a1 supplies connected names,
+    GATT mapping, XOR framing, set-user/time/version requests, final version bounds,
+    broadcast signatures/checksum/address-echo and final rearming. Its focused
+    YunmaiXHandler/YunmaiLib tests passed 28/28 upstream.
+  public_capture: >
+    Exactly one M1827CH final frame is preserved in openScale's public test with all
+    address-echo bytes zeroed. It establishes that signature/layout/final values, not
+    international X or connected Mini/SE hardware behavior and not this project's test.
+  app_static_analysis: >
+    Archived vendor app 3.10 independently references FFE9/FFE4. Its broad model list
+    is explicitly not treated as proof that Mini 2 Wi-Fi, Color, Pro, 3G or other
+    regional revisions use either parser. No account/cloud functions were exercised.
+  negative_findings: >
+    No official model-specific manual/FCC record was established. No history download,
+    medical validation, full profile/unit manager, firmware update flow or generic
+    YUNMAI-name compatibility is claimed.
+  checksum_variants: >
+    openScale PR1287 (merged 2026-01-18) records connected models that do not append
+    the final checksum byte. It supplies no sanitized checksum-less vector/model map,
+    so those units remain outside this spec. Name prefixes are candidates only;
+    measurement claims require a response passing the same XOR validation used by tests.
+  open_questions: >
+    A real international X frame and connected Mini/SE session are needed, including
+    0x1320 uniqueness, >=0x20 layouts, profile-ID resync and broadcast rearm timing.
+    Reset/history semantics and CoreBluetooth address-hidden dedup also remain open.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "oliexdev/openScale at 35a67c7eea706d0c0cbd6a48b98f7b352960d0a1"
+      url: "https://github.com/oliexdev/openScale"
+      description: "Connected/broadcast handlers, algorithms, model names and 28 focused upstream tests."
+    - type: "public_capture"
+      artifact: "M1827CH sanitized final advertisement in YunmaiXHandlerTest"
+      url: "https://github.com/oliexdev/openScale/blob/35a67c7eea706d0c0cbd6a48b98f7b352960d0a1/android_app/app/src/test/java/com/health/openscale/core/bluetooth/scales/YunmaiXHandlerTest.kt"
+      description: "Address-zeroed Chinese Mini 2S final fixture; no other captured health data is used."
+
+remaining_unknowns:
+  - "International YMBS-M268 capture and whether 0x1320 is unique enough even as a saved-device hint."
+  - "Connected Mini/SE capture, protocol >=0x20 layouts, exact meaning of the inline 0x1e/0x1f composition field and any 0x1f boundary differences."
+  - "Connected history/unit/profile completion and exact user-ID conflict recovery."
+  - "Meaning of broadcast session byte and precise live/stable rearm behavior across weigh-ins."
+  - "How to dedup/passively identify broadcasts on hosts that hide the hardware address."
+  - "Model-specific reset, stored-history clearing and unsupported regional/Wi-Fi variants."
+  - "openScale PR1287's checksum-less connected variants: no sanitized vector or model mapping exists, so they are excluded rather than accepted without XOR."
+
+helpful_urls:
+  - title: "openScale PR1287: connected checksum-less variant evidence"
+    url: "https://github.com/oliexdev/openScale/pull/1287"
+    kind: "implementation"
+    description: "Records connected variants that omit the final checksum byte; kept unresolved here because no sanitized checksum-less vector/model mapping is available."
+  - title: "openScale local-first scale client"
+    url: "https://github.com/oliexdev/openScale/tree/35a67c7eea706d0c0cbd6a48b98f7b352960d0a1"
+    kind: "implementation"
+    description: "Pinned GPL implementation and tests for both Yunmai transports; account-free local storage."
+  - title: "openScale Yunmai Mini / SE connected handler"
+    url: "https://github.com/oliexdev/openScale/blob/35a67c7eea706d0c0cbd6a48b98f7b352960d0a1/android_app/app/src/main/java/com/health/openscale/core/bluetooth/scales/YunmaiHandler.kt"
+    kind: "implementation"
+    description: "Connected names, XOR requests, version-bounded final layouts and target-user checks."
+  - title: "openScale Yunmai X / Mini 2S broadcast handler and tests"
+    url: "https://github.com/oliexdev/openScale/blob/35a67c7eea706d0c0cbd6a48b98f7b352960d0a1/android_app/app/src/main/java/com/health/openscale/core/bluetooth/scales/YunmaiXHandler.kt"
+    kind: "implementation"
+    description: "Broadcast signature/checksum/address-echo parser and final rearming; sanitized M1827CH fixture is cited in evidence."

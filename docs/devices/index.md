@@ -284,6 +284,11 @@ spec's `device.setup` block; the patterns are explained in
 | [Hunter NODE-BT](hunter-node-bt.md) | BLE GATT | Spec Available (untested; upstream two-station core) | Owner-PIN application login (high) | Hunter Industries |
 | [Easee Charge Max](easee-charge-max.md) | BLE (ATT bond + EC-JPAKE/AES-GCM) | Spec Available (untested) | OS bond + label PIN/serial; active BLE proxy (high) | Easee AS |
 | [ANT Smart BMS](ant-smart-bms.md) | BLE GATT (two generations) | Spec Available (untested) | None on open units; optional app secret (high) | Shenzhen ANT (Zhuofeng) |
+| [Pine64 PineTime with InfiniTime 1.16.0](pinetime-infinitime.md) | BLE (bidirectional CTS/ANS) | Spec Available (untested) | None needed; exact firmware check (medium) | Pine Store Limited |
+| [NeuroSky MindWave Mobile (original)](neurosky-mindwave.md) | Bluetooth Classic RFCOMM/SPP | Spec Available (untested) | bt_classic_pairing (medium) | NeuroSky, Inc. |
+| [MyKronoz ZeTime](mykronoz-zetime.md) | BLE | Identify-only (untested) | Dedicated session handler required | MyKronoz |
+| [Espruino Bangle.js 1 and 2](banglejs-watches.md) | BLE Nordic UART | Identify-only (untested) | Manual selection + read-only ver gate, then dedicated multi-write handler | Espruino / Pur3 Ltd |
+| [YUNMAI Mini / SE / X / Mini 2S](yunmai-scales.md) | BLE GATT or passive broadcast | Spec Available (untested; sanitized capture) | Configuration commands; dedicated measurement handler | YUNMAI |
 
 ## Not everything here was liberated
 
