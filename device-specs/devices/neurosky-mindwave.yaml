@@ -1,0 +1,402 @@
+# NeuroSky MindWave Mobile (original, FCC XG9MW3) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: NeuroSky's ThinkGear Serial Stream Guide and 2011 XG9MW3 user guide,
+# the current vendor transport documentation, and robintibor's MIT Python SPP
+# client at b2bedb56f1e3b249a69ee669378f2e505c495091. No live EEG, pairing,
+# capture, cloud request or hardware command was used. Mobile 2 BLE is out of scope.
+
+device:
+  name: "NeuroSky MindWave Mobile (original)"
+  manufacturer: "NeuroSky, Inc."
+  manufacturer_status: "active"
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/robintibor/python-mindwave-mobile"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://developer.neurosky.com/docs/doku.php?id=thinkgear_communications_protocol"
+        title: "ThinkGear Serial Stream Guide"
+        covers: "Packet sync, the 169-byte payload limit, checksum, DataRows, raw samples and ASIC EEG powers."
+    notes: >
+      The serial format is vendor-published. The original Mobile's name, bonding and
+      SPP path are corroborated by the official guide and independent clients;
+      transport selection and cross-generation behavior remain reconstructed.
+  testing:
+    status: untested
+    notes: >
+      No headset was paired or driven from this document. Protocol facts come from
+      the official guide/manual and public implementations; no private EEG recording
+      is held. This spec deliberately claims no Mobile 2 BLE support.
+  protocol: "bluetooth_classic"
+  transport: "rfcomm"
+  category: "health"
+  category_hierarchy: ["measurement", "health", "other"]
+  type: "eeg-headset"
+  safety_advisory:
+    severity: "caution"
+    summary: "Experimental wellness telemetry, not a medical or diagnostic measurement."
+    detail: >
+      eSense Attention and Meditation are vendor-defined wellness metrics. Raw EEG
+      and band powers have no clinical interpretation in this spec. Do not use this
+      unverified client to make health, safety or treatment decisions.
+    advisory_url: "https://developer.neurosky.com/docs/doku.php?id=thinkgear_communications_protocol"
+  notes: >
+    Scope is the ORIGINAL MindWave Mobile, FCC ID XG9MW3, whose control surface is
+    Bluetooth Classic RFCOMM/SPP carrying ThinkGear serial packets. MindWave Mobile 2
+    uses a different BLE characteristic/command surface and is NOT covered. The older
+    USB-dongle MindWave generation (XG9MW1/XG9MW2) is also excluded.
+
+    A phone or PC opens SPP by UUID 00001101-0000-1000-8000-00805f9b34fb after
+    standard OS Bluetooth pairing. An independent Linux client used RFCOMM channel 1;
+    that is legacy evidence, not a universal SDP guarantee, so resolve the channel by
+    SDP first. The stream is asynchronous and read-only here. Do not copy Mobile 2's
+    20-byte BLE command wrapper or its raw-output/notch commands onto this hardware.
+    Official ThinkGear configuration bytes are firmware-specific and can make a module
+    unresponsive until power-cycled; none is declared as a safe command in this spec.
+  identification:
+    notes: >
+      This is a Classic-only target: the inquiry/remote name is exactly
+      "MindWave Mobile". Do not put that name in a BLE identification key and do not
+      claim a Mobile 2 merely because a BLE scan prints the same text.
+  discovery:
+    methods:
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "exact"
+            value: "MindWave Mobile"
+          service_uuids: ["00001101-0000-1000-8000-00805f9b34fb"]
+          requires_discoverable_mode: true
+        verification: "reported"
+        notes: >
+          Enter pairing mode before inquiry. SPP narrows the exact-name match; SPP
+          alone would identify nothing. Open the socket by SDP UUID, not by assuming
+          the independent client's channel 1 on every unit.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The official 2011 guide documents OS pairing, legacy PIN 0000 when asked, and
+      a serial/COM connection. Medium confidence in the documented flow, but this
+      project has not replayed it; setup.methods[].verified therefore remains false.
+    methods:
+      - type: "bt_classic_pairing"
+        verified: false
+        description: >
+          Slide the switch to ON, hold it past ON for three seconds to enter pairing
+          mode (release before six seconds), select MindWave Mobile in the host's
+          Bluetooth settings, enter 0000 if prompted, then open SPP by UUID.
+        steps:
+          - action: "Insert one AAA battery and slide the power switch to ON."
+            actor: "user"
+            expect: "The status LED lights; pairing mode normally starts automatically."
+          - action: "Hold the switch past ON for three seconds, then release it before six seconds."
+            actor: "user"
+            expect: "The blue LED flashes during the roughly two-minute pairing window."
+            timeout_seconds: 3
+          - action: "Select exactly MindWave Mobile in the host Bluetooth settings and enter legacy PIN 0000 if asked."
+            actor: "user"
+            expect: "The blue LED becomes solid after pairing/connection."
+          - action: "Resolve SPP 00001101-0000-1000-8000-00805f9b34fb through SDP and open a secure RFCOMM socket."
+            actor: "client"
+            expect: "ThinkGear packets arrive as a byte stream; keep it passive before attempting any configuration."
+        troubleshooting:
+          - symptom: "Pairing succeeds but no serial data arrives."
+            causes:
+              - "The application opened the wrong RFCOMM channel. Resolve SPP with SDP; channel 1 is only one independent client's legacy observation."
+              - "The host is connected but the client has not enabled raw output. This spec sends no cross-generation enable command; establish the original unit's firmware behavior first."
+          - symptom: "The pairing memory is unexpectedly empty."
+            causes:
+              - "The switch was held past ON for six seconds or longer, which clears all remembered hosts. Re-pair from scratch."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Clears all remembered Bluetooth hosts (up to three). It does not install
+        firmware or erase health history, because no such history surface is claimed.
+      description: >
+        The user guide has no broader data-reset procedure. Its reference section says
+        holding past ON for six seconds clears pairing memory; a quick-start passage
+        says ten seconds. The procedure below uses the longer instruction and records
+        the conflict rather than hiding it. Power-cycling restores the ThinkGear
+        module's default output configuration after any unsupported command.
+      procedures:
+        - name: "Clear all remembered Bluetooth pairings"
+          verified: false
+          basis: >
+            NeuroSky XG9MW3 user guide: pairing-memory instructions in the quick-start
+            and reference sections, which give ten and six seconds respectively.
+          hold_seconds: 10
+          power_state: "on"
+          indicator: "No distinct completion indication is documented."
+          steps:
+            - action: "Hold the power switch past ON for ten seconds, then release it."
+              actor: "user"
+              expect: "All previously remembered hosts are cleared; the headset must be paired again."
+            - action: "Enter pairing mode again with a three-second hold and pair the new host."
+              actor: "user"
+              expect: "The blue LED flashes, then becomes solid on connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A previously bonded host reconnects without provisioning. For a new host,
+        enter pairing mode again; clear all remembered hosts only when adoption fails.
+      steps:
+        - action: "Turn the headset on and open its SPP service from the bonded host."
+          actor: "client"
+          expect: "Solid blue LED and a ThinkGear byte stream."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["Up to three Bluetooth Classic bonds"]
+      issued_to_client: []
+      notes: >
+        Legacy PIN 0000 is a product-wide pairing convention, not an application
+        encryption key. There is no Wi-Fi, vendor account token or cloud credential.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "legacy_pin"
+    bonding: "required"
+    pin:
+      source: "fixed_default"
+      value: "0000"
+      length: 4
+      notes: "From the official XG9MW3 guide; used only if the host asks."
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Disconnect the old host first. If a new host cannot pair, clear all pairing
+        memory with the documented hold, then pair again. The headset remembers up to
+        three hosts, so adding one is not inherently a single-bond replacement.
+      notes: "The official guide states a three-host pairing memory."
+    enter_pairing_mode:
+      required: true
+      window_seconds: 120
+      advertised_name: "MindWave Mobile"
+      advertised_name_match: "exact"
+      indicator: "Blue LED flashes while pairable; solid blue when connected."
+      procedures:
+        - name: "Power/pairing switch held past ON for three seconds"
+          verified: false
+          basis: "NeuroSky XG9MW3 official 2011 user guide, Activating Pairing Mode."
+          hold_seconds: 3
+          power_state: "on"
+          indicator: "Blue LED flashes for approximately two minutes."
+          steps:
+            - action: "Hold the switch past ON for three seconds and release before six seconds."
+              actor: "user"
+              expect: "The headset enters pairing mode without clearing existing bonds."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "All remembered hosts at once; no per-host erase is documented."
+      procedures:
+        - name: "Clear the pairing memory with the power switch"
+          verified: false
+          basis: "The XG9MW3 guide's pairing-memory clear instruction."
+          hold_seconds: 10
+          power_state: "on"
+          steps:
+            - action: "Hold the switch past ON for ten seconds, then release it."
+              actor: "user"
+              expect: "Every old host bond is forgotten; other device behavior is unchanged."
+      notes: "This is the same operation recorded under factory_reset, not a separate per-host unpair."
+    notes: >
+      Confidence is medium because the vendor guide gives the complete flow, but no
+      procedure here is marked verified: this project did not execute it.
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The current vendor SDK can open a secure RFCOMM socket by the standard SPP
+        UUID after bonding. That code does not establish Mobile 2 radio support and
+        is used only as transport evidence.
+    - stack: "bluez"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        robintibor/python-mindwave-mobile, MIT, opens an RFCOMM socket to the exact
+        original name and parses ThinkGear packets. Its fixed channel 1 is not treated
+        as an SDP invariant.
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "none_known"
+      verification: "reported"
+      basis: >
+        The documented control surface is RFCOMM/SPP, which CoreBluetooth does not
+        expose. The 2011 guide mentions iOS pairing but does not establish an MFi/iAP2
+        protocol that an independent client could use.
+      notes: >
+        This verdict is limited to an independent CoreBluetooth client on iOS/iPadOS.
+        It does not deny the historical vendor iOS apps, whose accessory mechanism is
+        unresolved. macOS is separate: IOBluetooth provides Classic RFCOMM.
+  variants:
+    - model: "MindWave Mobile (XG9MW3)"
+      notes: >
+        The only covered model. Do not infer Mobile 2 BLE support from this entry and
+        do not apply the adjacent XG9MW1/XG9MW2 USB-dongle generation's manuals.
+
+bluetooth_classic:
+  dual_mode: false
+  ble_role: "none"
+  profiles:
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      role: "control"
+      secure: true
+      verification: "reported"
+      notes: >
+        Secure socket after the host's normal bond. Resolve the RFCOMM channel by SDP.
+        The independent Python client's channel 1 is recorded only in protocol_details.
+  serial:
+    profile_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    encoding: "binary"
+    correlation: "none"
+    framing:
+      length_prefix: true
+      length_offset: 2
+      length_size: 1
+      length_endianness: "big"
+      length_adjust: 4
+      max_frame_bytes: 173
+      checksum: "other"
+      rx_start_bytes: ["AA AA"]
+      resync: "scan_to_start_bytes"
+      notes: >
+        AA AA, then PLENGTH, PAYLOAD[PLENGTH], CHECKSUM. PLENGTH counts only the
+        payload and is valid from 0 through 169; a complete packet is PLENGTH+4 bytes.
+        CHECKSUM is (~sum(PAYLOAD)) & 0xff. Keep one buffer across socket reads,
+        enforce the 169-byte limit before allocation, and never parse DataRows before
+        checksum verification. After an oversized length or bad checksum discard only
+        the first buffered byte and resume scanning for AA AA, because a candidate
+        packet may itself contain the sync pair. Single-byte length fields have no
+        endianness; the value 0x00 is valid for an empty payload.
+    notes: >
+      Asynchronous stream, not a request/reply command channel. Read a complete valid
+      packet before considering any firmware-specific configuration. No write is
+      required for the basic eSense/raw/EEG surface and no command is declared here.
+  verification: "reported"
+  notes: >
+    The official serial guide defines the framing and DataRows. The current vendor
+    Classic transport feeds each received byte to the same parser family, while its
+    BLE transport is a different protocol and is intentionally absent here.
+
+protocol_details:
+  thinkgear_stream:
+    verification: "reported"
+    packet:
+      sync: "AA AA"
+      payload_length: {offset: 2, type: "uint8", min: 0, max: 169, unit: "bytes"}
+      payload_offset: 3
+      checksum: {offset: "3 + PLENGTH", algorithm: "(~sum(payload)) & 0xff"}
+      total_length: "PLENGTH + 4"
+      fragmentation: "Arbitrary RFCOMM read boundaries, including one byte at a time and several packets coalesced."
+      malformed_input: "Reject bad length/checksum without emitting any row; then scan forward one byte at a time for the next AA AA."
+    datarow:
+      layout: "Zero or more 0x55 extended-code bytes, CODE, optional VLENGTH, VALUE."
+      length_rule: "CODE < 0x80: one-byte VALUE and no VLENGTH. CODE >= 0x80: a one-byte VLENGTH followed by that many VALUE bytes."
+      unknown_rule: "Skip an unknown (extended-level, CODE) row using the same length rule; unknown does not invalidate neighboring rows. A truncated row invalidates the packet rather than exposing a partial value."
+      codes:
+        - {code: 0x01, name: "battery", length: 1, type: "uint8", unit: "raw battery level", verification: "reported", notes: "Present in the official example; scale is device-specific and not claimed here."}
+        - {code: 0x02, name: "poor_signal", length: 1, type: "uint8", notes: "0 is good; larger means noisier. 200 specifically means no skin contact."}
+        - {code: 0x04, name: "attention", length: 1, type: "uint8", unit: "eSense", notes: "1-100 relative scale; 0 means unavailable/unreliable, not minimum attention."}
+        - {code: 0x05, name: "meditation", length: 1, type: "uint8", unit: "eSense", notes: "1-100 relative scale; 0 means unavailable/unreliable."}
+        - {code: 0x16, name: "blink_strength", length: 1, type: "uint8", notes: "Reported by the current parser; official serial guide says it is not directly available from current ThinkGear hardware, so do not require it."}
+        - {code: 0x80, name: "raw_eeg", length: 2, type: "int16", endianness: "big", scale: 1, notes: "Signed two's-complement ADC counts. No microvolt scale is established; do not assign one."}
+        - {code: 0x83, name: "asic_eeg_power", length: 24, type: "eight uint24", endianness: "big", scale: 1, notes: "Dimensionless relative band-power values; not clinical measurements."}
+      eeg_power_order: ["delta", "theta", "low_alpha", "high_alpha", "low_beta", "high_beta", "low_gamma", "mid_gamma"]
+      frequency_bands_hz:
+        delta: [0.5, 2.75]
+        theta: [3.5, 6.75]
+        low_alpha: [7.5, 9.25]
+        high_alpha: [10.0, 11.75]
+        low_beta: [13.0, 16.75]
+        high_beta: [18.0, 29.75]
+        low_gamma: [31.0, 39.75]
+        mid_gamma: [41.0, 49.75]
+    legacy_channel_one:
+      verification: "reported"
+      notes: "An independent Linux client opens RFCOMM channel 1. Prefer SDP and use this only as a fallback after inspecting the unit's own record."
+    command_boundary:
+      read_only_default: true
+      excluded: >
+        Mobile 2 BLE characteristics, its 20-byte command envelope, raw-enable 0x15
+        and 50/60 Hz selectors 0x1b/0x1c. Official ASIC page-0 bytes are firmware
+        specific and no original-unit capture supports declaring one here.
+      recovery: "Power-cycle restores the module's default output configuration after unsupported commands."
+    test_vectors:
+      - name: "Official guide example (illustrative values, not a recording)"
+        packet_hex: "aa aa 08 02 20 01 7e 04 12 05 60 e3"
+        expect: {poor_signal: 32, battery: 126, attention: 18, meditation: 96}
+      - name: "Synthetic common rows and unknown extension"
+        payload_hex: "02 00 04 2a 05 37 80 02 ff 00 55 90 03 01 02 03 83 18 00 00 01 00 00 02 00 00 03 00 00 04 00 00 05 00 00 06 00 00 07 00 00 08"
+        expect: {attention: 42, meditation: 55, raw_eeg: -256, unknown_code: 144, eeg_powers: [1, 2, 3, 4, 5, 6, 7, 8]}
+        packet_note: "Packet framing/checksum is computed by the independent test. The 0x55 extended-code level and unknown 0x90 row must not stop later 0x83 decoding."
+    renderer: "A consumer needs a ThinkGear stream parser; fixed-offset GATT-style entities cannot represent variable DataRows and are deliberately not fabricated."
+
+evidence:
+  official_documentation: >
+    NeuroSky's ThinkGear Serial Stream Guide supplies packet framing, PLENGTH <=169,
+    one's-complement checksum, DataRow extension/length rules, signed big-endian raw
+    samples and eight big-endian 24-bit band powers. The 2011 XG9MW3 user guide
+    supplies pairing, legacy PIN, three-host memory, pairing-mode LED/timing and
+    pairing-memory clearing. No health data was collected.
+  public_implementations: >
+    robintibor/python-mindwave-mobile at b2bedb56f1e3b249a69ee669378f2e505c495091
+    corroborates the original name and RFCOMM path. Current vendor transport code
+    corroborates SPP-by-UUID and the complement checksum; its BLE-only formats are
+    excluded rather than generalized.
+  negative_findings: >
+    No OTA/firmware-update surface was established. No evidence makes Mobile 2 BLE
+    characteristics valid on the original, proves every Mobile 2 exposes Classic, or
+    establishes a cross-generation raw-enable/notch command table.
+  open_questions: >
+    The original unit's SDP record/channel, exact command support, maximum simultaneous
+    serial connections, and the historical iOS accessory mechanism need owner captures.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "ThinkGear Serial Stream Guide"
+      url: "https://developer.neurosky.com/docs/doku.php?id=thinkgear_communications_protocol"
+      description: "Authoritative packet/DataRow formats and command warnings."
+    - type: "fcc_filing"
+      artifact: "XG9MW3 MindWave Mobile 2011 user guide"
+      url: "https://fccid.co/fcc/XG9MW3"
+      description: "Model-specific pairing and serial/COM instructions; adjacent XG9MW1/XG9MW2 are excluded."
+    - type: "public_implementation"
+      artifact: "robintibor/python-mindwave-mobile at b2bedb56f1e3b249a69ee669378f2e505c495091"
+      url: "https://github.com/robintibor/python-mindwave-mobile"
+      description: "Original-name RFCOMM client and ThinkGear parser."
+
+remaining_unknowns:
+  - "The original headset's SDP record and whether channel 1 is consistent across production units."
+  - "Which configuration bytes each original firmware accepts, and how to enable raw output safely on a unit that has it disabled."
+  - "Whether more than one host may hold the RFCOMM link simultaneously."
+  - "How the historical iOS apps reached this Classic model (MFi/iAP2 or another path); CoreBluetooth alone cannot open SPP."
+  - "Physical units and scaling of the raw ADC counts and battery byte; neither is assigned an invented engineering unit."
+
+helpful_urls:
+  - title: "ThinkGear Serial Stream Guide"
+    url: "https://developer.neurosky.com/docs/doku.php?id=thinkgear_communications_protocol"
+    kind: "protocol_writeup"
+    description: "Official sync/length/checksum/DataRow specification and firmware-command warnings."
+  - title: "NeuroSky MindWave Mobile XG9MW3 user guide (2011, PDF)"
+    url: "https://fccid.co/api/files/s1/xg9mw3_usersmanual_1546394_1c11233670.pdf"
+    kind: "manual"
+    description: "Original Mobile guide covering pairing, PIN 0000, serial/COM use, three-host memory and pairing-memory reset; not Mobile 2."
+  - title: "robintibor/python-mindwave-mobile"
+    url: "https://github.com/robintibor/python-mindwave-mobile"
+    kind: "implementation"
+    description: "Independent MIT RFCOMM client and ThinkGear parser for the original Mobile."

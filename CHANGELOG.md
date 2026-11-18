@@ -71,6 +71,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   read-only legacy 140-byte and dynamic 2021+ decoders with GATT fallback.
   All five remain untested here and carry independent standard-library
   vectors, explicit reset/rejoin/credential boundaries and documented unknowns.
+
+- **Five research-backed watch, EEG and scale protocols.** PineTime with
+  InfiniTime 1.16.0 gains standard battery/HR/DFU, music, navigation, call,
+  motion, Simple Weather and BLE FS, with independent role declarations for
+  watch-hosted and companion-hosted CTS/ANS. Original NeuroSky MindWave Mobile
+  gains a Classic SPP ThinkGear parser (169-byte bound, complement checksum,
+  eSense, signed raw EEG and 24-bit band powers), explicitly excluding Mobile 2
+  BLE. MyKronoz ZeTime gains fragmented GATT envelopes, serial/info and computed
+  timezone sync, with notification/weather/history limits left explicit.
+  Bangle.js 1/2 gains NUS Gadgetbridge JSON lines and optional advanced JS,
+  HTTP/file/intents/code-upload boundaries. YUNMAI Mini/SE connected and
+  X/Mini 2S broadcast variants gain XOR/version/address validation and final
+  rearming. All five include lifecycle, pairing/reset/rejoin and source/unknown
+  boundaries plus independent standard-library tests; no hardware was driven.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an
