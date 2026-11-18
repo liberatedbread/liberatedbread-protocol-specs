@@ -159,53 +159,74 @@ def test_obd_hm10_uart_is_post_connect_routing_not_identity():
     assert matches(spec, "OBDII", [ffe0])
 
 
-def test_fixd_profiles_are_reported_transport_identities_not_scan_matchers():
-    spec = specs()["obd2-bluetooth-adapter"]
-    fixd = spec["protocol_details"]["fixd_profiles"]
-    expected_ble = {
-        "FIXD2": "FIXD2",
-        "SETOSMART": "FIXD",
-        "VIECAR": "FIXD",
-        "VIECAR_V2": "FIXD",
-        "APPRAISAL_PRO": "Appraisal PRO",
-        "VIECAR_AUTHENTICATED": "Auto Assist",
+def test_ninebot_z_nus_fingerprint_never_activates_scooter_spec():
+    nus = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    scooter = specs()["ninebot-segway-ble"]
+    assert "service_uuids" not in scooter["device"]["identification"]
+    assert "methods" not in scooter["device"]["discovery"]
+    assert "manual selection" in scooter["device"]["discovery"]["none"].lower()
+    assert not matches(scooter, "", [nus])
+    assert not matches(scooter, "Ninebot Z", [nus])
+
+    wheel = specs()["euc-wheellog-ble"]
+    transport = wheel["protocol_details"]["euc_frame_formats"]["ninebot_z"][
+        "transport"
+    ]
+    assert transport["verification"] == "reported"
+    assert transport["service_uuid"] == nus
+    assert transport["write_characteristic_uuid"] == (
+        "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    )
+    assert transport["notify_characteristic_uuid"] == (
+        "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    )
+    assert transport["advertisement_identity"] is False
+    assert "service_uuids" not in wheel["device"]["identification"]
+    assert "methods" not in wheel["device"]["discovery"]
+    assert not matches(wheel, "Ninebot Z", [nus])
+
+
+def test_fixd_profiles_cannot_resolve_to_generic_obd_control_surface():
+    expected_profiles = {
+        "FIXD2",
+        "SETOSMART",
+        "VIECAR",
+        "VIECAR_V2",
+        "APPRAISAL_PRO",
+        "VIECAR_AUTHENTICATED",
+        "OLD_KICKSTARTER",
     }
-    assert fixd["verification"] == "reported"
-    assert spec["device"]["testing"]["status"] == "untested"
-    for profile_id, display_name in expected_ble.items():
-        profile = fixd["profiles"][profile_id]
-        assert profile == {
-            "display_name": display_name,
-            "transport": "ble_gatt_fff0",
-        }
-        transport = fixd["transports"][profile["transport"]]
-        assert transport["service_uuid"] == FFF0
-        assert transport["read_characteristic_uuid"] == (
-            "0000fff1-0000-1000-8000-00805f9b34fb"
-        )
-        assert transport["write_characteristic_uuid"] == (
-            "0000fff2-0000-1000-8000-00805f9b34fb"
-        )
-
-    legacy = fixd["profiles"]["OLD_KICKSTARTER"]
-    assert legacy == {"display_name": "OBDII", "transport": "legacy_kickstarter_spp"}
-    assert fixd["transports"][legacy["transport"]]["profile_uuid"] == (
-        "00001101-0000-1000-8000-00805f9b34fb"
+    note = (ROOT / "research-notes" / "fixd-obd-adapter.md").read_text(
+        encoding="utf-8"
     )
+    assert "IDENTIFICATION-ONLY RESEARCH" in note
+    for profile_id in expected_profiles:
+        assert profile_id in note
 
-    # The app profile labels are not captured radio names, and shared FFF0 must
-    # not activate this spec. No FIXD profile inherits a generic AT/SPP client.
+    # No executable spec may resolve a FIXD profile. Consequently none can
+    # inherit generic ATI setup, ATZ/ATD reset, FFF2 commands or OBD requests.
+    for profile_id in expected_profiles:
+        surfaces = []
+        for stem, spec in specs().items():
+            details = spec.get("protocol_details") or {}
+            fixd = details.get("fixd_profiles") or {}
+            if profile_id in (fixd.get("profiles") or {}):
+                surfaces.append(stem)
+        assert surfaces == []
+
+    obd_path = ROOT / "device-specs" / "devices" / "obd2-bluetooth-adapter.yaml"
+    assert "FIXD" not in obd_path.read_text(encoding="utf-8")
+    generic = specs()["obd2-bluetooth-adapter"]
     for name in ("FIXD", "FIXD2", "Appraisal PRO", "Auto Assist"):
-        assert not matches(spec, name, [])
-        assert not matches(spec, name, [FFF0])
-    assert "FIXD2" not in spec["device"]["identification"].get(
-        "local_name_prefixes", []
-    )
-    assert not any(
-        variant.startswith("FIXD")
-        for variant in spec["bluetooth_classic"]["variants"]
-    )
-    assert "commands" not in fixd
+        assert not matches(generic, name, [])
+        assert not matches(generic, name, [FFF0])
+
+    # Removing FIXD does not remove the existing generic family's own surface.
+    fff2 = generic["services"][0]["characteristics"][1]
+    assert fff2["uuid"] == "0000fff2-0000-1000-8000-00805f9b34fb"
+    assert {"reset", "identify"} <= set(fff2["commands"])
+    assert generic["device"]["setup"]["methods"]
+    assert generic["obd"]["requests"]
 
 
 def test_thermopro_uses_the_scan_configs_exact_names():

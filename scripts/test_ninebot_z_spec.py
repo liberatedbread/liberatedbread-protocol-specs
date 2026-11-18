@@ -173,22 +173,38 @@ def test_vector_codec_round_trip(name):
     assert decoded["payload"].hex() == vector["payload_hex"]
 
 
-def test_session_key_retrieval_then_invented_controller_serial():
-    key_reply = decode_frame(
-        bytes.fromhex(VECTORS["session_key_response"]["frame_hex"]), bytes(16)
+def test_synthetic_parameter_00_vector_is_codec_only_not_negotiation_proof():
+    assert NINEBOT["test_vectors_proof_scope"] == "codec_only"
+    vector = VECTORS["synthetic_key_response_parameter_00"]
+    assert vector["proof_scope"] == (
+        "codec_only_not_an_observed_reply_or_negotiation_proof"
     )
-    session_key = key_reply["payload"]
-    assert len(session_key) == 16
-    assert session_key.hex() == VECTORS["session_key_response"]["expect"][
-        "derived_session_key_hex"
-    ]
+    key_reply = decode_frame(bytes.fromhex(vector["frame_hex"]), bytes(16))
+    transform_key = key_reply["payload"]
+    assert len(transform_key) == 16
+    assert transform_key.hex() == vector["expect"]["codec_transform_key_hex"]
     serial_reply = decode_frame(
-        bytes.fromhex(VECTORS["controller_serial"]["frame_hex"]), session_key
+        bytes.fromhex(VECTORS["controller_serial"]["frame_hex"]), transform_key
     )
     assert serial_reply["payload"].decode("ascii") == "Z10TEST0000001"
     assert serial_reply["payload"].decode("ascii") == VECTORS["controller_serial"][
         "expect"
     ]["serial"]
+
+
+def test_upstream_01_key_sample_is_observed_but_unhandled():
+    session = NINEBOT["session"]
+    accepted = session["decoder_accepted_key_branch"]
+    observed = session["observed_unhandled_key_reply"]
+    assert accepted["parameter"] == 0x00
+    assert accepted["status"] == "decoder_branch_only_not_established_response_selector"
+    assert observed["parameter"] == 0x01
+    assert observed["source"] == 0x16
+    assert observed["command"] == 0x5B
+    assert observed["resolution"] == "pending_capture"
+    assert "does not install" in observed["handling"]
+    assert session["key_installation_status"] == "pending_capture"
+    assert "response_parameter" not in session["key_request"]
 
 
 def test_live_layout_offsets_signedness_scales_and_units():

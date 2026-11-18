@@ -9,9 +9,10 @@
 
 WheelLog decodes King Song, Gotway/Begode, Veteran/Leaperkim and Ninebot Z
 electric unicycles locally over BLE. No vendor cloud is needed on this control
-path. The service and characteristic UUIDs are module-specific and are not
-established by the cited decoders, so select the wheel manually and confirm its
-wire format after connecting rather than matching a generic UART service.
+path. Other brands' service and characteristic UUIDs are module-specific and
+unasserted. The Ninebot Z has a reported Nordic-UART transport below, but that
+shared transport is not advertisement identity; always select the wheel model
+manually and confirm its protocol after connecting.
 
 King Song uses a 20-byte `AA 55` frame with packet type at byte 16.
 Gotway/Begode uses a 24-byte `55 AA` frame with a `5A 5A 5A 5A` footer and type
@@ -25,14 +26,34 @@ The machine-readable source of truth is
 ## Ninebot Z: a distinct WheelLog variant
 
 The Ninebot Z decoder is **not** the
-[Ninebot/Segway e-scooter protocol](ninebot-segway-ble.md). Both happen to start
-frames with `5A A5`, but the Z has different length semantics, a repeating-XOR
-session transform, different addresses and different payloads. Do not send the
-scooter's register commands to a Z wheel.
+[Ninebot/Segway e-scooter protocol](ninebot-segway-ble.md). They share the NUS
+trio and the `5A A5` header, clear payload length, `L + 9` accounting and
+little-endian-checksum envelope. The Z is distinguished by its repeating-XOR
+session transform, role addresses and telemetry payloads, not by different
+outer length semantics. Do not send the scooter's register commands to a Z
+wheel or the Z's requests to a scooter.
 
 The Z addition is read-only: identification, live telemetry and BMS telemetry.
 It deliberately declares no vehicle-setting, calibration, power, light, lock,
 alarm, speed-limit or firmware writes.
+
+### Reported transport and model selection
+
+WheelLog's constants and Ninebot Z GATT fingerprint entries report:
+
+| Role | UUID |
+|---|---|
+| Nordic-UART service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
+| RX / write | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
+| TX / notify | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
+
+This is reported post-connect transport, not an observed advertisement rule.
+The same trio appears on Ninebot/Segway scooters, InMotion V2 and unrelated
+UART peripherals. Do not scan-match it. A person must manually select the
+Ninebot Z before any GATT write, then use only the documented read requests and
+confirm the Z role addresses and payload layout. Stop if the response belongs
+to the scooter register protocol. Neither NUS nor the outer frame is protocol
+confirmation by itself.
 
 ### Frame, checksum and reassembly
 
@@ -95,20 +116,20 @@ response payload length, while the request's own `L` is one.
 | Operation | Destination / parameter | Request payload | Expected response |
 |---|---|---|---|
 | Initial BLE-version read | Controller / `0x68` | `02` | Controller, parameter `0x68` |
-| Retrieve session key | Key generator / `0x00`, command `0x5b` | empty | Key generator, parameter `0x00`, 16-byte key |
+| Key-request constructor | Key generator / `0x00`, command `0x5b` | empty | Decoder branch accepts `0x00`; sole upstream sample is `0x01` and unhandled |
 | Controller serial | Controller / `0x10` | `0e` | 14-byte ASCII serial |
 | Live telemetry | Controller / `0xb0` | `20` | 32-byte live payload |
 | BMS identity | BMS 1 or 2 / `0x10` | `22` | 34-byte identity payload |
 | BMS status | BMS 1 or 2 / `0x30` | `18` | 24-byte status payload |
 | BMS cells | BMS 1 or 2 / `0x40` | `20` | 32-byte cell payload |
 
-Decode the key reply with the current, initially all-zero key and install its
-16-byte payload for subsequent frames. The cited source's timer transitions do
-not establish a reliable end-to-end negotiation order. Its key sample also uses
-parameter `0x01`, while its decoder accepts parameter `0x00`, and the test does
-not assert an extracted key. Consequently the exact key reply and request order
-still require an owner-authorized read-only capture; this is not a completed
-hardware-verified handshake.
+The decoder starts with 16 zero transform bytes. Its source-code branch for a
+key-generator reply with parameter `0x00` copies the payload into that transform
+key. This is only an accepted decoder branch, **not an established over-the-air
+response selector**. The sole upstream key-reply sample instead has parameter
+`0x01`, does not match that branch and is not installed as a key. Real key
+installation and the request order therefore remain pending an owner-authorized
+read-only capture. No working negotiation is claimed.
 
 ### Live telemetry
 
@@ -183,16 +204,21 @@ to 16. Trailing zero cells are absent.
 
 `scripts/test_ninebot_z_spec.py` independently transcribes the framing, XOR,
 checksum, reassembly and payload layouts using only the standard library. It
-checks all ten spec vectors, every split point of a live frame, noise and bad
-checksum recovery, coalesced frames, both BMS addresses and 14-/16-cell cases.
-The session key and every controller/BMS serial in the vectors are invented.
-These tests establish implementability, not hardware verification.
+checks all ten synthetic codec-only vectors, every split point of a live frame,
+noise and bad checksum recovery, coalesced frames, both BMS addresses and
+14-/16-cell cases. The transform key and every controller/BMS serial in the
+vectors are invented. A separate evidence test records that the sole upstream
+`0x01` key sample is unhandled and that installation remains pending capture.
+These tests establish codec implementability, not negotiation or hardware
+verification.
 
 ## Setup, pairing, reset and rebinding
 
-Power the wheel, connect to its BLE serial characteristic and subscribe to its
-notifications. No link-layer pairing secret is documented. The Ninebot Z
-session value is per-connection obfuscation material, not an owner credential.
+Manually select the exact wheel before any GATT write. Power it, connect to its
+reported BLE serial characteristic and subscribe to notifications. No link-layer
+pairing secret is documented. The Ninebot Z transform value is obfuscation
+material, not an owner credential, and its real installation is still pending
+capture.
 
 No BLE factory-reset procedure is established for this family. There is no
 Wi-Fi membership to rejoin: a new BLE client connects independently. Close the
@@ -202,4 +228,6 @@ previous client before connecting another if the wheel accepts only one central.
 
 - [WheelLog Android](https://github.com/Wheellog/Wheellog.Android)
 - [WheelLog Ninebot Z decoder, pinned source](https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/NinebotZAdapter.java)
+- [WheelLog BLE constants, pinned source](https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/Constants.kt)
+- [WheelLog GATT fingerprints, pinned source](https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/res/raw/bluetooth_services.json)
 - [WheelLog Ninebot Z decoder tests, pinned source](https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/test/java/com/cooper/wheellog/utils/NinebotZAdapterTest.kt)

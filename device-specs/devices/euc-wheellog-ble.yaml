@@ -4,8 +4,9 @@
 #
 # Sources (all public; clean-room — derived facts only):
 #   - Wheellog/Wheellog.Android per-brand adapters (KingsongAdapter.java,
-#     GotwayAdapter.java, VeteranAdapter.java, NinebotZAdapter.java) and the
-#     Ninebot Z adapter's unit tests. Ninebot Z vectors use invented identifiers.
+#     GotwayAdapter.java, VeteranAdapter.java, NinebotZAdapter.java), the
+#     Ninebot Z adapter's unit tests, and Constants.kt/bluetooth_services.json
+#     for its reported NUS transport. Ninebot Z vectors use invented identifiers.
 
 device:
   name: "Electric Unicycles (King Song / Gotway-Begode / Veteran / Ninebot Z) — WheelLog"
@@ -17,9 +18,9 @@ device:
       Not driven against hardware by this project. The per-brand frame formats
       (headers, field offsets, command bytes) are from WheelLog's Android
       per-brand adapters; Ninebot Z also uses its upstream unit tests as
-      reported evidence. NOTE: the BLE serial characteristic UUID is
-      module/brand-specific and was not captured from a cited source, so it is
-      not asserted here — WheelLog auto-detects the brand from the first packets.
+      reported evidence. Other brands' serial UUIDs remain module-specific and
+      unasserted. The Ninebot Z Nordic-UART trio is reported by WheelLog's
+      constants and GATT fingerprints, but is transport only and never identity.
   protocol: "ble"
   category: "vehicle"
   notes: >
@@ -28,8 +29,8 @@ device:
     uses framed packets over a BLE serial notify stream; brand is identified
     from the first packets rather than a fixed advertised UUID. Fully local
     BLE, no cloud. The per-brand frame formats below are the load-bearing
-    facts; the transport characteristic UUID is device-specific (obtain it from
-    the connected wheel / WheelLog).
+    facts. Other brands' transport UUIDs are device-specific; Ninebot Z's
+    reported Nordic-UART trio is declared below without making it a matcher.
 
     KING SONG (KingsongAdapter): 20-byte frame, header AA 55, trailer 14 5A 5A;
     the packet-type selector is byte 16. Live-data type 0xA9: voltage bytes 2-3
@@ -74,37 +75,40 @@ device:
       - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/NinebotZAdapter.java"
         title: "WheelLog Ninebot Z decoder"
         covers: "Ninebot Z framing, session-key transform, read requests, live telemetry and dual-BMS layouts."
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/Constants.kt"
+        title: "WheelLog BLE constants"
+        covers: "The reported Ninebot Z Nordic-UART service, write and notify UUIDs."
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/res/raw/bluetooth_services.json"
+        title: "WheelLog GATT fingerprints"
+        covers: "Ninebot Z fingerprint entries containing the same Nordic-UART trio; not advertisement evidence."
       - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/test/java/com/cooper/wheellog/utils/NinebotZAdapterTest.kt"
         title: "WheelLog Ninebot Z decoder tests"
         covers: "Reported plaintext live and BMS examples; its key example does not verify key extraction."
     notes: >
       No vendor documentation; WheelLog reverse-engineered each brand's frames.
-      The BLE transport characteristic UUID lives in WheelLog's BLE service class
-      (not the per-brand adapters) and is not restated here.
+      Other brands' serial UUIDs remain module-specific. The Ninebot Z NUS trio
+      is restated from the cited constants and GATT fingerprints only as a
+      reported post-connect transport.
 
   variants:
     - model: "Ninebot Z"
       notes: >
         Distinct WheelLog wire variant, selected manually and confirmed only by
-        its post-connect 5A A5/session replies. No advertisement matcher is
-        established. Do not route it to ninebot-segway-ble.yaml.
+        its post-connect role addresses and payload layouts. Its NUS trio and
+        5A A5 header are shared with the scooter spec and are not identity.
 
   identification: {}
 
   discovery:
     none: >
-      Deliberate. Nothing in the advertisement names a EUC: the BLE serial
-      module each brand fits is generic and its transport characteristic UUID
-      is module-specific (WheelLog reads it from the connected wheel rather
-      than restating one), and the brand itself is only learned from the first
-      notification packets — King Song's AA 55 header, Gotway's 55 AA with the
-      5A5A5A5A footer, Veteran's DC 5A 5C. Ninebot Z uses 5A A5, but that header
-      also appears on Ninebot/Segway scooters and is not sufficient identity;
-      confirm the Z session/address replies instead. That evidence arrives after
-      a connection, which is a scan's output and not its input, so an
-      advertisement axis written from it would claim wheels this spec cannot
-      decode and miss the ones it can. Manual selection until a discriminating
-      advertisement turns up.
+      Deliberate. Other brands' serial modules are generic, and no
+      discriminating advertisement name is established. Ninebot Z shares its
+      Nordic-UART service/characteristic trio with Ninebot/Segway scooters,
+      InMotion V2 and unrelated UART peripherals; it also shares the 5A A5
+      outer framing with the scooter. Neither is an advertisement matcher.
+      Require manual model selection and post-connect role-address/payload
+      confirmation before any GATT write. Do not route a bare NUS fingerprint
+      to this spec or to ninebot-segway-ble.yaml.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -118,22 +122,26 @@ device:
       notifications; the brand is auto-detected from the first packets. No
       pairing secret. Confidence medium: King Song and Gotway frames are fully
       read from the adapters; Veteran offsets are read but less cross-checked.
-      Ninebot Z adds a reported session-key exchange whose exact negotiation
-      order remains unverified; see protocol_details.euc_frame_formats.ninebot_z.
+      Ninebot Z's NUS trio is reported transport, not identity. Its real key
+      installation remains pending capture; see
+      protocol_details.euc_frame_formats.ninebot_z.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          Connect over BLE, subscribe to the wheel's serial/notify characteristic,
-          and decode the incoming frames per the brand detected from the header.
-          For Ninebot Z, confirm the session/address replies rather than treating
-          the shared 5A A5 header as proof of the wheel model.
+          Manually select the exact wheel before any GATT write. Connect over
+          BLE, subscribe to the wheel's serial/notify characteristic, and decode
+          incoming frames per the selected brand. For Ninebot Z, use only the
+          documented read requests and confirm role addresses and payloads;
+          never treat NUS or the shared outer frame as model confirmation.
         ble:
           pairing_required: false
         steps:
-          - action: "Connect and subscribe to the wheel's BLE serial characteristic."
+          - action: "Manually select the exact wheel model; for a Ninebot Z, do not rely on NUS or the shared 5A A5/L+9 outer frame for identity."
+            actor: "user"
+          - action: "Connect and subscribe to the selected wheel's BLE serial characteristic, without writing yet."
             actor: "client"
-          - action: "Detect the brand from the first packets and decode live data per the frame format; for Ninebot Z, run only the documented read-only session requests."
+          - action: "After manual model confirmation, use only the selected brand's documented read requests; for a Ninebot Z, confirm its role addresses and payload layouts and stop on a scooter register reply."
             actor: "client"
     factory_reset:
       applicable: "unknown"
@@ -159,22 +167,40 @@ device:
     bonding: "none"
     enter_pairing_mode:
       required: false
-# The BLE serial characteristic UUID is module-specific (not captured from a
-# cited source); the standard Generic Access below is listed only to record a
-# connectable surface. The load-bearing content is the per-brand frame formats
-# in device.notes and protocol_details.euc_frame_formats.
+# Other EUC brands use module-specific serial UUIDs not asserted here. The
+# Ninebot Z NUS trio below is reported by WheelLog's constants and GATT
+# fingerprints; it is post-connect transport, never advertisement identity.
 services:
   - uuid: "00001800-0000-1000-8000-00805f9b34fb"
     name: "Generic Access (standard)"
     notes: >
-      Placeholder connectable surface. The real transport is a BLE serial/notify
-      characteristic whose UUID is module-specific; obtain it from the connected
-      wheel (WheelLog auto-detects it). Decode per protocol_details.euc_frame_formats.
+      Placeholder connectable surface. Other brands use a module-specific BLE
+      serial/notify characteristic; obtain it from the connected wheel. Decode
+      per protocol_details.euc_frame_formats.
     characteristics:
       - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
         name: "Device Name"
         properties: ["read"]
         notes: "Standard device-name characteristic."
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART serial bridge (Ninebot Z, reported)"
+    verification: "reported"
+    notes: >
+      Ninebot Z transport only. The same NUS trio is used by Ninebot/Segway
+      scooters, InMotion V2 and unrelated UART peripherals, so it must not be
+      used as scan-time identity. Require manual model selection and
+      post-connect Z protocol confirmation before any GATT write.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "RX (write, reported)"
+        properties: ["write_without_response"]
+        verification: "reported"
+        notes: "Only the documented read-only Z requests are in scope; no vehicle-setting or calibration writes."
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TX (notify, reported)"
+        properties: ["notify"]
+        verification: "reported"
+        notes: "Carries the Z framed replies; a 5A A5 header alone is not protocol confirmation."
 
 # The per-brand frame formats are the load-bearing content. They live under
 # `protocol_details`, the schema's namespace for single-spec protocol blocks
@@ -194,17 +220,27 @@ protocol_details:
       frame: "header DC 5A 5C + length byte; big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed), total @12, phase current @16 (x10), temperature @18; CRC32 on longer frames."
     ninebot_z:
       verification: "reported"
-      source: "WheelLog NinebotZAdapter.java and NinebotZAdapterTest.kt at 1b3707973e3b4528bd88778f9ebdf7a79817cf3f; no hardware replay by this project."
+      source: "WheelLog NinebotZAdapter.java, Constants.kt, bluetooth_services.json and NinebotZAdapterTest.kt at 1b3707973e3b4528bd88778f9ebdf7a79817cf3f; no hardware replay by this project."
       scope: >
         Read-only identification and telemetry for the Ninebot Z electric
         unicycle. This is a distinct WheelLog variant, not the Ninebot/Segway
-        scooter register protocol in ninebot-segway-ble.yaml, despite the shared
-        5A A5 outer header. No vehicle setting, calibration, power, light, lock,
-        alarm, speed-limit or firmware write is declared.
-      transport: >
-        Use the wheel's BLE serial write/notify pair, discovered after manual
-        selection. The cited decoder does not establish a Ninebot Z service UUID
-        or advertised-name matcher; do not infer one from the scooter spec.
+        scooter register protocol in ninebot-segway-ble.yaml. They share the
+        5A A5 header, clear length and L+9/checksum outer framing; the Z is
+        distinguished by repeating-XOR, role addresses and payload layouts.
+        No vehicle setting, calibration, power, light, lock, alarm, speed-limit
+        or firmware write is declared.
+      transport:
+        verification: "reported"
+        service_uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        write_characteristic_uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        notify_characteristic_uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        advertisement_identity: false
+        evidence: "WheelLog Constants.kt and Ninebot Z entries in bluetooth_services.json."
+        notes: >
+          Shared with the scooter and other NUS peripherals. Declare only as
+          post-connect transport. Manual model selection and Z role/payload
+          confirmation are required before any write; NUS alone never selects
+          this spec or the scooter spec.
       frame:
         header_hex: "5a a5"
         total_length_formula: "frame_bytes = payload_length + 9"
@@ -254,15 +290,29 @@ protocol_details:
       session:
         initial_key_hex: "00000000000000000000000000000000"
         ble_version_request: {source: 0x3e, destination: 0x14, command: 0x01, parameter: 0x68, payload_hex: "02", response_source: 0x14, response_parameter: 0x68}
-        key_request: {source: 0x3e, destination: 0x16, command: 0x5b, parameter: 0x00, payload_hex: "", response_source: 0x16, response_parameter: 0x00}
-        key_response: "Decode with the current (initially all-zero) key and take the 16-byte payload as the new repeating-XOR key for subsequent frames."
+        key_request: {source: 0x3e, destination: 0x16, command: 0x5b, parameter: 0x00, payload_hex: "", response_source: 0x16}
+        decoder_accepted_key_branch:
+          source: 0x16
+          parameter: 0x00
+          status: "decoder_branch_only_not_established_response_selector"
+          behavior: "When this branch matches, the decoder copies the payload into its 16-byte transform key. This source-code branch is not evidence that a real key reply uses parameter 0x00."
+        observed_unhandled_key_reply:
+          source: 0x16
+          destination: 0x3e
+          command: 0x5b
+          parameter: 0x01
+          payload_bytes: 16
+          evidence: "The sole key-reply sample in NinebotZAdapterTest.kt."
+          handling: "Does not match the decoder's parameter-0x00 key branch, so the cited decoder does not install this sample as a key."
+          resolution: "pending_capture"
+        key_installation_status: "pending_capture"
         serial_request: {source: 0x3e, destination: 0x14, command: 0x01, parameter: 0x10, payload_hex: "0e", response_source: 0x14, response_parameter: 0x10, response_payload_bytes: 14}
         notes: >
-          These are the read-only messages implemented by the source. Its timer
-          state transitions and its own key-response unit sample do not establish
-          a reliable end-to-end key negotiation, so this block does not claim a
-          verified connection sequence. Reset the key to 16 zero bytes on a new
-          connection; see remaining_unknowns before relying on key retrieval.
+          The source implements read-only requests and starts its transform key
+          at 16 zero bytes. Its timer transitions and sole key sample do not
+          establish a negotiation sequence or a working key installation.
+          Parameter 0x00 is only the decoder-accepted branch; parameter 0x01 is
+          observed but unhandled. Capture is required before relying on either.
       read_requests:
         live_data: {source: 0x3e, destination: 0x14, command: 0x01, parameter: 0xb0, payload_hex: "20", response_source: 0x14, response_command: 0x04, response_parameter: 0xb0, response_payload_bytes: 32, layout: "live_data"}
         bms1_identity: {source: 0x3e, destination: 0x11, command: 0x01, parameter: 0x10, payload_hex: "22", response_source: 0x11, response_command: 0x04, response_parameter: 0x10, response_payload_bytes: 34, layout: "bms_identity"}
@@ -334,7 +384,8 @@ protocol_details:
             scale: 0.001
             unit: "V"
           cell_count_rule: "Start at 14 cells. If cell 15 (offset 28) is nonzero use 15; if cell 16 (offset 30) is nonzero use 16. Zero-valued trailing cells are absent."
-      test_vectors_description: "Independently generated from the declared codec. The 16-byte session key and every controller/BMS serial are invented; protocol role addresses are constants, not host Bluetooth addresses."
+      test_vectors_description: "Synthetic codec-only vectors independently generated from the declared transform. The 16-byte transform key and every controller/BMS serial are invented; protocol role addresses are constants, not host Bluetooth addresses. These vectors prove framing, checksum, XOR and layout implementation only, never key negotiation or installation."
+      test_vectors_proof_scope: "codec_only"
       test_vectors:
       - name: "session_key_request"
         session_key_hex: "00000000000000000000000000000000"
@@ -344,7 +395,7 @@ protocol_details:
         parameter: 0x00
         payload_hex: ""
         frame_hex: "5aa5003e165b0050ff"
-      - name: "session_key_response"
+      - name: "synthetic_key_response_parameter_00"
         session_key_hex: "00000000000000000000000000000000"
         source: 0x16
         destination: 0x3e
@@ -352,8 +403,9 @@ protocol_details:
         parameter: 0x00
         payload_hex: "00112233445566778899aabbccddeeff"
         frame_hex: "5aa510163e5b0000112233445566778899aabbccddeeff48f7"
+        proof_scope: "codec_only_not_an_observed_reply_or_negotiation_proof"
         expect:
-          derived_session_key_hex: "00112233445566778899aabbccddeeff"
+          codec_transform_key_hex: "00112233445566778899aabbccddeeff"
       - name: "controller_serial"
         session_key_hex: "00112233445566778899aabbccddeeff"
         source: 0x14
@@ -482,22 +534,23 @@ evidence:
   open_source_review: >
     Ninebot Z framing, address and command constants, repeating-XOR transform,
     telemetry and BMS layouts were transcribed from WheelLog's open-source
-    NinebotZAdapter.java at 1b3707973e3b4528bd88778f9ebdf7a79817cf3f. Its
-    NinebotZAdapterTest.kt cross-checks the plaintext live/BMS layouts. The
-    vectors here are independently generated with invented identifiers rather
-    than copied captured serials or key material. All are reported and untested
-    against hardware by this project.
+    NinebotZAdapter.java at 1b3707973e3b4528bd88778f9ebdf7a79817cf3f. The
+    reported NUS trio comes from Constants.kt and Ninebot Z entries in
+    bluetooth_services.json, not from an advertisement capture. The decoder's
+    key-installation branch accepts parameter 0x00; the sole upstream key
+    sample instead carries parameter 0x01 and is unhandled. Synthetic vectors
+    here prove only the codec with invented identifiers, never negotiation.
+    All are reported and untested against hardware by this project.
   open_questions: >
-    The source's key-request constructor uses parameter 0x00, but its key unit
-    sample carries parameter 0x01 and asserts no extracted key, so the accepted
-    over-the-air key reply and exact connection-state sequence still need a
-    read-only hardware capture. The BLE GATT UUIDs and advertisement identity
-    are not established. Operating-time seconds and BMS capacity units come
-    from the decoder's semantics, not a new capture.
+    The real key-response selector, key installation and connection-state
+    sequence remain pending capture. Parameter 0x00 is only a decoder branch;
+    parameter 0x01 is observed but unhandled. The advertised-name identity is
+    not established. Operating-time seconds and BMS capacity units come from
+    the decoder's semantics, not a new capture.
 
 remaining_unknowns:
-  - "Ninebot Z advertised name, BLE service/characteristic UUIDs and whether all units require the session-key exchange."
-  - "Ninebot Z key responses with parameter 0x01 versus the 0x00 response accepted by the cited decoder, and the exact initial request ordering."
+  - "Ninebot Z advertised name and whether all units require the session-key exchange; the NUS trio is reported transport, not identity."
+  - "The real Ninebot Z key response and installation: parameter 0x00 is only the decoder-accepted branch, while the sole upstream sample is parameter 0x01 and unhandled."
   - "Ninebot Z operating-time units and BMS capacity units on hardware; all protocol details remain reported/untested."
 
 entities:

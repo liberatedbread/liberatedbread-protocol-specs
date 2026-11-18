@@ -19,10 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   mapping, not live compatibility or framing.
 - **Ninebot Z EUC and reported FIXD transport identities.** The WheelLog spec
   gains read-only Ninebot Z framing, session-key XOR, controller/dual-BMS
-  telemetry and independent standard-library codec/reassembly vectors. The OBD
-  adapter spec records FIXD2, legacy/OEM FFF0/FFF1/FFF2 profiles and legacy
-  Kickstarter SPP without asserting scan names, initialization or ELM327
-  compatibility. Both remain untested; no Ninebot vehicle writes were added.
+  telemetry and independent standard-library codec/reassembly vectors. An
+  identity-only research note records FIXD2, legacy/OEM FFF0/FFF1/FFF2
+  profiles and legacy Kickstarter SPP outside the executable OBD spec, with
+  no inherited setup, reset, commands or diagnostic requests. Both remain
+  untested; no Ninebot vehicle writes were added.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an
