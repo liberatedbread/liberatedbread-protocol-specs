@@ -51,11 +51,12 @@ There is nothing to provision — no network, no account, no BLE bonding.
 | Confidence | medium (flow read from the decompiled app; never run against hardware) |
 
 Flow: scan and identify by the `0x2C` + type-digit pattern → connect and
-discover services → enable notifications on `0xFFD7` → write
-`[0x00][4-byte password]` to `0xFFD6` → verdict `[1]` (main OK) / `[1,1]`
-(share OK) / `[0]` (wrong) → enable notifications on `0xFFDA`, sync the clock
-(`0x1805/0x2A2B`, uint32 LE seconds since 2000-01-01 **local** time), read
-battery and firmware revision → write `0x01` to `0xFFD9` to open.
+discover services → enable notifications on `0xFFD7` → write the nine-byte
+frame `[0x00][4-byte password][00 00 00 00]` to `0xFFD6` → verdict `[1]`
+(main OK) / `[1,1]` (share OK) / `[0]` (wrong) → enable notifications on
+`0xFFDA`, sync the clock (`0x1805/0x2A2B`, uint32 LE seconds since
+2000-01-01 **local** time), read battery and firmware revision → write `0x01`
+to `0xFFD9` to open. The UI's eight hex characters decode to four raw bytes.
 
 Two things a first-time user must know:
 
@@ -68,8 +69,8 @@ Two things a first-time user must know:
 
 **Factory reset**: unknown — no reset procedure was found in the decompiled
 app or recovered vendor material. What exists instead is password rotation:
-write `[0x01][new 4-byte password]` to `0xFFD6` (requires the current
-password). RFID tags and fingerprints have their own delete commands
+write `[0x01][current 4-byte password][new 4-byte password]` to `0xFFD6`.
+RFID tags and fingerprints have their own delete commands
 (`0xFFE3`; `0xFFC5` = delete-all on Gunbox biometric models — irreversible,
 treat as advanced).
 
@@ -118,7 +119,8 @@ There is no packet envelope: each characteristic is the message.
 | Offset | Length | Description |
 |--------|--------|-------------|
 | 0 | 1 | Sub-command: `0x00` = input/check, `0x01` = update password |
-| 1 | 4 | Password (UI takes 8 hex chars; raw-hex vs ASCII encoding at firmware level is UNVERIFIED) |
+| 1 | 4 | Input/check: raw password bytes decoded from the UI's eight hex characters. Update: current password in the same raw form |
+| 5 | 4 | Input/check: four zero bytes. Update: new four-byte password |
 
 **Response** (notify on `0xFFD7`): `[0]` wrong · `[1]` main password OK ·
 `[1,1]` share password OK · codes 2/3 unknown.

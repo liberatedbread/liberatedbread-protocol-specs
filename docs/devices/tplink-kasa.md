@@ -133,6 +133,12 @@ it is effectively plaintext — the open setup AP is the only transport
 protection. Not replayed against hardware here; full steps live in
 `device.setup` in the machine-readable spec.
 
+**Changing routers without a reset**: the same `netif.set_stainfo` call can
+replace the saved SSID/passphrase over the existing TCP-9999 LAN connection
+(`kasa wifi join`). In-place rejoin is supported and does not require a
+factory reset. This state-changing write remains `reported`, not one of the
+project's manually verified switching operations.
+
 **Factory reset**: with the plug powered, press and hold its physical button
 for about 5 seconds until the LED blinks rapidly. This clears Wi-Fi
 credentials, the alias and any schedules, returning the plug to its setup-AP

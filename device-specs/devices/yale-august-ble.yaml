@@ -33,18 +33,21 @@ device:
     bd4ac611-0b45-11e3-8ffd-0800200c9a66, read bd4ac612-..., secure-write
     bd4ac613-..., secure-read bd4ac614-.... Yale company id 0x01D1 (465).
 
-    FRAMING: HomeKit-derived (HAP). Plaintext frames begin 0x06, encrypted frames
-    begin 0x11; responses are a fixed 18-byte frame. Command opcodes: 0x02
-    GETSTATUS, 0x03 WRITESETTING, 0x04 READSETTING, 0x0A UNLOCK, 0x0B LOCK, 0x2D
-    LOCK_ACTIVITY.
+    FRAMING: every GATT command and response is 18 bytes. Normal-session
+    operation requests begin 0xEE, carry the opcode at byte[1], and use a
+    one-byte additive checksum at byte[3] chosen so all 18 bytes sum to zero
+    mod 256. Command opcodes: 0x02 GETSTATUS, 0x03 WRITESETTING, 0x04
+    READSETTING, 0x0A UNLOCK, 0x0B LOCK, 0x2D GETLOG. GETLOG pops the oldest
+    activity record; it is not a passive read. The advertisement's HAP-derived
+    0x06/0x11 markers are not the normal GATT operation-frame leader.
 
-    CRYPTO/AUTH: a secure handshake exchanges two 8-byte halves —
-    SEC_LOCK_TO_MOBILE_KEY_EXCHANGE (0x01) then SEC_INITIALIZATION_COMMAND (0x03)
-    — which combine into a 16-byte session key; the keyIndex (slot) is submitted
-    with the secure-session init. Session payloads are AES-CBC with a 16-byte
-    all-zero IV, keyed by the offline key. If the key or slot is wrong the lock
-    rejects the exchange. Motor result is read at response byte[15] (0x00
-    success; 0x1E-0x23 jam/mechanical failure).
+    CRYPTO/AUTH: the secure-channel handshake first uses the offline key and
+    keyIndex (slot), exchanges two 8-byte random halves, and combines them into
+    a 16-byte session key. The two handshake exchanges use AES-ECB. Later
+    normal-session operation payloads use AES-CBC with a 16-byte all-zero IV
+    and that session key, not the offline key directly. If the key or slot is
+    wrong the lock rejects the exchange. Motor result is read at response
+    byte[15] (0x00 success; 0x1E-0x23 jam/mechanical failure).
 
   openness:
     status: "hostile"
@@ -57,8 +60,8 @@ device:
     notes: >
       No published local protocol; local control depends on an offline key the
       vendor cloud holds. The BLE stack was reverse-engineered and is mature
-      (in production in Home Assistant). The zero-IV AES-CBC + static offline-key
-      design has drawn security scrutiny historically; no fresh advisory URL was
+      (in production in Home Assistant). The zero-IV AES-CBC session design
+      has drawn security scrutiny historically; no fresh advisory URL was
       verified for this spec, so none is asserted here.
 
   identification:
@@ -66,8 +69,9 @@ device:
       - "0000fe24-0000-1000-8000-00805f9b34fb"
     manufacturer_data:
       company_id: 465
+      additional_company_ids: [302]
       company_id_hex: "0x01D1"
-      description: "Yale (0x01D1). Locks advertise the 0xFE24 service."
+      description: "Yale (0x01D1) or ASSA ABLOY (0x012E). Locks advertise the 0xFE24 service."
 
   discovery:
     methods:
@@ -77,10 +81,12 @@ device:
             - "0000fe24-0000-1000-8000-00805f9b34fb"
           manufacturer_data:
             company_id: 465
-            description: "Yale company id 0x01D1; primary service 0xFE24."
+            additional_company_ids: [302]
+            description: "Yale company id 0x01D1 or ASSA ABLOY 0x012E; primary service 0xFE24."
         notes: >
-          Match the 0xFE24 service (and Yale company id 0x01D1). The lock is then
-          driven over BLE once the offline key + slot are supplied.
+          Match the 0xFE24 service and either Yale company id 0x01D1 or ASSA
+          ABLOY 0x012E. The lock is then driven over BLE once the offline key
+          and slot are supplied.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -197,8 +203,9 @@ device:
       issued_to_client:
         - "The offline key + slot (synced from the August/Yale cloud account)"
       notes: >
-        The offline key is the crown jewel: it keys the AES-CBC session and is
-        held by the vendor cloud, so obtaining it requires an account. The Wi-Fi
+        The offline key is the crown jewel: it starts the AES-ECB setup that
+        derives the session key used by later AES-CBC operations, and it is held
+        by the vendor cloud, so obtaining it requires an account. The Wi-Fi
         variants add a separate radio/bridge; the lock core here is BLE.
 
   pairing:
@@ -262,54 +269,104 @@ services:
   - uuid: "0000fe24-0000-1000-8000-00805f9b34fb"
     name: "August / Yale lock service (0xFE24)"
     notes: >
-      HAP-derived framing (plaintext first byte 0x06, encrypted 0x11; 18-byte
-      response). Two sessions: a plaintext Session and an AES-CBC SecureSession
-      keyed by the offline key. Motor result at response byte[15].
+      Two channels share this service. The normal operation channel
+      (bd4ac611/bd4ac612) carries 18-byte command and response frames after the
+      handshake, encrypted with AES-CBC under the derived session key. The
+      secure channel (bd4ac613/bd4ac614) is for setup and shutdown, initially
+      encrypted with AES-ECB under the offline key and then under the derived
+      session key. Operation results arrive at response byte[15].
     characteristics:
       - uuid: "bd4ac611-0b45-11e3-8ffd-0800200c9a66"
-        name: "Write"
-        properties: ["write"]
-        notes: "Plaintext-session write."
-      - uuid: "bd4ac612-0b45-11e3-8ffd-0800200c9a66"
-        name: "Read"
-        properties: ["read", "notify"]
-        notes: "Plaintext-session read."
-      - uuid: "bd4ac613-0b45-11e3-8ffd-0800200c9a66"
-        name: "Secure write"
+        name: "Normal operation write"
         properties: ["write"]
         notes: >
-          AES-CBC secure-session write (offline-key). Opcodes 0x0A UNLOCK, 0x0B
-          LOCK, 0x02 GETSTATUS.
+          Lock, status and other normal-operation requests. The templates below
+          are the plaintext 18-byte frames before AES-CBC encryption of bytes
+          0-15 with the derived session key and zero IV; bytes 16-17 remain
+          clear. The checksum is negated sum8 over the other 17 bytes. Its
+          auto parameter uses seed 0xFE (negative trailer byte 0x02) so the
+          checksum covers the trailer even though the checksum itself is at
+          byte 3.
         commands:
           unlock:
-            description: "Unlock (opcode 0x0A), sent as an AES-CBC secure frame."
+            description: "Unlock (opcode 0x0A), operation byte 0. Full pre-encryption frame, not a one-byte write."
             encoding: "bytes"
             verification: "reported"
-            value: [0x0A]
+            template: [0xEE, 0x0A, 0x00, "{checksum}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+            fixed_length: 18
+            parameters:
+              checksum:
+                type: "uint8"
+                auto: "subtract_checksum"
+                checksum_start: 0
+                checksum_xor: 0xFE
           lock:
-            description: "Lock (opcode 0x0B), sent as an AES-CBC secure frame."
+            description: "Lock (opcode 0x0B), operation byte 0. Full pre-encryption frame, not a one-byte write."
             encoding: "bytes"
             verification: "reported"
-            value: [0x0B]
-          get_status:
-            description: "Read lock status (opcode 0x02)."
+            template: [0xEE, 0x0B, 0x00, "{checksum}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+            fixed_length: 18
+            parameters:
+              checksum:
+                type: "uint8"
+                auto: "subtract_checksum"
+                checksum_start: 0
+                checksum_xor: 0xFE
+          get_lock_status:
+            description: "Read lock state (opcode 0x02, subtype 0x02). Full pre-encryption frame with checksum 0x0C."
             encoding: "bytes"
             verification: "reported"
-            value: [0x02]
-      - uuid: "bd4ac614-0b45-11e3-8ffd-0800200c9a66"
-        name: "Secure read"
+            value: [0xEE, 0x02, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+          get_door_status:
+            description: "Read door state (opcode 0x02, subtype 0x2E). Full pre-encryption frame with checksum 0xE0."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0xEE, 0x02, 0x00, 0xE0, 0x2E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+          get_door_and_lock_status:
+            description: "Read combined door and lock state (opcode 0x02, subtype 0x2F). Full pre-encryption frame with checksum 0xDF."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0xEE, 0x02, 0x00, 0xDF, 0x2F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+          get_battery_status:
+            description: "Read battery voltage (opcode 0x02, subtype 0x0F). Full pre-encryption frame with checksum 0xFF."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0xEE, 0x02, 0x00, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+          get_unread_activity_count:
+            description: >
+              Read the unread activity count (opcode 0x02, subtype 0x09).
+              Unlike GETLOG, this does not consume activity records. Full
+              pre-encryption frame with checksum 0x05.
+            encoding: "bytes"
+            verification: "reported"
+            value: [0xEE, 0x02, 0x00, 0x05, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+      - uuid: "bd4ac612-0b45-11e3-8ffd-0800200c9a66"
+        name: "Normal operation response"
         properties: ["read", "notify"]
-        notes: "AES-CBC secure-session read; motor result at byte[15]."
+        notes: "Normal-session responses and unsolicited state. Motor result is byte[15] of a 0xBB lock/unlock op-response."
+      - uuid: "bd4ac613-0b45-11e3-8ffd-0800200c9a66"
+        name: "Secure handshake write"
+        properties: ["write"]
+        notes: >
+          Setup and shutdown only, not lock/status operations. AES-ECB. Setup
+          starts with the offline key and keyIndex, then switches to the
+          derived 16-byte session key. Commands have opcode at byte[0], a
+          32-bit little-endian negated-sum checksum at bytes 12-15, and trailer
+          0x0F plus keyIndex at bytes 16-17.
+      - uuid: "bd4ac614-0b45-11e3-8ffd-0800200c9a66"
+        name: "Secure handshake response"
+        properties: ["read", "notify"]
+        notes: "AES-ECB setup and shutdown responses; not the normal motor-result channel."
 
 entities:
   - platform: "switch"
     name: "Lock"
     icon: "mdi:lock"
-    command_characteristic: "bd4ac613-0b45-11e3-8ffd-0800200c9a66"
+    command_characteristic: "bd4ac611-0b45-11e3-8ffd-0800200c9a66"
     commands:
       turn_on: "lock"
       turn_off: "unlock"
-    notes: "on = locked (0x0B), off = unlocked (0x0A)."
+    notes: "on = locked (0x0B), off = unlocked (0x0A), on the normal operation channel."
 
 helpful_urls:
   - title: "Yale-Libs/yalexs-ble"

@@ -64,20 +64,53 @@ device:
 
   discovery:
     methods:
-      - type: "mdns"
-        mdns:
-          service_type: "_http._tcp.local."
-          port: 8883
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 2021
+          passive_ok: true
+          response_format: "http"
+          response_match:
+            - source: "header:NT"
+              match: "exact"
+              value: "urn:bambulab-com:device:3dprinter:1"
+              description: "The notification type in the printer's unsolicited SSDP-style NOTIFY."
           identity_mapping:
             stable_keys:
-              - source: "mqtt:device/{serial}/report#serial"
+              - source: "header:USN"
                 key: "serial"
             display:
-              source: "mqtt:device/{serial}/report#name"
+              source: "header:DevName.bambu.com"
         notes: >
-          The printer is found on the LAN by IP; the serial + access code are
-          shown in the printer's network settings, and MQTT topics are keyed by
-          the device serial.
+          Listen on UDP 2021 for the printer's periodic NOTIFY. USN is the
+          device serial used in MQTT topics; Location is only the current LAN
+          locator, and DevName.bambu.com is the user-facing name. The Host
+          header's 1990 is not the socket port. Official port documentation
+          lists 1990/2021; public current-firmware captures use 2021.
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 2021
+          multicast_group: "239.255.255.250"
+          probe_hex: "4d2d534541524348202a20485454502f312e310d0a484f53543a3233392e3235352e3235352e3235303a323032310d0a4d414e3a22737364703a646973636f766572220d0a4d583a310d0a53543a75726e3a62616d62756c61622d636f6d3a6465766963653a33647072696e7465723a310d0a555345522d4147454e543a4f532f76657273696f6e2070726f647563742f76657273696f6e0d0a0d0a"
+          passive_ok: false
+          response_format: "http"
+          response_match:
+            - source: "header:ST"
+              match: "exact"
+              value: "urn:bambulab-com:device:3dprinter:1"
+              description: "The search target in the printer's M-SEARCH response."
+          identity_mapping:
+            stable_keys:
+              - source: "header:USN"
+                key: "serial"
+            display:
+              source: "header:DevName.bambu.com"
+        notes: >
+          Optional active discovery, transcribed from a public capture:
+          M-SEARCH * HTTP/1.1, HOST 239.255.255.250:2021, MAN
+          "ssdp:discover", MX 1, ST urn:bambulab-com:device:3dprinter:1,
+          USER-AGENT OS/version product/version, CRLF line endings and a
+          final blank line. The response uses ST where the passive NOTIFY
+          uses NT; both carry the same USN and display-name fields.
     identity:
       stable_keys: ["serial"]
       display: "serial"
@@ -244,20 +277,20 @@ mqtt:
 mqtt_topics:
   - topic: "device/{serial}/request"
     name: "Command topic"
-    direction: "subscribe"
+    direction: "publish"
     description: >
-      Publish commands here (from the client's perspective the printer subscribes).
+      The client publishes commands here and the printer subscribes.
       JSON {"<type>":{"sequence_id":"0","command":"<cmd>",...}}; families
       info/get_version, pushing/pushall, print/*, system/ledctrl, camera/*.
     payload_format:
       encoding: "json"
   - topic: "device/{serial}/report"
     name: "Status topic"
-    direction: "publish"
+    direction: "subscribe"
     description: >
-      The printer publishes status here; reports echo sequence_id and include
-      "result":"success". X1 sends the full object; P1P sends deltas (force a
-      full snapshot with pushing/pushall).
+      The client subscribes to status published by the printer; reports echo
+      sequence_id and include "result":"success". X1 sends the full object;
+      P1P sends deltas (force a full snapshot with pushing/pushall).
     payload_format:
       encoding: "json"
 
@@ -359,6 +392,13 @@ helpful_urls:
   - title: "Doridian/OpenBambuAPI — FTP"
     url: "https://github.com/Doridian/OpenBambuAPI/blob/main/ftp.md"
     description: "The FTPS (990) file access (gcode/3mf, timelapse, logs)."
+  - title: "Bambu Lab — printer network ports"
+    url: "https://wiki.bambulab.com/en/general/printer-network-ports"
+    kind: "vendor_support"
+    description: "Official port table: SSDP discovery on 1990/2021 and LAN-mode MQTT over TLS on 8883."
+  - title: "ClusterM/open-bamboo-networking — SSDP discovery"
+    url: "https://github.com/ClusterM/open-bamboo-networking/blob/master/research/06.01-ssdp.md"
+    description: "Public current-firmware NOTIFY and M-SEARCH evidence, including the 2021 socket, USN serial and DevName fields."
   - title: "Bambu Lab Wiki"
     url: "https://wiki.bambulab.com/en/home"
     kind: "vendor_support"

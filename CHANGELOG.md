@@ -668,6 +668,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Lock, home-control and LAN protocol audit.** Correct Nuki's variable PIN
+  lengths, keypad response direction and door-state sentinel; Yale/August's
+  normal-operation channel, complete pre-encryption frames and session-key
+  stages; Schlage's indication subscription; TTLock's separate Battery Service;
+  SESAME's application requests and mechanical-status semantics; SafeTech's
+  nine-byte password frames; SwitchBot's discovery and model-specific response
+  layouts; and eQ-3's status offsets and temperature limits. Document Kevo's
+  ten-second second-generation reset, BIO-key's capture scope, devolo's
+  cached-credential local route, and the wired Security+ 1.0/2.0 boundary
+  without restoring a learn-button requirement. Replace invented WeatherFlow
+  and Bambu discovery with their UDP contracts, reverse Bambu's MQTT directions,
+  decode Yeelight's string results and reverse-TCP music mode, scope Divoom's
+  token to port 9000 while declaring its port-80 JSON API, allow Kasa in-place
+  rejoin, remove Hisense's generic Cast matcher, and document Sony's speaker
+  target selection. Independent standard-library vectors cover the frame,
+  discovery and parser changes. Static findings remain `reported`; existing
+  hardware evidence, newer research and all rejected hypotheses stay intact.
 - **New hardware evidence corrects five LED-panel specs and FOREO Peach 2.**
   iLEDColor now declares its live A950 command path, write properties,
   Connect/TestPass vectors, advertised geometry and successful static/animated

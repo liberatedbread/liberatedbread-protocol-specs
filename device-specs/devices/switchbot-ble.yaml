@@ -91,13 +91,16 @@ device:
     methods:
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
           service_data:
             - "0000fd3d-0000-1000-8000-00805f9b34fb"
           manufacturer_data:
             company_id: 2409
             description: "SwitchBot company ID 0x0969 (new firmware v6.4+); older: 0x0059 (89); pySwitchbot also parses 0x02E5 (741)"
+        notes: >
+          Do not require the 128-bit communication-service UUID in the
+          advertisement: the official UUID update notes say that newer
+          firmware removes the complete 128-bit UUID list from SCAN_RSP.
+          Match the 0xFD3D service-data UUID and SwitchBot company ID instead.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -325,9 +328,11 @@ services:
             description: >
               Find/locate action (action byte 0x03). App-confirmed
               byte-for-byte: the vendor command generator emits this exact
-              frame for its find-device function. Not a Bot press variant —
-              the Bot defines only actions 0x00/0x01/0x02.
-              Not hardware-tested.
+              frame for its find-device function. However, the official Bot
+              API assigns action 0x03 to push-stop and 0x04 to back, so do not
+              offer this as a Bot locate command without model-specific
+              evidence. The competing device-family behavior is not
+              hardware-tested.
             value: [0x57, 0x01, 0x03]
             verification: "reported"
           get_basic_info:
@@ -394,23 +399,19 @@ services:
         notes: >
           Notification channel from device to client. Response frame:
           [status byte][payload...]. Status: 0x01=OK, 0x02=ERROR, 0x03=BUSY,
-          0x05=unsupported, 0x06=low battery. For GetBasicInfo (0x02):
-          payload = [battery%][fw_version*0.1][strength][ADC_hi][ADC_lo]
+          0x05=unsupported, 0x06=low battery. Payload is command- and
+          model-specific; bytes 1 and 2 are not universally battery/firmware.
+          On a Bot's successful GetBasicInfo (0x02) response the payload is
+          [battery%][fw_version*0.1][strength][ADC_hi][ADC_lo]
           [motor_cal_hi][motor_cal_lo][timer_count][act_mode][hold_times]
-          [service_data_byte0][service_data_byte1]. For MeterReadSensor (0x31):
-          payload = [temp_frac][temp_int][humidity].
+          [service_data_byte0][service_data_byte1]. A Meter's GetBasicInfo
+          payload is instead four bytes: battery, firmware and the two service
+          data bytes. For MeterReadSensor (0x31), the payload is
+          [temp_frac][temp_int][humidity].
         format:
           - offset: 0
             length: 1
             name: "status"
-            type: "uint8"
-          - offset: 1
-            length: 1
-            name: "battery_percent"
-            type: "uint8"
-          - offset: 2
-            length: 1
-            name: "firmware_version_raw"
             type: "uint8"
 
   - uuid: "36000001-0001-0002-0003-010203040506"
@@ -768,19 +769,6 @@ entities:
     name: "Press"
     commands:
       press: "bot_press"
-  - platform: "sensor"
-    name: "Battery"
-    device_class: "battery"
-    unit: "%"
-    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
-    state_mapping:
-      value: "battery_level"
-    notes: >
-      Bound to the standard Battery Level characteristic, which most SwitchBot
-      firmware does not expose (see that characteristic's notes); the
-      reliable battery source is service-data byte 2 of the advertisement,
-      which has no characteristic to bind. Expect this tile to read
-      unavailable on most units.
 
 helpful_urls:
   - title: "Home Assistant SwitchBot integration"

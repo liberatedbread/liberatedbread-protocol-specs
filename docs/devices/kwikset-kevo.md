@@ -77,10 +77,11 @@ device identity keys/certs live in the sqlcipher database `kevo`, whose
 passphrase is wrapped by an Android-Keystore RSA key — extraction needs the
 phone itself, so do it while a working paired phone still exists.
 
-**Factory reset**: exists (vendor documents holding the interior "A" button
-~20 s on 2nd-gen; 1st-gen differs) and clears enrolled devices. The exact
-per-generation procedure is not established here — consult Kwikset's
-documentation; a guessed sequence on a door lock can lock you out.
+**Factory reset**: the second-generation installation and user guide documents
+holding the Reset button on the back panel for **ten seconds**, until the lock
+beeps and the light ring flashes red; this clears enrolled devices. First-gen
+hardware differs — consult the guide for the generation in hand rather than
+guessing a sequence on a door lock.
 
 **Rebinding**: a previously enrolled client rejoins with its cached shared
 secret (or re-runs the key-present flow with its certificates). A reset is
