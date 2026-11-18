@@ -7528,7 +7528,7 @@ Kit 2 has a separate, unverified GATT and credential profile and is not covered.
 </tr>
 <tr>
 <td>Passphrase protection</td>
-<td>SRP-6a unlock + AES-encrypted channel; generic XBee default <code>password</code>, manager-specific <code>030609</code></td>
+<td>Four-frame SRP-6a + AES-256-CTR; reviewed Ensemble paths use <code>030609</code></td>
 </tr>
 <tr>
 <td>Confidence</td>
@@ -7536,21 +7536,24 @@ Kit 2 has a separate, unverified GATT and credential profile and is not covered.
 </tr>
 </tbody>
 </table>
-<p>Commissioning over BLE: connect to the XBee 3 BLE service and perform the SRP-6a
-unlock (XBee API frame <code>0x2C</code>, user <code>apiservice</code>). The generic library default is
-<code>password</code>, but both provisioning-manager constructor paths for the PAN/link-key
-checks use <code>030609</code>. Use the value for the flow being implemented rather than
-assuming one universal password. Then send User Data Relay frames to the radio's
-serial interface carrying the provisioning frames: link key push (frame type 1,
+<p>Commissioning over BLE: connect to the XBee 3 BLE service and perform the
+four-frame SRP-6a unlock (XBee API <code>0x2C</code>/response <code>0xAC</code>, user <code>apiservice</code>).
+Reviewed Ensemble provisioning, existing-device link-key verification and live
+data all expect <code>030609</code>; <code>password</code> is confined to separate range-test and
+gateway helpers. Verify the 32-byte proof. In phase 4, bytes 32–43 are the
+12-byte TX nonce for client→XBee and bytes 44–55 are the 12-byte RX nonce for
+XBee→client. Use those direction-specific nonces with the 32-byte session key
+for AES-256-CTR and initial remaining counter value 1. Then send User Data Relay frames carrying link key push (frame type 1,
 <code>[0x01][0x10][16 key bytes]</code>), gateway serial write (type 7), and
-pairing/commissioning status polls (types 4/5). The 16-byte 802.15.4 link key
-is generated locally by the commissioning app; no cloud is needed on the BLE
-link itself.</p>
+pairing/commissioning status polls (types 4/5). The 16-byte 802.15.4 link key is
+generated locally. A candidate with 13 zero bytes plus the reserved <code>03 06 09</code>
+prefix is rejected; that prefix is not a fallback mesh key. Envoy serial derives
+and verifies the PAN ID; no separate numeric PAN-ID write is established.</p>
 <p><strong>Factory reset</strong>: not documented. Frame type 2 (<code>RESET_DEV</code>) exists but its
 effect is unverified — do not poke it on a live site. De-commissioning is
 normally done via the gateway by an installer.</p>
-<p><strong>Rebinding</strong>: re-running the BLE provisioning push (PAN ID, link key,
-gateway serial) re-joins a unit to the site mesh in place; no reset needed.</p>
+<p><strong>Rebinding</strong>: re-running link-key/Envoy-serial provisioning and PAN-ID
+verification re-joins a unit to the site mesh in place; no reset needed.</p>
 <h2 id="protocol-summary">Protocol Summary<a class="headerlink" href="#protocol-summary" title="Permanent link">&para;</a></h2>
 <h3 id="ble-services">BLE Services<a class="headerlink" href="#ble-services" title="Permanent link">&para;</a></h3>
 <table>
@@ -7581,13 +7584,15 @@ gateway serial) re-joins a unit to the site mesh in place; no reset needed.</p>
 </table>
 <p>XBee API frame types in play (public digi-xbee-java): <code>0x2C</code> BLE Unlock,
 <code>0xAC</code> BLE Unlock Response, <code>0x2D</code> User Data Relay (client→device), <code>0xAD</code>
-User Data Relay Output (device→client). After the SRP-6a unlock, both
-directions are AES-encrypted with session keys from the handshake. Enphase
-payloads ride in the relay frames' user-data field, addressed to the radio's
-serial interface (micropython interface on the IQ Extender).</p>
+User Data Relay Output (device→client). After the four-frame SRP-6a unlock,
+both directions use AES-256-CTR with the verified 32-byte session key and their
+own 12-byte nonce. Enphase payloads ride in the relay frames' user-data field,
+addressed to the radio's serial interface (micropython interface on the IQ
+Extender).</p>
 <h3 id="enphase-provisioning-frames-inside-user-data-relay">Enphase provisioning frames (inside User Data Relay)<a class="headerlink" href="#enphase-provisioning-frames-inside-user-data-relay" title="Permanent link">&para;</a></h3>
-<p>Byte 0 = frame type, byte 1 = <code>0x00</code> placeholder; responses echo the type and
-carry the payload from byte 2 on.</p>
+<p>Byte 0 = frame type. Polls are <code>[type, 0]</code>, but write byte 1 can be a length:
+<code>[01][10][16 key bytes]</code> is 18 bytes, and gateway serial is length-prefixed.
+Responses echo the type and carry the payload from byte 2 on.</p>
 <table>
 <thead>
 <tr>

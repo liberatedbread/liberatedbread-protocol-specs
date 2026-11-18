@@ -12,26 +12,15 @@
           "address"
         ]
       },
-      "methods": [
-        {
-          "ble": {},
-          "notes": "Passive scan; press the sensor's sync button to surface its MAC in the scanner logs, then key on that MAC. The exact manufacturer-data company id / layout is in the ESPHome component source.\n",
-          "type": "ble_scan"
-        }
-      ],
+      "none": "Configure the sensor by MAC address; do not activate an automatic scan. The 0x0059 value is a shared Nordic company ID, not Mopeka identity, and 0x0059 alone must never select this spec. Press the sync button to surface the MAC in scanner logs, then configure that address explicitly as in ESPHome. The 10-byte payload in payload_formats is telemetry, not a discovery matcher.\n",
       "static_ip_required": false
-    },
-    "identification": {
-      "manufacturer_data": {
-        "description": "Mopeka Pro sensors broadcast their reading in BLE advertisements, decoded passively; sensors are keyed by MAC address. Press the sync button to surface the MAC.\n"
-      }
     },
     "manufacturer": "Mopeka Products LLC",
     "manufacturer_status": "active",
     "name": "Mopeka Pro Check Tank Sensor",
-    "notes": "Mopeka Pro Check ultrasonic tank sensors (LP/propane and universal) report the fill level of a tank by measuring ultrasonic time-of-flight to the liquid surface. The community decodes the BLE broadcast passively — no cloud, no pairing — exactly as the ESPHome component does (\"operates passively, listening to BLE broadcasts\").\nIDENTIFICATION: sensors are identified by MAC address; a sync-button press makes a sensor discoverable in logs (or set show_sensors_without_sync).\nBROADCAST VALUES: tank level (% of capacity), raw distance/depth (mm, ultrasonic time-of-flight), sensor temperature (not ambient-calibrated), battery % (CR2032), and a reading quality/confidence enum (HIGH/MEDIUM/LOW/ ZERO) to discard unreliable readings. Level is derived from distance via a tank-shape calibration: predefined vertical LP tanks (20/30/40 lb, 6/11/14 kg) or custom full/empty distance points.\nSupported: Mopeka Pro Check LP, Pro Plus, Pro Check Universal, and the Lippert Propane Tank Sensor.\n",
+    "notes": "Mopeka Pro Check ultrasonic tank sensors (LP/propane and universal) report the fill level of a tank by measuring ultrasonic time-of-flight to the liquid surface. The community decodes the BLE broadcast passively — no cloud, no pairing — exactly as the ESPHome component does (\"operates passively, listening to BLE broadcasts\").\nIDENTIFICATION: sensors are identified by MAC address; a sync-button press makes a sensor discoverable in logs (or set show_sensors_without_sync).\nBROADCAST VALUES: tank level (% of capacity), temperature-compensated distance/depth (mm, from ultrasonic time-of-flight), sensor temperature (not ambient-calibrated), battery % (CR2032), and a reading quality/confidence enum (HIGH/MEDIUM/LOW/ ZERO) to discard unreliable readings. Level is derived from distance via a tank-shape calibration: predefined vertical LP tanks (20/30/40 lb, 6/11/14 kg) or custom full/empty distance points.\nSupported: Mopeka Pro Check LP, Pro Plus, Pro Check Universal, and the Lippert Propane Tank Sensor.\n",
     "openness": {
-      "notes": "Mopeka publishes no protocol; the BLE broadcast is reverse-engineered by the community (ESPHome). The exact company id and per-byte layout are in the ESPHome component source rather than the docs page cited.\n",
+      "notes": "Mopeka publishes no protocol; the BLE broadcast is reverse-engineered by the community (ESPHome). The shared Nordic header and per-byte layout are in the ESPHome component source rather than the docs page cited; the header is not Mopeka identity and is not used for discovery.\n",
       "reverse_engineered": true,
       "source_code": "https://github.com/esphome/esphome",
       "status": "undocumented",
@@ -143,29 +132,34 @@
   "entities": [
     {
       "name": "Tank Level",
-      "notes": "Percent of capacity, derived from distance + tank-shape calibration.",
+      "notes": "Percent of capacity, derived from compensated distance + tank-shape calibration.",
       "platform": "sensor",
       "unit": "%"
     },
     {
       "name": "Distance",
-      "notes": "Raw ultrasonic distance to the liquid surface.",
+      "notes": "uint32(raw_level * (0.573045 - 0.002822*raw_t - 0.00000535*raw_t^2)); raw_t = byte2 & 0x7F.",
       "platform": "sensor",
       "unit": "mm"
     },
     {
       "device_class": "battery",
       "name": "Battery",
-      "notes": "CR2032 battery level.",
+      "notes": "V=(byte1&0x7F)/32; clamp((V-2.2)/0.65*100,0,100), truncated to integer.",
       "platform": "sensor",
       "unit": "%"
     },
     {
       "device_class": "temperature",
       "name": "Sensor Temperature",
-      "notes": "Sensor temperature (not ambient-calibrated).",
+      "notes": "(byte2 & 0x7F) - 40; sensor temperature, not ambient-calibrated.",
       "platform": "sensor",
       "unit": "C"
+    },
+    {
+      "name": "Reading Quality",
+      "notes": "byte4 >> 6: 3 HIGH, 2 MEDIUM, 1 LOW, 0 ZERO; use to discard unreliable readings.",
+      "platform": "sensor"
     }
   ],
   "helpful_urls": [
@@ -187,6 +181,49 @@
       "url": "https://m.media-amazon.com/images/I/81IzQcwe5nL.pdf"
     }
   ],
+  "payload_formats": {
+    "advertisement": {
+      "description": "Ten bytes after the shared Nordic 0x0059 header (on-air 59 00), which is not Mopeka identity. Accepted sensor type bytes are 0x03, 0x06, 0x08 and 0x0C. Bytes 5-9 are not decoded. MAC selection remains required; company ID alone is not identity and must not activate an automatic scan.\n",
+      "example": "03 50 28 e8 c3 00 00 00 00 00",
+      "fields": [
+        {
+          "description": "One of 03 / 06 / 08 / 0C.",
+          "index": 0,
+          "length": 1,
+          "name": "sensor_type"
+        },
+        {
+          "description": "7-bit raw battery: voltage_V = (byte1 & 0x7F)/32; percent = clamp((voltage_V - 2.2)/0.65*100, 0, 100), truncated to integer.",
+          "index": 1,
+          "length": 1,
+          "name": "battery_raw"
+        },
+        {
+          "description": "7-bit raw compensation value raw_t = byte2 & 0x7F; sensor temperature_C = raw_t - 40.",
+          "index": 2,
+          "length": 1,
+          "name": "temperature_raw"
+        },
+        {
+          "description": "raw_level = byte3 | ((byte4 & 0x3F) << 8), an unsigned 14-bit little-endian level. quality = byte4 >> 6: 3 HIGH, 2 MEDIUM, 1 LOW, 0 ZERO.",
+          "index": 3,
+          "length": 2,
+          "name": "level_and_quality"
+        },
+        {
+          "description": "Bytes 5-9 are preserved but not interpreted.",
+          "index": 5,
+          "length": 5,
+          "name": "undecoded"
+        }
+      ],
+      "parse_rules": [
+        "Require exactly 10 payload bytes and an accepted type before decoding; reject other lengths rather than reading past the advertisement.",
+        "Temperature-compensated distance_mm = uint32(raw_level * (0.573045 - 0.002822*raw_t - 0.00000535*raw_t^2)).",
+        "The synthetic example decodes to 2.5 V, 46 % battery, 0 C, raw level 1000, HIGH quality and 451 mm."
+      ]
+    }
+  },
   "services": [
     {
       "characteristics": [
