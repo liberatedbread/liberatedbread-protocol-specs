@@ -39,11 +39,16 @@ type-7 invocations do not belong on this API.
 | Companion app | Casambi, Android package `casambi.ambi`; the reviewed release still has the Classic path |
 | FCC ID | Check each partner fixture/module; no family-wide id is asserted |
 
-FE4D and company `0x03C3` are shared with Evolution. For a short network advert,
-byte 6 after the company-id bytes has network protocol in its low five bits.
-Accept 5–9 for this spec, 10–11 for Evolution and nothing else here. Long unit
-adverts use offset 19 for that byte after validating their layout. The direct
-client's reversed-address passive-beacon parser is not this full-session
+FE4D and company `0x03C3` are shared with Evolution, so **neither Casambi spec
+is independently auto-selected from them.** Manually select the family and
+intended generation, then require the post-connect connection-info protocol byte
+(or a trusted cache and subsequent read) to confirm 5–9 before any signed write.
+One scan must never select both generations.
+
+For a bespoke client after selection, a short network advert has network protocol
+in the low five bits of byte 6 after the company-id bytes; long unit adverts use
+offset 19. These are post-selection checks, not a generic discovery matcher. The
+direct client's reversed-address passive-beacon parser is not this full-session
 discovery grammar or an OUI.
 
 ## Initial setup and warm-cache boundary
@@ -68,6 +73,15 @@ Keys remain plaintext hex in the JSON cache; use the intended 0700 directory and
 0600 file permissions and preserve the whole same-version directory. Legacy
 `keys.pck`, `session.pck` and `types.pck` files are ignored, not migrated as
 objects or treated as interchangeable with Evolution/Android/ESP32 backups.
+
+The pinned public client's first-time sequence is `GET /network/uuid/<uuid>` to
+resolve the id, `POST /network/<id>/session` with `password` and `deviceName`,
+then `PUT /network/<id>/` with `formatVersion: 1`, `deviceName`, the cached
+revision (or zero), and `X-Casambi-Session`. `UPTODATE` keeps the cache;
+`MERGED`/`FETCHED` stores the returned document/revision; `CONFLICT` requires
+reconciliation instead of overwriting newer state. Fixture metadata is a separate
+`GET /fixture/<id>`. The reviewed Android generation uses the same ordered verbs
+beneath `/api/`; it does not use a full-sync `GET` or `POST` the UUID route.
 
 No offline first-time key/topology issuer, cloud replacement, Network History
 replacement or lost-credential recovery was found. Foreign unpair and uncached
@@ -141,9 +155,13 @@ CMAC input = connection_hash[8] || sequence || optional_frame_type || payload
 
 The selector is not included in the CMAC input. Sequence is **16-bit big-endian**,
 not the direct API's one-byte sequence. It runs from 1 through 65535 and skips
-zero on wrap. Command origin is a separate `u8` rolling through 1–255. Validate
-selector, all MAC/sequence bytes, nonzero sequence and CMAC in constant time
-before parsing a payload.
+zero on wrap. Command origin is a separate `u8` rolling through 1–255. For a
+signed write, validate selector, all MAC/sequence bytes, nonzero sequence and
+CMAC in constant time before parsing its enclosed command. This rule does not
+apply to notifications: raw configuration, debug, response and unit-state
+notifications have **no CMAC and no envelope-sequence replay protection**. Treat
+them as unauthenticated plaintext with strict length/context checks and
+fresh-state plausibility, not as cryptographically authenticated state.
 
 ## Classic operation records
 
@@ -164,10 +182,15 @@ Core operation types are:
 
 | Scope | Level | Temperature | RGB color | Vertical | White |
 |---|---:|---:|---:|---:|---:|
-| Scene | 1 | 2 | 3 | — | — |
+| Scene | 1 | unsupported | unsupported | — | — |
 | Whole network | 4 | 5 | 6 | 22 | 23 |
 | Unit | 7 | 8 | 9 | 24 | 25 |
 | Group | 26 | 27 | 28 | 29 | 30 |
+
+The app enum names scene temperature 2 and scene color 3, but the pinned outgoing
+operation map rejects both `SetTemperature` and `SetColor` for scene targets.
+They are retained only as app-only/unverified type names, not implementable
+commands in this profile. Scene level 1 is the ordinary scene operation.
 
 - Level/white are `u8` 0–255; percent is raw × 100/255. Vertical is a
   fixture-directed top/bottom balance.

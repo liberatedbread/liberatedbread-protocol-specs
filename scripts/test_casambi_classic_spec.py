@@ -359,8 +359,16 @@ def test_all_relevant_classic_session_operation_golden_vectors():
         assert parsed["payload"].hex() == vector["payload_hex"]
         with pytest.raises(ValueError):
             parse_operation(raw[:-1])
-    with pytest.raises(ValueError):
-        encode_operation("SetTemperature", "scene", 1, b"\x36")
+    for operation, payload in (("SetTemperature", b"\x36"), ("SetColor", b"\xff\x80\x00")):
+        with pytest.raises(ValueError):
+            encode_operation(operation, "scene", 1, payload)
+    operation_types = details()["command_records"]["operation_types"]
+    assert "scene_temperature" not in operation_types
+    assert "scene_color" not in operation_types
+    unsupported = details()["command_records"]["unsupported_scene_operations"]
+    assert unsupported["scene_temperature"]["type"] == 2
+    assert unsupported["scene_color"]["type"] == 3
+    assert all(not item["outgoing_full_session"] for item in unsupported.values())
     with pytest.raises(ValueError):
         encode_operation("SetLevel", "unit", 256, b"\xff")
     with pytest.raises(ValueError):
@@ -413,6 +421,11 @@ def test_classic_incoming_state_response_and_malformed_cases():
     assert response["state"] == bytes.fromhex(vector["expected"]["state_hex"])
     assert parse_incoming(b"\x00configuration") == []
     assert parse_incoming(b"\xffdebug") == []
+    transport = details()["security"]["incoming_notifications"]
+    assert transport["cmac"] is False
+    assert transport["sequence_replay_protection"] is False
+    assert transport["encryption"] is False
+    assert "no cmac" in details()["incoming_state"]["transport_security"].lower()
     for malformed in (b"", b"\x05", b"\x05\xa2\x10\xaa", b"\x05\x62\x11", b"\xf0\x05"):
         with pytest.raises(ValueError):
             parse_incoming(malformed)
@@ -444,6 +457,9 @@ def test_direct_state_layout_and_fixture_requirement():
     assert document["device"]["testing"]["status"] == "untested"
     protocol = details()
     assert protocol["scope"]["network_protocols"] == [5, 6, 7, 8, 9]
+    assert protocol["scope"]["evolution_protocols"] == [10, 11]
+    assert protocol["scope"]["unsupported_from_protocol"] == 12
+    assert "12 and newer are unsupported" in protocol["exclusions"]["evolution"]
     assert protocol["security"]["payload_encryption"] == "none"
     assert protocol["security"]["integrity"] == "aes-128-cmac"
     assert protocol["exclusions"]["direct_service_uuid"] == "0000fe3d-0000-1000-8000-00805f9b34fb"
@@ -452,3 +468,26 @@ def test_direct_state_layout_and_fixture_requirement():
         for service in document["services"]
         for characteristic in service["characteristics"]
     )
+
+
+def test_cloud_provisioning_methods_headers_and_revision():
+    flow = details()["cloud_provisioning"]["authorized_flow"]
+    assert [(step["method"], step["path"]) for step in flow[:3]] == [
+        ("GET", "/network/uuid/<48-bit-network-id>"),
+        ("POST", "/network/<id>/session"),
+        ("PUT", "/network/<id>/"),
+    ]
+    sync = flow[2]
+    assert sync["json"]["formatVersion"] == 1
+    assert sync["json"]["deviceName"] == "<client-name>"
+    assert sync["json"]["revision"] == "<cached-revision-or-0>"
+    assert sync["headers"] == {"X-Casambi-Session": "<session-from-POST>"}
+    assert set(sync["response_handling"]) >= {
+        "UPTODATE",
+        "MERGED",
+        "FETCHED",
+        "CONFLICT",
+        "HTTP_410",
+    }
+    assert flow[3]["method"] == "GET"
+    assert flow[3]["path"] == "/fixture/<id>"

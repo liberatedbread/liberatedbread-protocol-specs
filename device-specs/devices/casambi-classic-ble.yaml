@@ -62,32 +62,21 @@ device:
     warm cache. This project's generic mobile app cannot execute the custom
     session/CMAC/target protocol, hence identify_only.
   identification:
-    service_uuids: ["0000fe4d-0000-1000-8000-00805f9b34fb"]
-    manufacturer_data:
-      company_id: 963
-      company_id_hex: "0x03C3"
-      description: >
-        New UUID scheme marker. FE4D and this company id are shared with
-        Evolution; decode the advertised network protocol rather than selecting
-        Classic from manufacturer data alone.
     notes: >
-      For a short network advert, payload byte 6 after the company-id bytes has
-      the network protocol in its low five bits. Values 5–9 select this spec;
-      10–11 select casambi-evolution-ble.yaml; other values are unsupported.
-      FE3D advertisements and legacy 5a ca records are outside this profile.
+      FE4D and company 0x03c3 are deliberately NOT automatic matchers: they are
+      shared with Evolution and the generic matcher cannot decode the low-five-
+      bit generation field. Manually select the Casambi family and intended
+      generation, then require the post-connect full-session read to confirm
+      protocol 5–9 before any signed write. FE3D advertisements and legacy
+      5a ca records remain outside this profile.
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids: ["0000fe4d-0000-1000-8000-00805f9b34fb"]
-          manufacturer_data:
-            company_id: 963
-            description: "Family match only; protocol_details.advertisements supplies the required generation check."
-        notes: >
-          Accept only decoded network protocol 5–9 for this full-session client.
-          Do not identify a direct FE3D device or infer Classic from a reversed
-          passive-advert address, which is not an IEEE OUI.
-        verification: "reported"
+    none: >
+      Manual family/generation selection is required because this spec and the
+      Evolution spec would otherwise both match FE4D plus company 963. The
+      protocol_details.advertisements grammar is not an automatic selector.
+      After selection, the 13-byte connection-info protocol byte (or an already
+      trusted cache plus subsequent read) must confirm 5–9; never select both
+      generations from one scan.
     identity:
       stable_keys: ["network_id"]
       display: "network_name_from_warm_cache"
@@ -135,7 +124,7 @@ device:
         steps:
           - action: "Ask the owner to share the Classic network or provide its authorized network credentials; preserve any existing full backup before changes."
             actor: "user"
-          - action: "Create an authorized network session and persist visitor/manager keys, protocol, units, groups, scenes and every fixture definition in the protected Classic JSON cache."
+          - action: "GET /network/uuid/<uuid> to resolve the id, POST /network/<id>/session with password/deviceName, then PUT /network/<id>/ with formatVersion/deviceName/revision and X-Casambi-Session; apply the returned status/revision rules and persist the Classic JSON cache and every fixture definition."
             actor: "client"
             request:
               protocol: "http"
@@ -266,7 +255,11 @@ protocol_details:
     new_uuid_scheme_only: true
     dedicated_consumer_required: true
     generic_mobile_execution: false
-    version_boundary: "Below 5 is not supported by the conformant full-session client; 10 and above is Evolution, not Classic"
+    version_boundary: "Below 5 is unsupported by the conformant full-session client; 10–11 route to Evolution after confirmation; 12 and newer are unsupported pending validation, never Classic"
+    evolution_protocols: [10, 11]
+    unsupported_from_protocol: 12
+    automatic_selection: false
+    post_connect_confirmation: "Manually select generation, then require full-session connection-info protocol 5–9 before signed writes"
   exclusions:
     direct_service_uuid: "0000fe3d-0000-1000-8000-00805f9b34fb"
     direct_control_uuid: "0000fe3e-0000-1000-8000-00805f9b34fb"
@@ -279,8 +272,9 @@ protocol_details:
       Excluded pending capture. The recovered legacy Classic builder appears to
       overwrite its own type/MAC slot, so CA5A service and CA52/CA51/CA50/CA53
       characteristic framing is not asserted. New-scheme facts do not resolve it.
-    evolution: "Protocols 10 and above use casambi-evolution-ble.yaml; never use Classic plaintext/CMAC framing for Evolution"
+    evolution: "Only protocols 10–11 route to casambi-evolution-ble.yaml after post-connect confirmation; protocol 12 and newer are unsupported pending validation, and no version >=10 is ever Classic"
   advertisements:
+    generic_matcher: false
     company_id: 963
     company_id_hex: "0x03C3"
     on_air_company_bytes: "c3 03"
@@ -302,8 +296,13 @@ protocol_details:
     visitor: {selector: 2, key_source: "cloud visitorKey", cmac_bytes: 4, use: "ordinary state and time-sync frames"}
     manager: {selector: 3, key_source: "cloud managerKey", cmac_bytes: 16, use: "administrative/unpair frames"}
     none: {selector: 1, cmac_bytes: 0, use: "hardware-config and explicitly unauthenticated management only"}
-    verification: "Recompute CMAC and compare in constant time before parsing or emitting state; a valid tag does not hide payload from a listener"
-    replay_boundary: "Eight-byte per-connection hash plus nonzero 16-bit sequence only; short visitor tag and shared keys are not strong replay protection"
+    verification: "For signed envelopes/writes only, recompute CMAC and compare in constant time before parsing the enclosed command; a valid tag does not hide payload from a listener"
+    incoming_notifications:
+      cmac: false
+      sequence_replay_protection: false
+      encryption: false
+      handling: "Raw configuration, debug, response and unit-state notifications have no CMAC and no envelope-sequence replay protection. Parse them as unauthenticated plaintext with strict lengths/context and fresh-state plausibility, never claim verify-before-parse CMAC authentication or replay rejection."
+    replay_boundary: "Signed writes have only the eight-byte per-connection hash plus nonzero 16-bit sequence; short visitor tag/shared keys are weak replay protection. Incoming notifications have no protocol-level replay defense."
   session:
     initial_read:
       characteristic: "c9ffde48-ca5a-0001-ab83-8f519b482f77"
@@ -352,8 +351,6 @@ protocol_details:
       - "Validate operation/target combinations and exact payload lengths before signing. SetTemperature/Color/Vertical/White do not accept scene targets in the pinned full-session map."
     operation_types:
       scene_level: {type: 1, target: "scene", payload: "level:u8; specialized scene restore uses level || 00 00 01"}
-      scene_temperature: {type: 2, target: "scene", payload: "temperature_raw:u8"}
-      scene_color: {type: 3, target: "scene", payload: "r:u8 | g:u8 | b:u8"}
       network_level: {type: 4, target: "network", payload: "level:u8"}
       network_temperature: {type: 5, target: "network", payload: "temperature_raw:u8"}
       network_color: {type: 6, target: "network", payload: "r:u8 | g:u8 | b:u8"}
@@ -395,6 +392,17 @@ protocol_details:
       resume_automation: {type: 54, payload: "none"}
       attributes: {types: [55, 56, 57, 58], payload: "attribute-specific"}
       white_color_balance: {type: 59, payload: "balance-specific"}
+    unsupported_scene_operations:
+      scene_temperature:
+        type: 2
+        status: "app-only/unverified"
+        outgoing_full_session: false
+        compatibility_boundary: "The app enum names this type, but the pinned outgoing OperationsContextClassic map rejects every SetTemperature scene target; do not emit it from this profile"
+      scene_color:
+        type: 3
+        status: "app-only/unverified"
+        outgoing_full_session: false
+        compatibility_boundary: "The app enum names this type, but the pinned outgoing OperationsContextClassic map rejects every SetColor scene target; do not emit it from this profile"
     scalar_encodings:
       level: {type: "uint8", min: 0, max: 255, unit: "%", scale: 0.39215686274509803, description: "0 off, 255 full; percentage = raw * 100 / 255"}
       vertical: {type: "uint8", min: 0, max: 255, description: "Top/bottom balance, fixture-defined direction"}
@@ -411,6 +419,7 @@ protocol_details:
       - "Require unit id, flags/length, optional scene id and exactly the declared state length; reject any trailing or truncated bytes."
       - "State bytes must also equal the cached fixture state_length before semantic decoding or read-modify-write."
   incoming_state:
+    transport_security: "No CMAC and no envelope sequence/replay protection on raw configuration, debug, response or unit-state notifications; do not call verify_envelope for these records or imply authenticated state"
     special_first_bytes:
       0: "Network configuration chunk; queue only after checking chunk sequencing, not unit state"
       240: "Response: f0 | responding_unit | origin | remaining state bytes"
@@ -453,10 +462,30 @@ protocol_details:
   cloud_provisioning:
     current_public_base: "https://api.casambi.com"
     app_generation_base: "https://api.casambi.com/api/"
+    route_difference: "The pinned public Classic client uses the no-/api flow below; the reviewed Android generation separately uses /api/ with the same ordered methods, not a full-sync GET"
     authorized_flow:
-      - "Resolve the 48-bit network id and create an authorized network session with the owner's network credentials."
-      - "Download and preserve the complete network JSON including visitorKey, optional managerKey, units, grid/groups and scenes."
-      - "Fetch fixture/<id> for every unit type and cache controls before entering force_offline."
+      - method: "GET"
+        path: "/network/uuid/<48-bit-network-id>"
+        purpose: "Resolve the advertised UUID to the server network id; this route does not create a session"
+      - method: "POST"
+        path: "/network/<id>/session"
+        json: {password: "<owner-network-password>", deviceName: "<client-name>"}
+        purpose: "Create and securely persist the authorized Classic session/keyID; the Android generation may additionally supply its token"
+      - method: "PUT"
+        path: "/network/<id>/"
+        json: {formatVersion: 1, deviceName: "<client-name>", revision: "<cached-revision-or-0>"}
+        headers: {X-Casambi-Session: "<session-from-POST>"}
+        purpose: "Synchronize the complete network JSON including visitorKey, optional managerKey, units, grid/groups and scenes with revision handling; not a full-sync GET"
+        response_handling:
+          UPTODATE: "Keep the cached document and revision"
+          MERGED: "Store the returned merged document and new revision"
+          FETCHED: "Store the returned fetched document and new revision"
+          CONFLICT: "Stop and reconcile rather than overwriting newer local state"
+          HTTP_410: "Invalidate the stale session/cache and reauthorize"
+      - method: "GET"
+        path: "/fixture/<id>"
+        purpose: "Fetch every unit type and cache controls before entering force_offline"
+    app_generation_flow: "Use GET /api/network/uuid/<uuid>, POST /api/network/<id>/session with app token/password/deviceName, then PUT /api/network/<id>/ with formatVersion/deviceName/revision and X-Casambi-Session; retain these as separate base-path generations"
     backup_boundary: "Restore only a complete trusted same-version directory. No converter among Classic JSON, Android JSON, Evolution pickle and reduced ESP32 JSON is implemented or claimed."
     unavailable_offline:
       - "initial keys/topology, new networks and lost credentials with no backup"
@@ -623,13 +652,17 @@ cloud:
       verification: "reported"
       basis: "Public cloud-relay configuration."
   endpoints:
-    - path: "network/uuid/<48-bit-network-id> and network/<id>/session"
-      method: "POST"
-      returns: "Authorized Classic network resolution/session"
-      verification: "reported"
-    - path: "network/<id>"
+    - path: "/network/uuid/<48-bit-network-id>"
       method: "GET"
-      returns: "visitorKey, optional managerKey, protocol, units, groups, scenes and settings"
+      returns: "Server network id; resolution only, not session creation"
+      verification: "reported"
+    - path: "/network/<id>/session"
+      method: "POST"
+      returns: "Authorized Classic session/keyID after password/deviceName (and app-generation token) is supplied"
+      verification: "reported"
+    - path: "/network/<id>/"
+      method: "PUT"
+      returns: "UPTODATE/MERGED/FETCHED/CONFLICT plus visitorKey, optional managerKey, protocol, units, groups, scenes and settings with revision; requires formatVersion/deviceName/revision and X-Casambi-Session"
       verification: "reported"
     - path: "fixture/<id>"
       method: "GET"

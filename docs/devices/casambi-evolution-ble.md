@@ -32,12 +32,18 @@ ECDH/CTR packets.
 | Companion app | Casambi, Android package `casambi.ambi` |
 | FCC ID | Not generalized across partner products; check the exact fixture/module |
 
-FE4D and company `0x03C3` are only a family match shared with Classic. In a short
-network advert, byte 6 after the two company-id bytes contains variant flags in
-its upper three bits and network protocol in its low five. Accept 10 or 11 here,
-5–9 for Classic, and nothing else for this profile. Long unit adverts put that
-byte at offset 19 after the company id. The six-byte network id identifies the
-mesh; it is not a public IEEE OUI.
+FE4D and company `0x03C3` are only family-level facts shared with Classic;
+**neither Casambi spec is independently auto-selected from them.** A generic
+matcher cannot apply the generation field, so the user manually selects the
+Casambi family and intended generation. After connecting, NodeInfo must confirm
+protocol 10 or 11 before any key-exchange write. One scan must never select both
+specs.
+
+For a bespoke client after that selection, a short network advert has variant
+flags in byte 6's upper three bits and network protocol in its low five bits.
+Long unit adverts put that byte at offset 19 after the company id. These rules
+are post-selection validation, not a generic discovery matcher. The six-byte
+network id identifies the mesh; it is not a public IEEE OUI.
 
 The legacy `5a ca` marker selects another UUID scheme. `ca 5c` information
 adverts are a separate authenticated-advert mechanism, not NodeInfo or a session
@@ -67,6 +73,15 @@ password or topology without fixture controls is not a warm cache.** A complete
 same-version trusted backup is a plausible offline restoration route, not an
 official portable export. The Evolution Python cache contains plaintext pickles;
 never load one from an untrusted source.
+
+The pinned public client's first-time sequence is `GET /network/uuid/<uuid>` to
+resolve the id, `POST /network/<id>/session` with `password` and `deviceName`,
+then `PUT /network/<id>/` with `formatVersion: 1`, `deviceName`, the cached
+revision (or zero), and `X-Casambi-Session`. `UPTODATE` keeps the cache;
+`MERGED`/`FETCHED` stores the returned document/revision; `CONFLICT` requires
+reconciliation instead of overwriting newer state. Fixture metadata is a separate
+`GET /fixture/<id>`. The reviewed Android generation uses the same ordered verbs
+beneath `/api/`; it does not use a full-sync `GET` or `POST` the UUID route.
 
 No independent offline first-time provisioner was found. New networks, lost
 credentials without a backup, cloud Network History, foreign-fixture unpair keys
@@ -185,7 +200,13 @@ append a base unit id and a little-endian bitmap. For unit `u >= base`, set bit
 | 5 | SetWhite | `u8` white-channel amount, not Kelvin |
 | 7 | SetColorHS | `u16le` hue 0–1023 (`raw × 360/1023` degrees), then `u8` saturation |
 | 48 | SetState | Exactly the cached fixture's state length and bit layout; preserve unknown/read-only bits |
-| 54 | SetColorXY | `u16le x`, `u16le y`; each is `round(normalized × 65535)` |
+| 54 | SetColorXY | Three-byte `u24le ((x << 11) | y)`: X high, Y low, each `round(normalized × 2047)`; normalized `(0.25, 0.5)` is `000410` |
+
+The pinned hardware-tested client and fixture 9000 use that 22-bit form. A static
+vendor-app writer instead appears to emit two independent `u16le` coordinates
+scaled by 65535. The app reading is a recorded disagreement, **not**
+corroboration; an owner-controlled capture is still needed, and the four-byte
+form is not offered as an alternative encoding here.
 
 The spec includes fresh vectors for all six operations and a bitmap SetLevel to
 units 16, 17 and 20. It also checks overlong payloads, truncated headers,
@@ -206,8 +227,9 @@ unit_id | flags | state_info | [con] | [sid] | [level] | state_vector | padding
 - State vectors are little-endian bitstreams. The fixture—not a universal byte
   offset—defines each control. Extract `(raw >> offset) & ((1 << length) - 1)`.
 - For an 18-bit Evolution RGB control, saturation occupies the low 8 bits and
-  hue the high 10. A 22-bit XY control uses 11 bits per coordinate, normalized
-  by 2047. Temperature uses the fixture's Kelvin min/max and control width.
+  hue the high 10. Fixture 9000's 22-bit XY control starts at bit 36: Y is at
+  offset 36 and X at offset 47, each normalized by 2047. Temperature uses the
+  fixture's Kelvin min/max and control width.
 
 Reject short headers, missing extras, short state/padding and trailing records.
 If the fixture is missing, expired or has a different state length, retain only

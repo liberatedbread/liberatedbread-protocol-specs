@@ -65,36 +65,20 @@ device:
     stateful protocol, so integration remains identify_only until a dedicated
     Evolution consumer exists.
   identification:
-    service_uuids: ["0000fe4d-0000-1000-8000-00805f9b34fb"]
-    manufacturer_data:
-      company_id: 963
-      company_id_hex: "0x03C3"
-      description: >
-        Casambi's SIG company id selects the new UUID scheme. The two company-id
-        bytes appear on air as c3 03. Short network adverts carry the protocol
-        in the low five bits after the six-byte network id; select this spec
-        only for decoded values 10 or 11, never on company id alone.
     notes: >
-      FE4D plus company 0x03c3 is a family-level match, shared with Classic.
-      Decode the advertised network protocol before choosing Evolution versus
-      Classic. The legacy 5a ca marker and CA5C info advert do not establish
-      this new-scheme Evolution session.
+      FE4D and company 0x03c3 are deliberately NOT automatic matchers: they are
+      shared with Classic and a generic scanner cannot apply the low-five-bit
+      generation rule. Manually select the Casambi family and intended
+      generation, then require post-connect NodeInfo protocol 10 or 11 before
+      any key-exchange write. The legacy 5a ca marker and CA5C info advert do
+      not establish this new-scheme Evolution session.
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids: ["0000fe4d-0000-1000-8000-00805f9b34fb"]
-          manufacturer_data:
-            company_id: 963
-            description: >
-              Require both signals, then apply protocol_details.advertisements
-              rather than treating the company id as a generation discriminator.
-        notes: >
-          Network-advert payload byte 6, after the two company-id bytes, holds
-          variant bits in its upper three bits and network protocol in its low
-          five. Values 10 and 11 select Evolution here; 5–9 select the separate
-          Classic full-session spec; 12 and all lower values are unsupported.
-        verification: "reported"
+    none: >
+      Manual family/generation selection is required because this spec and the
+      Classic spec would otherwise both match FE4D plus company 963. The
+      protocol_details.advertisements grammar is for a bespoke client after
+      that selection, not an automatic registry selector. Confirm NodeInfo
+      protocol 10–11 post-connect; never select both generations from one scan.
     identity:
       stable_keys: ["network_id"]
       display: "network_name_from_warm_cache"
@@ -148,7 +132,7 @@ device:
         steps:
           - action: "Ask the owner to share the Evolution network or supply its authorized credentials; do not collect another installation's cache or keys."
             actor: "user"
-          - action: "Create an authorized network session, resolve the 48-bit network id, download the network document and every referenced fixture definition, and store them in a protected versioned cache."
+          - action: "GET /network/uuid/<uuid> to resolve the id, POST /network/<id>/session with password/deviceName, then PUT /network/<id>/ with formatVersion/deviceName/revision and X-Casambi-Session; apply the returned status/revision rules and cache every fixture definition."
             actor: "client"
             request:
               protocol: "http"
@@ -286,7 +270,10 @@ protocol_details:
     protocol_12: "Unsupported: the app has an acceptance branch but the pinned Evolution reference client declares maximum 11 and no protocol-12 live validation exists."
     dedicated_consumer_required: true
     generic_mobile_execution: false
+    automatic_selection: false
+    post_connect_confirmation: "Manually select generation, then require NodeInfo masked protocol 10 or 11 before key-exchange writes"
   advertisements:
+    generic_matcher: false
     company_id: 963
     company_id_hex: "0x03C3"
     on_air_company_bytes: "c3 03"
@@ -426,9 +413,19 @@ protocol_details:
         payload: [{name: "state_vector", type: "bytes", min_length: 1, max_length: 63, description: "Exactly fixture.state_length bytes, packed using that fixture's cached controls; preserve unknown/read-only bits"}]
       set_color_xy:
         opcode: 54
-        payload:
-          - {name: "x", type: "uint16", endianness: "little", min: 0, max: 65535, unit: "cie1931_x", scale: 0.000015259021896696421, encoding: "round(x_normalized * 65535)"}
-          - {name: "y", type: "uint16", endianness: "little", min: 0, max: 65535, unit: "cie1931_y", scale: 0.000015259021896696421, encoding: "round(y_normalized * 65535)"}
+        payload_length: 3
+        packing: "u24le ((x_raw << 11) | y_raw), with X in the high 11 bits and Y in the low 11 bits"
+        fields:
+          - {name: "x", type: "uint11", bit_offset: 11, min: 0, max: 2047, unit: "cie1931_x", scale: 0.0004885197850512708, encoding: "round(x_normalized * 2047)"}
+          - {name: "y", type: "uint11", bit_offset: 0, min: 0, max: 2047, unit: "cie1931_y", scale: 0.0004885197850512708, encoding: "round(y_normalized * 2047)"}
+        normalized_example: {x: 0.25, y: 0.5, x_raw: 512, y_raw: 1024, packed_hex: "100400", payload_hex: "000410"}
+        evidence_disagreement: >
+          The hardware-tested pinned casambi-bt client and public fixture 9000
+          use this three-byte 22-bit form. A static vendor-app writer appears to
+          emit two independent u16le coordinates scaled by 65535 instead. That
+          conflicting app reading is not treated as corroboration and needs an
+          owner-controlled capture; this profile follows the pinned client and
+          fixture semantics rather than presenting both encodings as equivalent.
     malformed_rules:
       - "Reject payload lengths above 63 before encoding. While parsing, require the nine-byte base header, optional origin handle, exact payload length and no trailing fragment."
       - "Validate opcode-specific payload lengths, ranges, target kind and cached target id before encryption; malformed plaintext is never repaired by retrying with another target."
@@ -457,7 +454,7 @@ protocol_details:
       rgb_hs: "For an 18-bit Evolution rgb control, low 8 bits are saturation and high 10 bits are hue; hue is circular raw * 360 / 1023"
       temperature: "With fixture min/max K and length L, decoded_K = floor(min + raw * (max-min) / (2^L-1)); encoding clamps to fixture range then floors the scaled raw value"
       colorsource: {0: "temperature", 1: "rgb_hs", 2: "xy"}
-      xy: "For length 22, x occupies the low 11 bits and y the high 11 bits; normalized coordinate = raw / 2047"
+      xy: "For length 22 starting at bit 36, y occupies the low 11 bits at offset 36 and x the high 11 bits at offset 47; normalized coordinate = raw / 2047"
       readonly_and_unknown: "Preserve on read-modify-write; never reset to a guessed default"
     malformed_rules:
       - "Require at least four bytes per record, all flagged extras, exact state vector and exact padding. Reject a trailing partial record instead of publishing a shortened state."
@@ -494,17 +491,36 @@ protocol_details:
           - {name: "saturation", type: "rgb_hs", offset: 18, length: 8, default: 0, readonly: false, min: 0, max: 255}
           - {name: "temperature_raw", type: "temperature", offset: 26, length: 8, default: 0, readonly: false, min: 2700, max: 6500, unit: "K"}
           - {name: "color_source", type: "colorsource", offset: 34, length: 2, default: 0, readonly: false, values: {0: "temperature", 1: "rgb_hs", 2: "xy"}}
-          - {name: "x", type: "xy", offset: 36, length: 11, default: 0, readonly: false, min: 0, max: 2047}
-          - {name: "y", type: "xy", offset: 47, length: 11, default: 0, readonly: false, min: 0, max: 2047}
-        notes: "The public RGB control is 18 bits and XY is 22 bits, split here into named subfields without changing their contiguous bit positions."
+          - {name: "x", type: "xy", offset: 47, length: 11, default: 0, readonly: false, min: 0, max: 2047}
+          - {name: "y", type: "xy", offset: 36, length: 11, default: 0, readonly: false, min: 0, max: 2047}
+        notes: "The public RGB control is 18 bits and XY is 22 bits, split into Y at offset 36 and X at offset 47, matching the pinned client's high-X/low-Y packing."
   cloud_provisioning:
     current_public_base: "https://api.casambi.com"
     app_generation_base: "https://api.casambi.com/api/"
-    route_difference: "Current anonymous fixture metadata resolves without /api; the reviewed app generation constructs /api/. Do not blindly concatenate both."
+    route_difference: "The pinned public client uses the no-/api flow below. The reviewed Android generation separately constructs the same calls beneath /api/; do not combine an /api/ base with these already-rooted paths or describe its full sync as GET."
     authorized_flow:
-      - "Resolve network/uuid/<48-bit-network-id> and create POST network/<id>/session with the owner's token/password/device name."
-      - "GET network/<id> with revision/device metadata; persist its session/key id and complete network document, handling UPTODATE/MERGED/FETCHED/CONFLICT rather than overwriting newer local state."
-      - "Fetch fixture/<id> for every referenced fixture and cache controls before declaring offline readiness."
+      - method: "GET"
+        path: "/network/uuid/<48-bit-network-id>"
+        purpose: "Resolve the advertised UUID to the server network id; no POST and no session creation happens on this route"
+      - method: "POST"
+        path: "/network/<id>/session"
+        json: {password: "<owner-network-password>", deviceName: "<client-name>"}
+        purpose: "Create and securely persist the authorized network session/keyID; the Android generation may additionally supply its token"
+      - method: "PUT"
+        path: "/network/<id>/"
+        json: {formatVersion: 1, deviceName: "<client-name>", revision: "<cached-revision-or-0>"}
+        headers: {X-Casambi-Session: "<session-from-POST>"}
+        purpose: "Synchronize the complete network document and keyStore with revision handling; this is not a full-sync GET"
+        response_handling:
+          UPTODATE: "Keep the cached document and its revision"
+          MERGED: "Store the returned merged document and its new revision"
+          FETCHED: "Store the returned fetched document and its new revision"
+          CONFLICT: "Stop and reconcile the conflict rather than overwriting newer local state"
+          HTTP_410: "Treat authorization/cache as invalid and reauthorize rather than continuing with stale credentials"
+      - method: "GET"
+        path: "/fixture/<id>"
+        purpose: "Fetch every referenced fixture and cache controls before declaring offline readiness"
+    app_generation_flow: "Use GET /api/network/uuid/<uuid>, POST /api/network/<id>/session with the app token/password/deviceName, then PUT /api/network/<id>/ with formatVersion/deviceName/revision and X-Casambi-Session; this is a separate base-path generation of the same ordered methods, not alternate verbs"
     cache_backup: "A same-version complete trusted backup is a plausible offline restore, not an official portable export. No converter among Android JSON, Evolution pickles, Classic JSON and ESP32 reduced JSON is claimed."
     not_available_offline:
       - "new network creation or recovery after all credentials/backups are lost"
@@ -583,24 +599,24 @@ protocol_details:
         frame_hex: "02000000448ce7509b354f7213aef704cb440b5003e5ecb48d86a450314997"
       incoming_state:
         counter: 9
-        plaintext_hex: "06099f73112280800002020a4000010000"
+        plaintext_hex: "06099f73112280800002020a2000020000"
         nonce_hex: "090000000405060708090a0b0c0d0e0f"
-        ciphertext_hex: "37d42bcbe2ff4fb5f57308e71faa872193"
-        cmac_hex: "a9ade1fdbf36449b4eb27202b2e3e6e9"
-        frame_hex: "0900000037d42bcbe2ff4fb5f57308e71faa872193a9ade1fdbf36449b4eb27202b2e3e6e9"
+        ciphertext_hex: "37d42bcbe2ff4fb5f57308e77faa842193"
+        cmac_hex: "963abf9cf2aa2b250eb283f28d6d8cb7"
+        frame_hex: "0900000037d42bcbe2ff4fb5f57308e77faa842193963abf9cf2aa2b250eb283f28d6d8cb7"
     invocations:
       - {name: "set_level", opcode: 1, target: 1281, payload_hex: "80", raw_hex: "28010100010501000080"}
       - {name: "set_temperature", opcode: 3, target: 1281, payload_hex: "36", raw_hex: "28010300010501000036"}
       - {name: "set_white", opcode: 5, target: 1281, payload_hex: "c8", raw_hex: "280105000105010000c8"}
       - {name: "set_color_hs", opcode: 7, target: 1281, payload_hex: "010280", raw_hex: "280307000105010000010280"}
-      - {name: "set_state", opcode: 48, target: 1281, payload_hex: "800002020a400001", raw_hex: "280830000105010000800002020a400001"}
-      - {name: "set_color_xy", opcode: 54, target: 1281, payload_hex: "00400080", raw_hex: "28043600010501000000400080"}
+      - {name: "set_state", opcode: 48, target: 1281, payload_hex: "800002020a200002", raw_hex: "280830000105010000800002020a200002"}
+      - {name: "set_color_xy", opcode: 54, target: 1281, payload_hex: "000410", raw_hex: "280336000105010000000410"}
       - {name: "set_level_unit_bitmap_16_17_20", opcode: 1, target: 267, payload_hex: "801013", raw_hex: "2803010001010b0000801013"}
     state:
       control_values: {dimmer: 128, hue: 512, saturation: 128, temperature_raw: 128, color_source: 2, x: 1024, y: 512}
-      state_hex: "800002020a400001"
-      record_hex: "099f73112280800002020a4000010000"
-      packet_hex: "06099f73112280800002020a4000010000"
+      state_hex: "800002020a200002"
+      record_hex: "099f73112280800002020a2000020000"
+      packet_hex: "06099f73112280800002020a2000020000"
       expected:
         unit_id: 9
         con: 17
@@ -668,13 +684,17 @@ cloud:
       verification: "reported"
       basis: "Public client and app cloud-relay configuration."
   endpoints:
-    - path: "network/uuid/<48-bit-network-id> and network/<id>/session"
-      method: "POST"
-      returns: "Authorized network resolution/session; credentials are owner-supplied"
-      verification: "reported"
-    - path: "network/<id>"
+    - path: "/network/uuid/<48-bit-network-id>"
       method: "GET"
-      returns: "Network keyStore, protocol, units, groups, scenes and settings for the warm cache"
+      returns: "Server network id; resolution only, not session creation"
+      verification: "reported"
+    - path: "/network/<id>/session"
+      method: "POST"
+      returns: "Authorized session/keyID after password/deviceName (and app-generation token) is supplied"
+      verification: "reported"
+    - path: "/network/<id>/"
+      method: "PUT"
+      returns: "UPTODATE/MERGED/FETCHED/CONFLICT plus network keyStore, protocol, units, groups, scenes and settings with revision; requires formatVersion/deviceName/revision and X-Casambi-Session"
       verification: "reported"
     - path: "fixture/<id>"
       method: "GET"
@@ -730,7 +750,10 @@ evidence:
     independently corroborates protocols 10–11, FE4D/0001, NodeInfo offsets,
     little-endian P-256 coordinates, folded transport key, CTR nonce directions,
     authentication, invocation header/opcodes and fixture-driven state. Its lack
-    of auth-digest verification and lenient parser behavior is not copied.
+    of auth-digest verification and lenient parser behavior is not copied. Its
+    three-byte high-X/low-Y 22-bit XY packing is the one used here. The static
+    app's apparent four-byte independent-u16le writer is explicitly NOT treated
+    as corroborating XY; the disagreement needs an owner-controlled capture.
     lian/esp32-casambi at 2903401ee7bd61ec4c3c697e29178c5d4b1683a2 corroborates
     the session shape but is protocol-10-only; its NodeInfo unit/flags endian
     interpretation is not used over the app plus Python agreement.
@@ -738,7 +761,8 @@ evidence:
     Anonymous fixture/1 and fixture/9000 metadata supplied the two public state
     layouts. No owner network, fixture address, key or topology was accessed.
   open_questions: >
-    Capture the app's 0x0d versus library 0x01 key-exchange capability, verify
+    Capture the app's 0x0d versus library 0x01 key-exchange capability and the
+    conflicting four-byte versus hardware-tested three-byte XY encodings; verify
     type-5 digest on hardware, establish type-12 signature auth, test OTA block
     acknowledgements/signature enforcement/recovery, and establish a model-specific
     physical reset and foreign-fixture offline recovery if one exists.
@@ -769,6 +793,7 @@ evidence:
 
 remaining_unknowns:
   - "Protocol-12 wire compatibility is unverified and deliberately unsupported."
+  - "The static app's apparent independent-u16le XY writer conflicts with the hardware-tested client's three-byte high-X/low-Y 22-bit encoding used here; capture must resolve it."
   - "Meaning of key-exchange capability 0x0d versus 0x01 and the complete type-12 site-key signature-auth exchange."
   - "Universal per-node connection limit and all NodeInfo flag bits; the ESP32 client's unit/flags byte order disagrees with app plus Python."
   - "Foreign-fixture offline unpair, universal physical reset, cache conversion, and lost-credential recovery without cloud/backup."

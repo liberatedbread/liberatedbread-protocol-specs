@@ -253,6 +253,12 @@ def parse_node_info(data: bytes) -> dict:
     }
 
 
+def pack_xy(x: int, y: int) -> bytes:
+    if not (0 <= x <= 2047 and 0 <= y <= 2047):
+        raise ValueError("XY coordinate out of 11-bit range")
+    return ((x << 11) | y).to_bytes(3, "little")
+
+
 def encode_invocation(opcode: int, target: int, payload: bytes, origin: int = 1) -> bytes:
     if not 0 <= opcode <= 255 or not 0 <= target <= 0xFFFF:
         raise ValueError("invocation opcode or target out of range")
@@ -465,6 +471,11 @@ def test_invocation_opcode_target_and_malformed_vectors():
         assert parsed[0]["opcode"] == vector["opcode"]
         assert parsed[0]["target"] == vector["target"]
         assert parsed[0]["payload"].hex() == vector["payload_hex"]
+        if vector["opcode"] == 54:
+            assert pack_xy(512, 1024).hex() == "000410"
+            assert vector["payload_hex"] == "000410"
+            with pytest.raises(ValueError):
+                pack_xy(2048, 0)
         if vector["name"] == "set_level_unit_bitmap_16_17_20":
             payload = parsed[0]["payload"]
             base = payload[1]
@@ -498,6 +509,9 @@ def test_fresh_fixture_state_and_unit_record_vector():
     protocol = details()
     fixture = protocol["fixture_cache"]["public_examples"]["cbu_dcs_9000"]
     vector = protocol["test_vectors"]["state"]
+    offsets = {control["name"]: control["offset"] for control in fixture["controls"]}
+    assert offsets["x"] == 47
+    assert offsets["y"] == 36
     state = pack_fixture_state(fixture["controls"], vector["control_values"], fixture["state_length"])
     assert state.hex() == vector["state_hex"]
     assert unpack_fixture_state(fixture["controls"], state) == vector["control_values"]
@@ -546,3 +560,44 @@ def test_public_simple_fixture_and_scope():
         for service in document["services"]
         for characteristic in service["characteristics"]
     )
+
+
+def test_cloud_provisioning_methods_headers_and_revision():
+    flow = details()["cloud_provisioning"]["authorized_flow"]
+    assert [(step["method"], step["path"]) for step in flow[:3]] == [
+        ("GET", "/network/uuid/<48-bit-network-id>"),
+        ("POST", "/network/<id>/session"),
+        ("PUT", "/network/<id>/"),
+    ]
+    sync = flow[2]
+    assert sync["json"]["formatVersion"] == 1
+    assert sync["json"]["deviceName"] == "<client-name>"
+    assert sync["json"]["revision"] == "<cached-revision-or-0>"
+    assert sync["headers"] == {"X-Casambi-Session": "<session-from-POST>"}
+    assert set(sync["response_handling"]) >= {
+        "UPTODATE",
+        "MERGED",
+        "FETCHED",
+        "CONFLICT",
+        "HTTP_410",
+    }
+    assert flow[3]["method"] == "GET"
+    assert flow[3]["path"] == "/fixture/<id>"
+
+
+def test_no_dual_automatic_generation_selection():
+    paths = [
+        SPEC_PATH,
+        SPEC_PATH.with_name("casambi-classic-ble.yaml"),
+    ]
+    for path in paths:
+        with path.open(encoding="utf-8") as handle:
+            document = yaml.safe_load(handle)
+        identification = document["device"]["identification"]
+        assert "service_uuids" not in identification
+        assert "manufacturer_data" not in identification
+        discovery = document["device"]["discovery"]
+        assert "methods" not in discovery
+        assert "never select both" in discovery["none"]
+        assert document["protocol_details"]["scope"]["automatic_selection"] is False
+        assert document["protocol_details"]["advertisements"]["generic_matcher"] is False
