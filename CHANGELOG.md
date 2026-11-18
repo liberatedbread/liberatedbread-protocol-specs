@@ -91,6 +91,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   less connected variants stay excluded until captured evidence exists. NUS is
   transport, never Bangle identity: manual model selection and a read-only
   Android Integration `ver.fw`/`ver.hw` check now gate every write.
+
+- **Project July and HomeWizard local APIs.** A separate second-gen June
+  Tegra/APX Project July 0.9.1 identify-only spec and guide document native
+  local pairing, status/cook/media routes, signed-frame preservation,
+  installer-backed CA trust and plan-safe cook protocol for bespoke clients;
+  generic signed cook controls are explicitly backlog. Stock June no-local
+  claims are now firmware-scoped and cross-linked. New HomeWizard P1 specs cover
+  negotiated v1/v2 discovery, exact optional fields and aliases, physical-button
+  tokens and CA hostnames; the Energy Socket spec is v1 and GET-only, including
+  runtime-discovered SKT-21 measurements. Independent standard-library tests
+  cover state/order/plan races, explicit refusals, URL rejection, version
+  negotiation, units and sanitized fixtures. No hardware operations or Socket
+  writes are claimed.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an

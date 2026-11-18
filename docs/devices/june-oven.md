@@ -1,17 +1,24 @@
 # June Intelligent Oven
 
-> **Status**: Research
-> **Protocol**: Wi-Fi → vendor cloud only (REST + WebSocket); no LAN, no BLE control surface
+> **Status**: Research (stock firmware)
+> **Protocol**: Wi-Fi → vendor cloud only (REST + WebSocket); no stock LAN or BLE control surface
 > **Manufacturer**: June Life, Inc. (acquired by Weber-Stephen Products, 2021)
 > **Manufacturer Status**: Shutdown — **all cloud services retire 2026-09-22**
 
 ## Overview
 
 The June is a countertop convection oven with a 5-inch touchscreen, an interior
-camera, a probe thermometer, and (on Gen 3) a cavity weight sensor. Every
-connected function — remote control, camera, guided cooks, recipes — is relayed
-through June's cloud. There is no local API, no mDNS/SSDP advertisement, no
-AP-mode provisioning, and no BLE control surface in any known firmware.
+camera, a probe thermometer, and (on Gen 3) a cavity weight sensor. On **stock
+firmware**, every connected function — remote control, camera, guided cooks,
+recipes — is relayed through June's cloud. No stock local API, mDNS/SSDP
+advertisement, AP-mode provisioning, or BLE control surface is known.
+
+!!! info "Project July is separate replacement firmware"
+    A second-generation Tegra/APX oven converted with **Project July installer
+    0.9.1** has native local pairing, cook control, status and camera APIs. See
+    [June Oven — Project July](june-oven-project-july.md). That conversion does
+    not reveal a local API on stock firmware and does not make Gen 1 or Gen 3
+    compatible.
 
 !!! warning "Hard shutdown: 2026-09-22"
     Weber retires the June app and **all** cloud services on **2026-09-22**
@@ -31,10 +38,11 @@ AP-mode provisioning, and no BLE control surface in any known firmware.
     already trusts) still works against any endpoint that can reach the oven.
     It cannot be minted again. Keep it.
 
-The full wire protocol has nonetheless been recovered (see References), so this
-page documents both the dependency and the protocol — the former so nobody buys
-or keeps one uninformed, the latter because a replacement cloud is the only
-rescue path and every such effort needs the wire format.
+The full stock wire protocol has nonetheless been recovered (see References),
+so this page documents both the dependency and the protocol. A replacement
+cloud is one possible stock-firmware rescue path; for a supported second-gen
+oven, Project July is instead a native replacement-firmware local path. Keep
+those cases distinct.
 
 ## Hardware
 
@@ -94,8 +102,9 @@ no cloud involvement needed for the network join itself.
 
 ## Protocol Summary
 
-Cloud REST + a signed JSON-over-WebSocket command channel. No BLE services, no
-local HTTP endpoints — those tables are empty by design, not by omission.
+Cloud REST + a signed JSON-over-WebSocket command channel. On stock firmware
+there are no known BLE services or local HTTP endpoints. July's local routes
+are documented separately, not added to this stock surface.
 
 ### Hosts
 
@@ -123,11 +132,13 @@ milli-degrees Celsius (350 °F = `176667`); durations are milliseconds.
 
 | Dir | Code | Meaning |
 |-----|------|---------|
-| → | 11002 | Preheat / start cook (`primitive_type`, `temperature_cavity` in milli-°C) |
-| → | 11004 | Cancel cooking |
-| → | 11005 | Set cavity target (rejected mid-cook — cancel and restart instead) |
-| → | 11006 | Set timer (ms) |
+| → | 11002 | Preheat / start cook (`primitive_type`, `temperature_cavity` in milli-°C); air fry is `airfry` |
+| → | 11004 | Cancel cooking with the **actual reported** `plan_id`, not a hard-coded zero |
+| → | 11005 | Set cavity target in place first, with the actual `plan_id`; only an explicit refusal can authorize the restricted restart path |
+| → | 11006 | Set timer (ms) with the actual `plan_id` |
 | → | 11011 | Ping / keepalive (~7 s) |
+| ← | 10012 | Cook notification; `NOTIFICATION_PREHEAT_COMPLETE` is deduplicated per cook session against the plan's preheat-hold transition |
+| ← | 10015 / 10016 | Plan update / temperature-step change; a stale 10015 cannot regress a later 10016 step |
 | ← | 10020 | Ack — `success` / `not-allowed` / `door-open` / `not-ready` / `cleaning` |
 | ← | 10018 | Device state — `idle` / `active` |
 | ← | 10013 | Telemetry ~1 Hz — cavity temp, probe array, Gen 3 weight, progress |
@@ -137,9 +148,14 @@ milli-degrees Celsius (350 °F = `176667`); durations are milliseconds.
 The full code table (including guided-cook and recipe codes) is in
 `device-specs/devices/june-oven.yaml`. The `10020` ack vocabulary is the
 protocol's own safety channel — surface it verbatim, never collapse it into
-"failed". June's remote-preheat disable and 30-minute no-food auto-off (added
-after 2019 self-preheating incidents) live on the oven; no client should offer
-a way around them.
+"failed". A start acknowledgement can precede the new plan report: wait for
+that report before Stop, timer or temperature commands, and ignore late frames
+from the replaced plan. After a refused 11005, restart only a phone-startable,
+restart-eligible plan-0 cook; never restart fixed-plan, grill or
+touchscreen-originated programs. A timeout is not a refusal and never
+authorizes cancellation. June's remote-preheat disable and 30-minute no-food
+auto-off (added after 2019 self-preheating incidents) live on the oven; no
+client should offer a way around them.
 
 ### Conformance without hardware
 
@@ -163,12 +179,16 @@ Practical guidance for HA users:
   control, capture 24 hours of its traffic (DNS, SNI, NTP) — the DNS query log
   is the only known way to name the oven's real update host, and this is the
   one experiment that dies with the cloud.
-- **After 2026-09-22**: the oven remains a perfectly good touchscreen oven.
-  Home Assistant control would require a **replacement cloud** reached by
-  DNS-redirecting the junelife hosts (a bench gateway answers DNS itself, so
-  this does not race the shutdown). Two gates are unmeasured: whether the oven
-  pins TLS, and where it gets its clock — Weber's FAQ says the clock is
-  cloud-dependent, so a replacement cloud may need to answer NTP too.
+- **After 2026-09-22**: the stock oven remains a perfectly good touchscreen
+  oven. Stock-firmware Home Assistant control would require a **replacement
+  cloud** reached by DNS-redirecting the junelife hosts (a bench gateway
+  answers DNS itself, so this does not race the shutdown). Two gates are
+  unmeasured: whether the oven pins TLS, and where it gets its clock — Weber's
+  FAQ says the clock is cloud-dependent, so a replacement cloud may need to
+  answer NTP too. For a supported second-gen Tegra/APX unit, the separate
+  [Project July](june-oven-project-july.md) installer and maintained local
+  clients are the alternative; they do not depend on that replacement-cloud
+  experiment.
 - One unverified community report claims an open TCP **8156** on the oven's LAN
   interface. If you own an oven, `nmap -sV` settles it; publish the result
   either way.

@@ -1,17 +1,26 @@
 # June Oven: LAN and IP-level recon
 
-The June oven's Bluetooth path is closed — the radios exist, the intent existed,
-the firmware does not (see `targets/june-oven.md`). What remains is the network.
-This page is the IP-level playbook: what the oven exposes, what it can be made to
-talk to, and — the part that reorders everything — which experiments are actually
-racing the 2026-09-22 cloud shutdown and which are not.
+The June oven's stock-firmware Bluetooth path is closed — the radios exist, the
+intent existed, the stock firmware does not use them (see
+`targets/june-oven.md`). What remains for that firmware is the network. This
+page is the IP-level playbook: what a stock oven exposes, what it can be made to
+talk to, and — the part that reorders everything — which experiments were
+actually racing the 2026-09-22 cloud shutdown and which were not.
+
+!!! info "Separate replacement-firmware path"
+    A second-generation Tegra/APX oven converted with **Project July installer
+    0.9.1** has native local pairing, cook, status and camera APIs. See
+    [June Oven — Project July](june-oven-project-july.md). That is replacement
+    firmware, not evidence of a stock local surface, and it does not cover Gen
+    1 or Gen 3. The recon below remains scoped to stock firmware.
 
 ## The shape of the problem
 
-The oven is a **pure outbound client**. It is an Android appliance with Wi-Fi
-only — no Ethernet jack, no external USB, soldered eMMC, and ADB and terminal
-access removed in its shipped "user" mode. It dials two hosts over TLS, uploads
-JPEG stills, and listens (as far as anyone knows) on nothing.
+The stock oven is a **pure outbound client**. It is an Android appliance with
+Wi-Fi only — no Ethernet jack, no external USB, soldered eMMC, and ADB and
+terminal access removed in its shipped "user" mode. It dials two hosts over TLS,
+uploads JPEG stills, and listens (as far as anyone knows) on nothing on stock
+firmware.
 
 So "local Ethernet adventures" does not mean plugging into the oven. It means
 **putting the oven behind a gateway you own and can tap.** That is the whole

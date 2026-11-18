@@ -1,0 +1,572 @@
+# HomeWizard Wi-Fi Energy Socket (HWE-SKT / HWE-SKT-21) — official local API v1
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "HomeWizard Wi-Fi Energy Socket"
+  manufacturer: "HomeWizard"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No socket, mains load, token, account or live request was used. Facts are
+      reported from HomeWizard's official API documentation revision
+      571384adec2183c16a79392a227d0e5ee92b4ee9 and official Python client
+      revision 60be21a42da6700f3939bdbf3ed4e3d87a0bc2d8 with sanitized offline
+      fixtures. This is a GET-only first implementation; no relay, lock,
+      brightness, cloud, reboot or firmware operation was attempted.
+  protocol: "wifi"
+  type: "energy-metering-smart-socket"
+  category: "energy"
+  transport: "http"
+  aliases: ["HWE-SKT", "HWE-SKT-21", "HomeWizard Energy Socket"]
+  companion_apps:
+    - name: "HomeWizard Energy"
+      package: "nl.homewizard.android.energy"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=nl.homewizard.android.energy"
+      notes: "Official Wi-Fi setup and Local API toggle; not the older nl.homewizard.android hub app."
+    - name: "HomeWizard Energy"
+      role: "primary"
+      platform: "ios"
+      url: "https://apps.apple.com/app/homewizard-energy/id1492427207"
+      notes: "App Store ID 1492427207, linked by the vendor product page."
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/homewizard/python-homewizard-energy"
+    license: "Apache-2.0"
+    upstream_docs:
+      - url: "https://api-documentation.homewizard.com/docs/introduction#devices"
+        title: "HomeWizard device/API compatibility"
+        covers: "Energy Socket supports v1; v2 is planned/in development and is not a supported target here."
+      - url: "https://api-documentation.homewizard.com/docs/v1/measurement"
+        title: "HomeWizard v1 measurement"
+        covers: "Exact HWE-SKT fields and additional HWE-SKT-21 reactive/apparent/power-factor values."
+      - url: "https://api-documentation.homewizard.com/docs/v1/state"
+        title: "HomeWizard v1 Energy Socket state"
+        covers: "GET power_on, switch_lock and 0-255 brightness. PUT exists upstream but is deliberately excluded."
+      - url: "https://api-documentation.homewizard.com/docs/v1/system"
+        title: "HomeWizard v1 system"
+        covers: "GET cloud_enabled; cloud-disable consequences and reset/pairing restoration."
+    notes: >
+      Official local API summary for personal, noncommercial use; review the
+      upstream API terms before commercial distribution. No private protocol was
+      reverse engineered.
+  notes: >
+    SCOPE: HWE-SKT and HWE-SKT-21 on the official **v1** API only, using plain
+    HTTP/80 and `_hwenergy._tcp.local.`. The pinned official compatibility table
+    marks Socket v2 planned/in development. Do not browse `_homewizard` for this
+    spec, do not infer v2 from newer apps/firmware, and do not construct an
+    energysocket certificate identity as evidence of support. HWE-SKT-21 is a
+    measurement-hardware variant; the API product_type remains HWE-SKT.
+
+    This first implementation is deliberately **GET-only**. `/api/v1/state`
+    reports actual relay state, switch lock and LED brightness; it does not
+    grant permission to write them. `/api/v1/system` reports cloud_enabled;
+    disabling cloud with PUT also disconnects the official app and stops future
+    firmware updates and is not a routine privacy toggle. No Socket write is
+    declared.
+
+    All measurement points are optional when unavailable. Energy totals are
+    kWh, not Wh. `active_power_l1_w` and tariff-1 totals duplicate their
+    aggregate counterparts for backwards compatibility; never add them into the
+    aggregate again. Socket voltage/current are `active_voltage_v` and
+    `active_current_a`, not P1's per-phase `_l1_` spellings.
+
+    SAFETY: the socket can switch a mains-powered load even though this spec
+    does not implement switching. Vendor ratings are 3680 W / 16 A maximum and
+    2760 W / 12 A continuous, with overload/overheat protection. Those limits
+    and protections do not make unattended automation inherently safe and do
+    not replace appliance-specific limits or safety interlocks.
+
+  identification:
+    mdns_service_type: "_hwenergy._tcp.local."
+    mdns_txt_match:
+      - key: "product_type"
+        match: "exact"
+        value: "HWE-SKT"
+        description: "Both HWE-SKT and HWE-SKT-21 measurement hardware use this API product type."
+    default_port: 80
+    notes: >
+      v1 TXT fields include api_enabled 0/1, path=/api/v1, serial, product_name
+      and product_type. api_enabled=0 means the app toggle is still required.
+      There is deliberately no `_homewizard._tcp.local.` discovery method for
+      this spec. Confirm GET /api returns product_type=HWE-SKT and
+      api_version=v1 before using the Socket schema.
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_hwenergy._tcp.local."
+          port: 80
+          txt_record_keys: ["api_enabled", "path", "serial", "product_name", "product_type"]
+          txt_match:
+            - key: "product_type"
+              match: "exact"
+              value: "HWE-SKT"
+              description: "Selects both Socket hardware generations without claiming other HomeWizard products."
+          identity_mapping:
+            stable_keys:
+              - source: "txt:serial"
+                key: "serial"
+            display:
+              source: "txt:product_name"
+        notes: >
+          Only v1 discovery. Require api_enabled=1 and path=/api/v1 for active
+          reads, then confirm GET /api product_type=HWE-SKT and api_version=v1.
+          A disabled unit can be offered for setup, not treated as a different
+          product. Use HTTP port 80; no v2 service or path fallback exists here.
+    identity:
+      stable_keys: ["serial"]
+      display: "product_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Initial Wi-Fi setup and the Local API toggle use the official HomeWizard
+      Energy app. Whether an account is strictly required was not established;
+      do not claim account-free onboarding. Once enabled, v1 reads need no
+      account, token or physical-button pairing.
+    methods:
+      - type: "cloud_account"
+        name: "Official Energy app Wi-Fi and v1 Local API toggle"
+        role: "primary"
+        verified: false
+        description: >
+          Provision HWE-SKT/HWE-SKT-21 in the official app, enable Local API,
+          then use unauthenticated HTTP reads on the trusted LAN.
+        cloud:
+          provider: "HomeWizard app onboarding"
+          local_alternative: >
+            This method IS the local v1 path after app setup and the Local API
+            toggle. No account-free initial Wi-Fi provisioning alternative is
+            established; Socket v2 is not an alternative supported by this spec.
+        steps:
+          - action: "Connect the socket within its rated load and follow HomeWizard Energy's Wi-Fi setup on the same LAN as the client."
+            actor: "user"
+            expect: "The socket advertises _hwenergy._tcp.local.; redact its serial in retained notes."
+          - action: "In the official app open Settings → Meters → this Energy Socket and enable Local API."
+            actor: "user"
+            expect: "The advertisement reports api_enabled=1 and path=/api/v1."
+          - action: "Require product_type=HWE-SKT, then GET /api over HTTP/80 and confirm api_version=v1."
+            actor: "client"
+            expect: "HWE-SKT identity; firmware_version is not used to infer v2."
+          - action: "Read /api/v1/data, /api/v1/state and /api/v1/system with GET only, at intervals no shorter than the documented 500 ms guidance."
+            actor: "client"
+            expect: "Latest measurement, actual relay/lock/brightness state and cloud flag; no PUT or _homewizard probe."
+
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Vendor documentation says factory reset restores cloud communication.
+        The exact physical reset procedure and which Wi-Fi settings or local
+        state survive were not established here.
+      description: >
+        Do not invent a button hold or use pairing mode as a factory-reset
+        substitute. Pairing mode also restores cloud. Consult current vendor
+        support before clearing the unit; this GET-only spec does not disable
+        cloud or alter relay/lock state.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Use the official Energy app's Wi-Fi/pairing flow for a new network;
+        pairing mode restores cloud. No factory-reset-only rejoin requirement
+        is documented. Rediscover by serial and re-enable Local API only if the
+        new setup state reports api_enabled=0.
+      steps:
+        - action: "Run the official Energy app's Wi-Fi/pairing flow for the new network."
+          actor: "user"
+          expect: "The socket returns to the LAN and cloud is re-enabled by pairing mode."
+        - action: "Match the v1 advertisement by serial and confirm product_type=HWE-SKT, api_version=v1 and api_enabled=1 before resuming GET reads."
+          actor: "client"
+          expect: "The same v1 socket; do not try _homewizard or v2 paths."
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials provisioned by the official app"
+        - "Socket state and Local API/cloud settings"
+      issued_to_client: []
+      notes: >
+        v1 issues no bearer token or pairing secret. Any client on the trusted
+        LAN can read the enabled API; protect that network and redact serials,
+        SSIDs and installation metadata in logs.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "unknown"
+      notes: "No PIN or token is used by v1 reads. Initial app provisioning and the Local API toggle are setup, not client pairing."
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing needs clearing before another client reads the API. If the API
+        is unavailable, check the app's Local API toggle and api_enabled rather
+        than attempting v2 token pairing.
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      clears: "Not applicable: v1 creates no per-client bond or token."
+      notes: "Disable Local API in the official app to withdraw all v1 LAN access; no per-client unpair operation exists in this spec."
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No physical-button API pairing is used for v1. Wi-Fi/app pairing mode
+        belongs to provisioning and re-enables cloud; it is not evidence for
+        Socket v2 support.
+    notes: >
+      The enabled v1 API is open on the trusted LAN. The official compatibility
+      table does not support Socket v2, so the P1 physical-button token flow
+      and CA hostname rules must not be copied here.
+
+  variants:
+    - model: "HWE-SKT"
+      identification:
+        model_prefix: "HWE-SKT"
+      notes: >
+        One matcher for both HWE-SKT and HWE-SKT-21 because the API exposes the
+        same product_type. HWE-SKT-21's active_reactive_power_var,
+        active_apparent_power_va and active_power_factor are optional
+        runtime-discovered measurements, not a second identity. Expose those
+        entities only when the corresponding response field is present.
+
+http_endpoints:
+  - method: "GET"
+    path: "/api"
+    name: "Device Information"
+    description: "HTTP/80 identity: product_name, product_type=HWE-SKT, serial, firmware_version and api_version=v1. Accept future additional fields."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "product_name", type: "string"}
+        - {name: "product_type", type: "string", description: "HWE-SKT for both hardware variants."}
+        - {name: "serial", type: "string", description: "Twelve hexadecimal characters; redact in retained data."}
+        - {name: "firmware_version", type: "string", description: "Not the API version and not evidence for v2."}
+        - {name: "api_version", type: "string", description: "Exactly v1 for this spec."}
+      example: |
+        {"product_type":"HWE-SKT","product_name":"Energy Socket","serial":"001122aabbcc","firmware_version":"2.11","api_version":"v1"}
+    verification: "reported"
+  - method: "GET"
+    path: "/api/v1/data"
+    name: "Socket Measurement"
+    description: >
+      Most recent measurement over HTTP/80. Fields are optional when
+      unavailable. Energy totals are kWh, power is W, voltage V, current A,
+      frequency Hz. HWE-SKT-21 adds var, VA and a dimensionless numeric power
+      factor (not a percentage unless a UI deliberately formats it).
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "wifi_ssid", type: "string"}
+        - {name: "wifi_strength", type: "number", unit: "%"}
+        - {name: "total_power_import_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_import_t1_kwh", type: "number", unit: "kWh", description: "Duplicates total_power_import_kwh for backwards compatibility; do not sum."}
+        - {name: "total_power_export_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_export_t1_kwh", type: "number", unit: "kWh", description: "Duplicates total_power_export_kwh; do not sum."}
+        - {name: "active_power_w", type: "number", unit: "W"}
+        - {name: "active_power_l1_w", type: "number", unit: "W", description: "Duplicates active_power_w; do not sum."}
+        - {name: "active_voltage_v", type: "number", unit: "V", description: "Socket aggregate spelling, not active_voltage_l1_v."}
+        - {name: "active_current_a", type: "number", unit: "A", description: "Socket aggregate spelling, not active_current_l1_a."}
+        - {name: "active_reactive_power_var", type: "number", unit: "var", description: "HWE-SKT-21 only."}
+        - {name: "active_apparent_power_va", type: "number", unit: "VA", description: "HWE-SKT-21 only."}
+        - {name: "active_power_factor", type: "number", description: "HWE-SKT-21 only; numeric factor, not percent."}
+        - {name: "active_frequency_hz", type: "number", unit: "Hz"}
+      example: |
+        {"wifi_ssid":"ExampleNet","wifi_strength":100,"total_power_import_kwh":30.511,"total_power_import_t1_kwh":30.511,"total_power_export_kwh":85.951,"total_power_export_t1_kwh":85.951,"active_power_w":543.312,"active_power_l1_w":543.312,"active_voltage_v":231.539,"active_current_a":2.346,"active_reactive_power_var":123.456,"active_apparent_power_va":666.768,"active_power_factor":0.81688,"active_frequency_hz":50.005}
+    verification: "reported"
+  - method: "GET"
+    path: "/api/v1/state"
+    name: "Socket State"
+    description: >
+      GET actual power_on (relay), switch_lock (prevents turning off) and LED
+      brightness (0-255). Although upstream also accepts PUT, this spec's first
+      implementation is read-only and declares no state write.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "power_on", type: "boolean", description: "Actual relay state, not a desired state."}
+        - {name: "switch_lock", type: "boolean", description: "True prevents turning the socket off."}
+        - {name: "brightness", type: "integer", description: "LED ring brightness, 0 (0%) to 255 (100%); not the v2 0-100 field."}
+      example: |
+        {"power_on":true,"switch_lock":false,"brightness":255}
+    verification: "reported"
+  - method: "GET"
+    path: "/api/v1/system"
+    name: "System Status"
+    description: >
+      GET actual cloud_enabled only. PUT cloud_enabled=false disconnects the
+      official app and stops future firmware updates; pairing mode/factory
+      reset can restore cloud. That deliberate owner operation is excluded.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "cloud_enabled", type: "boolean"}
+      example: |
+        {"cloud_enabled":true}
+    verification: "reported"
+
+commands:
+  read_device_info:
+    description: "Read HTTP/80 v1 identity and require HWE-SKT plus api_version=v1."
+    transport: "http"
+    method: "GET"
+    path: "/api"
+    returns:
+      - {name: "product_name", type: "string"}
+      - {name: "product_type", type: "string"}
+      - {name: "serial", type: "string"}
+      - {name: "firmware_version", type: "string"}
+      - {name: "api_version", type: "string"}
+    verification: "reported"
+  read_measurement:
+    description: "Read latest v1 Socket measurement with exact aggregate/SKT21 fields and kWh totals."
+    transport: "http"
+    method: "GET"
+    path: "/api/v1/data"
+    returns:
+      - {name: "wifi_ssid", type: "string"}
+      - {name: "wifi_strength", type: "number", unit: "%"}
+      - {name: "total_power_import_kwh", type: "number", unit: "kWh"}
+      - {name: "total_power_import_t1_kwh", type: "number", unit: "kWh"}
+      - {name: "total_power_export_kwh", type: "number", unit: "kWh"}
+      - {name: "total_power_export_t1_kwh", type: "number", unit: "kWh"}
+      - {name: "active_power_w", type: "number", unit: "W"}
+      - {name: "active_power_l1_w", type: "number", unit: "W"}
+      - {name: "active_voltage_v", type: "number", unit: "V"}
+      - {name: "active_current_a", type: "number", unit: "A"}
+      - {name: "active_reactive_power_var", type: "number", unit: "var"}
+      - {name: "active_apparent_power_va", type: "number", unit: "VA"}
+      - {name: "active_power_factor", type: "number"}
+      - {name: "active_frequency_hz", type: "number", unit: "Hz"}
+    verification: "reported"
+  read_state:
+    description: "GET-only actual relay, switch-lock and 0-255 LED state; no turn_on/turn_off/lock/brightness command is bound."
+    transport: "http"
+    method: "GET"
+    path: "/api/v1/state"
+    returns:
+      - {name: "power_on", type: "boolean"}
+      - {name: "switch_lock", type: "boolean"}
+      - {name: "brightness", type: "integer"}
+    verification: "reported"
+  read_system:
+    description: "GET-only actual cloud_enabled; do not disable cloud or updates through this first implementation."
+    transport: "http"
+    method: "GET"
+    path: "/api/v1/system"
+    returns:
+      - {name: "cloud_enabled", type: "boolean"}
+    verification: "reported"
+
+entities:
+  - platform: "switch"
+    name: "Relay State"
+    state_command: "read_state"
+    state_endpoint: "/api/v1/state"
+    state_mapping: { is_on: "power_on" }
+    notes: "Read-only actual relay state. Deliberately no turn_on/turn_off binding in this first implementation."
+  - platform: "binary_sensor"
+    name: "Switch Lock"
+    state_command: "read_state"
+    state_endpoint: "/api/v1/state"
+    state_mapping: { is_on: "switch_lock" }
+    notes: "True means the socket cannot be turned off; read-only."
+  - platform: "sensor"
+    name: "LED Brightness"
+    state_command: "read_state"
+    state_endpoint: "/api/v1/state"
+    state_mapping: { value: "brightness" }
+    notes: "Raw 0-255 scale; not v2 status_led_brightness_pct and not controlled here."
+  - platform: "sensor"
+    name: "Energy Import"
+    device_class: "energy"
+    unit: "kWh"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "total_power_import_kwh" }
+    notes: "Use aggregate only; tariff-1 duplicate is not an additional counter."
+  - platform: "sensor"
+    name: "Energy Export"
+    device_class: "energy"
+    unit: "kWh"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "total_power_export_kwh" }
+  - platform: "sensor"
+    name: "Active Power"
+    device_class: "power"
+    unit: "W"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "active_power_w" }
+    notes: "Aggregate only; active_power_l1_w duplicates it."
+  - platform: "sensor"
+    name: "Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "active_voltage_v" }
+  - platform: "sensor"
+    name: "Current"
+    device_class: "current"
+    unit: "A"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "active_current_a" }
+  - platform: "sensor"
+    name: "Frequency"
+    device_class: "frequency"
+    unit: "Hz"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "active_frequency_hz" }
+  - platform: "sensor"
+    name: "Reactive Power"
+    device_class: "reactive_power"
+    unit: "var"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "active_reactive_power_var" }
+  - platform: "sensor"
+    name: "Apparent Power"
+    device_class: "apparent_power"
+    unit: "VA"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "active_apparent_power_va" }
+  - platform: "sensor"
+    name: "Power Factor"
+    device_class: "power_factor"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "active_power_factor" }
+    notes: "Dimensionless numeric factor; do not multiply by 100 without an explicit presentation convention."
+  - platform: "sensor"
+    name: "Wi-Fi Strength"
+    unit: "%"
+    state_command: "read_measurement"
+    state_endpoint: "/api/v1/data"
+    state_mapping: { value: "wifi_strength" }
+    notes: "Optional v1 percentage, not v2 wifi_rssi_db."
+  - platform: "binary_sensor"
+    name: "Cloud Enabled"
+    state_command: "read_system"
+    state_endpoint: "/api/v1/system"
+    state_mapping: { is_on: "cloud_enabled" }
+    notes: "Read-only. Disabling cloud also disables official app access and firmware updates and is excluded."
+
+payload_formats:
+  SocketMeasurement:
+    description: "Sanitized HWE-SKT-21-shaped v1 measurement. Original HWE-SKT omits the three extra electrical fields."
+    parse_rules:
+      - "All fields are optional when unavailable; missing is not zero."
+      - "Use total_power_import_kwh/export_kwh and active_power_w as aggregates. The t1 totals and active_power_l1_w are duplicates for compatibility, never additional values to sum."
+      - "Use active_voltage_v and active_current_a for Socket, not P1's active_voltage_l1_v and active_current_l1_a."
+      - "Only HWE-SKT-21 documents active_reactive_power_var (var), active_apparent_power_va (VA) and active_power_factor (dimensionless)."
+    example: |
+      {"wifi_ssid":"ExampleNet","wifi_strength":100,"total_power_import_kwh":30.511,"total_power_import_t1_kwh":30.511,"total_power_export_kwh":85.951,"total_power_export_t1_kwh":85.951,"active_power_w":543.312,"active_power_l1_w":543.312,"active_voltage_v":231.539,"active_current_a":2.346,"active_reactive_power_var":123.456,"active_apparent_power_va":666.768,"active_power_factor":0.81688,"active_frequency_hz":50.005}
+
+protocol_details:
+  api:
+    version: "v1"
+    service: "_hwenergy._tcp.local."
+    scheme: "http"
+    port: 80
+    identity: "GET /api requires product_type=HWE-SKT and api_version=v1"
+    no_v2_discovery: "Do not advertise or probe _homewizard for Socket. Official v2 is planned/in development, and certificate type energysocket does not establish support."
+    no_path_fallback: "Do not request /api/measurement, /api/user or other v2 routes after a v1 error or timeout."
+    verification: "reported"
+  polling:
+    minimum_interval_ms: 500
+    freshness: "Latest measurement only; use monotonic staleness handling and do not interpret repeated counters as a new sample."
+    verification: "reported"
+  read_only_boundary:
+    included: ["GET /api", "GET /api/v1/data", "GET /api/v1/state", "GET /api/v1/system"]
+    excluded:
+      - "PUT /api/v1/state for relay, switch_lock or brightness"
+      - "PUT /api/v1/system for cloud_enabled, which also disconnects the app and stops firmware updates"
+      - "Raw telegram (P1 only), token creation/deletion, identify, reboot, firmware and every v2 route"
+    verification: "reported"
+
+local_access:
+  status: "native"
+  summary: "Official v1 HTTP API provides local Energy Socket identity, latest electrical measurements, actual relay/lock/LED state and cloud flag without ongoing cloud access."
+  covers:
+    - "HWE-SKT and HWE-SKT-21 v1 discovery and GET-only identity/measurement/state/system"
+    - "kWh import/export, W/V/A/Hz readings and SKT-21 var/VA/power-factor fields"
+    - "Read-only power_on, switch_lock, 0-255 brightness and cloud_enabled"
+  not_covered:
+    - "Socket relay, lock or brightness writes"
+    - "Cloud-enable changes, v2 discovery/API, raw telegram, history or internet remote control"
+    - "Token administration, identify, reboot and firmware operations"
+
+cloud:
+  required: false
+  notes: >
+    Once Wi-Fi and Local API are enabled, current v1 readings need no cloud
+    session or Energy+ subscription. Initial setup uses the official app; cloud
+    history and firmware updates are separate. This spec does not disable cloud.
+    A deliberate cloud disable also disconnects the official app and stops
+    future firmware updates; pairing mode/factory reset restores it.
+
+helpful_urls:
+  - title: "HomeWizard local API compatibility"
+    url: "https://api-documentation.homewizard.com/docs/introduction#devices"
+    description: "Official table: Energy Socket supports v1; v2 is planned and not a supported target for this spec."
+  - title: "HomeWizard API getting started"
+    url: "https://api-documentation.homewizard.com/docs/getting-started"
+    description: "Official app setup, Local API toggle and >=500 ms polling guidance."
+  - title: "HomeWizard mDNS discovery"
+    url: "https://api-documentation.homewizard.com/docs/discovery"
+    description: "Official v1 _hwenergy service and TXT fields; Socket v2 is marked in development."
+  - title: "HomeWizard v1 measurement"
+    url: "https://api-documentation.homewizard.com/docs/v1/measurement"
+    description: "Exact common Socket and HWE-SKT-21 fields, units and kWh totals."
+  - title: "HomeWizard v1 Energy Socket state"
+    url: "https://api-documentation.homewizard.com/docs/v1/state"
+    description: "Actual power_on, switch_lock and 0-255 brightness. GET is used here; upstream PUT is deliberately excluded."
+  - title: "HomeWizard v1 system"
+    url: "https://api-documentation.homewizard.com/docs/v1/system"
+    description: "cloud_enabled and the app/update consequences of disabling cloud; GET-only in this spec."
+  - title: "HomeWizard Energy Socket product page"
+    url: "https://www.homewizard.com/energy-socket/?default=true"
+    description: "Hardware ratings, protections and official Energy app links. No first-party PDF manual was found, so no manual link is asserted."
+
+evidence:
+  documentation_review: >
+    Read official compatibility, getting-started, discovery, v1 identity,
+    measurement, state and system documents, plus official Python model and
+    sanitized HWE-SKT identity/system fixtures. No app internals, live device,
+    real token or load was used.
+  open_questions: >
+    Physical HWE-SKT/HWE-SKT-21 behavior, optional-field presence, initial app
+    account necessity, factory-reset/rejoin details and every write operation
+    remain unverified. No Socket v2 support is inferred.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "homewizard/api-documentation 571384adec2183c16a79392a227d0e5ee92b4ee9"
+      url: "https://github.com/homewizard/api-documentation"
+      description: "Authoritative v1-only Socket compatibility, endpoints, exact fields and units, state/cloud behavior and polling guidance."
+    - type: "public_implementation"
+      artifact: "homewizard/python-homewizard-energy 60be21a42da6700f3939bdbf3ed4e3d87a0bc2d8"
+      url: "https://github.com/homewizard/python-homewizard-energy"
+      description: "Official model aliases and sanitized HWE-SKT fixtures used as secondary confirmation, not as hardware verification."
+
+remaining_unknowns:
+  - "No physical HWE-SKT or HWE-SKT-21 was read; actual optional-field presence and firmware-specific behavior remain unverified."
+  - "How best to identify SKT-21 hardware when all three extra fields are temporarily unavailable is unresolved; do not invent a product_type."
+  - "Whether initial app setup strictly requires an account is unresolved."
+  - "Exact factory-reset procedure and Wi-Fi/local-state survival across reset or network changes are not established."
+  - "Socket v2 availability and schema are outside scope and must not be inferred from planned documentation or newer app releases."
+  - "Relay, lock, brightness, cloud and firmware writes were deliberately not investigated or tested and require separate explicit design and user intent."
