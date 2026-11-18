@@ -84,23 +84,32 @@
       },
       "methods": [
         {
-          "mdns": {
+          "notes": "Listen on UDP 2021 for the printer's periodic NOTIFY. USN is the device serial used in MQTT topics; Location is only the current LAN locator, and DevName.bambu.com is the user-facing name. The Host header's 1990 is not the socket port. Official port documentation lists 1990/2021; public current-firmware captures use 2021.\n",
+          "type": "udp_broadcast",
+          "udp_broadcast": {
             "identity_mapping": {
               "display": {
-                "source": "mqtt:device/{serial}/report#name"
+                "source": "header:DevName.bambu.com"
               },
               "stable_keys": [
                 {
                   "key": "serial",
-                  "source": "mqtt:device/{serial}/report#serial"
+                  "source": "header:USN"
                 }
               ]
             },
-            "port": 8883,
-            "service_type": "_http._tcp.local."
-          },
-          "notes": "The printer is found on the LAN by IP; the serial + access code are shown in the printer's network settings, and MQTT topics are keyed by the device serial.\n",
-          "type": "mdns"
+            "passive_ok": true,
+            "port": 2021,
+            "response_format": "http",
+            "response_match": [
+              {
+                "description": "The notification type in the printer's unsolicited SSDP-style NOTIFY.",
+                "match": "exact",
+                "source": "header:NT",
+                "value": "urn:bambulab-com:device:3dprinter:1"
+              }
+            ]
+          }
         }
       ],
       "static_ip_required": false
@@ -293,6 +302,17 @@
       "url": "https://github.com/Doridian/OpenBambuAPI/blob/main/ftp.md"
     },
     {
+      "description": "Official port table: SSDP discovery on 1990/2021 and LAN-mode MQTT over TLS on 8883.",
+      "kind": "vendor_support",
+      "title": "Bambu Lab — printer network ports",
+      "url": "https://wiki.bambulab.com/en/general/printer-network-ports"
+    },
+    {
+      "description": "Public current-firmware NOTIFY and M-SEARCH evidence, including the 2021 socket, USN serial and DevName fields.",
+      "title": "ClusterM/open-bamboo-networking — SSDP discovery",
+      "url": "https://github.com/ClusterM/open-bamboo-networking/blob/master/research/06.01-ssdp.md"
+    },
+    {
       "description": "Vendor documentation hub. The factory-reset path and what it clears differ across the X1, P1 and A1 lines.\n",
       "kind": "vendor_support",
       "title": "Bambu Lab Wiki",
@@ -304,8 +324,8 @@
   },
   "mqtt_topics": [
     {
-      "description": "Publish commands here (from the client's perspective the printer subscribes). JSON {\"<type>\":{\"sequence_id\":\"0\",\"command\":\"<cmd>\",...}}; families info/get_version, pushing/pushall, print/*, system/ledctrl, camera/*.\n",
-      "direction": "subscribe",
+      "description": "The client publishes commands here and the printer subscribes. JSON {\"<type>\":{\"sequence_id\":\"0\",\"command\":\"<cmd>\",...}}; families info/get_version, pushing/pushall, print/*, system/ledctrl, camera/*.\n",
+      "direction": "publish",
       "name": "Command topic",
       "payload_format": {
         "encoding": "json"
@@ -313,13 +333,46 @@
       "topic": "device/{serial}/request"
     },
     {
-      "description": "The printer publishes status here; reports echo sequence_id and include \"result\":\"success\". X1 sends the full object; P1P sends deltas (force a full snapshot with pushing/pushall).\n",
-      "direction": "publish",
+      "description": "The client subscribes to status published by the printer; reports echo sequence_id and include \"result\":\"success\". X1 sends the full object; P1P sends deltas (force a full snapshot with pushing/pushall).\n",
+      "direction": "subscribe",
       "name": "Status topic",
       "payload_format": {
         "encoding": "json"
       },
       "topic": "device/{serial}/report"
     }
-  ]
+  ],
+  "protocol_details": {
+    "active_msearch": {
+      "identity_mapping": {
+        "display": {
+          "source": "header:DevName.bambu.com"
+        },
+        "stable_keys": [
+          {
+            "key": "serial",
+            "source": "header:USN"
+          }
+        ]
+      },
+      "multicast_group": "239.255.255.250",
+      "notes": "Documentation for a custom active-discovery implementation, not an executable discovery method. The request is M-SEARCH * HTTP/1.1, HOST 239.255.255.250:2021, MAN \"ssdp:discover\", MX 1, ST urn:bambulab-com:device:3dprinter:1, USER-AGENT OS/version product/version, with CRLF line endings and a final blank line. Require ST exactly as well as USN/DevName; accepting USN alone can misidentify another sender. Passive NOTIFY remains the safe default above.\n",
+      "port": 2021,
+      "probe_hex": "4d2d534541524348202a20485454502f312e310d0a484f53543a3233392e3235352e3235352e3235303a323032310d0a4d414e3a22737364703a646973636f766572220d0a4d583a310d0a53543a75726e3a62616d62756c61622d636f6d3a6465766963653a33647072696e7465723a310d0a555345522d4147454e543a4f532f76657273696f6e2070726f647563742f76657273696f6e0d0a0d0a",
+      "response_format": "http",
+      "response_match": [
+        {
+          "description": "The search target in the printer's M-SEARCH response; not implemented by mobile.",
+          "match": "exact",
+          "source": "header:ST",
+          "value": "urn:bambulab-com:device:3dprinter:1"
+        }
+      ],
+      "status": "experimental_unsupported"
+    },
+    "discovery_limitations": {
+      "notes": "Mobile's UdpBroadcastProbe deserializes port, addresses, probe_hex, passive_ok, response_format and identity_mapping, but not response_match. The NT rule above is nevertheless part of the protocol, so a consumer that identifies the printer automatically must implement it explicitly. If it cannot enforce NT, it must leave the sender unidentified instead of accepting any datagram merely because it carries USN.\n",
+      "response_match_implemented": false
+    }
+  }
 }

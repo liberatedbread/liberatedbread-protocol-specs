@@ -13,15 +13,19 @@
           "ble": {
             "manufacturer_data": {
               "company_id": 2409,
-              "description": "SwitchBot company ID 0x0969 (new firmware v6.4+); older: 0x0059 (89); pySwitchbot also parses 0x02E5 (741)"
-            },
-            "service_data": [
-              "0000fd3d-0000-1000-8000-00805f9b34fb"
-            ],
+              "description": "SwitchBot company ID 0x0969 on newer firmware; older SoC-vendor IDs are not accepted as identification."
+            }
+          },
+          "notes": "Newer firmware can omit the complete 128-bit communication-service UUID list from SCAN_RSP, so this method requires only the supported SwitchBot company-ID matcher. The 0xFD3D service-data UUID is not a discovery key: the schema and mobile matcher have no `service_data` field. Its payload still carries the battery layout in protocol_details. If a unit does not advertise company 0x0969 or the legacy service UUID below, select it manually rather than adding an invisible service-data filter.\n",
+          "type": "ble_scan"
+        },
+        {
+          "ble": {
             "service_uuids": [
               "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
             ]
           },
+          "notes": "Legacy firmware only: use this separate method when the unit actually advertises the 128-bit communication-service UUID. Do not require it on newer firmware, and do not treat its presence as proof of the newer service-data layout.\n",
           "type": "ble_scan"
         }
       ],
@@ -267,17 +271,6 @@
       },
       "name": "Press",
       "platform": "button"
-    },
-    {
-      "device_class": "battery",
-      "name": "Battery",
-      "notes": "Bound to the standard Battery Level characteristic, which most SwitchBot firmware does not expose (see that characteristic's notes); the reliable battery source is service-data byte 2 of the advertisement, which has no characteristic to bind. Expect this tile to read unavailable on most units.\n",
-      "platform": "sensor",
-      "state_characteristic": "00002a19-0000-1000-8000-00805f9b34fb",
-      "state_mapping": {
-        "value": "battery_level"
-      },
-      "unit": "%"
     }
   ],
   "evidence": {
@@ -575,6 +568,222 @@
       "url": "https://www.manualslib.com/manual/3776520/Switchbot-Curtain.html"
     }
   ],
+  "protocol_details": {
+    "advertisement_service_data": {
+      "entity_binding": {
+        "reason": "An advertisement is not a GATT characteristic, so no entity can bind this decoder through `state_characteristic`. Do not restore the mostly absent standard 0x2A19 entity merely to make battery visible; a client needs an advertisement-service-data source or must report battery as unavailable.\n",
+        "supported": false
+      },
+      "fields": [
+        {
+          "length": 1,
+          "mask": 127,
+          "name": "device_type",
+          "offset": 0,
+          "type": "uint8"
+        },
+        {
+          "length": 1,
+          "name": "status",
+          "offset": 1,
+          "type": "uint8"
+        },
+        {
+          "length": 1,
+          "mask": 127,
+          "name": "battery_percent",
+          "offset": 2,
+          "type": "uint8",
+          "unit": "%"
+        }
+      ],
+      "minimum_length": 3,
+      "uuid": "0000fd3d-0000-1000-8000-00805f9b34fb",
+      "vectors": [
+        {
+          "expected_battery_percent": 89,
+          "model": "Bot",
+          "origin": "Published pySwitchbot test_bot advertisement fixture",
+          "service_data_hex": "48 90 D9"
+        },
+        {
+          "expected_battery_percent": 100,
+          "model": "Meter",
+          "origin": "Published pySwitchbot test_adv_parser Meter fixture; bytes 3-5 also carry readings",
+          "service_data_hex": "54 00 E4 06 98 35"
+        }
+      ]
+    },
+    "discovery_limitations": {
+      "notes": "`service_data` is not a declared BLE discovery matcher in the schema or mobile consumer. Do not move the 0xFD3D UUID back into `ble_scan` as if it were executable. Newer firmware uses the company-ID method above; legacy firmware uses the communication-service UUID method. Anything else requires manual selection. The decoders below remain useful after identification, including for clients that can read service data.\n",
+      "service_data_matching": false
+    },
+    "response_layouts": {
+      "common": {
+        "frame": "[status][payload...]; only status is universal",
+        "status_offset": 0,
+        "status_values": "0x01 OK, 0x02 ERROR, 0x03 BUSY, 0x05 unsupported, 0x06 low battery"
+      },
+      "get_basic_info": {
+        "command_hex": "57 02",
+        "variants": {
+          "Bot": {
+            "fields": [
+              {
+                "length": 1,
+                "name": "status",
+                "offset": 0,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "battery_percent",
+                "offset": 1,
+                "type": "uint8",
+                "unit": "%"
+              },
+              {
+                "length": 1,
+                "name": "firmware_version_raw",
+                "offset": 2,
+                "scale": 0.1,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "strength",
+                "offset": 3,
+                "type": "uint8"
+              },
+              {
+                "endianness": "big",
+                "length": 2,
+                "name": "adc_raw",
+                "offset": 4,
+                "type": "uint16"
+              },
+              {
+                "endianness": "big",
+                "length": 2,
+                "name": "motor_calibration_raw",
+                "offset": 6,
+                "type": "uint16"
+              },
+              {
+                "length": 1,
+                "name": "timer_count",
+                "offset": 8,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "act_mode",
+                "offset": 9,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "hold_times",
+                "offset": 10,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "service_data_byte0",
+                "offset": 11,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "service_data_byte1",
+                "offset": 12,
+                "type": "uint8"
+              }
+            ],
+            "origin": "Official SwitchBot Bot BLE API, 0x02 Get Device Basic Info example",
+            "response_hex": "01 64 2C 64 00 00 00 A1 00 00 00 48 00"
+          },
+          "Meter": {
+            "fields": [
+              {
+                "length": 1,
+                "name": "status",
+                "offset": 0,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "battery_percent",
+                "offset": 1,
+                "type": "uint8",
+                "unit": "%"
+              },
+              {
+                "length": 1,
+                "name": "firmware_version_raw",
+                "offset": 2,
+                "scale": 0.1,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "service_data_byte0",
+                "offset": 3,
+                "type": "uint8"
+              },
+              {
+                "length": 1,
+                "name": "service_data_byte1",
+                "offset": 4,
+                "type": "uint8"
+              }
+            ],
+            "origin": "Synthetic full-layout vector with invented values; the official Meter document publishes the fields but no literal response example",
+            "response_hex": "01 50 29 54 00"
+          }
+        }
+      },
+      "meter_read_sensor": {
+        "command_hex": "57 0F 31",
+        "fields": [
+          {
+            "length": 1,
+            "name": "status",
+            "offset": 0,
+            "type": "uint8"
+          },
+          {
+            "length": 1,
+            "mask": 15,
+            "name": "temperature_fraction",
+            "offset": 1,
+            "scale": 0.1,
+            "type": "uint8",
+            "unit": "temperature_c"
+          },
+          {
+            "length": 1,
+            "mask": 127,
+            "name": "temperature_integer_and_sign",
+            "offset": 2,
+            "type": "uint8",
+            "unit": "temperature_c"
+          },
+          {
+            "length": 1,
+            "mask": 127,
+            "name": "humidity_percent",
+            "offset": 3,
+            "type": "uint8",
+            "unit": "%"
+          }
+        ],
+        "notes": "Byte 2 bit 7 is the positive/negative flag and byte 3 bit 7 selects Celsius/Fahrenheit. The masks above expose values, not unit conversion; apply the sign and display-unit bits when consuming the reading.\n",
+        "origin": "Synthetic full-layout vector: 22.5 °C and 60% RH",
+        "response_hex": "01 05 16 3C"
+      }
+    }
+  },
   "remaining_unknowns": [
     "Whether Curtain 3 (and which Curtain 2 firmware) requires the BLE encryption key: homebridge-switchbot says it does, pySwitchbot drives both curtains unencrypted. Resolving it needs a unit whose Device Info page in the app is checked, and an unencrypted command sent to it.",
     "The full list of encrypted models. Neither source enumerates it; the app's Device Info page is the per-unit authority.",
@@ -624,7 +833,7 @@
               "verification": "reported"
             },
             "find_device": {
-              "description": "Find/locate action (action byte 0x03). App-confirmed byte-for-byte: the vendor command generator emits this exact frame for its find-device function. Not a Bot press variant — the Bot defines only actions 0x00/0x01/0x02. Not hardware-tested.\n",
+              "description": "Find/locate action (action byte 0x03). App-confirmed byte-for-byte: the vendor command generator emits this exact frame for its find-device function. However, the official Bot API assigns action 0x03 to push-stop and 0x04 to back, so do not offer this as a Bot locate command without model-specific evidence. The competing device-family behavior is not hardware-tested.\n",
               "value": [
                 87,
                 1,
@@ -725,22 +934,10 @@
               "name": "status",
               "offset": 0,
               "type": "uint8"
-            },
-            {
-              "length": 1,
-              "name": "battery_percent",
-              "offset": 1,
-              "type": "uint8"
-            },
-            {
-              "length": 1,
-              "name": "firmware_version_raw",
-              "offset": 2,
-              "type": "uint8"
             }
           ],
           "name": "RX (Device → Client)",
-          "notes": "Notification channel from device to client. Response frame: [status byte][payload...]. Status: 0x01=OK, 0x02=ERROR, 0x03=BUSY, 0x05=unsupported, 0x06=low battery. For GetBasicInfo (0x02): payload = [battery%][fw_version*0.1][strength][ADC_hi][ADC_lo] [motor_cal_hi][motor_cal_lo][timer_count][act_mode][hold_times] [service_data_byte0][service_data_byte1]. For MeterReadSensor (0x31): payload = [temp_frac][temp_int][humidity].\n",
+          "notes": "Notification channel from device to client. Response frame: [status byte][payload...]. Status: 0x01=OK, 0x02=ERROR, 0x03=BUSY, 0x05=unsupported, 0x06=low battery. Payload is command- and model-specific; bytes 1 and 2 are not universally battery/firmware. On a Bot's successful GetBasicInfo (0x02) response the payload is [battery%][fw_version*0.1][strength][ADC_hi][ADC_lo] [motor_cal_hi][motor_cal_lo][timer_count][act_mode][hold_times] [service_data_byte0][service_data_byte1]. A Meter's GetBasicInfo payload is instead four bytes: battery, firmware and the two service data bytes. For MeterReadSensor (0x31), the payload is [temp_frac][temp_int][humidity].\n",
           "properties": [
             "notify",
             "read"

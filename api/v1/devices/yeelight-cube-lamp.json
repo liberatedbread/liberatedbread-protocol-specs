@@ -87,48 +87,48 @@
     },
     "get_prop": {
       "body": "{\"id\":1,\"method\":\"get_prop\",\"params\":[\"power\",\"bright\",\"ct\",\"rgb\",\"hue\",\"sat\",\"color_mode\",\"name\"]}",
-      "description": "Read device properties — the state poll. The property list is client-chosen; `support` returns the device's method capability list, which on matrix-capable units is reported to include set_segment_rgb and update_leds. Replies map positionally: the result array lines up with the requested property order.\n",
+      "description": "Read device properties — the state poll. The property list is client-chosen; `support` returns the device's method capability list, which on matrix-capable units is reported to include set_segment_rgb and update_leds. Replies map positionally: the result array lines up with the requested property order. EVERY result element is a JSON string, including numeric properties: the vendor's example is {\"id\":1,\"result\":[\"on\",\"\",\"100\"]}. Parse bright/ct/rgb/hue/sat/ color_mode from their decimal strings only after checking for \"\". An empty string means the requested property is unrecognized or not applicable in the current mode; it is unavailable, not numeric zero.\n",
       "example_body": "{\"id\":1,\"method\":\"get_prop\",\"params\":[\"power\",\"bright\",\"ct\",\"rgb\",\"hue\",\"sat\",\"color_mode\",\"name\"]}",
       "returns": [
         {
-          "description": "\"on\" / \"off\".",
+          "description": "\"on\" / \"off\"; empty when unavailable.",
           "name": "power",
           "type": "string"
         },
         {
-          "description": "Brightness, 1–100.",
+          "description": "Decimal-string brightness 1–100; empty when unavailable, never zero on that account.",
           "name": "bright",
-          "type": "integer",
+          "type": "string",
           "unit": "%"
         },
         {
-          "description": "Colour temperature in K (the cube's exact range is unverified; the classic Yeelight range is 1700–6500).",
+          "description": "Decimal-string colour temperature in K (the cube's exact range is unverified; the classic Yeelight range is 1700–6500); empty when unavailable.",
           "name": "ct",
-          "type": "integer"
+          "type": "string"
         },
         {
-          "description": "24-bit RGB colour as one integer (R<<16 | G<<8 | B), valid in RGB colour mode.",
+          "description": "Decimal-string 24-bit RGB colour (R<<16 | G<<8 | B), valid in RGB colour mode; empty in other modes, not 0x000000.",
           "name": "rgb",
-          "type": "integer"
+          "type": "string"
         },
         {
-          "description": "Hue 0–359, valid in HSV colour mode.",
+          "description": "Decimal-string hue 0–359, valid in HSV colour mode; empty in other modes.",
           "name": "hue",
-          "type": "integer"
+          "type": "string"
         },
         {
-          "description": "Saturation 0–100, valid in HSV colour mode.",
+          "description": "Decimal-string saturation 0–100, valid in HSV colour mode; empty in other modes.",
           "name": "sat",
-          "type": "integer",
+          "type": "string",
           "unit": "%"
         },
         {
-          "description": "1 = RGB, 2 = colour temperature, 3 = HSV.",
+          "description": "Decimal string: 1 = RGB, 2 = colour temperature, 3 = HSV; empty when unavailable.",
           "name": "color_mode",
-          "type": "integer"
+          "type": "string"
         },
         {
-          "description": "User-assigned device name.",
+          "description": "User-assigned device name; may be the empty string when no name is set.",
           "name": "name",
           "type": "string"
         }
@@ -203,16 +203,16 @@
     },
     "set_music_on": {
       "body": "{\"id\":1,\"method\":\"set_music\",\"params\":[1,\"{host}\",{port}]}",
-      "description": "Enter music mode: params [1, <host>, <port>] point the lamp at a UDP socket the client listens on; subsequent command JSON written to that UDP socket bypasses the ~60 commands/minute TCP rate limiter. Community matrix drivers use this when streaming frames. Send [0] to leave music mode.\n",
+      "description": "Enter music mode: first open a TCP listener on the client, then send params [1, <host>, <port>] for that listener. The lamp connects back over TCP, and subsequent command JSON on that reverse connection bypasses the ~60 commands/minute limiter. This is not UDP. Community matrix drivers use it when streaming frames. Send [0] to leave music mode.\n",
       "example_body": "{\"id\":1,\"method\":\"set_music\",\"params\":[1,\"192.168.1.50\",54321]}",
       "parameters": {
         "host": {
-          "description": "Client IP the lamp streams to.",
+          "description": "Client TCP-listener address the lamp connects back to.",
           "required": true,
           "type": "string"
         },
         "port": {
-          "description": "Client UDP port the lamp streams to.",
+          "description": "Client TCP-listener port the lamp connects back to.",
           "max": 65535,
           "min": 1,
           "required": true,
@@ -489,7 +489,7 @@
       },
       "device_class": "light",
       "name": "Cube Lamp",
-      "notes": "get_prop replies are POSITIONAL — the result array lines up with the requested property order — so a consumer must either request properties one per call or track the request's own order. The state properties are also pushed as {\"method\":\"props\",...} notifications when the lamp changes state from another controller.\n",
+      "notes": "get_prop replies are POSITIONAL — the result array lines up with the requested property order — so a consumer must zip results with the request's own property list (or request one property per call), then decimal-parse the numeric strings. Empty strings are unavailable, not zero. A consumer whose state_mapping only accepts JSON numbers needs a Yeelight-specific normalization step; do not change the wire types to hide that gap. Normal operation also pushes {\"method\":\"props\",...} notifications. In music mode queries/property notifications may be suppressed, so preserve the last known state or leave music mode and re-query; silence is not an off reading.\n",
       "platform": "light",
       "state_command": "get_prop",
       "state_mapping": {
@@ -638,13 +638,14 @@
       },
       "framing": "Each message is a single-line JSON document terminated by \\r\\n, in both directions. Requests: {\"id\":<int>,\"method\":\"<name>\",\"params\":[...]} — the id is client-chosen and echoed in the reply, which carries \"result\" (e.g. [\"ok\"], or the requested values for get_prop) or \"error\". The lamp also pushes unsolicited {\"method\":\"props\",\"params\":{...}} state-change notifications on the same connection.\n",
       "port": 55443,
-      "rate_limit": "The vendor spec limits clients to about 60 commands per minute; entering music mode (set_music) lifts the limiter and opens a high-rate UDP channel, which is what community matrix drivers use when streaming frames. activate_fx_mode must also be re-sent periodically (effectively per frame) while doing per-pixel control.\n",
+      "rate_limit": "The vendor spec limits clients to about 60 commands per minute. Music mode lifts the limiter over a REVERSE TCP connection: the client starts a TCP listener, sends set_music with its address and port, and the lamp connects back for subsequent command JSON. It is not a UDP channel. Community matrix drivers use this for streaming. activate_fx_mode must also be re-sent periodically (effectively per frame) during per-pixel control.\n",
       "standard_commands": "Per the vendor inter-operation spec: get_prop, set_power, toggle, set_bright, set_rgb, set_hsv, set_ct_abx, start_cf, stop_cf, set_scene, set_music, set_default, cron_add/cron_get/cron_del, dev_toggle and friends. The invocations entities bind are in the top-level `commands` block.\n",
-      "transport": "JSON over raw TCP (control); SSDP-like multicast (discovery); UDP (music mode)"
+      "transport": "JSON over raw TCP (control and reverse-TCP music mode); SSDP-like multicast (discovery)"
     }
   },
   "protocol_handler": "yeelight_lan",
   "remaining_unknowns": [
-    "Whether every cube firmware lists set_segment_rgb in the M-SEARCH reply's `support` header (the discovery `response_match`), and the cube's exact `model` header string, which would be a stronger discriminator.\n"
+    "Whether every cube firmware lists set_segment_rgb in the M-SEARCH reply's `support` header (the discovery `response_match`), and the cube's exact `model` header string, which would be a stronger discriminator.\n",
+    "The capability match is not proven unique to the modular YLFWD system: Cube Lite or another matrix-capable Yeelight could advertise the same extension. Capture both `model` and `support` from the modular cube and Cube Lite before adding a model matcher; do not treat set_segment_rgb alone as proof of the hardware family.\n"
   ]
 }

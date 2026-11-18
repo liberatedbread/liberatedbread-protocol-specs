@@ -3,7 +3,7 @@
     "auth": {
       "notes": "AWS Cognito SRP user-pool login (region us-west-2) plus an X-Api-Key header on REST. Shape only — the app-embedded API key and Cognito client secret are vendor client credentials and are deliberately not recorded here. TLS pinning on *.yonomi.cloud (Amazon Root CA 1-4 in network_security_config.xml).\n",
       "type": "other",
-      "verification": "confirmed"
+      "verification": "reported"
     },
     "data_leaves_device": [
       "lock/unlock and alarm event history (access log — personal data about household members' comings and goings)",
@@ -87,7 +87,7 @@
     "manufacturer": "Schlage (Allegion)",
     "manufacturer_status": "active",
     "name": "Schlage Smart Locks (Sense / Encode family)",
-    "notes": "Schlage's residential smart locks all speak the same proprietary BLE protocol — a uWeave-derived GATT profile carrying CBOR \"Privet\" RPC inside an AES-128-EAX session channel, paired via SPAKE2/P-224 against the lock's printed programming code. Once paired, every owner function works locally over BLE with no cloud: lock/unlock, state (battery/door/alarm), settings, access-code CRUD, history logs, time sync, firmware OTA, factory reset.\nThe WiFi radios on the Encode family have NO local-network API: runtime WiFi traffic is a cloud relay (REST + MQTT-over-WebSocket against *.allegion.yonomi.cloud). The Encode Plus's HomeKit `_hap._udp` mDNS record is Apple's protocol, mutually exclusive with Schlage-mode pairing. Schlage Connect (BE468/BE469) is a different, Z-Wave S2 product and is out of scope here.\nSECURITY MODEL: the trust root is the lock's physical programming code (printed inside the lock, on the back of the keypad assembly / in the manual). Whoever has it plus BLE range can pair and gain full control. After pairing, the client holds two bearer macaroons (SAT/CAT); a dumped client database plus BLE range also grants control without the code. Per-session keys are properly ephemeral (fresh randoms + HKDF per session); the pairing-phase cipher uses fixed 1-byte nonces, which only matters against an eavesdropper present during the ~30 s pairing window.\nVERIFICATION: protocol facts marked `confirmed` were read directly out of the vendor app and agree with the Go reimplementation; they have not been replayed against hardware by us. See header comment.\n",
+    "notes": "Schlage's residential smart locks all speak the same proprietary BLE protocol — a uWeave-derived GATT profile carrying CBOR \"Privet\" RPC inside an AES-128-EAX session channel, paired via SPAKE2/P-224 against the lock's printed programming code. Once paired, every owner function works locally over BLE with no cloud: lock/unlock, state (battery/door/alarm), settings, access-code CRUD, history logs, time sync, firmware OTA, factory reset.\nThe WiFi radios on the Encode family have NO local-network API: runtime WiFi traffic is a cloud relay (REST + MQTT-over-WebSocket against *.allegion.yonomi.cloud). The Encode Plus's HomeKit `_hap._udp` mDNS record is Apple's protocol, mutually exclusive with Schlage-mode pairing. Schlage Connect (BE468/BE469) is a different, Z-Wave S2 product and is out of scope here.\nSECURITY MODEL: the trust root is the lock's physical programming code (printed inside the lock, on the back of the keypad assembly / in the manual). Whoever has it plus BLE range can pair and gain full control. After pairing, the client holds two bearer macaroons (SAT/CAT); a dumped client database plus BLE range also grants control without the code. Per-session keys are properly ephemeral (fresh randoms + HKDF per session); the pairing-phase cipher uses fixed 1-byte nonces, which only matters against an eavesdropper present during the ~30 s pairing window.\nVERIFICATION: protocol facts marked `reported` were read directly out of the vendor app and, where stated, agree with the Go reimplementation; they have not been replayed against hardware by us. See header comment.\n",
     "openness": {
       "notes": "Schlage publishes no local protocol documentation; a commercial cloud API (developer.allegion.com) exists but excludes individual/hobbyist use and covers only the cloud path. Everything in this spec was recovered from the vendor's Android app. The Go library cited is an independent third-party reimplementation, not vendor documentation.\n",
       "reverse_engineered": true,
@@ -382,8 +382,8 @@
   "initialization": [
     {
       "characteristic": "26002998-e001-4812-8c08-5cd2afda0830",
-      "description": "Enable indications on RxData (CCCD 00002902-0000-1000-8000-00805f9b34fb) before anything else.",
-      "read": true
+      "description": "Enable indications on RxData (CCCD 00002902-0000-1000-8000-00805f9b34fb) before anything else; do not issue a GATT read.",
+      "subscribe": true
     },
     {
       "characteristic": "ff530c78-cd50-4bb9-bbd4-0712f32b3796",
@@ -436,7 +436,7 @@
         "description": "CBOR \"Privet\" RPC. Request {1:apiId, 2:requestTypeId, 16:{trait, property, data}}; success at key 17 (frequently nested 17→17); error map at key 3 with code at 3→4. apiIds 2/3 pairing, 5 auth, 6 state, 8 trait/property RPC, 24/25 access-control claim. Traits 1 LockData, 3 History/DeviceMgmt, 4 AccessCodes, 5 LockConfig, 6 WiFi. See the per-command table on the TxData characteristic.\n"
       },
       "pairing": {
-        "description": "SPAKE2 over P-224 (Google GCD/Weave construction). Password = the lock's printed programming code: passwordHash = BigInteger(SHA256(UTF-8 code)[0:28]). Client commitment T = x*G + passwordHash*KM, serialized as 56-byte affine x||y (no prefix byte). Shared key K = x*(S - passwordHash*KN). Blinding points (P-224, hex): KM = (4D48C8EA8D23392E07E851FA6AA82048094E051372499C6FBA62A74B, 6C185CABD52E2E8A9E2D21B0EC4EE141211FE29D64EA4D04463AE833); KN = (0B1CFC6A407CDCB15DC1704CD13EDAAB8FDEFF8CFBFB50D2C81DE2C2, 3E14F62996080907B56DD282071AA7A121C39934BC30DA5BCBC6A3CC). Curve is NIST secp224r1 (p = FFFFFFFF...FF000000000000000000000001, generator B70E0CBD.../BD376388...). On success the lock issues CAT + SAT macaroons (CBOR bstr(array of caveat bstrs + 16-byte truncated HMAC-SHA256 tag)). Constants confirmed in BOTH app releases: the unobfuscated Weave/GCD security code in the current release matches the obfuscated protocol code of the older one on every constant above (app-confirmed ×2, not hardware-tested).\n"
+        "description": "SPAKE2 over P-224 (Google GCD/Weave construction). Password = the lock's printed programming code: passwordHash = BigInteger(SHA256(UTF-8 code)[0:28]). Client commitment T = x*G + passwordHash*KM, serialized as 56-byte affine x||y (no prefix byte). Shared key K = x*(S - passwordHash*KN). Blinding points (P-224, hex): KM = (4D48C8EA8D23392E07E851FA6AA82048094E051372499C6FBA62A74B, 6C185CABD52E2E8A9E2D21B0EC4EE141211FE29D64EA4D04463AE833); KN = (0B1CFC6A407CDCB15DC1704CD13EDAAB8FDEFF8CFBFB50D2C81DE2C2, 3E14F62996080907B56DD282071AA7A121C39934BC30DA5BCBC6A3CC). Curve is NIST secp224r1 (p = FFFFFFFF...FF000000000000000000000001, generator B70E0CBD.../BD376388...). On success the lock issues CAT + SAT macaroons (CBOR bstr(array of caveat bstrs + 16-byte truncated HMAC-SHA256 tag)). Constants match in BOTH app releases: the unobfuscated Weave/GCD security code in the current release matches the obfuscated protocol code of the older one on every constant above (statically matched ×2, not hardware-tested).\n"
       }
     }
   },
@@ -455,13 +455,13 @@
           "commands": {
             "delete_access_code": {
               "description": "Delete one access code: {1:8, 2:2, 16:{0:4, 1:1, 2:{2:code}}}.",
-              "verification": "confirmed"
+              "verification": "reported"
             },
             "delete_all_access_codes": {
               "advanced": true,
               "advanced_reason": "Wipes all keypad access codes at once; household members who rely on codes are locked out until codes are re-added. Codes can be re-created with save_access_code afterwards — nothing else is lost.\n",
               "description": "Delete every access code: {1:8, 2:5, 16:{0:4, 1:2}}.",
-              "verification": "confirmed"
+              "verification": "reported"
             },
             "factory_reset": {
               "advanced": true,
@@ -479,7 +479,7 @@
             },
             "lock_unlock": {
               "description": "Lock or unlock the bolt. CBOR {1:8, 2:7, 16:{0:1, 1:0, 2:{0: stateOrdinal, 1:userId(8B big-endian)}}}. stateOrdinal: 0 = unlock, 1 = lock (lockState enum: 0=unlocked, 1=locked, 2=jammed, 3=unknown, 4=motorJammed, 5=passage, 6=deadlocked).\n",
-              "verification": "confirmed"
+              "verification": "reported"
             },
             "read_history": {
               "description": "Download event log. Two-step: check {1:8, 2:2, 16:{0:3, 1:0, 2:{0:0}}} then read batches {1:8, 2:3, 16:{0:3, 1:batchSize}}.\n",
@@ -487,7 +487,7 @@
             },
             "read_info": {
               "description": "Read device info. CBOR {1:8, 2:4, 16:{0:1, 1:P}} with P: 2=manufacturer, 3=model, 4=serial, 5=main firmware, 7=current time, 12=battery, 15=extended firmware versions.\n",
-              "verification": "confirmed"
+              "verification": "reported"
             },
             "read_settings": {
               "description": "Read lock configuration (trait 5): 3=beeper, 5=autoLockTime, 9=alarmMode, 11=alarmSensitivity, 13=lockAndLeave, 15=codeLength, 21=timezone, 27=opMode (0=Schlage BLE only, 1=simultaneous BLE+Matter on supported hardware).\n",
@@ -495,11 +495,11 @@
             },
             "save_access_code": {
               "description": "Add or update an access code: {1:8, 2:3, 16:{0:4, 1:(0=add | 4=update), 2:{0:userUuid(8B BE), 1:name, 2:code, 3:schedule1, 4:schedule2, 5:blocked, 6:startEpoch, 7:endEpoch}}}.\n",
-              "verification": "confirmed"
+              "verification": "reported"
             },
             "set_access_code_length": {
               "description": "Set keypad code length: {1:8, 2:2, 16:{0:5, 1:14, 2:{0:len}}}.\n",
-              "verification": "confirmed"
+              "verification": "reported"
             },
             "set_time": {
               "description": "Set lock clock: saveData trait 1 prop 6 (unix seconds).",

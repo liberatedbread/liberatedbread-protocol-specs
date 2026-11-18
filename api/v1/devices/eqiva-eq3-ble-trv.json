@@ -28,7 +28,7 @@
     "manufacturer": "eQ-3 AG (Eqiva)",
     "manufacturer_status": "active",
     "name": "eQ-3 Eqiva Bluetooth Radiator Thermostat (CC-RT-BLE)",
-    "notes": "The Eqiva eQ-3 Bluetooth radiator valve (CC-RT-BLE) is a hugely common European smart TRV. It has no radio but BLE, so control is entirely local: commands are written to a vendor GATT characteristic and status arrives on a notify characteristic. Firmware 1.20+ may require a one-time BLE pairing (hold the wheel until \"Pair\" shows).\nGATT: write commands to characteristic 3fa4585a-ce4a-3bad-db4b-b8df8179ea09 (handle 0x0411); status notifications on d0e8434d-cd29-0996-af41-6c90f4e0eb2a (handle 0x0421). The product name \"CC-RT-BLE\" is at handle 0x0321, vendor \"eq-3\" at handle 0x0311.\nCOMMANDS (first byte = opcode):\n  00                        read serial\n  03 yy mm dd hh mm ss      request status + sync clock\n  40 00 / 40 40 / 40 a3     mode: auto / manual / vacation\n  41 <target*2>             set target temperature (value = °C × 2)\n  43 / 44                   comfort preset / eco preset\n  45 01 / 45 00             boost on / boost off\n  80 01 / 80 00             lock / unlock the buttons\n  11 ...                    configure comfort/eco presets\n  13 <(offset+3.5)*2>       set temperature-sensor offset\n  14 <temp>                 window-open detection config\n  20 <day 00-06>            read a day's schedule (00=Sat..06=Fri)\n  f0                        factory reset\nTemperatures throughout are one byte = °C × 2 (decode as byte / 2).\nSTATUS NOTIFICATION: byte1 0x02, byte2 0x01, byte3 mode bitfield (manual 0x01, vacation 0x02, boost 0x04, ...), byte4 valve %, byte5 0x04, byte6 target temp (value/2 °C), bytes 7-10 vacation date, bytes 11-15 comfort/eco/ window config.\n",
+    "notes": "The Eqiva eQ-3 Bluetooth radiator valve (CC-RT-BLE) is a hugely common European smart TRV. It has no radio but BLE, so control is entirely local: commands are written to a vendor GATT characteristic and status arrives on a notify characteristic. Firmware 1.20+ may require a one-time BLE pairing (hold the wheel until \"Pair\" shows).\nGATT: write commands to characteristic 3fa4585a-ce4a-3bad-db4b-b8df8179ea09 (handle 0x0411); status notifications on d0e8434d-cd29-0996-af41-6c90f4e0eb2a (handle 0x0421). The product name \"CC-RT-BLE\" is at handle 0x0321, vendor \"eq-3\" at handle 0x0311.\nCOMMANDS (first byte = opcode):\n  00                        read serial\n  03 yy mm dd hh mm ss      request status + sync clock\n  40 00 / 40 40 / 40 a3     mode: auto / manual / vacation\n  41 <target*2>             set target temperature (value = °C × 2)\n  43 / 44                   comfort preset / eco preset\n  45 01 / 45 00             boost on / boost off\n  80 01 / 80 00             lock / unlock the buttons\n  11 ...                    configure comfort/eco presets\n  13 <(offset+3.5)*2>       set temperature-sensor offset\n  14 <temp>                 window-open detection config\n  20 <day 00-06>            read a day's schedule (00=Sat..06=Fri)\n  f0                        factory reset\nTemperatures throughout are one byte = °C × 2 (decode as byte / 2).\nSTATUS NOTIFICATION (zero-based offsets): byte 0 is 0x02, byte 1 is 0x01, byte 2 is the mode bitfield (manual 0x01, vacation 0x02, boost 0x04, ...), byte 3 is valve %, byte 4 is 0x04 and byte 5 is target temp (value/2 °C). Bytes 6-9 carry optional vacation data and bytes 10-14 optional comfort/eco/window config; older firmware or inactive vacation mode can shorten the frame. The source document presents these as one-based bytes 1-15; the structured characteristic format below uses zero-based offsets.\n",
     "openness": {
       "license": "MIT",
       "notes": "No vendor API; the protocol was reverse-engineered. Heckie75 documents the byte tables and python-eq3bt (bleak/bluepy/gattlib) implements them.\n",
@@ -150,10 +150,10 @@
   },
   "entities": [
     {
-      "max_temp": 30.5,
+      "max_temp": 30.0,
       "min_temp": 4.5,
       "name": "Radiator Thermostat",
-      "notes": "Target via set_temperature (byte = °C × 2); mode via set_mode_auto/manual; boost via boost_on/off.",
+      "notes": "Target via set_temperature (byte = °C × 2); ordinary targets are 5.0-29.5 °C, with 4.5 °C off and 30.0 °C on as special cases. Mode via set_mode_auto/manual; boost via boost_on/off.",
       "platform": "climate",
       "temp_step": 0.5
     }
@@ -237,8 +237,8 @@
               "encoding": "bytes",
               "parameters": {
                 "raw": {
-                  "description": "Target °C × 2. Valid target range is ~4.5-30.5 °C, i.e. raw 9-61.",
-                  "max": 61,
+                  "description": "Target °C × 2. Ordinary targets are 5.0-29.5 °C (raw 10-59); raw 9 (4.5 °C) is the special off value and raw 60 (30.0 °C) the special on value. Raw 61 is not a supported target.\n",
+                  "max": 60,
                   "min": 9,
                   "type": "uint8"
                 }
@@ -306,13 +306,60 @@
           },
           "name": "Command",
           "properties": [
+            "read",
             "write"
           ],
           "uuid": "3fa4585a-ce4a-3bad-db4b-b8df8179ea09"
         },
         {
+          "format": [
+            {
+              "length": 1,
+              "name": "response_type",
+              "notes": "0x02 for device status; other frame families use this characteristic too.",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "status_marker",
+              "notes": "0x01 for device status.",
+              "offset": 1,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "mode",
+              "notes": "Bitfield: manual 0x01, vacation 0x02, boost 0x04, DST 0x08, window-open 0x10, locked 0x20, low-battery 0x80.",
+              "offset": 2,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "valve_percent",
+              "offset": 3,
+              "type": "uint8",
+              "unit": "%"
+            },
+            {
+              "length": 1,
+              "name": "temperature_marker",
+              "notes": "0x04 in documented status examples.",
+              "offset": 4,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "target_temperature",
+              "notes": "Raw half-degrees Celsius; special values raw 9=off and raw 60=on.",
+              "offset": 5,
+              "scale": 0.5,
+              "type": "uint8",
+              "unit": "temperature_c"
+            }
+          ],
           "name": "Status notify",
-          "notes": "Status frames: byte3 mode bitfield (manual 0x01, vacation 0x02, boost 0x04), byte4 valve %, byte6 target temp (value/2 °C), later bytes carry vacation date and comfort/eco/window config.\n",
+          "notes": "Offsets below are zero-based. The upstream API document calls these bytes 1-6 when using one-based labels: mode is byte 3 there and target temperature byte 6. Vacation and preset bytes are optional by firmware/mode and are not included in the always-present prefix.\n",
           "properties": [
             "notify"
           ],

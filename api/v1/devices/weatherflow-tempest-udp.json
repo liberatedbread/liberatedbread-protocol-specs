@@ -14,23 +14,32 @@
       },
       "methods": [
         {
-          "mdns": {
+          "notes": "Listen only. The hub broadcasts unsolicited JSON datagrams on UDP 50222; there is no mDNS advertisement and no discovery request to send. ST/AR/SK/HB serial prefixes distinguish Tempest, AIR, SKY and hub senders, and hub_sn links a sensor to its hub.\n",
+          "type": "udp_broadcast",
+          "udp_broadcast": {
             "identity_mapping": {
               "display": {
-                "source": "udp:50222#hub_sn"
+                "source": "json:serial_number"
               },
               "stable_keys": [
                 {
                   "key": "serial_number",
-                  "source": "udp:50222#serial_number"
+                  "source": "json:serial_number"
                 }
               ]
             },
+            "passive_ok": true,
             "port": 50222,
-            "service_type": "_http._tcp.local."
-          },
-          "notes": "Passive discovery: listen for UDP 50222 broadcasts; every datagram carries the hub and device serial numbers.\n",
-          "type": "mdns"
+            "response_format": "json",
+            "response_match": [
+              {
+                "description": "WeatherFlow's documented UDP message vocabulary; no probe is sent.",
+                "match": "regex",
+                "source": "json:type",
+                "value": "^(obs_st|obs_air|obs_sky|rapid_wind|evt_precip|evt_strike|device_status|hub_status)$"
+              }
+            ]
+          }
         }
       ],
       "static_ip_required": false
@@ -41,7 +50,7 @@
     "manufacturer": "WeatherFlow-Tempest, Inc.",
     "manufacturer_status": "active",
     "name": "WeatherFlow Tempest Weather Station",
-    "notes": "The WeatherFlow Tempest (and the legacy Air/Sky sensors) is a home weather station whose hub broadcasts JSON observation datagrams on the LAN — no cloud needed to receive them and no authentication. WeatherFlow publishes the local UDP API itself.\nTRANSPORT: JSON over UDP broadcast, port 50222. Passive: a client just listens; every message carries hub/device serial numbers.\nMESSAGE TYPES:\n  rapid_wind   ~3 s wind speed (m/s) + direction (deg)\n  obs_st       the Tempest combined observation (see fields below)\n  obs_air / obs_sky   legacy Air / Sky sensor observations\n  evt_precip   rain start;  evt_strike   lightning (distance km, energy)\n  device_status  per-device health (bit-flag sensor status)\n  hub_status     firmware revision, uptime, RSSI\nobs_st observation array (order): wind lull/avg/gust (m/s), wind direction (deg), station pressure (mb), air temperature (C), relative humidity (%), illuminance (lux), UV index, solar radiation (W/m^2), rain accumulation (mm), lightning strike distance/count, battery volts, report interval.\n",
+    "notes": "The WeatherFlow Tempest (and the legacy Air/Sky sensors) is a home weather station whose hub broadcasts JSON observation datagrams on the LAN — no cloud needed to receive them and no authentication. WeatherFlow publishes the local UDP API itself.\nTRANSPORT: JSON over UDP broadcast, port 50222. Passive: a client just listens; every message carries hub/device serial numbers.\nMESSAGE TYPES:\n  rapid_wind   ~3 s wind speed (m/s) + direction (deg)\n  obs_st       the Tempest combined observation (see fields below)\n  obs_air / obs_sky   legacy Air / Sky sensor observations\n  evt_precip   rain start;  evt_strike   lightning (distance km, energy)\n  device_status  per-device health (bit-flag sensor status)\n  hub_status     firmware revision, uptime, RSSI\nobs_st observation array (order): wind lull/avg/gust (m/s), wind direction (deg), station pressure (mb), air temperature (C), relative humidity (%), illuminance (lux), UV index, solar radiation (W/m^2), previous-minute rain (mm), lightning strike distance/count, battery volts, report interval.\n",
     "openness": {
       "notes": "This is the vendor's own local broadcast API, published deliberately for third-party clients (weewx, Home Assistant). Nothing here was reverse-engineered.\n",
       "reverse_engineered": false,
@@ -166,19 +175,23 @@
       },
       "methods": [
         {
-          "description": "Onboard the hub onto Wi-Fi with the WeatherFlow app. After it joins the LAN it broadcasts observations on UDP 50222 with no further setup.\n",
+          "cloud": {
+            "local_alternative": "Ongoing current observations are fully local after provisioning: no cloud request, account session or subscription is needed to receive UDP 50222. Forecast, history and calibration are not part of this local API, and no account-free onboarding path is established.\n",
+            "provider": "WeatherFlow"
+          },
+          "description": "Claim and onboard the station in the WeatherFlow app using its account flow and Bluetooth. After provisioning, a local client only listens for UDP 50222 broadcasts; it does not log in or poll the vendor cloud.\n",
           "steps": [
             {
-              "action": "Onboard the hub onto Wi-Fi with the WeatherFlow app.",
+              "action": "Claim the station and complete Wi-Fi onboarding in the WeatherFlow app with Bluetooth enabled.",
               "actor": "user",
               "expect": "The hub broadcasts obs_st / rapid_wind datagrams on UDP 50222."
             }
           ],
-          "type": "device_ui",
+          "type": "cloud_account",
           "verified": false
         }
       ],
-      "notes": "The hub's Wi-Fi onboarding is app-driven (not part of the local UDP API); once the hub is on the LAN it broadcasts with no further setup and no account needed for local reads.\n",
+      "notes": "Initial station claiming and Wi-Fi onboarding use the WeatherFlow app, its account flow and Bluetooth; that provisioning exchange is not part of the local UDP API. Once the hub is on the LAN, current observations arrive by unauthenticated broadcast with no cloud connection or account needed for ongoing local reads.\n",
       "rejoin": {
         "in_place_supported": true,
         "notes": "Wi-Fi is reconfigured through the app; local broadcasts resume once the hub rejoins.",
@@ -242,6 +255,7 @@
   "payload_formats": {
     "evt_strike": {
       "description": "Lightning event in the evt array. Energy is an opaque number without a documented physical unit.",
+      "example": "[1493322445,27,3848]",
       "fields": [
         {
           "index": 0,
@@ -394,6 +408,7 @@
     },
     "obs_st": {
       "description": "Tempest combined observation: the 18-element array in obs[0]. Null means unavailable, not zero.",
+      "example": "[[1588948614,0.18,0.22,0.27,144,6,1017.57,22.37,50.26,328,0.03,3,0.000000,0,0,0,2.410,1]]",
       "fields": [
         {
           "description": "Observation epoch seconds; distinct from status timestamps.",
@@ -582,5 +597,9 @@
         "ST": "Tempest"
       }
     }
-  }
+  },
+  "remaining_unknowns": [
+    "The four entities are capability declarations, not request/response state polls: there is no `state_command` because the hub only pushes datagrams. A consumer must dispatch unsolicited UDP by message type and serial, validate array lengths, and feed payload_formats; a consumer limited to request/response entities cannot render them yet and must not invent an HTTP poll or substitute zero for missing observations.\n",
+    "Initial app/account/Bluetooth onboarding was not replayed by this project. Verify whether current firmware permits account-free station claiming before treating it as available; ongoing UDP reads do not depend on that answer.\n"
+  ]
 }
