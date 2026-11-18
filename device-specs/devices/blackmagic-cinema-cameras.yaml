@@ -426,6 +426,8 @@ payload_formats:
     parse_rules:
       - "Require at least eight bytes and 4 <= command_length <= 60. The complete aligned packet is 4 + command_length plus padding and must not exceed 64 bytes."
       - "Let n = command_length - 4. Require n bytes at offset 8, then skip (- (8 + n)) mod 4 alignment bytes; require those bytes to be zero."
+      - "If command_id is not 0, skip the whole aligned envelope WITHOUT decoding it as command 0. Unknown IDs are not errors by themselves; length and padding are the only safe dispatch facts."
+      - "Data types 129-255 and operation types 128-255 are vendor-specific: skip the aligned envelope without typed-decoding it. Only command 0 with known types/operations is decoded further. Reserved types 6-127 and operations 2-127 remain invalid for this spec."
       - "A void trigger has n = 0. A boolean has one byte, with zero false and nonzero true. int8/int16/int32/int64 elements are signed; strings have no NUL."
       - "Fixed16 is signed int16 LE divided by 2048. Offset operation 1 is invalid for void; a nonzero boolean offset toggles."
     example: "ff 05 00 00 00 06 00 00 01 00 00 00  (OIS true, broadcast)"
@@ -463,7 +465,10 @@ protocol_details:
       the buffered stream rather than scanning for a magic byte that does not
       exist. Reconnect on persistent desynchronization. Do not concatenate
       unrelated writes and assume the camera accepts SDI's 255-byte VANC
-      grouping limit as a BLE MTU guarantee.
+      grouping limit as a BLE MTU guarantee. Unknown command IDs and
+      vendor-specific data/operation ranges are skipped by aligned length,
+      never decoded as command 0; only known command-0 types and operations
+      are typed-decoded.
   model_version_gates:
     model_characteristic: "00002a24-0000-1000-8000-00805f9b34fb"
     version_characteristic: "8f1fd018-b508-456f-8f82-3d392bee2706"
@@ -482,6 +487,12 @@ protocol_details:
     gamma_camera_4_subtract_green_blue_0_3: "04 0c 00 00 08 01 80 01 00 00 9a fd 9a fd 00 00"
     white_balance_broadcast_5600k_tint_minus_2: "ff 08 00 00 01 02 02 00 e0 15 fe ff"
     focus_broadcast_0_75: "ff 06 00 00 00 00 80 00 00 06 00 00"
+    vendor_specific_envelopes_followed_by_known:
+      unknown_command_id: "ff 04 80 00 01 01 01 00 05 00 00 00"
+      vendor_data_type_0x81: "ff 04 00 00 01 01 81 00 05 00 00 00"
+      vendor_operation_0x80: "ff 04 00 00 01 01 01 80 05 00 00 00"
+      known_exposure_after_all_three: "04 08 00 00 01 05 03 00 10 27 00 00"
+      rule: "The first three are skipped by aligned length; the last is decoded as command 0. Unknown command ID 0x81 with reserved type 6/operation 2 is also skipped, not rejected as command 0."
 
 entities:
   - platform: "button"

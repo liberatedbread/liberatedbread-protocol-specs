@@ -100,8 +100,13 @@ Each command has an eight-byte header, typed data and zero alignment padding:
 Type `0` is void/boolean, `1` int8, `2` int16, `3` int32, `4` int64, `5` UTF-8
 without a terminator, and `128` signed 5.11 fixed16. Fixed16 divides the signed
 little-endian integer by 2048. Pad the complete packet to a four-byte boundary
-with zeros; those zeros do not count in the length byte. Skip unknown commands
-by that same length-plus-alignment rule rather than assuming a fixed table.
+with zeros; those zeros do not count in the length byte. Unknown command IDs
+are skipped by that same length-plus-alignment rule and are never decoded as
+command `0`. Data types `129`–`255` and operations `128`–`255` are likewise
+vendor-specific envelopes to skip, not errors. Only command `0` with known
+types and operations is typed-decoded; reserved types `6`–`127` and operations
+`2`–`127` remain invalid for this spec. Coalesced tests place each unknown
+form before a known valid packet.
 
 The spec includes autofocus, OIS, focus, exposure, manual white balance and a
 zebra offset, with official packet examples. Camera 4.9-era gain (group 1,

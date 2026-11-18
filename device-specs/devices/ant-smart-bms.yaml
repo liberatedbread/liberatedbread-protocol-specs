@@ -60,11 +60,11 @@ device:
 
   identification:
     local_name_prefixes: ["ANT-BLE", "ANT@BLE", "ANT~BLE"]
-    service_uuids:
-      - "0000ffe0-0000-1000-8000-00805f9b34fb"
     notes: >
-      Names only rank candidates; generation selection must follow
-      protocol_details.generation_selection because prefixes collide.
+      Names are candidate matchers only, not proof of generation. Do not
+      require FFE0 in discovery: schema name/service matching is OR, and FFE0
+      belongs only to the post-connect GATT/fallback path. Generation selection
+      must follow protocol_details.generation_selection because prefixes collide.
       ANT-BLE16ZMUB and ANT-BLE04DMUB look like legacy [01] names, and
       ANT@BLE22AAUB resembles the legacy ANT-BLE22* pattern, yet all three
       are documented 2021+ boards. Known 2021+ identities win first.
@@ -76,9 +76,7 @@ device:
           local_name:
             match: "regex"
             value: "^ANT[-@~]BLE"
-          service_uuids:
-            - "0000ffe0-0000-1000-8000-00805f9b34fb"
-        notes: "Require the name prefix and FFE0, then select the generation using the exact model table and read-only response validation."
+        notes: "Match the ANT name prefix only. Validate a generation-appropriate response after connecting before decoding; FFE0 is used only as the default GATT/fallback channel."
     identity:
       stable_keys: ["address", "local_name"]
       display: "local_name"
@@ -135,7 +133,7 @@ device:
         generation/channel and repeat reads; supply the existing owner secret
         again only on units that require it.
       steps:
-        - action: "Close the previous client, rediscover by name plus FFE0, and rerun the matching read-only channel validation."
+        - action: "Close the previous client, rediscover by ANT name prefix, and rerun the matching read-only generation/channel validation; FFE0 is only the default GATT path."
           actor: "client"
     credentials:
       wifi_passphrase_protection: "not_applicable"
@@ -301,7 +299,7 @@ payload_formats:
       - "On a reply wait for data_length + 10 bytes total, require function request|0x10 and trailer aa 55, then verify CRC-16/Modbus over frame[1:-4]."
       - "On a READ REQUEST the length byte is the requested reply size and there is no request payload, even when nonzero (status 0xbe, fallback 0xf5, info 0x20). Actual request size is still 10 bytes. On authentication, length is the actual secret length and data follows."
       - "Fragment/coalesce notifications without treating callback edges as frames. Reject wrong header/function/trailer/CRC and impossible lengths; never reinterpret length as two bytes."
-      - "Function 0x12 device info is the ONLY length-quirk exception: the public fixture can carry more bytes than data_length+10. Require at least the declared frame, aa 55 and CRC over the declared span; preserve trailing bytes. Never apply this exception to status."
+      - "Function 0x12 device info is the ONLY length-quirk exception: verify CRC at declared_total-4..declared_total-2 over frame[1:declared_total-4], even when bytes at declared_total-2 are not aa 55. Require aa 55 at the ACTUAL end of the response and preserve intervening bytes from declared_total-2 through the final trailer. Stream parsing must not slice at declared_total before finding that final trailer. Never apply this exception to status."
     example: "7e a1 01 00 00 be 18 55 aa 55  (status request; 0xbe is requested reply length, not request payload)"
   New_Status:
     description: "Function 0x11 data plus frame header; offsets below include the six-byte header. Dynamic shift S = 2*(min(cell_count,32) + min(temp_count,6))."
@@ -330,6 +328,12 @@ payload_formats:
     fields:
       - {name: "hardware", offset: 6, length: 16, type: "bytes", min_length: 16, max_length: 16, description: "NUL-padded hardware string; decode UTF-8 conservatively and strip trailing NULs."}
       - {name: "software", offset: 22, length: 16, type: "bytes", min_length: 16, max_length: 16, description: "NUL-padded software/version string."}
+    actual_fixture:
+      notes: "The real 48-byte public fixture, not a manufactured trailer. Declared total 42, declared CRC 57 96 at offsets 38-39, intervening ff 0b 00 00 41 f2 at 40-45, final aa 55 at 46-47."
+      hex: "7ea1126c02203234424800000000000000000000000032344248554230302d323131303236415796ff0b000041f2aa55"
+      hardware: "24BH"
+      software: "24BHUB00-211026A"
+      trailing: "ff 0b 00 00 41 f2"
 
 protocol_details:
   generation_selection:

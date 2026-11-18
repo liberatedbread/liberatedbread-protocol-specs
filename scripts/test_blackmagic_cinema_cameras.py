@@ -50,7 +50,7 @@ def parse_packets(chunks) -> list[dict]:
             if len(buffer) < 8:
                 break
             length = buffer[1]
-            if length < 4 or length > 64:
+            if length < 4 or length > 60:
                 raise ValueError("invalid CCU command length")
             data_length = length - 4
             total = 8 + data_length
@@ -63,9 +63,17 @@ def parse_packets(chunks) -> list[dict]:
             del buffer[:total]
             if packet[3] != 0:
                 raise ValueError("reserved byte is nonzero")
-            data_type = packet[6]
+            if any(packet[8 + data_length :]):
+                raise ValueError("nonzero alignment padding")
+            command_id, data_type, operation = packet[2], packet[6], packet[7]
+            if command_id != 0 or data_type >= 129 or operation >= 128:
+                # Vendor-specific envelope: skip by aligned length only.
+                result.append({"command_id": command_id, "skipped": True})
+                continue
             if data_type not in WIDTHS:
                 raise ValueError("reserved CCU data type")
+            if operation not in (0, 1):
+                raise ValueError("reserved CCU operation")
             width = WIDTHS[data_type]
             data = packet[8 : 8 + data_length]
             if width == "string":
@@ -74,19 +82,17 @@ def parse_packets(chunks) -> list[dict]:
                 raise ValueError("void/boolean must have zero or one byte")
             elif width not in (None, "string") and data_length % width:
                 raise ValueError("non-integral CCU element width")
-            if packet[7] not in (0, 1):
-                raise ValueError("reserved CCU operation")
-            if packet[7] == 1 and data_type == 0 and data_length == 0:
+            if operation == 1 and data_type == 0 and data_length == 0:
                 raise ValueError("offset operation on void")
-            if any(packet[8 + data_length :]):
-                raise ValueError("nonzero alignment padding")
             result.append(
                 {
+                    "command_id": 0,
+                    "skipped": False,
                     "destination": packet[0],
                     "category": packet[4],
                     "parameter": packet[5],
                     "data_type": data_type,
-                    "operation": packet[7],
+                    "operation": operation,
                     "data": data,
                 }
             )
@@ -151,7 +157,7 @@ def test_typed_payload_decoding_and_unknown_command_skip():
         bytes.fromhex("ff 03 00 00 00 01 00 00"),
         bytes.fromhex("ff 05 00 00 00 01 02 00 01 00 00 00"),  # int16 has odd data length
         bytes.fromhex("ff 04 00 00 00 01 00 00 01"),  # nonzero padding after an int8
-        bytes.fromhex("ff 05 00 00 00 01 00 80 00 00 00 00"),  # void offset
+        bytes.fromhex("ff 04 00 00 00 01 00 01"),  # void offset with empty payload
         bytes.fromhex("ff 05 00 00 00 01 06 00 01 00 00 00"),  # reserved operation? data_type 0 / op 1 is handled above only when void
         bytes.fromhex("ff 04 00 00 00 01 00 00 02"),  # reserved operation
         bytes.fromhex("ff 05 00 01 00 01 00 00 00 00 00 00"),  # nonzero reserved byte
@@ -178,3 +184,31 @@ def test_full_packet_boundary():
     assert packet[1] == 60
     with pytest.raises(ValueError, match="64-byte"):
         command(255, 250, 251, 1, 0, bytes(57))
+
+
+
+def test_vendor_specific_envelopes_are_skipped_then_known_packet_decodes():
+    unknown_id = command(255, 1, 1, 1, 0, b"\x05", command_id=0x80)
+    vendor_type = command(255, 1, 1, 0x81, 0, b"\x05")
+    vendor_operation = command(255, 1, 1, 1, 0x80, b"\x05")
+    stream = unknown_id + vendor_type + vendor_operation + VENDORS["exposure"]
+    expected = [
+        {"command_id": 0x80, "skipped": True},
+        {"command_id": 0, "skipped": True},
+        {"command_id": 0, "skipped": True},
+    ]
+    packets = parse_packets([stream])
+    assert packets[:3] == expected
+    assert packets[3]["command_id"] == 0
+    assert packets[3]["skipped"] is False
+    assert int.from_bytes(packets[3]["data"], "little", signed=True) == 10000
+    assert parse_packets([bytes([value]) for value in stream]) == packets
+
+
+def test_unknown_id_is_never_decoded_as_command_zero_even_with_reserved_type():
+    unknown = command(255, 1, 1, 6, 2, b"\x05", command_id=0x81)
+    stream = unknown + VENDORS["autofocus"]
+    packets = parse_packets([stream])
+    assert packets[0] == {"command_id": 0x81, "skipped": True}
+    assert packets[1]["command_id"] == 0
+    assert packets[1]["skipped"] is False

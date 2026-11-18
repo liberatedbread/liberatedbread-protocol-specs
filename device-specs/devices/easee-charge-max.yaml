@@ -105,7 +105,7 @@ device:
           service_uuid: "be312306-9797-2ebc-c947-08eff95544bc"
           write_characteristic: "2f7b83db-ae66-d0be-ae45-78ecf4509b3d"
           read_characteristic: "992166b7-8cb3-fba7-9f4b-166fb352c50d"
-          pairing_required: false
+          pairing_required: true
           pin_source: "printed_label"
         issues_credentials:
           pin:
@@ -125,6 +125,10 @@ device:
             expect: "HELLO, COMMAND, CONFIG and STATE are available; notification replies arrive."
           - action: "Subscribe to COMMAND, CONFIG and STATE responses and request advisory ATT MTU 333 for the handshake."
             actor: "client"
+          - action: "Bond this adapter with the charger before encrypted writes. If a write is refused for insufficient authentication/not paired, call the host's pair operation and retry; do not continue on an unbonded path."
+            actor: "client"
+            expect: "The adapter has an ATT-encrypted, bonded link. The charger's label PIN is used next for EC-JPAKE, not assumed to be the OS pairing passkey."
+            timeout_seconds: 35
           - action: "Write raw EC-JPAKE round one to HELLO, validate the peer round one and write round two, then validate the server round two and derive the 32-byte key."
             actor: "client"
             expect: "Both parties prove knowledge of the PIN; wrong PIN yields an unusable/different key rather than an authenticated control session."
@@ -134,6 +138,7 @@ device:
             expect: "Valid six-byte-header frames decode. Keep the link open and run one request at a time; disconnect cleanly when finished."
         timing:
           handshake_mtu: "333 advisory; round one is up to 330 bytes"
+          pair_timeout_seconds: 35
           reply_timeout_seconds: 15
           setup_ceiling_seconds: 90
           request_rule: "One at a time on the authenticated connection; poll interval 30 s is the integration default, 5 s and up is supported upstream."
@@ -148,6 +153,10 @@ device:
           - symptom: "Handshake completes but writes fail authentication or return refusals."
             causes:
               - "Check the printed PIN, serial, per-session nonce freshness and request serialization. A transport reply is not acceptance: COMMAND code must be 1 and Config/State must confirm."
+          - symptom: "A write reports insufficient authentication/not paired, or an old bond no longer works."
+            causes:
+              - "The adapter is not bonded. Call pair and retry the write; do not use an unbonded fallback."
+              - "The charger forgot the old bond. Remove it from the host's Bluetooth devices, open advertising, pair again, then run EC-JPAKE with fresh nonces."
     factory_reset:
       applicable: "unknown"
       confidence: "low"
@@ -164,18 +173,21 @@ device:
       in_place_supported: true
       requires_factory_reset: false
       notes: >
-        For a new BLE central, close the existing central, open advertising
-        and repeat EC-JPAKE with the same PIN. No OS bond or factory reset is
-        needed. Wi-Fi re-provisioning is deliberately not specified.
+        For a new BLE central, close the existing central, open advertising,
+        use its existing ATT bond or pair again, then repeat EC-JPAKE with the
+        same label PIN. If the charger has forgotten the old bond, remove only
+        the stale OS Bluetooth record and pair again. Wi-Fi re-provisioning is
+        deliberately not specified.
       steps:
-        - action: "Disconnect the existing central, long-press for 5 seconds or enable always-on, then repeat the authenticated session with the current PIN."
+        - action: "Disconnect the existing central. If pairing is stale, remove the charger from the host's Bluetooth devices, open advertising, bond, and repeat EC-JPAKE with the current label PIN."
           actor: "client"
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device:
-        - "Owner PIN and serial, installer/electrical settings and optional Wi-Fi/cloud/OCPP configuration"
+        - "ATT link-layer bond material and owner PIN/serial, installer/electrical settings and optional Wi-Fi/cloud/OCPP configuration"
         - "Local authorization/RFID data (not read or modified by this spec)"
       issued_to_client:
+        - "The host/charger ATT bond created by the OS Bluetooth stack"
         - "A fresh 32-byte EC-JPAKE session key for each connection; ephemeral, never stored as a long-term credential"
       notes: >
         The owner supplies PIN and serial. Do not log either derived keys or
@@ -183,18 +195,20 @@ device:
         passphrase is sent by this spec.
 
   pairing:
-    required: false
+    required: true
     confidence: "medium"
-    security_mode: "app_layer"
-    bonding: "none"
-    pin:
-      source: "printed_label"
-      notes: "Per-charger PIN printed on the label or shown in the vendor app; no default and no assumed digit count."
+    security_mode: "unknown"
+    bonding: "required"
     exclusivity:
       single_connection: true
-      single_bond: false
-      recovery: "Disconnect the current central/integration or close the vendor app, then reconnect with a fresh handshake and fresh nonces."
-      notes: "The charger has one BLE connection slot; an active proxy also has finite slots."
+      single_bond: "unknown"
+      recovery: >
+        Close the current central/integration or vendor app. On an
+        insufficient-authentication/not-paired write refusal, call the host's
+        pair operation and retry. For a stale bond (including CoreBluetooth
+        code 14), remove only the charger from the host's Bluetooth devices,
+        open advertising, pair again, then run EC-JPAKE with fresh nonces.
+      notes: "The charger has one BLE connection slot; an active proxy also has finite slots and must support pairing."
     enter_pairing_mode:
       required: true
       procedures:
@@ -215,14 +229,17 @@ device:
             - action: "Enable Bluetooth always-on in the vendor app, or use the bounded set_bt_always command after authentication."
               actor: "user"
               expect: "The charger advertises continuously instead of only after a button press."
-      notes: "This opens discovery/application onboarding, not an OS Bluetooth pairing dialog."
+      notes: "This opens discovery/application onboarding. The host may also display its own OS pairing flow."
     unpair:
-      supported: false
+      supported: "unknown"
       requires_factory_reset: false
-      notes: "No OS bond exists. End the application session; revoking the owner PIN itself is outside this spec."
+      notes: "Forget only the stale host/charger bond in the OS Bluetooth list. No charger-side unpair command or bond-erasing reset is established."
     notes: >
-      Authentication is EC-JPAKE above GATT, not a mandatory OS pairing/bond.
-      The one-connection limit is independent of that choice.
+      The working client bonds before encrypted writes because the vendor
+      characteristics demand ATT encryption. EC-JPAKE is a separate
+      application-layer proof using the label PIN; that PIN is not necessarily
+      the OS pairing passkey, and the OS association model is not established.
+      The one-connection limit is independent of both security layers.
 
   host_compatibility:
     - stack: "bluez"
@@ -637,8 +654,10 @@ evidence:
     captured frames and reference vectors. parrel/ha-easee-ble at
     9973cec92660ecd791a9809eb06361bd5b535f1b: Charge Max model boundary,
     one-connection behavior, proxy settings, controls and their readback.
-    Upstream reported 107 offline tests passing; those captured-byte tests are
-    evidence, not a new physical test here.
+    The public client also bonds on insufficient-authentication/not-paired
+    write refusals, retries the write, and reports stale-pairing recovery
+    through the OS Bluetooth list. Upstream reported 107 offline tests
+    passing; those captured-byte tests are evidence, not a new physical test.
   app_static_analysis: >
     no.easee.apps.easee.users 3.1.1 (versionCode 22586) corroborates the
     EC-JPAKE authentication family and offline local control. It was a partial
@@ -649,6 +668,8 @@ evidence:
     and proxy behavior; response fragmentation on other proxies; unknown
     protobuf fields and schema changes; precise current clamp semantics under
     every installation; other Easee models, factory reset, firmware and OCPP.
+    The OS pairing association model and any unbonded path remain unproven;
+    no unbonded working path is claimed here.
   artifacts:
     - type: "public_implementation"
       artifact: "parrel/easee-ble @ bec7b061fc8199cd150dbb8bbce5ed5112145ede"
@@ -666,6 +687,7 @@ evidence:
       description: "Corroborates EC-JPAKE and local offline control only; no credentials or protocol test."
 
 remaining_unknowns:
+  - "The OS pairing association model and any unbonded path are unproven; the documented working path bonds before encrypted writes, and no unbonded fallback is claimed."
   - "No other Easee model, including Charge Max Eichrecht, Home, Charge/Core, Equalizer or another backplate, is qualified without a separate capture."
   - "Real Charge Max advertisement/GATT properties and full read-only authenticated session; upstream captures are not this project's hardware test."
   - "Direct BlueZ behavior by version and proxy notification fragmentation; active ESPHome proxy is the reported working route."

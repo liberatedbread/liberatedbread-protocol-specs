@@ -44,20 +44,19 @@ device:
       not this project's verification.
 
   identification:
-    service_uuids:
-      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     notes: >
-      Filter on the advertised message service, not a cached address or an
-      assumed fixed name. Advertisements can be intermittent; rediscover on
-      each bounded connection attempt.
+      Do not auto-select this device by the shared Nordic UART service UUID:
+      unrelated devices advertise the same service. Until a distinctive
+      advertisement is established, NODE-BT is a MANUAL candidate only.
+      Verify the PIN service/characteristic and message service/request/
+      response after connecting, before any PIN or JSON write.
 
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids:
-            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-        notes: "Connect using the current scan result. Do not reuse a stale address after a timeout."
+    none: >
+      There is no safe advertisement-only automatic matcher. Ask the owner to
+      identify the NODE-BT candidate, then use protocol_details.connection.
+      post_connect_verification. A generic NUS device must not be claimed as
+      Hunter merely because it exposes 6e400001/2/3.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -77,9 +76,10 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          Discover, connect, subscribe to PIN and message responses, then
-          authenticate. Run one JSON transaction at a time and disconnect
-          when idle to reduce contention and battery use.
+          Let the owner select the candidate, verify the complete Hunter GATT
+          after connecting, then subscribe and authenticate. Run one JSON
+          transaction at a time and disconnect when idle to reduce contention
+          and battery use.
         ble:
           service_uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
           write_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
@@ -93,18 +93,21 @@ device:
         steps:
           - action: "Obtain the owner PIN from the controller's existing owner; use 0000 only if no passcode was configured."
             actor: "user"
-          - action: "Perform a fresh service-filtered scan and connect to the current result within 15 seconds."
+          - action: "Ask the owner to identify the NODE-BT candidate and connect to it within 15 seconds; a shared NUS advertisement alone is not identification."
             actor: "client"
             timeout_seconds: 15
+          - action: "Before any write, verify the PIN service 0ed3e3d3-8cd8-4f29-8fec-a7d3a2c5443e and characteristic 4c9dbe52-3566-4dfc-a299-4ea1353970e2, plus the message service and its request/response characteristics. Stop if they are absent."
+            actor: "client"
+            expect: "The candidate has the complete Hunter-specific PIN service, not merely generic NUS."
           - action: "Enable indications on the message response and notifications on the PIN characteristic."
             actor: "client"
           - action: "Write PIN login request ad 00 00 00 00 00 00 without response."
             actor: "client"
-            expect: "A six-byte type-2 challenge arrives within 15 seconds."
+            expect: "A six-byte type-2 challenge arrives within 15 seconds. If either random byte is 00 or ac, reject the ambiguous challenge and restart login instead of proceeding."
             timeout_seconds: 15
           - action: "Copy the random challenge and set response = numeric_pin XOR random, then apply the nonzero-byte transform and write type 3 without response."
             actor: "client"
-            expect: "Type 4 with result 0 accepts. Any nonzero result, malformed packet or timeout is an authentication failure, not permission to issue JSON."
+            expect: "Type 4 with result 0 accepts. Any nonzero result, malformed packet, ambiguous challenge or timeout is an authentication failure, not permission to issue JSON."
             timeout_seconds: 15
           - action: "Read All for configuration and Section_State separately for live state, then disconnect when finished."
             actor: "client"
@@ -115,7 +118,7 @@ device:
         troubleshooting:
           - symptom: "No advertisement or a cached-address connection times out."
             causes:
-              - "Advertisements are intermittent. Repeat a fresh service-filtered scan with bounded retries."
+              - "Advertisements are intermittent. Repeat a fresh owner-selected scan with bounded retries and re-verify the full GATT."
               - "The vendor app or another integration holds the controller. Close it and serialize access."
           - symptom: "Authentication succeeds but a later session fails."
             causes:
@@ -138,7 +141,7 @@ device:
         NODE-BT has no Wi-Fi membership or OS bond. A new central needs the
         same owner PIN and a fresh advertisement; close the old central first.
       steps:
-        - action: "Close the previous app/client, rediscover by message-service UUID, and repeat PIN authentication."
+        - action: "Close the previous app/client, let the owner reselect the candidate, verify the PIN service and message characteristics after connecting, then repeat PIN authentication."
           actor: "client"
     credentials:
       wifi_passphrase_protection: "not_applicable"
@@ -208,7 +211,7 @@ initialization:
 
 services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-    name: "Message service (advertised)"
+    name: "Message service (shared Nordic UART UUID, not an identity matcher)"
     characteristics:
       - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
         name: "Message request"
@@ -333,7 +336,8 @@ payload_formats:
       - {name: "random_challenge", offset: 2, length: 2, type: "uint16", endianness: "little"}
       - {name: "pin_response", offset: 4, length: 2, type: "uint16", endianness: "little", notes: "numeric PIN XOR random challenge for login type 3."}
     parse_rules:
-      - "transform(byte) = byte XOR 0xac when byte != 0, otherwise 0. Apply independently to all six bytes in both directions; this is not ordinary XOR because zero stays zero."
+      - "transform(byte) = byte XOR 0xac when byte != 0, otherwise 0. Apply this literal vendor transform to each byte; zero stays zero and this is not ordinary XOR."
+      - "The transform is NOT an involution at 0xac: plaintext 00 and ac both emit 00. Applying it twice to ac yields 00, not ac. No alternate vendor decode for ac is established. If any byte of a type-2 random challenge is 00 or ac, reject it as ambiguous and restart login for a fresh challenge rather than guessing or authenticating with the wrong value. Validate expected type/result fields separately."
       - "Login request plaintext is 01 00 00 00 00 00. Challenge is type 2. Response is type 3 with the same random and pin_response = pin XOR random. Result type 4 with result 0 accepts."
       - "Require exactly six bytes and the expected packet type at each step. Discard unsolicited packets rather than queueing them for a later exchange."
     example: "PIN 0 / challenge 0x1234 response plaintext 03 00 34 12 34 12 becomes af 00 98 be 98 be on the wire."
@@ -382,19 +386,20 @@ payload_formats:
 
 protocol_details:
   pin_authentication:
-    transform: "For every byte b, emit b ^ 0xac if b != 0 else 0. The same operation decodes."
+    transform: "For every byte b, emit b ^ 0xac if b != 0 else 0. This is the vendor's literal transform, not ordinary XOR. Plaintext 00 and ac both emit 00, so applying it twice to ac yields 00 rather than ac; it is not an involution at ac. No alternate vendor decode for ac is established."
     sequence:
       - "Write type 1 plaintext 01 00 00 00 00 00; wire ad 00 00 00 00 00 00."
-      - "Read type 2 and decode its random uint16 LE challenge."
+      - "Read type 2. If either random-challenge byte is 00 or ac, reject the packet as ambiguous and restart login for a fresh challenge instead of guessing. Otherwise decode its random uint16 LE challenge."
       - "Write type 3 with the same random and uint16 LE (numeric_pin XOR random), transformed again."
       - "Read type 4 and require result 0. Other result meanings are unknown; fail rather than sending application messages."
-    security: "Reversible obfuscation only; it does not encrypt the JSON session or prove a captured response safe to publish."
+    security: "Obfuscation, not encryption. The ac collision makes challenge validation mandatory; never treat the transform as a proof that an ambiguous packet authenticated correctly. Do not publish PINs or challenge responses."
     test_vectors:
       login_request: {plain: "01 00 00 00 00 00", wire: "ad 00 00 00 00 00 00"}
       challenge_0x1234: {plain: "02 00 34 12 00 00", wire: "ae 00 98 be 00 00"}
       response_pin_0_challenge_0x1234: {plain: "03 00 34 12 34 12", wire: "af 00 98 be 98 be"}
       response_pin_1234_challenge_0x1234: {plain: "03 00 34 12 e6 16", wire: "af 00 98 be 4a ba"}
       success: {plain: "04 00 00 00 00 00", wire: "a8 00 00 00 00 00"}
+      ambiguous_ac: {plain: "ac", wire: "00", second_transform: "00 (not ac)", handling: "Reject an ambiguous type-2 challenge and restart login; do not use ordinary XOR."}
   json_fragmentation:
     request: "json.dumps(object, separators=(',', ':'), ensure_ascii=False), UTF-8 encode, split every 20 bytes, no trailing NUL. Multi-byte UTF-8 characters may cross writes; split bytes, not characters."
     response: "Collect raw bytes through first NUL, cap 65536 including NUL, require one object. One transaction at a time."
@@ -432,6 +437,14 @@ protocol_details:
     rule: "Use the configured controller timezone explicitly, never the host/container timezone implicitly. Read back after writing. A correction across a scheduled start, DST transitions and power-loss persistence are unverified."
     other_dates: "ProgrammableDaysOff and BatteryChangeDate use the same naive wall-clock helper. IntervalDayNext uses a different timezone-aware conversion in the app. LastRun/log/device-generated dates need separate validation."
   connection:
+    post_connect_verification:
+      required_before_any_write: true
+      pin_service: "0ed3e3d3-8cd8-4f29-8fec-a7d3a2c5443e"
+      pin_characteristic: "4c9dbe52-3566-4dfc-a299-4ea1353970e2"
+      message_service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      message_request: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+      message_response: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+      rule: "Require the complete PIN service/characteristic plus the message service/request/response after connecting. A device exposing only generic NUS is NOT selected as Hunter and receives no PIN/JSON writes."
     duplicate_fragments: "Optionally drop a byte-identical response fragment repeated within 100 ms; never treat duplicate suppression as protocol framing."
     disconnect: "Timed watering continues after disconnect and the controller closes at the deadline. Disconnect when idle and poll sparingly because the controller is battery powered."
     ambiguity: "After a transmitted start times out, read Section_State; do not retransmit until observed state proves no run was accepted."
@@ -533,6 +546,7 @@ evidence:
       description: "Cross-checks protocol constants and command shapes; no internal symbols are carried into the spec."
 
 remaining_unknowns:
+  - "No alternate vendor decode is established for plaintext ac (which collides with 00); ambiguous challenges are rejected for a fresh login until hardware evidence resolves the intended behavior."
   - "NODE-BT-100/100-LS/100-VALVE and NODE-BT-400 behavior is unverified; only NODE-BT-200 on the cited firmware is qualified."
   - "Wrong/non-default PIN results, PIN change, address rotation, nonzero Status values and most non-idle state captures."
   - "Factory-reset procedure/effect and all OTA entry, image and recovery behavior; no destructive write is supplied."

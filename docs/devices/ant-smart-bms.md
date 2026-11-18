@@ -30,7 +30,7 @@ validation. Wired-only cross-check models are not BLE-qualified.
 |----------|-------|
 | Setup required | No on open units; some 2021+ units need the owner's application secret |
 | Method | `ble_direct`, generation-specific status read |
-| Discovery | `ANT-BLE`, `ANT@BLE` or `ANT~BLE` plus `0000ffe0-0000-1000-8000-00805f9b34fb` |
+| Discovery | ANT name prefix only; FFE0 is post-connect GATT/fallback, not a discovery requirement |
 | Pairing/bonding | None; optional application authentication is separate |
 | Confidence | High for default FFE1 paths; medium for fallback channels |
 
@@ -111,7 +111,13 @@ Read requests and replies differ: a read request's nonzero length is the
 **requested reply size** and it carries no request data. Authentication instead
 uses length as actual secret length followed by secret bytes. A reply's total
 length is `data_length + 10`. Device-info function `0x12` alone has a known
-incorrect-length exception; status never gets that exception.
+incorrect-length exception; status never gets that exception. The real
+48-byte fixture declares 42: CRC `57 96` is checked at offsets 38–39 over the
+declared span, bytes 40–41 are `ff 0b` rather than a trailer, and the actual
+`AA 55` appears only at offsets 46–47. Validate the declared CRC, require the
+final trailer, and preserve the six intervening bytes. A stream reader must
+not slice at 42 before finding the final trailer; fragmented and coalesced
+fixtures exercise this exact path.
 
 For status, `temp_count` is at 8 (clamp 6), `cell_count` at 9 (clamp 32), and
 cells begin at 34 as little-endian millivolts. Temperatures follow the cells:

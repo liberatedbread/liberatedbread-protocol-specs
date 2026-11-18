@@ -23,6 +23,10 @@ NEW_HEX = (
     "f2c0030000000022090c008e080a009400080900006d006a00af02f3fa4c74e5002866ec00c35d62"
     "00ccb39200edc8aa55"
 )
+DEVICE_INFO_HEX = (
+    "7ea1126c02203234424800000000000000000000000032344248554230302d32313130323641"
+    "5796ff0b000041f2aa55"
+)
 
 
 def crc_modbus(data: bytes) -> int:
@@ -40,23 +44,34 @@ def new_command(function: int, address: int, declared_length: int, data: bytes =
     return frame + crc_modbus(frame[1:]).to_bytes(2, "little") + b"\xaa\x55"
 
 
-def parse_new_frame(data: bytes, *, expected_function: int = 0x11):
+def parse_new_frame(data: bytes, *, expected_function: int | None = 0x11):
     if len(data) < 10 or not data.startswith(b"\x7e\xa1"):
         raise ValueError("invalid 2021+ header")
     declared_total = data[5] + 10
     if len(data) < declared_total:
         raise ValueError("incomplete 2021+ frame")
     function = data[2]
-    if function != expected_function and not (expected_function == 0x01 and function == 0x11):
+    if expected_function is not None and function != expected_function:
         raise ValueError("unexpected function")
     if len(data) != declared_total and function != 0x12:
         raise ValueError("length quirk is allowed only for device info")
     declared = data[:declared_total]
-    if not declared.endswith(b"\xaa\x55"):
-        raise ValueError("invalid 2021+ trailer")
     if crc_modbus(declared[1:-4]) != int.from_bytes(declared[-4:-2], "little"):
         raise ValueError("invalid 2021+ CRC")
-    return {"function": function, "address": int.from_bytes(data[3:5], "little"), "data": declared[6:-4], "trailing": data[declared_total:]}
+    if function == 0x12:
+        if not data.endswith(b"\xaa\x55"):
+            raise ValueError("device-info final trailer is missing")
+        trailing = data[declared_total - 2 : -2] if len(data) > declared_total else b""
+    else:
+        if not declared.endswith(b"\xaa\x55"):
+            raise ValueError("invalid 2021+ trailer")
+        trailing = b""
+    return {
+        "function": function,
+        "address": int.from_bytes(data[3:5], "little"),
+        "data": declared[6:-4],
+        "trailing": trailing,
+    }
 
 
 def parse_new_stream(chunks) -> list[dict]:
@@ -76,14 +91,20 @@ def parse_new_stream(chunks) -> list[dict]:
             total = buffer[5] + 10
             if len(buffer) < total:
                 break
-            candidate = bytes(buffer[:total])
+            candidate_end = total
+            if buffer[2] == 0x12 and buffer[total - 4 : total - 2] != b"\xaa\x55":
+                final = buffer.find(b"\xaa\x55", total - 2)
+                if final < 0:
+                    break
+                candidate_end = final + 2
+            candidate = bytes(buffer[:candidate_end])
             try:
-                frame = parse_new_frame(candidate)
+                frame = parse_new_frame(candidate, expected_function=None)
             except ValueError:
                 del buffer[0]
                 continue
             frames.append(frame)
-            del buffer[:total]
+            del buffer[:candidate_end]
     return frames
 
 
@@ -312,17 +333,37 @@ def test_two_byte_length_form_is_not_generalized():
         decode_legacy(new)
 
 
-def test_device_info_length_exception_is_narrow_and_crc_checked():
-    hardware = b"24BH".ljust(16, b"\x00")
-    software = b"24BHUB00-TEST".ljust(16, b"\x00")
-    info = new_command(0x12, 0x026C, 0x20, hardware + software)
-    trailing = b"extra!"
-    parsed = parse_new_frame(info + trailing, expected_function=0x12)
-    assert parsed["data"] == hardware + software
-    assert parsed["trailing"] == trailing
-    with pytest.raises(ValueError):
-        parse_new_frame(info + trailing)
-    bad = bytearray(info)
-    bad[-3] ^= 1
-    with pytest.raises(ValueError):
-        parse_new_frame(bytes(bad) + trailing, expected_function=0x12)
+def test_real_device_info_fixture_declared_crc_final_trailer_and_trailing_bytes():
+    data = bytes.fromhex(DEVICE_INFO_HEX)
+    assert len(data) == 48
+    assert data[5] + 10 == 42
+    assert data[38:40] == bytes.fromhex("57 96")
+    assert data[40:42] == bytes.fromhex("ff 0b")
+    assert data[-2:] == b"\xaa\x55"
+    parsed = parse_new_frame(data, expected_function=0x12)
+    assert parsed["data"] == data[6:38]
+    assert parsed["data"][:16].rstrip(b"\x00") == b"24BH"
+    assert parsed["data"][16:32].rstrip(b"\x00") == b"24BHUB00-211026A"
+    assert parsed["trailing"] == bytes.fromhex("ff 0b 00 00 41 f2")
+    with pytest.raises(ValueError, match="unexpected function"):
+        parse_new_frame(data)
+    bad_trailer = bytearray(data)
+    bad_trailer[-1] ^= 1
+    with pytest.raises(ValueError, match="final trailer"):
+        parse_new_frame(bytes(bad_trailer), expected_function=0x12)
+    bad_crc = bytearray(data)
+    bad_crc[38] ^= 1
+    with pytest.raises(ValueError, match="CRC"):
+        parse_new_frame(bytes(bad_crc), expected_function=0x12)
+
+
+def test_real_device_info_fixture_fragmented_and_coalesced_stream():
+    data = bytes.fromhex(DEVICE_INFO_HEX)
+    status = bytes.fromhex(NEW_HEX)
+    assert len(parse_new_stream([data])) == 1
+    assert len(parse_new_stream([bytes([value]) for value in data])) == 1
+    assert len(parse_new_stream([data + data])) == 2
+    combined = parse_new_stream([data + status])
+    assert [frame["function"] for frame in combined] == [0x12, 0x11]
+    assert combined[0]["trailing"] == bytes.fromhex("ff 0b 00 00 41 f2")
+    assert parse_new_stream([data[:-1]]) == []

@@ -25,17 +25,27 @@ reboot/self-test, factory reset and firmware operations are excluded.
 
 | Property | Value |
 |----------|-------|
-| Setup required | Serial + owner PIN and authenticated handshake |
+| Setup required | Serial + owner PIN, ATT bond and authenticated handshake |
 | Method | `ble_direct` with an advertising window |
 | Discovery | Company ID `3118` (`0x0c26`); vendor service after connect |
-| Pairing/bonding | No OS bond required; application EC-JPAKE |
+| Pairing/bonding | Required for ATT encryption; EC-JPAKE is separate |
 | Connection limit | One BLE central |
 | Confidence | High for upstream Charge Max core; unreplayed here |
 
 Long-press the touch button for **5 seconds** to open an advertising window of
 a few minutes, or enable Bluetooth always-on in the vendor app. Subscribe to
-COMMAND, CONFIG and STATE, request advisory MTU 333, and perform two EC-JPAKE
-rounds over HELLO. Then retain the session and serialize one request at a time.
+COMMAND, CONFIG and STATE, request advisory MTU 333, and **bond the adapter
+before encrypted writes**. If a write is refused for insufficient
+authentication/not paired, call the host pair operation and retry; do not use
+an unbonded path. Then perform two EC-JPAKE rounds over HELLO with the label
+PIN. That PIN is not necessarily the OS pairing passkey, and the OS
+association model is not established. Retain the session and serialize one
+request at a time.
+
+If the old bond is stale, including CoreBluetooth code 14, remove only the
+charger from the host's Bluetooth devices, open advertising, pair again and
+repeat EC-JPAKE with fresh nonces. An active proxy must support pairing as
+well as active connections.
 
 On Linux/BlueZ, the tested charger lacks descriptors needed for notification
 subscription. The reported working route is an **active ESPHome Bluetooth
@@ -44,8 +54,9 @@ adapter or a proxy scanning continuously.
 
 **Factory reset**: command `97` exists but is untested/irreversible upstream;
 its effect is not established and it is not offered. No reset is needed to
-move a BLE client. Close the old central, open advertising and repeat the
-handshake with the current PIN. Wi-Fi re-provisioning is outside this spec.
+move a BLE client. Close the old central, open advertising, use the existing
+ATT bond or pair again, then repeat the handshake with the current PIN. Wi-Fi
+re-provisioning is outside this spec.
 
 **Credentials**: keep PIN, serial, session keys and Structure responses out of
 logs. Structure can contain account/key material and is never polled here. No

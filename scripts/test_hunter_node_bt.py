@@ -15,6 +15,20 @@ import pytest
 
 MAX_RESPONSE_BYTES = 65536
 
+MESSAGE_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+MESSAGE_REQUEST = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+MESSAGE_RESPONSE = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+PIN_SERVICE = "0ed3e3d3-8cd8-4f29-8fec-a7d3a2c5443e"
+PIN_CHARACTERISTIC = "4c9dbe52-3566-4dfc-a299-4ea1353970e2"
+
+
+def verify_hunter_gatt(services: dict[str, set[str]]) -> bool:
+    """Required manual-candidate check from protocol_details.connection."""
+    return (
+        services.get(MESSAGE_SERVICE, set()) >= {MESSAGE_REQUEST, MESSAGE_RESPONSE}
+        and services.get(PIN_SERVICE, set()) >= {PIN_CHARACTERISTIC}
+    )
+
 
 def transform(packet: bytes) -> bytes:
     return bytes(value ^ 0xAC if value else 0 for value in packet)
@@ -29,7 +43,10 @@ def decode_pin_packet(wire: bytes) -> tuple[int, int, int, int]:
     if len(wire) != 6:
         raise ValueError("PIN packet must be exactly six bytes")
     plain = transform(wire)
-    return plain[0], plain[1], int.from_bytes(plain[2:4], "little"), int.from_bytes(plain[4:6], "little")
+    packet_type = plain[0]
+    if packet_type == 2 and any(value in (0x00, 0xAC) for value in plain[2:4]):
+        raise ValueError("ambiguous PIN challenge; restart with a fresh challenge")
+    return packet_type, plain[1], int.from_bytes(plain[2:4], "little"), int.from_bytes(plain[4:6], "little")
 
 
 def json_chunks(value: dict) -> list[bytes]:
@@ -204,3 +221,23 @@ def test_naive_wall_clock_encoding_is_not_unix_utc():
     # The actual instant at UTC+2 has a different Unix timestamp.
     assert wall_seconds(2026, 9, 8, 17, 21, 0) == 1788888060
     assert wall_seconds(1969, 12, 31, 23, 59, 59) == 0
+
+
+
+def test_generic_nus_is_not_selected_as_hunter():
+    generic_nus = {MESSAGE_SERVICE: {MESSAGE_REQUEST, MESSAGE_RESPONSE}}
+    assert not verify_hunter_gatt(generic_nus)
+    assert not verify_hunter_gatt({PIN_SERVICE: set()})
+    complete = generic_nus | {PIN_SERVICE: {PIN_CHARACTERISTIC}}
+    assert verify_hunter_gatt(complete)
+    assert not verify_hunter_gatt({MESSAGE_SERVICE: {MESSAGE_REQUEST}, PIN_SERVICE: {PIN_CHARACTERISTIC}})
+
+
+
+def test_ac_transform_is_not_involution_and_ambiguous_challenge_is_rejected():
+    assert transform(b"\xac") == b"\x00"
+    assert transform(b"\x00") == b"\x00"
+    assert transform(transform(b"\xac")) != b"\xac"
+    for challenge in (0xAC00, 0x00AC, 0x0000):
+        with pytest.raises(ValueError, match="ambiguous PIN challenge"):
+            decode_pin_packet(pin_packet(2, 0, challenge, 0))
