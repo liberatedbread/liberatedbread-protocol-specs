@@ -9,6 +9,14 @@
 
 The Xiaomi M365 (and the ESC/BMS shared with Ninebot-built variants) is the most reverse-engineered e-scooter. Its BLE module is a Nordic UART port bridging a one-wire UART bus shared by the BLE module, ESC and BMS. Fully local. Note: commands are unauthenticated over BLE (Zimperium advisory).
 
+## Discovery and write safety
+
+Nordic UART is transport, not identity. The `MIscooter` name is only a
+candidate; a Ninebot Z or any other NUS peripheral must not activate this spec.
+Manually select the exact M365 before any GATT write, then send only the
+read-only `55 AA` register `0xB4` request and validate the ESC reply before any
+setting write.
+
 ## Protocol Summary
 
 Nordic UART service 6e400001-…; write 6e400002, notify 6e400003. Frame 55 AA | L | D | T | payload | ck0 ck1 (checksum = sum XOR 0xFFFF). Registers: 0xB4 battery %, 0xB5 speed, 0x7C cruise; BMS via D=0x22.

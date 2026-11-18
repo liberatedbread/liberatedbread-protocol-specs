@@ -9,6 +9,14 @@
 
 VESC is the open-source motor-controller firmware powering many DIY e-skateboards, EUCs and scooters, plus the VESC Express BLE add-on. The COMM packet protocol and BLE bridge are the project's own open source — nothing reverse-engineered.
 
+## Discovery and write safety
+
+The advertised name is configurable and Nordic UART is shared with the Ninebot
+Z and unrelated peripherals, so there is no automatic scan matcher. Manually
+select the exact VESC Express controller before any GATT write, then use only
+`COMM_FW_VERSION` (id 0) and validate its reply before configuration or
+motor-control writes. Do not select this spec from NUS alone.
+
 ## Protocol Summary
 
 Nordic UART service 6e400001-…; write 6e400002, notify 6e400003. COMM packet: 02/03/04 start, length, payload, CRC16 (big-endian), 0x03 stop. Command ids: 4 GET_VALUES, 5 SET_DUTY, 6 SET_CURRENT, 8 SET_RPM, 34 FORWARD_CAN. No auth by default (safety).

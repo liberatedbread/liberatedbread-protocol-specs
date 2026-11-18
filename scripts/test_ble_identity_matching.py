@@ -186,6 +186,47 @@ def test_ninebot_z_nus_fingerprint_never_activates_scooter_spec():
     assert not matches(wheel, "Ninebot Z", [nus])
 
 
+NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+
+
+def test_nus_is_never_an_identity_signal():
+    offenders = []
+    paths = list((ROOT / "device-specs" / "devices").glob("*.yaml"))
+    paths += list((ROOT / "device-specs" / "examples").glob("*.yaml"))
+    for path in paths:
+        device = load(path)["device"]
+        identities = [device.get("identification") or {}]
+        identities += [
+            variant.get("identification") or {}
+            for variant in device.get("variants") or []
+        ]
+        if any(NUS in (identity.get("service_uuids") or []) for identity in identities):
+            offenders.append(f"{path.stem}: identification")
+        for index, method in enumerate(device.get("discovery", {}).get("methods") or []):
+            if method.get("type") != "ble_scan":
+                continue
+            if NUS in ((method.get("ble") or {}).get("service_uuids") or []):
+                offenders.append(f"{path.stem}: discovery.methods[{index}]")
+    assert not offenders, (
+        "Nordic UART is shared with the Ninebot Z and many incompatible "
+        "protocols. Keep it in services as transport only; require manual "
+        "selection or a discriminating name plus read-only confirmation: "
+        + ", ".join(offenders)
+    )
+
+
+def test_ninebot_z_nus_observation_activates_no_incompatible_spec():
+    for advertised_name in ("Ninebot Z", "Ninebot Z10", ""):
+        activated = [
+            stem
+            for stem, spec in specs().items()
+            if matches(spec, advertised_name, [NUS])
+        ]
+        assert activated == [], (
+            f"Z observation {advertised_name!r} plus NUS activated: {activated}"
+        )
+
+
 def test_fixd_profiles_cannot_resolve_to_generic_obd_control_surface():
     expected_profiles = {
         "FIXD2",

@@ -28,8 +28,10 @@ configuration, pairing changes, SMS/USSD and firmware are not ordinary commands.
 | Notify | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
 
 No dependable advertised-name prefix was established. Nordic UART is shared by
-many serial modules, so treat it only as a candidate signal and confirm the
-TRBT dialect read-only.
+the Ninebot Z and many unrelated serial modules, so it is not a scan matcher.
+Manually select the exact Truma iNet Box before any GATT write, then issue only
+the documented vehicle-status request and validate the TRBT response before any
+configuration, pairing, switch or firmware write.
 
 Subscribe to notifications and concatenate them before parsing. A notification
 can contain a partial message or several messages. Setup requires no Wi-Fi

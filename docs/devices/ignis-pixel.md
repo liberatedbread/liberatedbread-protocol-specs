@@ -44,19 +44,20 @@ sync radio.
 |----------|-------|
 | Setup required | No |
 | Method | `ble_direct` |
-| Setup AP / advertised name | Advertised name not yet captured; scan for the Nordic UART Service UUID |
+| Setup AP / advertised name | Name not yet captured; manual model selection, never bare NUS |
 | Passphrase protection | not_applicable |
 | Confidence | medium (app analysis; no live capture yet) |
 
 Power the prop on and it advertises over BLE immediately — no account, no pairing, no
-app-mediated onboarding. The vendor app's own scanner looks for the Nordic UART
-Service UUID (`6e400001-…`) and nothing else.
+app-mediated onboarding. Although the vendor app's own scanner looks for the
+Nordic UART Service UUID (`6e400001-…`), that signal is shared with the Ninebot
+Z and countless other peripherals and must not activate this spec.
 
 !!! warning "The NUS UUID is not unique to Ignis Pixel"
-    The Nordic UART Service is a stock platform UUID used by countless UART-bridge
-    gadgets. After connecting, confirm you are really talking to an Ignis Pixel prop
-    by issuing the get-id / hardware-info request and checking the reported device
-    type — do not trust the advertisement alone.
+    Manually select the exact prop before any GATT write, then use only the
+    get-id / hardware-info request and validate the reported `FW_DevType`
+    against the variant table before any other command. Do not trust NUS or a
+    Ninebot Z name as identification.
 
 **Factory reset**: there is no pairing or credential state to clear. Power-cycling
 drops the current connection — which is also the fix for the most common failure

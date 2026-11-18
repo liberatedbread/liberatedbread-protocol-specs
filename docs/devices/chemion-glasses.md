@@ -17,8 +17,12 @@ reverse engineering ([gsuberland/ChemionHacking](https://github.com/gsuberland/C
 That earlier work left the packet checksum unsolved; it is a plain XOR over the payload
 bytes.
 
-A replacement app can scan, connect, stream frames, upload designs to device slots and
-read battery without any vendor service.
+A replacement app can stream frames, upload designs to device slots and read
+battery without any vendor service. Nordic UART is not identity, though:
+manually select the exact glasses or HAT before any write, then use
+`battery_query` and validate its reply before heartbeat, upload or power
+commands. A Ninebot Z or any other bare-NUS peripheral must not activate this
+spec.
 
 ## Hardware
 
