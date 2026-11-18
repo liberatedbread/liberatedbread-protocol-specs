@@ -35,11 +35,14 @@ def repeated_mac(vector, length):
     return (mac * ((length + len(mac) - 1) // len(mac)))[:length]
 
 
-def json_body(command, **values):
-    text = command["body"]
+def render(text, **values):
     for name, value in values.items():
         text = text.replace("{" + name + "}", str(value))
-    return json.loads(text)
+    return text
+
+
+def json_body(command, **values):
+    return json.loads(render(command["body"], **values))
 
 
 def test_challenge_response_matches_synthetic_spec_vector():
@@ -155,9 +158,30 @@ def test_station_provisioning_complete_json_and_authentication_contract():
             "dhcp": 1,
         },
     }
+    token = "AAECAwQFBgc="
+    issued = SPEC["device"]["setup"]["methods"][0]["issues_credentials"][
+        "session_token"
+    ]
+    assert issued["command"] == "login"
+    assert issued["reply_path"] == "authentication_token"
+    assert SPEC["commands"][issued["command"]]["path"] == "/xled/v1/login"
+    login_reply = {"authentication_token": token}
+    assert login_reply[issued["reply_path"]] == token
     for command in (legacy, current):
         assert command["path"] == "/xled/v1/network/status"
-        assert command["headers"] == {"X-Auth-Token": "<session-token>"}
+        assert command["headers"] == {"X-Auth-Token": "{session_token}"}
+        parameter = command["parameters"]["session_token"]
+        assert parameter["type"] == "string"
+        assert parameter["source"] == "credential:session_token"
+        assert parameter["description"] == (
+            "The authentication_token returned by /xled/v1/login and activated "
+            "by /xled/v1/verify."
+        )
+        rendered_headers = {
+            name: render(value, session_token=token)
+            for name, value in command["headers"].items()
+        }
+        assert rendered_headers == {"X-Auth-Token": token}
         assert command["advanced"] is True
     assert DETAILS["wifi_provisioning"]["endpoint"] == "/xled/v1/network/status"
     assert "login and /verify" in DETAILS["wifi_provisioning"]["authentication"]
