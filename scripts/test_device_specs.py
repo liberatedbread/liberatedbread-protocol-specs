@@ -2653,6 +2653,30 @@ def test_bespoke_blocks_live_under_protocol_details(specs):
     )
 
 
+def test_openapi_only_keys_stay_out_of_http_endpoints(specs):
+    """Opaque OpenAPI metadata belongs in protocol_details, not fake bindings."""
+    invisible_endpoint_keys = {"query_parameters", "responses"}
+    invisible_body_keys = {"required", "required_fields"}
+    invisible_field_keys = {"example", "maxLength", "pattern"}
+    offenders = []
+    for device_id, spec in specs.items():
+        for endpoint in spec.get("http_endpoints") or []:
+            if invisible_endpoint_keys & set(endpoint):
+                offenders.append(f"{device_id}: {endpoint['method']} {endpoint['path']}")
+            body = endpoint.get("request_body") or {}
+            if invisible_body_keys & set(body):
+                offenders.append(f"{device_id}: {endpoint['method']} {endpoint['path']} request_body")
+            for field in body.get("fields") or []:
+                if invisible_field_keys & set(field):
+                    offenders.append(
+                        f"{device_id}: {endpoint['method']} {endpoint['path']} field {field.get('name')}"
+                    )
+    assert not offenders, (
+        "OpenAPI-only keys in http_endpoints; move them to "
+        "protocol_details.openapi.operations: " + ", ".join(offenders)
+    )
+
+
 @pytest.mark.parametrize("value", ["ble_gatt", "ble", "tcp-json", "upnp", "mdns"])
 def test_retired_transport_spellings_are_rejected(closed_world_spec, value):
     """One wire, one spelling — the drift these values came from was silent.
@@ -3593,8 +3617,9 @@ PLACEHOLDER_LAN_ADDRESSES = frozenset(
 PRODUCT_FIXED_LAN_ADDRESSES = {
     # Frigidaire v2.0 cleartext exception target (garadget's Particle/Photon
     # SoftAP shares the address but is vouched for by garadget.yaml's ap_ip).
+    # ServerlessNabaztag's head-button setup AP uses the same product-fixed IP.
     "192.168.0.1": frozenset({
-        "frigidaire-portable-ac", "frigidaire-window-ac",
+        "frigidaire-portable-ac", "frigidaire-window-ac", "nabaztag-tag-serverless",
         "docs/devices/frigidaire-local-api-audit.md", "docs/devices/frigidaire-ac.md",
     }),
     # AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket.
