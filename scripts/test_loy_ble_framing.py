@@ -50,7 +50,7 @@ def test_brightness_audit_vectors_match_shared_tlv_layout():
         )
 
 
-def test_all_loy_ble_variants_subscribe_and_write_inner_frames_directly():
+def test_loy_ble_framing_is_variant_specific_but_all_subscribe():
     for name in (
         "autobaba-led-backpack",
         "led-space",
@@ -59,7 +59,8 @@ def test_all_loy_ble_variants_subscribe_and_write_inner_frames_directly():
         spec = load(name)
         write = spec["services"][0]["characteristics"][1]
         assert write["uuid"] == "0000fff2-0000-1000-8000-00805f9b34fb"
-        assert write["framing"]["length_prefix"] is False
+        expected_prefix = name != "autobaba-led-backpack"
+        assert write["framing"]["length_prefix"] is expected_prefix
         assert spec["initialization"][0] == {
             "characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
             "subscribe": True,
@@ -69,11 +70,21 @@ def test_all_loy_ble_variants_subscribe_and_write_inner_frames_directly():
         assert "1-15" in brightness["description"]
 
 
-def test_led_space_retains_udp_length_prefix_but_not_ble_prefix():
+def test_public_loy_power_capture_has_outer_length_and_inner_checksum():
+    inner = aa55(3, 2, bytes.fromhex("04 02 00 01"))
+    expected = bytes.fromhex(
+        "10 00 aa 55 ff ff 0a 00 03 00 c1 02 04 02 00 01 d4 03"
+    )
+    assert len(inner).to_bytes(2, "little") + inner == expected
+    assert int.from_bytes(expected[:2], "little") == len(expected) - 2 == 16
+    assert int.from_bytes(expected[-2:], "little") == sum(expected[2:-2]) & 0xFFFF
+
+
+def test_led_space_retains_udp_and_ble_length_prefixes():
     spec = load("led-space")
     udp = spec["protocol_details"]["popled_wifi_protocol"]["transport"]["udp"]
     assert "outer u16-LE length prefix" in udp["framing"]
     ble = spec["services"][0]["characteristics"][1]
-    assert ble["framing"]["length_prefix"] is False
-    assert "raw-GIF logical stream records" in ble["notes"]
+    assert ble["framing"]["length_prefix"] is True
+    assert "AUTOBABA is the separately capture-proven" in ble["notes"]
     assert ble["commands"]["set_brightness"]["verification"] == "reported"

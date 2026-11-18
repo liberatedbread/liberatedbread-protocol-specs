@@ -18,13 +18,14 @@ device:
     space app for the same backpack.
     BLE device name starts with "YS" or "TL".
     Wire frame (hardware-verified by samrodrigues/loy-space-protocol and
-    icedac/open-loyspace): ordinary BLE command writes carry the inner frame
-    [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE), sno (u16-LE), flags (0xC1),
-    subflag, ...payload, checksum (u16-LE)] directly, with no outer u16-LE
-    record-length prefix. That outer record length is used only for raw-GIF
-    logical stream records. Every frame ends with a 2-byte additive checksum
-    (sum of the preceding bytes & 0xFFFF, little-endian); the device silently
-    rejects bad checksums. Notifications likewise carry the inner frame.
+    icedac/open-loyspace): ordinary BLE commands use an outer u16-LE length
+    prefix, then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE),
+    sno (u16-LE), flags (0xC1), subflag, ...payload, checksum (u16-LE)].
+    AUTOBABA is the separately capture-proven unprefixed exception, not
+    evidence that this variant accepts unframed commands. Every frame ends
+    with a 2-byte additive checksum (sum of the preceding inner-frame bytes
+    & 0xFFFF, little-endian); the device silently rejects bad checksums.
+    Notifications carry the inner frame without the outer prefix.
     Commands are JSON objects app-side, serialized to binary TLV opcodes on the
     wire — the JSON text itself never crosses the link.
     Image/program upload is GIF89a streamed in 960-byte chunks (a 24-bit BMP
@@ -171,18 +172,19 @@ services:
         name: "Write"
         properties: ["write_without_response"]
         framing:
-          length_prefix: false
+          length_prefix: true
           max_chunk_size: 180
         notes: >
           WriteId in app-service.js. Write-without-response is mandatory
           (regular writes hang). App-side commands are JSON objects wrapped as
           {"cmd": <command>, "sno": <sequence>}, but the wire payload is binary
           TLV opcodes — the app serializes JSON to TLV before send. Ordinary
-          commands carry the inner AA55 frame directly, with no outer u16-LE
-          record-length prefix. That outer record length belongs only to
-          raw-GIF logical stream records. Every frame ends with a 2-byte
-          additive checksum (sum of the preceding bytes & 0xFFFF, LE); the
-          device silently rejects bad checksums.
+          commands use an outer u16-LE length prefix before the inner AA55
+          frame; the public client's captured power-on is 10 00 aa 55 ff ff
+          0a 00 03 00 c1 02 04 02 00 01 d4 03. AUTOBABA is the separately
+          capture-proven unprefixed exception. Every inner frame ends with a
+          2-byte additive checksum of its preceding bytes (sum & 0xFFFF, LE);
+          the device silently rejects bad checksums.
         commands:
           power_toggle:
             description: 'Toggle screen power. JSON: {"cmd":{"power":{"type":0}},"sno":N}'

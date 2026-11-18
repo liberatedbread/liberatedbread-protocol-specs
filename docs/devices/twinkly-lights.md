@@ -24,10 +24,16 @@ HTTP REST on port 80 with a short-lived token (`/xled/v1/login` + `/verify`, `X-
   `evenmoresecret!!`, RC4-encrypts the raw challenge, and compares the SHA1
   hex digest. This authenticates the device using public identity; it is not
   client access control.
-- Provisioning is not plaintext: through 2.4.22 the password alone is
-  RC4-encrypted with the old 16-byte schedule; from 2.4.25 both SSID and
-  password use the newer 48-byte schedule and Base64. Both are MAC-derived
-  obfuscation, not secret key management.
+- Provisioning requires `/login` + `/verify` and `X-Auth-Token` on
+  `POST /xled/v1/network/status`. The legacy complete body is
+  `{"mode":1,"station":{"ssid":"<ssid>","encpassword":"<ciphertext>","dhcp":1}}`;
+  from 2.4.30 it is
+  `{"mode":1,"station":{"encssid":"<ciphertext>","encpassword":"<ciphertext>","dhcp":1}}`.
+  Through 2.4.22 the password alone uses the old 16-byte schedule; the newer
+  48-byte schedule appears from 2.4.25 and encrypts both SSID and password.
+  The encssid field is documented only from 2.4.30, and 2.4.23–2.4.29 behavior
+  remains unresolved. Both schedules are MAC-derived obfuscation, not secret
+  key management or a replacement for login.
 
 See `device-specs/devices/twinkly-lights.yaml` for the full machine-readable spec,
 including independent synthetic vectors for both RC4 uses and realtime framing.

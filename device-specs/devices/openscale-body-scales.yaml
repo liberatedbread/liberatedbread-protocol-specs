@@ -224,6 +224,8 @@ protocol_details:
     beurer_sanitas:
       length_bytes: 22
       endianness: "big"
+      timestamp_mask: 0x7fffffff
+      timestamp_note: "BF800 live records can set bit 31 as a flag; mask it before interpreting Unix seconds. Saved records may carry the same timestamp with the bit clear."
       fields:
         - {offset: 0, length: 4, name: "unix_seconds", type: "uint32", unit: "s"}
         - {offset: 4, length: 2, name: "weight", type: "uint16", scale: 0.05, unit: "kg"}
@@ -244,19 +246,21 @@ protocol_details:
         - {offset: 5, length: 4, name: "seconds_since_2010", type: "uint32", endianness: "little", unit: "s"}
         - {offset: 13, length: 1, name: "user_id", type: "uint8", notes: "1-8; 0xff unset."}
     trisa_body_analyze:
-      length_bytes: 20
+      maximum_length_bytes: 20
+      full_example_length_bytes: 20
+      layout: "Five fixed bytes followed by compact flag-conditioned fields in timestamp, resistance-1, resistance-2, user, status order. The full 20-byte example is not a universal record length."
       example_hex: "df 28 1e 00 fe 04 0a 70 10 00 00 00 ff 60 14 00 ff 00 09 00"
       example_weight_kg: 77.20
       fields:
         - {offset: 0, length: 1, name: "flags", type: "uint8", notes: "Bits 0-4 condition timestamp, resistances, user and status. Bits 5-6 select kg/lb/st; the 0x60 alias is unresolved."}
         - {offset: 1, length: 3, name: "weight_mantissa", type: "uint24", endianness: "little"}
         - {offset: 4, length: 1, name: "weight_exponent", type: "int8", notes: "Weight = mantissa * 10^exponent; example mantissa 7720, exponent -2."}
-        - {offset: 5, length: 4, name: "seconds_since_2010", type: "uint32", endianness: "little", unit: "s", presence: "flag bit 0"}
-        - {offset: 9, length: 4, name: "resistance_1", type: "bytes", presence: "flag bit 1", notes: "24-bit LE mantissa plus signed exponent; units and interpretation follow the source decoder."}
-        - {offset: 13, length: 4, name: "resistance_2", type: "bytes", presence: "flag bit 2", notes: "24-bit LE mantissa plus signed exponent."}
-        - {offset: 17, length: 1, name: "user_id", type: "uint8", presence: "flag bit 3"}
-        - {offset: 18, length: 1, name: "measurement_status", type: "uint8", presence: "flag bit 4"}
-        - {offset: 19, length: 1, name: "reserved", type: "uint8"}
+        - {offset: 5, length: 4, name: "seconds_since_2010", type: "uint32", endianness: "little", unit: "s", presence: "flag bit 0", advance_on_present: true}
+        - {offset: 5, length: 4, name: "resistance_1", type: "bytes", presence: "flag bit 1", advance_on_present: true, notes: "Starts after the fixed header and any timestamp already consumed; 24-bit LE mantissa plus signed exponent."}
+        - {offset_formula: "5 + 4*(flag bit 0) + 4*(flag bit 1)", length: 4, name: "resistance_2", type: "bytes", presence: "flag bit 2", advance_on_present: true, notes: "Starts at 9 when timestamp is present but R1 is absent, at 13 when both are present, and at 5 when both are absent. 24-bit LE mantissa plus signed exponent."}
+        - {offset_formula: "5 + 4*(flag bit 0) + 4*(flag bit 1) + 4*(flag bit 2)", length: 1, name: "user_id", type: "uint8", presence: "flag bit 3", advance_on_present: true}
+        - {offset_formula: "5 + 4*(flag bit 0) + 4*(flag bit 1) + 4*(flag bit 2) + (flag bit 3)", length: 1, name: "measurement_status", type: "uint8", presence: "flag bit 4"}
+        - {offset_formula: "19 only when all optional fields are present", length: 1, name: "reserved", type: "uint8", presence: "full example only; trailing role/length not established for shorter records"}
 
 entities:
   - platform: "sensor"

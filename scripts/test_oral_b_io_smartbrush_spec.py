@@ -155,7 +155,7 @@ def test_audit_battery_vectors_and_protocol_6_zero_runtime():
     ] is None
 
 
-def test_rtc_timezone_and_capture_access_properties_preserve_ff29():
+def test_rtc_timezone_and_capture_access_properties_use_read_only_ff29():
     rtc = characteristic(BRUSH_SERVICE, "a0f0ff22-5047-4d53-8208-4f72616c2d42")
     assert rtc["properties"] == ["read", "write"]
     rtc_field = rtc["format"][0]
@@ -176,4 +176,6 @@ def test_rtc_timezone_and_capture_access_properties_preserve_ff29():
     assert characteristic(BRUSH_SERVICE, "a0f0ff21-5047-4d53-8208-4f72616c2d42")["properties"] == ["read", "write", "notify"]
     assert characteristic(BRUSH_SERVICE, "a0f0ff2b-5047-4d53-8208-4f72616c2d42")["properties"] == ["read", "write"]
     assert characteristic(BRUSH_SERVICE, "a0f0ff2d-5047-4d53-8208-4f72616c2d42")["properties"] == ["read", "write"]
-    assert characteristic(BRUSH_SERVICE, "a0f0ff29-5047-4d53-8208-4f72616c2d42")["properties"] == ["read", "notify"]
+    ff29 = characteristic(BRUSH_SERVICE, "a0f0ff29-5047-4d53-8208-4f72616c2d42")
+    assert ff29["properties"] == ["read"]
+    assert "notification list excludes FF29" in ff29["notes"]

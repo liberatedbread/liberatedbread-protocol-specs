@@ -68,17 +68,89 @@ def test_medisana_public_example_is_kg_only_scaling():
     assert "only for the kg example" in weight["notes"]
 
 
+def parse_trisa(raw):
+    output = {
+        "weight": int.from_bytes(raw[1:4], "little")
+        * 10 ** int.from_bytes(raw[4:5], "little", signed=True)
+    }
+    flags = raw[0]
+    offset = 5
+    for bit, name, size in (
+        (1, "timestamp", 4),
+        (2, "resistance_1", 4),
+        (4, "resistance_2", 4),
+        (8, "user_id", 1),
+        (16, "measurement_status", 1),
+    ):
+        if flags & bit:
+            output[name] = raw[offset : offset + size]
+            offset += size
+        else:
+            output[name] = None
+    output["bytes_consumed"] = offset
+    return output
+
+
 def test_trisa_public_mantissa_exponent_vector_and_service_docs():
     layout = RECORDS["trisa_body_analyze"]
     raw = bytes.fromhex(layout["example_hex"])
-    assert len(raw) == layout["length_bytes"] == 20
+    assert len(raw) == layout["full_example_length_bytes"] == 20
+    assert layout["maximum_length_bytes"] == 20
     mantissa = int.from_bytes(raw[1:4], "little")
     exponent = int.from_bytes(raw[4:5], "little", signed=True)
     assert mantissa == 7720
     assert exponent == -2
     assert mantissa * 10**exponent == layout["example_weight_kg"] == 77.20
+    decoded = parse_trisa(raw)
+    assert decoded["resistance_2"] == bytes.fromhex("60 14 00 ff")
+    assert decoded["user_id"] == b"\x00"
+    assert decoded["measurement_status"] == b"\x09"
+    assert decoded["bytes_consumed"] == 19
     guide = (ROOT / "docs/devices/openscale-body-scales.md").read_text(
         encoding="utf-8"
     )
     assert "service **`0x7802`**, not `0x78b2`" in guide
     assert "Trisa: 0x78b2" not in guide
+
+
+def test_trisa_resistance_2_moves_immediately_after_timestamp_without_r1():
+    raw = bytes.fromhex("0d 28 1e 00 fe 04 0a 70 10 60 14 00 ff 00 09")
+    decoded = parse_trisa(raw)
+    assert decoded["timestamp"] == bytes.fromhex("04 0a 70 10")
+    assert decoded["resistance_1"] is None
+    assert decoded["resistance_2"] == bytes.fromhex("60 14 00 ff")
+    assert decoded["user_id"] == b"\x00"
+    assert decoded["measurement_status"] is None
+    assert decoded["bytes_consumed"] == 14
+
+
+def test_trisa_timestamp_absence_does_not_shift_fixed_weight_or_later_fields():
+    raw = bytes.fromhex("04 28 1e 00 fe 60 14 00 ff")
+    decoded = parse_trisa(raw)
+    assert decoded["weight"] == 77.20
+    assert decoded["timestamp"] is None
+    assert decoded["resistance_1"] is None
+    assert decoded["resistance_2"] == bytes.fromhex("60 14 00 ff")
+    assert decoded["bytes_consumed"] == 9
+
+
+def test_beurer_live_timestamp_bit_31_is_masked():
+    layout = RECORDS["beurer_sanitas"]
+    raw = bytes.fromhex("ea 92 90 c2")
+    assert int.from_bytes(raw, "big") & layout["timestamp_mask"] == 0x6A9290C2
+    assert 1700000000 & layout["timestamp_mask"] == 1700000000
+
+
+def test_trisa_r2_offset_accounts_for_timestamp_and_r1():
+    fields = RECORDS["trisa_body_analyze"]["fields"]
+    declaration = next(field for field in fields if field["name"] == "resistance_2")
+    assert declaration["offset_formula"] == "5 + 4*(flag bit 0) + 4*(flag bit 1)"
+    for flags, expected_offset in (
+        (0x04, 5),
+        (0x05, 9),
+        (0x06, 9),
+        (0x07, 13),
+        (0xDF, 13),
+    ):
+        offset = 5 + (4 if flags & 1 else 0) + (4 if flags & 2 else 0)
+        assert offset == expected_offset

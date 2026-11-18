@@ -128,5 +128,8 @@ def test_platform_geometry_bounds_remain_device_reported():
     feature = SPEC["features"][0]
     assert (feature["max_width"], feature["max_height"]) == (192, 128)
     assert feature["resolution_source"] == "device_reported"
+    assert feature["verification"] == "reported"
+    assert "bounds_verification" not in feature
+    assert SPEC["protocol_details"]["raw_gif_upload"]["verification"] == "confirmed"
     observed = SPEC["protocol_details"]["panel_discovery"]["observed_reply"]
     assert (observed["width"], observed["height"]) == (64, 64)

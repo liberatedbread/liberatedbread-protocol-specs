@@ -116,9 +116,12 @@ device:
         steps:
           - action: "Power a new/reset device and join its 'Twinkly_XXXXXX' AP."
             actor: "user"
-          - action: "GET /xled/v1/network/scan then POST /xled/v1/network/status with the home SSID/passphrase."
+          - action: "Complete POST /xled/v1/login and /verify and retain the returned session token."
             actor: "client"
-            expect: "The device reboots and joins the home Wi-Fi."
+            expect: "A verified token is available for X-Auth-Token."
+          - action: "POST /xled/v1/network/status with X-Auth-Token and the generation-appropriate advanced provisioning command: legacy station.ssid+encpassword, or encssid+encpassword from 2.4.30, always mode=1 and station.dhcp=1."
+            actor: "client"
+            expect: "The device reboots and joins the home Wi-Fi. Do not infer behavior across 2.4.23–2.4.29."
     factory_reset:
       applicable: true
       confidence: medium
@@ -168,9 +171,11 @@ device:
       notes: >
         Provisioning uses HTTP on the device AP, but the credential fields are
         not plaintext on the wire. Through firmware 2.4.22 only the password is
-        RC4-encrypted with the older 16-byte key schedule. Since firmware
-        2.4.25 both SSID and password are RC4-encrypted with the newer 48-byte
-        key schedule and Base64-encoded; see protocol_details.wifi_provisioning.
+        RC4-encrypted with the older 16-byte key schedule. The newer 48-byte
+        schedule appears from 2.4.25 and encrypts both SSID and password, but
+        the encssid request field is documented only from 2.4.30; behavior and
+        schedule selection across 2.4.23–2.4.29 remain unresolved. See
+        protocol_details.wifi_provisioning for complete authenticated bodies.
         Both schedules repeat and XOR the public device MAC, so this is
         obfuscation rather than access control. Control requires a per-session
         token obtainable by any client that can reach port 80. The optional
@@ -236,6 +241,16 @@ http_endpoints:
     request_body:
       content_type: "application/json"
   - method: "POST"
+    path: "/xled/v1/network/status"
+    name: "Provision station Wi-Fi"
+    description: >
+      Requires X-Auth-Token after /login + /verify. Legacy body:
+      {"mode":1,"station":{"ssid":"<ssid>","encpassword":"<ciphertext>","dhcp":1}}.
+      From 2.4.30: {"mode":1,"station":{"encssid":"<ciphertext>","encpassword":"<ciphertext>","dhcp":1}}.
+      The 2.4.23–2.4.29 transition is unresolved.
+    request_body:
+      content_type: "application/json"
+  - method: "POST"
     path: "/xled/v1/led/mode"
     name: "Set LED mode"
     description: "Body {\"mode\":\"off|color|effect|movie|playlist|rt\"}. Requires X-Auth-Token."
@@ -296,6 +311,8 @@ protocol_details:
       expected_sha1: "5f18f4182fa8d9bb955fdef25595e4574f56730f"
   wifi_provisioning:
     verification: "reported"
+    endpoint: "/xled/v1/network/status"
+    authentication: "Complete POST /xled/v1/login and /verify, then send X-Auth-Token on the provisioning POST. The credential encryption does not replace this login."
     common_steps:
       - "Repeat the six-byte AP-mode MAC, or gestalt mac value, to the key-schedule length and XOR it with the schedule."
       - "Right-pad the SSID or password with zero bytes to 64 bytes."
@@ -305,10 +322,11 @@ protocol_details:
       fields: [password]
       key_schedule_ascii: "supersecretkey!!"
       key_schedule_bytes: 16
-    current_from_2_4_25:
+    schedule_from_2_4_25:
       fields: [ssid, password]
       key_schedule_bytes: 48
       key_schedule_hex: "26 80 f5 87 9f ee 2c 75 11 aa 08 15 47 44 8e 04 99 cd 68 07 6e 09 32 62 5d c4 de 7c 38 98 9e 88 80 ee 2a b7 33 67 8f a2 0d cc 85 d8 94 cd 94 4f"
+    transition_unresolved: "2.4.23–2.4.29: do not infer exact key-schedule selection from the newer schedule's 2.4.25 first appearance. The encssid field is documented only from 2.4.30; plain station.ssid is documented until 2.4.25."
     synthetic_vector:
       mac: "02:00:00:00:00:01"
       plaintext: "synthetic-password"
@@ -366,6 +384,32 @@ commands:
         type: "integer"
         min: 0
         description: "Numeric effect identifier; 0 is a documented example, not a universal default."
+    verification: "reported"
+  provision_station_legacy:
+    description: "Provision station mode with the plain SSID field documented until 2.4.25 and an RC4/Base64 encpassword. Complete login and verify first and send X-Auth-Token."
+    transport: "http"
+    method: "POST"
+    path: "/xled/v1/network/status"
+    headers: {"X-Auth-Token": "<session-token>"}
+    body: '{"mode":1,"station":{"ssid":"{ssid}","encpassword":"{encpassword}","dhcp":1}}'
+    parameters:
+      ssid: {type: "string", description: "Owner's home SSID, sent in the plain ssid field."}
+      encpassword: {type: "string", description: "Base64 ciphertext of the 64-byte zero-padded password using the legacy schedule."}
+    advanced: true
+    advanced_reason: "Changes the device's Wi-Fi network and can disconnect the provisioning AP. Use the owner's credentials and the documented legacy request shape only."
+    verification: "reported"
+  provision_station_current:
+    description: "Provision station mode with encssid and encpassword, both RC4-encrypted and Base64-encoded. encssid is documented from 2.4.30. Complete login and verify first and send X-Auth-Token."
+    transport: "http"
+    method: "POST"
+    path: "/xled/v1/network/status"
+    headers: {"X-Auth-Token": "<session-token>"}
+    body: '{"mode":1,"station":{"encssid":"{encssid}","encpassword":"{encpassword}","dhcp":1}}'
+    parameters:
+      encssid: {type: "string", description: "Base64 ciphertext of the 64-byte zero-padded SSID using the newer schedule."}
+      encpassword: {type: "string", description: "Base64 ciphertext of the 64-byte zero-padded password using the newer schedule."}
+    advanced: true
+    advanced_reason: "Changes the device's Wi-Fi network and can disconnect the provisioning AP. Use only from 2.4.30 with the newer 48-byte schedule; 2.4.23–2.4.29 behavior is unresolved."
     verification: "reported"
 
 entities:

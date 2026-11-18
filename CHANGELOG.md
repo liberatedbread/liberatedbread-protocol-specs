@@ -39,6 +39,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   New independent standard-library vectors cover every meaningful codec and
   frame change. Source-derived findings stay reported/untested; existing
   capture-confirmed SPOTLED, AUTOBABA, iLEDColor and Oral-B work is preserved.
+- **Independent review corrections.** LOY's outer length prefix is restored
+  except on capture-proven AUTOBABA; Trisa optional fields now compact in flag
+  order; Twinkly provisioning declares complete authenticated station bodies
+  with the 2.4.23–2.4.29 transition unresolved. ESN00 ITEM_STATE is no longer
+  a fault, Beurer's live timestamp flag is masked, Oral-B FF29 is read-only per
+  the current capture-tested implementation, and AUTOBABA's source-derived
+  feature confidence no longer masks its separate raw-GIF capture evidence.
 
 ### Added
 

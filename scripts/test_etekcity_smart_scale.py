@@ -45,4 +45,18 @@ def test_synthetic_weight_report_is_big_endian_and_scaled():
     assert payload[0] == 0
     assert int.from_bytes(payload[1:3], "big") * 0.1 == 100.0
     assert payload[3:5] == bytes([0, 1])
-    assert DETAILS["reports"]["non_weight_fault_types"] == [0xE0, 0xE2, 0xE4]
+    assert DETAILS["reports"]["non_weight_fault_types"] == [0xE0, 0xE2]
+
+
+def test_item_state_is_normal_presence_not_a_fault():
+    item = DETAILS["reports"]["item_state"]
+    for key, payload, expected in (
+        ("present_frame_hex", 0, True),
+        ("absent_frame_hex", 1, False),
+    ):
+        raw = bytes.fromhex(item[key])
+        report_type, decoded_payload = decode(raw)
+        assert report_type == 0xE4
+        assert decoded_payload == bytes([payload])
+        assert (decoded_payload[0] == 0) is expected
+    assert "not a fault" in item["semantics"]

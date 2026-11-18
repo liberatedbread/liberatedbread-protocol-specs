@@ -23,9 +23,17 @@ its notification fragments.
   with `/100` scaling **only in kg mode**, seconds since 2010 at 5–8 LE, and
   user ID at 13. Non-kg divisors and body-composition masks remain unresolved.
 - **Trisa Body Analyze 4.0:** service **`0x7802`**, not `0x78b2`, with an XOR
-  challenge-response. Its 20-byte layout uses 24-bit little-endian mantissas
+  challenge-response. Its compact layout uses 24-bit little-endian mantissas
   and signed exponents. The public `df 28 1e 00 fe …` example decodes to
-  mantissa 7720 and exponent −2, or 77.20 kg.
+  mantissa 7720 and exponent −2, or 77.20 kg. Timestamp, R1, R2, user and
+  status fields occur in that order only when their flags are present, so R2
+  follows R1 when present and otherwise immediately follows the timestamp (or
+  the fixed weight header). The complete example is 20 bytes; shorter records
+  compact rather than retaining fixed offsets.
+
+Beurer's BF800 live records can set timestamp bit 31 as a flag. Mask it with
+`0x7fffffff` before decoding Unix seconds; the saved record may carry the same
+value with the bit clear.
 
 See `device-specs/devices/openscale-body-scales.yaml` for the full machine-readable spec.
 

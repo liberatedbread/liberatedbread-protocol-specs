@@ -132,6 +132,9 @@ different 20-byte layout and must not use this table.
 
 The captured direct client reads the latest record after session settlement
 without an FF21 command. Charger reads have a separate availability window.
+The current capture-tested protocol table marks FF29 **read-only**, and the
+client's notification list excludes FF29; no GATT enumeration or capture
+establishes a notify property for it.
 
 ## Advertisements and diagnostics
 

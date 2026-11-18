@@ -116,9 +116,11 @@ templates use `id_pro` 11–19; the platform supports 60 sparse program slots.
 Identical GATT surface to the AUTOBABA backpack: service
 `0000fff0-0000-1000-8000-00805f9b34fb`, write `…fff2…`, notify `…fff1…`,
 advertised name prefix `YS` / `TL`. Subscribe to FFF1 before commands.
-Ordinary BLE writes carry the inner AA55 frame directly with no outer
-record-length prefix; unlike the UDP datagrams above, only raw-GIF logical
-stream records use that outer length. See the
+Ordinary BLE writes on this variant use an outer u16-LE length prefix before
+the inner AA55 frame; AUTOBABA is the separately capture-proven unprefixed
+exception, not a family-wide rule. The captured public-client power-on is
+`10 00 aa 55 ff ff 0a 00 03 00 c1 02 04 02 00 01 d4 03`. The UDP datagram
+prefix remains in force. See the
 [AUTOBABA doc](autobaba-led-backpack.md) for the full BLE protocol.
 
 ### Backend API

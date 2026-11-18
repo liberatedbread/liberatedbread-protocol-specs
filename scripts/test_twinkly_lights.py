@@ -64,9 +64,9 @@ def test_provisioning_encryption_matches_legacy_and_current_vectors():
             vector["legacy_base64"],
         ),
         (
-            provisioning["current_from_2_4_25"],
+            provisioning["schedule_from_2_4_25"],
             bytes.fromhex(
-                provisioning["current_from_2_4_25"]["key_schedule_hex"]
+                provisioning["schedule_from_2_4_25"]["key_schedule_hex"]
             ),
             vector["current_base64"],
         ),
@@ -125,3 +125,40 @@ def test_color_and_effect_commands_are_bound_without_requiring_a_movie():
     assert SPEC["device"]["setup"]["credentials"][
         "wifi_passphrase_protection"
     ] == "device_encrypted"
+
+
+def test_station_provisioning_complete_json_and_authentication_contract():
+    vector = DETAILS["wifi_provisioning"]["synthetic_vector"]
+    legacy = SPEC["commands"]["provision_station_legacy"]
+    assert json_body(
+        legacy,
+        ssid="synthetic-ssid",
+        encpassword=vector["legacy_base64"],
+    ) == {
+        "mode": 1,
+        "station": {
+            "ssid": "synthetic-ssid",
+            "encpassword": vector["legacy_base64"],
+            "dhcp": 1,
+        },
+    }
+    current = SPEC["commands"]["provision_station_current"]
+    assert json_body(
+        current,
+        encssid=vector["current_base64"],
+        encpassword=vector["current_base64"],
+    ) == {
+        "mode": 1,
+        "station": {
+            "encssid": vector["current_base64"],
+            "encpassword": vector["current_base64"],
+            "dhcp": 1,
+        },
+    }
+    for command in (legacy, current):
+        assert command["path"] == "/xled/v1/network/status"
+        assert command["headers"] == {"X-Auth-Token": "<session-token>"}
+        assert command["advanced"] is True
+    assert DETAILS["wifi_provisioning"]["endpoint"] == "/xled/v1/network/status"
+    assert "login and /verify" in DETAILS["wifi_provisioning"]["authentication"]
+    assert "2.4.23–2.4.29" in DETAILS["wifi_provisioning"]["transition_unresolved"]
