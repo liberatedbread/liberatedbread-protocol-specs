@@ -158,7 +158,19 @@ def test_uart_roles_and_active_scan(spec):
     assert service["initialization"][0]["characteristic"] == roles["watch_to_host"]["characteristic"]
     discovery = spec["device"]["discovery"]["methods"][0]
     assert "active" in discovery["notes"].lower()
-    assert "not enough" in spec["device"]["identification"]["notes"]
+    assert "service_uuids" not in discovery["ble"]
+    assert "service_uuids" not in spec["device"]["identification"]
+    gate = roles["write_gate"]
+    assert gate["manual_model_selection"] is True
+    assert gate["automatic_identity_service_uuids"] is False
+    assert gate["read_only_confirmation"] == {
+        "message_type": "ver",
+        "required_fields": ["fw", "hw"],
+        "accepted_hw": ["1", "2"],
+        "before_any_write": True,
+        "on_missing_or_mismatch": "remain read-only",
+    }
+    assert "before any write" in spec["device"]["identification"]["notes"].lower()
 
 
 def test_common_message_families_remain_json_not_binary_gatt(spec):

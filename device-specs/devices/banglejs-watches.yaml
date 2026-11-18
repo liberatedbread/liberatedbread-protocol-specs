@@ -68,12 +68,13 @@ device:
     and disconnect Gadgetbridge before the App Loader/Web IDE.
   identification:
     local_name_prefix: "Bangle.js "
-    service_uuids: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
     notes: >
-      Default names are Bangle.js plus a short suffix shown on the watch. NUS is also
-      advertised in a SCAN RESPONSE on Espruino devices, so active scanning is needed.
-      NUS alone is shared with unrelated devices and is not enough to assert Bangle.js;
-      after connection require Android Integration's ver message and its hw value.
+      Default names are Bangle.js plus a short suffix shown on the watch and are
+      candidates only, not automatic model proof. Select Bangle.js 1 or 2 manually.
+      NUS is deliberately ABSENT from automatic identity: it is shared with Ninebot Z
+      and many incompatible protocols. NUS may appear in a scan response, but must not
+      activate this spec. After connecting, require Android Integration's read-only
+      ver message and confirm hw is 1 or 2 before ANY write; otherwise stay read-only.
   discovery:
     methods:
       - type: "ble_scan"
@@ -81,12 +82,12 @@ device:
           local_name:
             match: "prefix"
             value: "Bangle.js "
-          service_uuids: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
         verification: "reported"
         notes: >
-          Scan actively because the NUS UUID may only be in a scan response. The name
-          is user-changeable; if renamed, select manually and verify NUS plus the
-          Android Integration ver message rather than treating every UART as a Bangle.
+          Scan actively because NUS may only be in a scan response, but do not filter
+          or identify on that UUID. A Bangle.js-suffixed name is only a candidate:
+          select the model manually, then confirm Android Integration ver.fw/ver.hw
+          read-only before any write. Renamed units require the same manual path.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -98,26 +99,32 @@ device:
       Raw NUS needs no account or provisioning. Full Gadgetbridge behavior requires
       the watch-side Android Integration app and its Messages dependency; the older
       Gadgetbridge widget is unmaintained. Bonding is optional, not a setup credential.
+      This is identify-only: a user selects the Bangle model and a dedicated handler
+      proves it read-only before offering any write.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          Make the watch connectable, actively scan for Bangle.js/NUS, connect and
-          subscribe to TX. For Gadgetbridge install Android Integration first; for
-          Web IDE/App Loader enable Programmable only if code upload is intended.
+          Make the watch connectable, actively scan by the candidate name (never by
+          NUS), select Bangle.js 1 or 2 manually, connect and subscribe to TX. For
+          Gadgetbridge install Android Integration first; for Web IDE/App Loader
+          enable Programmable only if code upload is intended and after the ver gate.
         ble:
           pairing_required: false
         steps:
           - action: "On the watch, enable BLE and choose Make Connectable; install Android Integration for Gadgetbridge use."
             actor: "user"
             expect: "The connectable screen and a Bangle.js suffix name are visible."
-          - action: "Disconnect any other client, actively scan and connect to the NUS service."
-            actor: "client"
-            expect: "NUS RX/TX are present; only one client holds the link."
+          - action: "Disconnect any other client, actively scan by the candidate name and select Bangle.js 1 or 2 manually; do not match on NUS."
+            actor: "user"
+            expect: "The user, not the shared service UUID, chooses the model and only one client holds the link."
           - action: "Subscribe to NUS TX and retain UART bytes until each complete GB line or JSON line arrives."
             actor: "client"
             expect: "Android Integration sends status, ver and calendar-sync messages after connection."
-          - action: "Leave Programmable, Internet access, intents and file/code writes disabled unless that specific advanced operation is intended."
+          - action: "Read the ver message and confirm fw is present and hw is exactly 1 or 2 before any write; otherwise remain read-only."
+            actor: "client"
+            expect: "Read-only model confirmation has succeeded; no write occurs before it."
+          - action: "Only after that confirmation, consider the dedicated multi-write handler; leave Programmable, Internet access, intents and file/code writes disabled unless that specific advanced operation is intended."
             actor: "user"
         troubleshooting:
           - symptom: "No NUS service appears in a passive scan."
@@ -383,6 +390,15 @@ protocol_details:
       framing: "One JSON object per line, no 0x10 prefix and no GB wrapper."
       parser: "Buffer arbitrary fragments/coalesced lines. Only lines beginning { after no leading console text are candidates; malformed JSON is rejected without consuming the next valid line."
     mtu: "20 bytes is a safe default chunk; higher MTU is optional and negotiated."
+    write_gate:
+      manual_model_selection: true
+      automatic_identity_service_uuids: false
+      read_only_confirmation:
+        message_type: "ver"
+        required_fields: ["fw", "hw"]
+        accepted_hw: ["1", "2"]
+        before_any_write: true
+        on_missing_or_mismatch: "remain read-only"
     connection_messages:
       - "About two seconds after connection Android Integration sends status with battery, ver with fw/hw, and force_calendar_sync_start via the phone-bound GB handler."
       - "Use ver.hw to distinguish Bangle.js 1/2 when sources expose it; do not infer Bangle.js 3 from metadata."

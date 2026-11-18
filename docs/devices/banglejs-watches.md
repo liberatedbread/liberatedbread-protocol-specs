@@ -38,14 +38,18 @@ characteristic commands or ordinary entities are exposed to generic consumers.
 |----------|-------|
 | Setup required | No for raw NUS; install Android Integration for full Gadgetbridge |
 | Method | `ble_direct` |
-| Advertised identity | `Bangle.js ` prefix plus suffix; NUS in scan response |
+| Advertised identity | Candidate `Bangle.js ` name; manual model selection, never NUS identity |
 | Pairing | Optional bond, not an account credential |
 | Confidence | Medium from official open documentation; not replayed here |
 
 Enable BLE and **Make Connectable**, disconnect any other client, then actively
-scan. For Gadgetbridge install **Android Integration** and its Messages
-dependency; the older Gadgetbridge widget is unmaintained. Leave Programmable,
-Internet access, intents and file/code writes off unless deliberately needed.
+scan by the candidate name. **Select Bangle.js 1 or 2 manually** rather than
+filtering on NUS. After connecting, read Android Integration's `ver` message
+and require `fw` plus `hw` equal to `1` or `2` before any write. If it is
+missing or does not match, remain read-only. For Gadgetbridge install **Android
+Integration** and its Messages dependency; the older Gadgetbridge widget is
+unmaintained. Leave Programmable, Internet access, intents and file/code writes
+off unless deliberately needed.
 
 **Rebinding:** disconnect the old phone/browser and connect the new one. On
 firmware 2v30+, Recovery's **Delete BT Pairing** (Soft, then Hard if pairing

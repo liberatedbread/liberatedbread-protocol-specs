@@ -88,7 +88,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Independent-review hardening removes generic measurement entities, isolated
   multi-write commands and partial DFU updates: Bangle.js and ZeTime are
   identify-only, YUNMAI keeps only configuration commands generic, and checksum-
-  less connected variants stay excluded until captured evidence exists.
+  less connected variants stay excluded until captured evidence exists. NUS is
+  transport, never Bangle identity: manual model selection and a read-only
+  Android Integration `ver.fw`/`ver.hw` check now gate every write.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an
