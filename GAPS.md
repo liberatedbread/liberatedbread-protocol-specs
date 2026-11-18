@@ -86,7 +86,7 @@ badge's speed nibble shares a byte with `mode`), and a raw-byte-stream
 transport arm for top-level `commands` (Brother's raster opcodes stay
 `payload_hex` prose).
 
-## Validation: 315/315 passing (314 device specs + 1 example)
+## Validation: 318/318 passing (317 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after

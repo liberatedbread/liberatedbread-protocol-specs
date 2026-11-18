@@ -1,0 +1,511 @@
+# VanMoof S3 / X3 legacy 6acc55 BLE profile
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "VanMoof S3 / X3 (legacy 6acc55 BLE profile)"
+  manufacturer: "VanMoof"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/quantsini/pymoof/tree/b77518cd4dc813905802f14364c461b31ac88356"
+    notes: >
+      The protocol is not vendor-published. This spec derives wire facts from
+      pymoof b77518cd4dc813905802f14364c461b31ac88356 and VanMoofKit
+      d258b2575115f11ccfcfbcb8ecf6dd3c740c30fc. Their offline fake-GATT checks
+      are not hardware verification by this project.
+  testing:
+    status: "untested"
+    notes: >
+      No bicycle, owner account, exported owner credential, key service or BLE
+      adapter was used. The pinned clients passed 14 upstream tests and 110
+      independent offline AES/fake-GATT assertions on 2026-11-02. This spec's
+      synthetic OpenSSL vectors are independent offline checks, not a claim
+      that current S3/X3 firmware accepts this legacy profile on hardware.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "vehicle"
+  type: "ebike"
+  integration: "identify_only"
+  aliases: ["VanMoof S3", "VanMoof X3"]
+  safety_advisory:
+    severity: "warning"
+    summary: "Lock, unlock and bell-tone writes require an attended, stationary owner-authorized bicycle."
+    detail: >
+      Use these operations only with the owner present, the bicycle stationary
+      and the physical result under direct observation. A successful GATT write
+      is not proof of authentication or of the resulting state. Complete an
+      authenticated read first, then read the same characteristic back after
+      every write and reject an absent, malformed or unexpected value. Never
+      write lock state 2 (awaiting unlock); it is a reported state, not a
+      command. Keep the owner's existing recovery method available.
+    acknowledge_required: true
+  notes: >
+    SCOPE IS THE S3/X3 LEGACY 6acc55 PROFILE ONLY. Do not infer support for
+    S2/X2, S4/X4, S5/A5, S6 or any other model from a VanMoof name or from the
+    company OUI. The newer 8e7f1a5x messaging family is a different protocol
+    and is deliberately absent. Identify the exact legacy service set after
+    connection before reading or writing; a name-only match is insufficient.
+
+    A client needs the bicycle owner's exported 16-byte encryption key and
+    one-byte user key ID. These are per-owner/per-bicycle secrets, not shared
+    constants. With those already exported, normal BLE operation is local and
+    needs no cloud session. Initial key export may require the owner's vendor
+    account; this pass did not test whether that service currently issues keys.
+
+    Every protected value is AES-128-ECB with zero padding. Authentication and
+    every ordinary write read a FRESH, EXACTLY TWO-BYTE plaintext challenge.
+    Reject empty, short and long challenges rather than zero-filling or
+    truncating them. Protected reads decrypt whole 16-byte blocks and parse
+    only the declared field; never interpret zero padding as part of an integer.
+
+    Consumer integration is identify_only because this project ships no
+    dedicated encrypted-session/attended-control handler. The command bodies
+    below are inputs to protocol_details.legacy_sx3_crypto, NOT bytes a generic
+    renderer may write verbatim. Supported status requires that handler,
+    authenticated-readback enforcement and the owner-confirmation UX.
+  variants:
+    - model: "S3"
+      notes: "Covered only when the connected bicycle exposes this legacy 6acc55 service set. No S3-specific advertisement matcher is claimed."
+    - model: "X3"
+      notes: "Covered only when the connected bicycle exposes this legacy 6acc55 service set. No X3-specific advertisement matcher is claimed."
+  identification:
+    service_uuids: ["6acc5500-e631-4069-944d-b8ca7598ad50"]
+    notes: >
+      VanMoofKit scans for the legacy service family, including this security
+      service. Treat the UUID as a candidate filter, not proof of model or
+      firmware. After connecting, require the security challenge/key-index
+      endpoints and only the other legacy endpoints actually used below.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids: ["6acc5500-e631-4069-944d-b8ca7598ad50"]
+        verification: "reported"
+        notes: >
+          Source: VanMoofKit's service-filtered scan at the pinned commit. Do
+          not use an advertised MAC-like name suffix as an identity fixture or
+          publish it. No real advertisement or GATT dump was available here.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      High confidence means working public implementations exist; no method was
+      run by this project. The only required provisioning is custody of the
+      owner's exported encryption key and user key ID. There is no Wi-Fi.
+    methods:
+      - type: "ble_direct"
+        name: "Use an already exported owner key"
+        role: "primary"
+        verified: false
+        description: "Offline route for an owner who already has the bicycle's 16-byte key and one-byte user key ID."
+        ble:
+          pairing_required: false
+          service_uuid: "6acc5500-e631-4069-944d-b8ca7598ad50"
+        steps:
+          - action: "Keep the bicycle stationary and provide its existing exported key and user key ID through a secret store, never source control or logs."
+            actor: "user"
+          - action: "Scan for 6acc5500-e631-4069-944d-b8ca7598ad50, connect, and enumerate the legacy characteristics used by this spec before any protected operation."
+            actor: "client"
+            expect: "The S3/X3 legacy security service and exact endpoints are present; otherwise stop without writes."
+          - action: "Read a fresh two-byte challenge, build the 20-byte authentication payload in protocol_details.legacy_sx3_crypto, and write it with response to the key-index characteristic."
+            actor: "client"
+            expect: "The write is delivered; this alone does not establish authentication."
+          - action: "Read and decrypt motor battery level, accepting only block-aligned ciphertext and a percentage from 0 through 100."
+            actor: "client"
+            expect: "A valid authenticated read proves the session before telemetry or attended controls are enabled."
+      - type: "cloud_account"
+        name: "Export the owner's key from the vendor account"
+        role: "alternative"
+        verified: false
+        description: "Online one-time owner credential export for an account that still has the bicycle; steady-state BLE does not repeat it."
+        cloud:
+          provider: "VanMoof account service"
+          account_required: true
+          local_alternative: "The primary ble_direct method: an already exported owner key and user key ID work entirely locally; the cloud is only an optional initial export route."
+          notes: "Availability was not tested in this pass. Use only the bicycle owner's own account and an owner-controlled exporter."
+        steps:
+          - action: "Use an owner-controlled export flow to obtain only this bicycle's encryption key and user key ID; do not publish account tokens, bicycle MAC addresses, frame numbers or keys."
+            actor: "user"
+            expect: "A 16-byte key and an integer user key ID from 0 through 255 are held in the owner's secret store."
+          - action: "Continue with the offline ble_direct route; no cloud connection is needed for subsequent authenticated BLE sessions."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: "No reset procedure or cleared-state list is asserted. Reset, bonding changes, backup-code retrieval and owner recovery operations are outside this spec."
+      description: >
+        Basis: the pinned public clients were reviewed for the bounded local
+        protocol, not for a safe factory-reset procedure. The S3/X3 manual
+        linked below is an owner guide, not evidence for a BLE reset command.
+        Do not substitute a procedure from another VanMoof generation.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "A replacement client needs the same owner-exported key and user key ID and must complete a fresh authenticated session. There is no network credential to rejoin."
+      steps:
+        - action: "Transfer the existing credentials through the owner's secret store, then perform the authenticated-read lifecycle on the new client."
+          actor: "user"
+        - action: "Close other BLE clients before connecting if the bicycle is busy; do not reset or rekey it merely to add a reader."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["Per-bicycle encryption material and user key associations (exact storage not inspected)"]
+      issued_to_client: ["16-byte AES-128 owner encryption key", "one-byte user key ID (0-255)"]
+      notes: "These credentials authorize a physical bicycle. Never embed, log or publish them. Test vectors use an invented sequential key only."
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      recovery: "Close the vendor app or other BLE client and reconnect; authentication is repeated for every new session. OS-level BLE bonding is not required by the reviewed clients."
+    enter_pairing_mode:
+      required: false
+      notes: "There is no pairing window in this profile: the owner supplies credentials out of band, then every connection performs the application-layer challenge exchange."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "Delete the client's stored credential to withdraw that client. No local BLE unpair/rekey operation is declared, and no factory reset should be attempted for this purpose."
+    notes: >
+      `required` refers to application-layer owner authentication, not an OS
+      Bluetooth bond. The pinned clients do not require BLE pairing before the
+      challenge read. Physical pairing/bonding behavior on current firmware is
+      unverified.
+
+initialization:
+  - description: "Dedicated handler only: enumerate the legacy endpoints, read exactly two fresh challenge bytes, authenticate with the owner's key and user key ID, then require a valid authenticated motor-battery read before marking the session authenticated."
+    when: "connect"
+    notes: "Deliberately no fixed write: challenge, key and user key ID are per-session/per-owner inputs. A successful key-index write alone is not success."
+
+services:
+  - uuid: "6acc5500-e631-4069-944d-b8ca7598ad50"
+    name: "Legacy S3/X3 security"
+    notes: "Only the challenge and key-index endpoints are in scope. Backup-code and bike-message endpoints are deliberately omitted."
+    characteristics:
+      - uuid: "6acc5501-e631-4069-944d-b8ca7598ad50"
+        name: "Fresh plaintext challenge"
+        properties: ["read"]
+        notes: "Read exactly two bytes immediately before authentication and again immediately before EVERY ordinary write. Never reuse a challenge, pad a short one or truncate a long one."
+        format:
+          - offset: 0
+            length: 2
+            name: "challenge"
+            type: "bytes"
+            notes: "Exactly two plaintext bytes; byte order does not apply."
+        verification: "reported"
+      - uuid: "6acc5502-e631-4069-944d-b8ca7598ad50"
+        name: "Owner key index / authentication write"
+        properties: ["write"]
+        notes: "Write with response: AES-128-ECB(challenge || 00*14) followed by clear 00 00 00 <user_key_id>, total 20 bytes. Delivery is not authentication; a subsequent authenticated read is mandatory."
+        verification: "reported"
+
+  - uuid: "6acc5520-e631-4069-944d-b8ca7598ad50"
+    name: "Legacy S3/X3 defence"
+    notes: "Alarm, unlock-request and other defence endpoints are excluded."
+    characteristics:
+      - uuid: "6acc5521-e631-4069-944d-b8ca7598ad50"
+        name: "Encrypted lock state"
+        properties: ["read", "write"]
+        notes: >
+          Reads are whole AES blocks; decrypt and parse byte 0 only. Commands
+          below are one-byte command_data values for the fresh-challenge/zero-
+          padding codec, not raw GATT writes. After lock or unlock, read and
+          decrypt this characteristic again and require the requested state.
+        format:
+          - offset: 0
+            length: 1
+            name: "lock_state"
+            type: "uint8"
+            values:
+              0: "unlocked"
+              1: "locked"
+              2: "awaiting_unlock"
+            notes: "Reject every other value. State 2 is never a command. Single byte, so no endianness applies."
+        commands:
+          unlock:
+            description: "Attended owner-confirmed unlock: command_data 00 through the encrypted-session codec, followed by authenticated readback of state 0."
+            value: [0x00]
+            advanced: true
+            advanced_reason: "Changes the physical bicycle lock. Use only with the owner present and the bicycle stationary, preserve owner recovery, and require an authenticated readback of unlocked (0); otherwise report failure rather than retrying blindly."
+            verification: "reported"
+          lock:
+            description: "Attended owner-confirmed lock: command_data 01 through the encrypted-session codec, followed by authenticated readback of state 1."
+            value: [0x01]
+            advanced: true
+            advanced_reason: "Changes the physical bicycle lock. Use only with the owner present and the bicycle stationary, preserve owner recovery, and require an authenticated readback of locked (1); otherwise report failure rather than retrying blindly."
+            verification: "reported"
+        verification: "reported"
+
+  - uuid: "6acc5530-e631-4069-944d-b8ca7598ad50"
+    name: "Legacy S3/X3 movement telemetry"
+    notes: "Assist, speed-limit, region, unit and e-shifter surfaces are deliberately omitted."
+    characteristics:
+      - uuid: "6acc5531-e631-4069-944d-b8ca7598ad50"
+        name: "Encrypted total distance"
+        properties: ["read"]
+        notes: "Decrypt first, then read uint32 little-endian at plaintext offset 0. The wire integer counts hectometres: raw 1234 is 123.4 km. Ignore zero padding after byte 3."
+        format:
+          - offset: 0
+            length: 4
+            name: "distance"
+            type: "uint32"
+            endianness: "little"
+            scale: 0.1
+            unit: "km"
+            device_class: "distance"
+            notes: "Raw unit is hectometres; decoded value = raw * 0.1 km. Synthetic fixture: raw 1234 = 123.4 km."
+        verification: "reported"
+      - uuid: "6acc5532-e631-4069-944d-b8ca7598ad50"
+        name: "Encrypted current speed"
+        properties: ["read"]
+        notes: "Decrypt first, then read only plaintext byte 0 as integer km/h. VanMoofKit defines UInt8; do not consume padding or infer a wider integer."
+        format:
+          - offset: 0
+            length: 1
+            name: "speed"
+            type: "uint8"
+            unit: "km/h"
+            device_class: "speed"
+            notes: "Single byte, no scaling or endianness. Synthetic fixture 0x19 = 25 km/h."
+        verification: "reported"
+
+  - uuid: "6acc5540-e631-4069-944d-b8ca7598ad50"
+    name: "Legacy S3/X3 bicycle information"
+    notes: "Battery-state enums, firmware strings and owner-identifying frame number are outside this bounded spec."
+    characteristics:
+      - uuid: "6acc5541-e631-4069-944d-b8ca7598ad50"
+        name: "Encrypted motor battery percentage"
+        properties: ["read"]
+        notes: "Decrypt and read plaintext byte 0 only. Use this as the initial authenticated readback; reject values over 100 rather than displaying them."
+        format:
+          - offset: 0
+            length: 1
+            name: "motor_battery"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "Single byte, scale 1. Synthetic fixture 0x63 = 99%, not decimal 63."
+        verification: "reported"
+      - uuid: "6acc5543-e631-4069-944d-b8ca7598ad50"
+        name: "Encrypted module battery percentage"
+        properties: ["read"]
+        notes: "Decrypt and read plaintext byte 0 only. This is a percentage, not the separate unmapped battery-state characteristic."
+        format:
+          - offset: 0
+            length: 1
+            name: "module_battery"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "Single byte, scale 1. Synthetic fixture 0x62 = 98%."
+        verification: "reported"
+
+  - uuid: "6acc5570-e631-4069-944d-b8ca7598ad50"
+    name: "Legacy S3/X3 sound"
+    notes: "Only bell-tone selection is in scope. Arbitrary sound IDs, alarm sounds, volume and other sound writes are omitted."
+    characteristics:
+      - uuid: "6acc5574-e631-4069-944d-b8ca7598ad50"
+        name: "Encrypted bell tone"
+        properties: ["read", "write"]
+        notes: "Readback is mandatory after a selection: decrypt and require the selected tone at byte 0. The command template is command_data for the encrypted codec, not a raw write."
+        format:
+          - offset: 0
+            length: 1
+            name: "bell_tone"
+            type: "uint8"
+            values:
+              22: "bell (0x16)"
+              23: "party (0x17)"
+              24: "boat (0x18)"
+            notes: "Reject unknown values; single byte, no endianness."
+        commands:
+          set_bell_tone:
+            description: "Attended owner-confirmed bell-tone selection; encrypt with a fresh challenge and require an authenticated readback of the selected value."
+            template: ["{tone}"]
+            parameters:
+              tone:
+                type: "uint8"
+                min: 22
+                max: 24
+                labels: ["bell", "party", "boat"]
+                description: "Persistent bell tone to select and then verify by reading this characteristic."
+            advanced: true
+            advanced_reason: "Changes the bicycle's bell tone. Select only while the owner is present and observing the bicycle, then require authenticated readback of the selected tone; a delivered GATT write alone is not success."
+            verification: "reported"
+        verification: "reported"
+
+protocol_details:
+  legacy_sx3_crypto:
+    algorithm: "AES-128-ECB"
+    key: "Exactly 16 bytes supplied by the owner as 32 hexadecimal characters; no IV and no key derivation."
+    padding: "Zero bytes to the next 16-byte boundary. Add no full block when already aligned and never use PKCS#7."
+    strictness:
+      challenge_bytes: 2
+      user_key_id_bytes: 1
+      encrypted_read: "Nonempty ciphertext whose length is a multiple of 16; reject short, unaligned, malformed and unknown values."
+      trailing_bytes: "Expected zero padding is ignored after the declared field. Do not feed it into integer decoding. Nonzero trailing bytes are preserved for diagnostics, not silently interpreted."
+    authentication_steps:
+      - "Read a fresh challenge and require len(challenge) == 2."
+      - "plaintext = challenge || 00 * 14 (exactly 16 bytes)."
+      - "ciphertext = AES-128-ECB-encrypt(owner_key, plaintext), exactly 16 bytes."
+      - "payload = ciphertext || 00 00 00 <user_key_id>, exactly 20 bytes; only the final four bytes are clear."
+      - "Write with response to 6acc5502-e631-4069-944d-b8ca7598ad50, then require a valid authenticated motor-battery read before reporting authentication or enabling controls."
+    ordinary_write_steps:
+      - "Authenticate first and obtain explicit attended owner confirmation for lock/unlock/bell tone."
+      - "Read a NEW two-byte challenge for this write; never reuse the authentication challenge or another command's challenge."
+      - "plaintext = challenge || command_data || zero bytes to the next 16-byte boundary; the two challenge bytes count toward block length."
+      - "Encrypt all plaintext blocks with AES-128-ECB and write the ciphertext with response to the command characteristic. Do not append the authentication suffix."
+      - "Read the same characteristic, decrypt and require the intended lock state or bell tone. A write response without valid readback is an unconfirmed operation, not success and not an instruction to retry automatically."
+    read_steps:
+      - "Challenge is plaintext. Every telemetry/state read in this spec is encrypted whole AES blocks."
+      - "Require ciphertext length > 0 and ciphertext length % 16 == 0, decrypt, then parse only the characteristic's declared plaintext format."
+    test_vectors:
+      provenance: "Invented sequential key and nonces, independently reproducible with OpenSSL; no bicycle, owner credential or captured payload."
+      owner_key_hex: "000102030405060708090a0b0c0d0e0f"
+      nist_aes_128:
+        plaintext_hex: "00112233445566778899aabbccddeeff"
+        ciphertext_hex: "69c4e0d86a7b0430d8cdb78070b4c55a"
+      authentication:
+        challenge_hex: "a1b2"
+        plaintext_hex: "a1b20000000000000000000000000000"
+        ciphertext_hex: "f8a7dc84ef92f798d5fb3cb518360975"
+        user_key_id: 42
+        payload_hex: "f8a7dc84ef92f798d5fb3cb5183609750000002a"
+      lock_command:
+        challenge_hex: "0102"
+        command_data_hex: "01"
+        plaintext_hex: "01020100000000000000000000000000"
+        ciphertext_hex: "a3113740eee5fcc2379526ff72b8d6a6"
+      bell_command:
+        challenge_hex: "a1b2"
+        command_data_hex: "16"
+        plaintext_hex: "a1b21600000000000000000000000000"
+        ciphertext_hex: "7590871f28e2ddcf2554af234d58751c"
+      decrypted_reads:
+        - {name: "motor_battery", plaintext_hex: "63000000000000000000000000000000", ciphertext_hex: "cc91702b0b8d72746c1bab01c8eb420e", decoded: 99, unit: "%"}
+        - {name: "module_battery", plaintext_hex: "62000000000000000000000000000000", ciphertext_hex: "12d5896d6dc22b1afec16b2228120af3", decoded: 98, unit: "%"}
+        - {name: "distance", plaintext_hex: "d2040000000000000000000000000000", ciphertext_hex: "ae60846dd3795832f0af896387b9296e", raw_le: 1234, decoded: 123.4, unit: "km"}
+        - {name: "speed", plaintext_hex: "19000000000000000000000000000000", ciphertext_hex: "3ab3667cb687f4fb36c782721ea10268", decoded: 25, unit: "km/h"}
+        - {name: "lock_state", plaintext_hex: "02000000000000000000000000000000", ciphertext_hex: "fb8ae31ba5db9cad97364d8722d47326", decoded: "awaiting_unlock"}
+    openssl_equivalent: "openssl enc -aes-128-ecb -nopad -K <32-hex-owner-key>; add -d to decrypt. Input and output are raw bytes, with zero padding supplied by the caller."
+  omitted_surfaces:
+    models: "S2/X2, S4/X4, S5/A5, S6 and every non-S3/X3 model; the 8e7f1a5x protocol generation."
+    controls: "Assist/power, lights, alarm, speed limit, region, arbitrary sounds, unit/e-shifter/module settings."
+    lifecycle_and_recovery: "Backup code, reset, bonding/rekeying, account recovery and anti-theft bypass."
+    firmware: "OTA and every firmware-upload/upgrade operation."
+
+entities:
+  - platform: "sensor"
+    name: "Motor Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "6acc5541-e631-4069-944d-b8ca7598ad50"
+    state_mapping: {value: "motor_battery"}
+    notes: "Dedicated encrypted-session handler required; format is plaintext after decryption."
+  - platform: "sensor"
+    name: "Module Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "6acc5543-e631-4069-944d-b8ca7598ad50"
+    state_mapping: {value: "module_battery"}
+    notes: "Dedicated encrypted-session handler required; format is plaintext after decryption."
+  - platform: "sensor"
+    name: "Total Distance"
+    device_class: "distance"
+    unit: "km"
+    state_characteristic: "6acc5531-e631-4069-944d-b8ca7598ad50"
+    state_mapping: {value: "distance"}
+  - platform: "sensor"
+    name: "Current Speed"
+    device_class: "speed"
+    unit: "km/h"
+    state_characteristic: "6acc5532-e631-4069-944d-b8ca7598ad50"
+    state_mapping: {value: "speed"}
+    notes: "Read-only telemetry; no speed limit or region control is declared."
+  - platform: "switch"
+    name: "Bicycle Lock"
+    state_characteristic: "6acc5521-e631-4069-944d-b8ca7598ad50"
+    state_mapping:
+      value: "lock_state"
+      on_value: 1
+      off_value: 0
+    commands:
+      turn_on: "lock"
+      turn_off: "unlock"
+    notes: "Advanced attended commands only. Awaiting-unlock (2) is neither on nor off; preserve it as an intermediate/unknown UI state. identify_only prevents generic actuation."
+  - platform: "select"
+    name: "Bell Tone"
+    state_characteristic: "6acc5574-e631-4069-944d-b8ca7598ad50"
+    state_mapping:
+      value: "bell_tone"
+      options:
+        "22": "bell"
+        "23": "party"
+        "24": "boat"
+    commands:
+      select_option: "set_bell_tone"
+    notes: "Advanced attended selection with authenticated readback; identify_only prevents generic writes."
+
+evidence:
+  public_implementations: >
+    pymoof b77518cd4dc813905802f14364c461b31ac88356 supplied the legacy UUID
+    map, AES-128-ECB challenge construction, command bodies and Python read
+    semantics. VanMoofKit d258b2575115f11ccfcfbcb8ecf6dd3c740c30fc
+    independently corroborated authentication, UInt8 speed/battery/enums,
+    UInt32 little-endian distance and readback-after-write behavior. Open-source
+    files are cited in the research handoff, not vendor application internals.
+  offline_validation: >
+    VALIDATION-2026-11-02 records 14 passing upstream pymoof tests and 110
+    independent AES/fake-GATT assertions, including strict-field fixtures,
+    NIST AES-128 and zero-padding boundaries. No physical GATT service set,
+    authentication acceptance, notification, read value or control response
+    was observed. This spec adds independent synthetic OpenSSL vectors.
+  documentation_review: >
+    The retained 25-page S3/X3 FCC user-manual exhibit passed PDF inspection
+    in the source research. It identifies the covered models and ordinary owner
+    operation; it is not evidence for encryption bytes or a reset command.
+  open_questions:
+    - "A scrubbed GATT dump tying this exact legacy service set to S3/X3 firmware, plus authentication success/failure and readback captures."
+    - "Whether the owner key-export service remains available to each account; older and newer exporter hosts must not be conflated."
+    - "Current firmware compatibility and whether any units expose both legacy 6acc55 and newer 8e7f1a5x surfaces."
+  artifacts:
+    - type: "source_review"
+      artifact: "quantsini/pymoof b77518cd4dc813905802f14364c461b31ac88356 (package 0.0.6)"
+      url: "https://github.com/quantsini/pymoof/tree/b77518cd4dc813905802f14364c461b31ac88356"
+      description: "Pinned public Python client; source-derived facts and offline fake-GATT evidence only."
+    - type: "source_review"
+      artifact: "SvenTiigi/VanMoofKit d258b2575115f11ccfcfbcb8ecf6dd3c740c30fc"
+      url: "https://github.com/SvenTiigi/VanMoofKit/tree/d258b2575115f11ccfcfbcb8ecf6dd3c740c30fc"
+      description: "Pinned public Swift client and owner-key exporter; reviewed as source, not built on Linux and not hardware-tested here."
+    - type: "vendor_documentation"
+      artifact: "VanMoof S3 & X3 user manual, FCC exhibit 5127900, 25 pages"
+      url: "https://fccid.co/api/files/s1/2awdq_vm_es3_sec_a_usersmanual_5127900_86012cac9b.pdf"
+      description: "Model and owner-operation reference; no protocol encryption or reset command inferred from it."
+
+remaining_unknowns:
+  - "Exact current S3/X3 firmware range carrying the legacy service set; no live bicycle or current GATT dump was available."
+  - "Authentication acceptance indication beyond a subsequent authenticated read; delivery of the key-index write is not sufficient."
+  - "OS-level BLE bonding requirements, notification behavior and connection exclusivity on current firmware."
+  - "Owner key-export availability and the lifecycle/revocation of an exported user key ID."
+  - "Factory-reset/rekey procedure and exactly what it clears; deliberately no candidate procedure is published."
+  - "Battery-state enums and all surfaces listed in protocol_details.omitted_surfaces; their omission is intentional, not a claim that they do not exist."
+
+helpful_urls:
+  - title: "VanMoof S3 & X3 user manual (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/2awdq_vm_es3_sec_a_usersmanual_5127900_86012cac9b.pdf"
+    kind: "manual"
+    description: "The 25-page S3/X3 owner manual for the exact models in this spec; reviewed locally and link checked before inclusion. It does not document the BLE cipher."
+  - title: "pymoof S3/X3 client (pinned)"
+    url: "https://github.com/quantsini/pymoof/tree/b77518cd4dc813905802f14364c461b31ac88356"
+    kind: "implementation"
+    description: "Public Python source for the legacy GATT map, AES-128-ECB authentication, telemetry and bounded command bodies."
+  - title: "VanMoofKit (pinned)"
+    url: "https://github.com/SvenTiigi/VanMoofKit/tree/d258b2575115f11ccfcfbcb8ecf6dd3c740c30fc"
+    kind: "implementation"
+    description: "Public Swift client and owner-key exporter; independent cross-check for field widths, enums and post-write reads."
