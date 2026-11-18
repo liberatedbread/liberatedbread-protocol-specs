@@ -139,6 +139,7 @@ spec's `device.setup` block; the patterns are explained in
 | [iPixel Color LED Panels](ipixel-color-led-panel.md) | BLE | Spec Available | None needed | TIRO / Heaton (JTPD-03-011, HCZ-001/002 SKUs) |
 | [Triones / HappyLighting LED Strips](qh-happylighting-led-strips.md) | BLE | Spec Available | None needed | Qianghe (QHM) |
 | [Tuya Bluetooth Soil Tester](tuya-bt-soil-tester.md) | BLE (encrypted GATT) | Spec Available | Tuya pairing + local key (medium) | Tuya OEM (HaiHao SGS01) |
+| [Adaprox Fingerbot / Fingerbot Plus](adaprox-fingerbot.md) | BLE (Tuya v3 encrypted GATT) | Identify-only (untested) | Vendor binding + local key; attended actuation only (medium) | Adaprox |
 | [Zigbee Soil Tester (TS0601 family)](zigbee-soil-tester.md) | Zigbee | Spec Available | Any Zigbee coordinator — Z2M native (low) | Tuya OEM (GIEX/HOBEIAN/COOLO) |
 | [Vevor VT256 Thermal Imager](vevor-vt256-thermal-imager.md) | WiFi (device AP; RTSP + TCP 8080) | Spec Available | Join device AP (low) | Vevor / Hti-Xintai HT-W01 |
 | [Flowtoys Props (Connect bridge)](flowtoys-props.md) | BLE + WiFi-OSC bridge → nRF24 RF | Spec Available | None needed (bridge) | Flowtoys (open-source bridge firmware) |

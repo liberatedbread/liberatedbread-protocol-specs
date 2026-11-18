@@ -1,0 +1,560 @@
+# Adaprox Fingerbot — Tuya BLE v3 protocol specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Adaprox Fingerbot / Fingerbot Plus (BLE)"
+  manufacturer: "Adaprox"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No Fingerbot, GATT dump, pairing session, motor actuation or firmware
+      update was exercised by this project. Product layouts and the vendor
+      fragment-nibble difference are reported research; the only local checks
+      are independent encodings of the synthetic vectors below.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "switch"
+  type: "button-pusher"
+  integration: "identify_only"
+  aliases: ["Fingerbot", "Fingerbot Plus", "ADFB0301", "Tuya BLE Fingerbot"]
+  safety_advisory:
+    severity: "warning"
+    summary: "A Fingerbot moves a real arm and can operate whatever button or switch it is mounted on."
+    detail: >
+      Keep the mechanism and the controlled appliance under direct observation
+      during any actuation or scheduled-program test. Do not test on a heater,
+      cooker, door, power tool or other load whose unexpected operation could
+      cause harm. This spec is identify_only because a dedicated encrypted
+      session handler is required; it does not offer unattended actuation.
+  notes: >
+    This entry covers only the three reported protocol-3 product IDs and DP
+    layouts below. It does not infer support from a generic Fingerbot name.
+    Discovery uses Tuya service data 0xA201 together with manufacturer company
+    ID 0x07D0. The protocol-3 GATT layout is service 0x1910, write 0x2B11 and
+    notify 0x2B10; the association between a physical model, product ID, DP
+    layout and GATT layout remains reported until a device-info/GATT dump is
+    collected. Other Tuya protocol generations and other button-pushers are
+    deliberately outside this entry.
+
+    A stock unit must first be bound in the vendor app. Local control then
+    needs its device ID and cloud-issued local key. The first six local-key
+    characters are the v3 secret: login_key = MD5(secret), and the session key
+    is MD5(secret || the six-byte device_random returned by device-info).
+    Every normal DP write needs that stateful encrypted session, so the
+    commands below are documentation for a dedicated handler, not fixed GATT
+    writes for a generic renderer.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/redphx/poc-tuya-ble-fingerbot"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/redphx/poc-tuya-ble-fingerbot"
+        title: "Tuya BLE Fingerbot proof of concept"
+        covers: "Protocol-3 encryption, fragmentation, device-info/pair exchange and the DP2/DP101 actuation vocabulary."
+      - url: "https://github.com/PlusPlus-ua/python-tuya-ble"
+        title: "python-tuya-ble"
+        covers: "Maintained independent transcription of the v3 wire envelope, CRC, session derivation and DP records."
+      - url: "https://github.com/timlaing/ha_tuya_ble"
+        title: "ha_tuya_ble product descriptors"
+        covers: "Reported product IDs, model names and the layout-specific sustain-time scaling."
+    notes: >
+      The protocol was recovered by community implementations and vendor-app
+      research, not published as an Adaprox local API. No vendor source or app
+      artifact is included here.
+  identification:
+    manufacturer_data:
+      company_id: 2000
+      company_id_hex: "0x07D0"
+      description: >
+        Tuya's company ID corroborates the service-data match; it does not by
+        itself distinguish a Fingerbot from another Tuya BLE product.
+    notes: >
+      Require both advertisement signals in discovery. Do not require an
+      advertised GATT service UUID: the relevant pre-connect evidence is
+      service data 0xA201 plus company 0x07D0. Select one of the three product
+      IDs only after the vendor binding supplies it or a device-info exchange
+      establishes it.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_data:
+            - "0000a201-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 2000
+            description: "Tuya company ID 0x07D0; identity only, no arm state."
+        verification: "reported"
+        notes: >
+          This is a Tuya platform match, not sufficient proof of an Adaprox
+          model. Do not send an actuation until product ID and the protocol-3
+          GATT layout have been verified after connection.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: "CoreBluetooth may expose only a per-host peripheral identifier."
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Initial binding needs the vendor app/account. Later local sessions need
+      the device ID and local key extracted once from the owner's Tuya IoT
+      project. No Wi-Fi credential exists on the Fingerbot itself.
+    methods:
+      - type: "ble_direct"
+        name: "Vendor binding, then a dedicated local v3 session"
+        role: "primary"
+        verified: false
+        description: >
+          Bind in Smart Life/Tuya Smart or the applicable Adaprox app, export
+          the device ID/local key, and use a dedicated encrypted-session
+          implementation. A generic unencrypted GATT write is not a fallback.
+        stages:
+          - type: "ble_provisioning"
+            name: "Bind and export the owner credentials"
+            verified: false
+            description: "Create the vendor binding and retrieve the per-device credentials from the owner's cloud project."
+            ble:
+              pairing_required: false
+              service_uuid: "00001910-0000-1000-8000-00805f9b34fb"
+              write_characteristic: "00002b11-0000-1000-8000-00805f9b34fb"
+              read_characteristic: "00002b10-0000-1000-8000-00805f9b34fb"
+            steps:
+              - action: "Install batteries or charge the unit and keep its arm unobstructed."
+                actor: "user"
+              - action: "Bind the Fingerbot in the vendor app while it advertises in pairing mode."
+                actor: "user"
+                expect: "The device is associated with the owner's account; no motor test is required."
+              - action: "Export the device ID and 16-character local key from the owner's Tuya IoT project and store them in a secret store."
+                actor: "user"
+                expect: "Both credentials are available to the dedicated local client; no real credential is recorded in this spec."
+          - type: "ble_direct"
+            name: "Establish the encrypted session without actuating"
+            verified: false
+            description: "Use the protocol-3 GATT endpoints and the device-info/session exchange before reading DPs."
+            ble:
+              pairing_required: false
+              service_uuid: "00001910-0000-1000-8000-00805f9b34fb"
+              write_characteristic: "00002b11-0000-1000-8000-00805f9b34fb"
+              read_characteristic: "00002b10-0000-1000-8000-00805f9b34fb"
+            steps:
+              - action: "Close other companion connections, connect to service 0x1910 and subscribe to 0x2B10 notifications."
+                actor: "client"
+                expect: "The protocol-3 service and both expected characteristics are present; stop if they are not."
+              - action: "Send device-info function 0x0000 with security flag 4, derive the session key from the returned six-byte device_random, then complete PAIR function 0x0001."
+                actor: "client"
+                expect: "PAIR succeeds or reports an existing binding; no arm movement is needed."
+              - action: "Read device status/DPs and confirm the product ID and reported DP layout before enabling any attended actuation command."
+                actor: "client"
+                expect: "The observed layout matches exactly one product entry below."
+        troubleshooting:
+          - symptom: "Discovery finds the unit but service 0x1910 is absent."
+            causes:
+              - "The unit is not the protocol-3 profile covered here; stop rather than substituting another Tuya GATT layout."
+          - symptom: "Writes are ignored or notifications cannot be decrypted."
+            causes:
+              - "The wrong local key, security flag, session random, CRC byte order or fragment reassembly was used."
+              - "Another app holds the single BLE connection."
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        Removes the vendor binding and invalidates the current local session
+        credential. A later binding issues replacement credentials. Whether all
+        stored timers/week programs survive is unknown; do not use reset as a
+        schedule-clearing operation.
+      procedures:
+        - name: "Vendor-app unbind/reset"
+          verified: false
+          basis: "Reported Tuya BLE UNBIND 0x0005 and DEVICE_RESET 0x0006 function codes; not run on a Fingerbot here."
+          steps:
+            - action: "Remove/reset the Fingerbot from its device settings in the vendor app; do not actuate the arm."
+              actor: "user"
+              expect: "The unit returns to pairing-mode advertisement and the old local session stops authenticating."
+        - name: "Physical reset sequence"
+          verified: false
+          basis: "No model-specific physical reset sequence was established; this is an explicit gap, not a recommended hold time."
+          steps:
+            - action: "Do not infer a button hold from another Fingerbot or Tuya product; use the vendor-app route or consult the exact model guide."
+              actor: "user"
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        There is no Wi-Fi network to rejoin. Moving to another vendor account
+        means unbind/reset, bind again, export the replacement device ID/local
+        key and establish a new local session.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Vendor binding identity and the local-key-derived secret"
+        - "Session random/state and user DP configuration"
+      issued_to_client:
+        - "Device ID and 16-character local key exported from the owner's cloud project"
+        - "Per-connection login/session keys derived locally, never reusable captured keys"
+      notes: >
+        The local key is a password equivalent. Do not log it, PAIR payloads,
+        device_random-derived session keys, real MAC addresses or owner account
+        data. The vector below uses an invented key only.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: "There is no Bluetooth PIN; authorization is the per-device vendor credential and encrypted PAIR/session exchange."
+    exclusivity:
+      single_connection: true
+      single_bond: true
+      recovery: "Close the vendor app/other local client and reconnect. If the unit belongs to another account, its owner must unbind it or it must be reset; a new binding replaces the local credential."
+      notes: "Single connection is reported platform behavior, not project-verified model behavior. single_bond refers to the one vendor binding, not an OS Bluetooth bond."
+    enter_pairing_mode:
+      required: true
+      notes: "A factory-fresh/reset unit advertises for binding. For an already-bound unit the established route is vendor-app unbind/reset; no universal physical hold is asserted."
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      clears: "The vendor binding and current local credential; schedule survival is not established."
+      notes: "Unbinding and reset are the same established route here; there is no separate non-destructive local unpair operation."
+  variants:
+    - model: "Fingerbot original (ltak7e1p)"
+      identification:
+        product_id: "ltak7e1p"
+      notes: "Reported original Fingerbot product. Uses layout original_tenths below; confirm with a device-info/DP dump."
+    - model: "Adaprox Fingerbot USB-C (y6kttvd6)"
+      identification:
+        product_id: "y6kttvd6"
+      notes: "Reported Adaprox built-in-battery/USB-C product. Uses layout adaprox_low_schedule below; this schedule association still needs a dump."
+    - model: "Adaprox Fingerbot Plus (blliqpsj)"
+      identification:
+        product_id: "blliqpsj"
+      notes: "Reported ADFB0301 Plus product. Uses layout plus_seconds below, including whole-second sustain time and DP121 loop support."
+
+protocol_handler: "tuya_ble"
+
+initialization:
+  - characteristic: "00002b10-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Notifications are fragments, not complete packets; reassemble before decryption."
+  - description: >
+      Run device-info 0x0000 under login_key with security flag 4, read the
+      six-byte device_random, derive session_key = MD5(secret ||
+      device_random), then use security flag 5 for PAIR and normal DP traffic.
+      This stateful exchange cannot be represented as fixed initialization bytes.
+
+services:
+  - uuid: "00001910-0000-1000-8000-00805f9b34fb"
+    name: "Tuya BLE protocol-3 service (reported model mapping)"
+    verification: "reported"
+    notes: >
+      This is the only GATT service declared for this Adaprox entry. Do not
+      replace it with a service from another Tuya protocol generation. The
+      physical-model association remains pending a real GATT/device-info dump.
+    characteristics:
+      - uuid: "00002b11-0000-1000-8000-00805f9b34fb"
+        name: "Encrypted host writes"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          Logical packets follow protocol_details.tuya_ble_v3. Commands have
+          no value/template deliberately: sequence, response correlation, IV,
+          session key and fragmentation are connection state, not constants.
+        commands:
+          device_info:
+            description: "Read device info with function 0x0000 and security flag 4; derive the session key from the returned six-byte device_random."
+            verification: "reported"
+          pair:
+            description: "Complete PAIR function 0x0001 under security flag 5 with the owner UUID, six-character secret and device ID padded to 44 bytes."
+            verification: "reported"
+          dp_query:
+            description: "Query current DPs with function 0x0002; decode reports on 0x2B10 without triggering the arm."
+            verification: "reported"
+          press:
+            description: "Attended click using DP101 BOOL true in push/click mode. Do not send together with toggle as a fallback; select from the observed layout."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Moves the actuator and the attached button/switch. Use only with the mechanism and controlled appliance under direct observation."
+          toggle:
+            description: "Attended DP2 BOOL write in switch mode; state/mode must be read first so this does not produce an unintended second actuation."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes and physically operates the attached switch. Attend the action and verify the current DP mode/state first."
+          set_mode:
+            description: "Set DP8 ENUM: 0 click/push, 1 switch, 2 program. This changes how later DP2/DP101 writes behave."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes actuator behavior and can make a later write move the arm unexpectedly; attend and verify the mechanical installation."
+          set_movement:
+            description: "Set down movement DP9 and up movement DP15 as percentages using the selected product layout; read current values before changing either."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes physical travel and may make the arm strike or overdrive the attached control; adjust only while observing clearance."
+          set_sustain:
+            description: "Set DP10 using the selected layout's scale: 0.1 s/raw unit for original_tenths and adaprox_low_schedule, 1 s/raw unit for plus_seconds."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes how long the arm holds the attached control; an incorrect layout can multiply the hold by ten."
+          set_timer:
+            description: "Write one raw timer [operation u8][seconds u32be] to DP3 on adaprox_low_schedule or DP111 on the other layouts; a timer can later actuate without a phone."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Schedules unattended physical actuation. Use an inert test installation and attend the first firing."
+          set_week_program:
+            description: "Write [operation u8][days+enable u8][hour u8][minute u8][second u8] to DP4-7 on adaprox_low_schedule or DP112-115 on the other layouts; weekday bit ordering is not asserted."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Creates recurring unattended physical actuation. Keep the first schedule under observation and do not guess weekday bits."
+          set_loop:
+            description: "Set the reported DP121 loop control on plus_seconds after reading its current representation; no category-kg adaptive-movement meaning is imported."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Can repeat physical actuation without further commands. Test only on an inert installation with a person present to stop it."
+          unbind:
+            description: "UNBIND function 0x0005; invalidates the current vendor/local credential."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Removes local access until the unit is bound again and replacement credentials are exported."
+          device_reset:
+            description: "DEVICE_RESET function 0x0006; schedule survival and physical reset behavior are unverified."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Resets the vendor binding and may affect stored configuration; back up credentials/settings first."
+          ota_transfer:
+            description: "Reported Tuya OTA functions 0x000C-0x0010 inside the encrypted session; exact image/package behavior is not established for these products."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "A wrong or interrupted image can disable the actuator's radio. No production update or recovery claim is made."
+      - uuid: "00002b10-0000-1000-8000-00805f9b34fb"
+        name: "Encrypted notifications"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Reassemble varint fragments, select the key by security flag, verify
+          CRC16/MODBUS before consuming the declared data, and ignore zero
+          padding after the two CRC bytes. DP reports use function 0x8001;
+          time requests 0x8011/0x8012 need a response for schedules to keep
+          the intended clock.
+
+protocol_details:
+  tuya_ble_v3:
+    verification: "reported"
+    advertisement:
+      service_data_uuid: "0xA201"
+      manufacturer_company_id: "0x07D0"
+      notes: "Identity only; do not assume an advertised GATT service UUID or broadcast arm/battery state."
+    gatt:
+      protocol: 3
+      service: "0x1910"
+      write: "0x2B11"
+      notify: "0x2B10"
+      model_mapping: "reported_pending_device_info_and_gatt_dump"
+    authentication:
+      secret: "ASCII bytes of the first six characters of the 16-character local key"
+      login_key: "MD5(secret), 16 raw digest bytes"
+      session_key: "MD5(secret || device_random), where device_random is exactly six bytes from device-info"
+      security_flags: {4: "login_key for device-info", 5: "session_key for PAIR and normal DP traffic"}
+      pair_payload: "UUID || six-character secret || device ID, zero-padded to 44 bytes; UUID is not a session-KDF input"
+    wire:
+      plaintext: "[sequence u32be][response-to u32be][function u16be][data length u16be][data][CRC16 u16be]"
+      crc: "CRC-16/MODBUS: reflected polynomial 0xA001, initial 0xFFFF, no final xor, over sequence through data; append the resulting u16 big-endian"
+      padding: "Append zero bytes after CRC to the next AES block boundary; no padding-length byte and no extra block when already aligned"
+      encryption: "AES-128-CBC under the flag-selected key and a fresh random 16-byte IV; encrypted envelope is [security flag u8][IV 16][ciphertext]"
+      validation: "After decryption require sufficient bytes, exact declared data length and matching CRC; discard only zero padding after the two CRC bytes"
+    fragmentation:
+      varint: "Unsigned LEB128/base-128, seven payload bits per byte, continuation bit 0x80; at most four bytes for packet number and five for total length"
+      first_write: "[packet number varint = 0][total encrypted-envelope length varint][protocol nibble][envelope bytes...]"
+      later_writes: "[monotonically increasing packet number varint][next envelope bytes...]"
+      mtu: 20
+      reassembly: "Buffer exactly the declared envelope length across independent writes; reject missing/out-of-order/oversized fragments rather than decrypting a prefix"
+      nibble_discrepancy: >
+        Vendor protocol-3 framing reports 0x20 while the maintained community
+        implementation emits protocol_version << 4, hence 0x30 for v3. Preserve
+        this as an unresolved interoperability difference; do not silently
+        normalize captures. The frozen concatenated writes below retain 0x30.
+    dp_records:
+      layout: "[DP id u8][type u8][payload length u8][payload, exactly length bytes]"
+      types: "RAW=0x00, BOOL=0x01, VALUE=0x02, STRING=0x03, ENUM=0x04, BITMAP=0x05"
+      signedness: "Decode VALUE/ENUM as signed big-endian integers of the declared length; encode VALUE writes as signed four-byte big-endian"
+      scope: "Protocol-3 records only; do not generalize to DP_V4"
+    function_codes:
+      host_to_device: {0x0000: "device-info", 0x0001: "PAIR", 0x0002: "DPS query/set", 0x0003: "device status", 0x0005: "UNBIND", 0x0006: "DEVICE_RESET", 0x000C..0x0010: "OTA"}
+      device_to_host: {0x8001: "DP report", 0x8011: "time request", 0x8012: "time request v2"}
+    test_vectors:
+      crc16_modbus:
+        input_ascii: "123456789"
+        expected_hex: "4b37"
+      device_info:
+        description: "Synthetic independent vector; no real device, account or credential. Concatenate the two GATT writes to compare with expected_concatenated_writes_hex."
+        local_key_ascii: "abcdef0123456789"
+        secret_ascii: "abcdef"
+        login_key_md5_hex: "e80b5017098950fc58aad83c8c14978e"
+        sequence: 1
+        response_to: 0
+        function: "0x0000"
+        data_hex: ""
+        security_flag: 4
+        iv_hex: "000102030405060708090a0b0c0d0e0f"
+        plaintext_with_crc_hex: "0000000100000000000000009269"
+        zero_padding_hex: "0000"
+        community_fragment_nibble: "0x30"
+        vendor_fragment_nibble: "0x20"
+        gatt_write_lengths: [20, 17]
+        expected_encrypted_envelope_hex: "04000102030405060708090a0b0c0d0e0ff8bc69d43b1f0e3bf28ac34ec4aa2723"
+        expected_concatenated_writes_hex: "00213004000102030405060708090a0b0c0d0e0f01f8bc69d43b1f0e3bf28ac34ec4aa2723"
+
+  dp_layouts:
+    verification: "reported"
+    selection: "Select by product ID and confirm against a device-info/DP dump before any write; never try layouts by actuating the arm."
+    common:
+      click_dp: {id: 101, type: "bool", access: "rw", notes: "Single click in push/click mode; not a second write to send after DP2."}
+      toggle_dp: {id: 2, type: "bool", access: "rw", notes: "Switch/program action in the applicable mode; read current state/mode first."}
+      mode_dp: {id: 8, type: "enum", access: "rw", values: {0: "click/push", 1: "switch", 2: "program"}}
+      down_movement_dp: {id: 9, type: "value", access: "rw", unit: "%", min: 50, max: 100}
+      up_movement_dp: {id: 15, type: "value", access: "rw", unit: "%", min: 0, max: 50}
+      battery_dp: {id: 12, type: "value", access: "ro", unit: "%", min: 0, max: 100}
+      invert_dp: {id: 11, type: "bool", access: "rw", notes: "Reverse up/down meaning in switch mode; not an unattended calibration command."}
+    original_tenths:
+      applies_to_product_ids: ["ltak7e1p"]
+      sustain_dp: {id: 10, type: "value", access: "rw", unit: "s", scale: 0.1, raw_min: 0, raw_max: 100, decoded_min: 0, decoded_max: 10}
+      timer_dp: 111
+      week_program_dps: [112, 113, 114, 115]
+      loop_dp: {id: 121, support: "not asserted for this original model"}
+    adaprox_low_schedule:
+      applies_to_product_ids: ["y6kttvd6"]
+      sustain_dp: {id: 10, type: "value", access: "rw", unit: "s", scale: 0.1, raw_min: 0, raw_max: 100, decoded_min: 0, decoded_max: 10}
+      timer_dp: 3
+      week_program_dps: [4, 5, 6, 7]
+      loop_dp: {id: 121, support: "reported only; representation and availability need a dump"}
+    plus_seconds:
+      applies_to_product_ids: ["blliqpsj"]
+      sustain_dp: {id: 10, type: "value", access: "rw", unit: "s", scale: 1, raw_min: 0, raw_max: 10, decoded_min: 0, decoded_max: 10}
+      timer_dp: 111
+      week_program_dps: [112, 113, 114, 115]
+      manual_control_dp: {id: 17, type: "bool", access: "rw"}
+      loop_dp: {id: 121, support: "reported Plus loop control; read its current representation before writing"}
+    raw_timer:
+      layout: "[operation u8][seconds u32be]"
+      length_bytes: 5
+      operations: {0: "cancel", 1: "click", 2: "switch on", 3: "switch off", 4: "program on", 5: "program off"}
+      synthetic_vector: {operation: 1, seconds: 300, expected_hex: "010000012c"}
+    week_program:
+      layout: "[operation u8][days+enable u8][hour u8][minute u8][second u8]"
+      length_bytes: 5
+      operations: "Same operation codes as raw_timer"
+      days_enable: "One opaque weekday-mask/enable byte for this spec; bit-to-weekday ordering is unresolved and deliberately not guessed"
+      synthetic_vector: {operation: 1, days_enable_hex: "81", hour: 6, minute: 30, second: 0, expected_hex: "0181061e00", note: "0x81 is an encoding fixture only, not a weekday assertion"}
+    dp_examples:
+      click: {record_hex: "65010101", decode: "DP101 BOOL length 1 true"}
+      toggle: {record_hex: "02010101", decode: "DP2 BOOL length 1 true"}
+      original_sustain_5_seconds: {record_hex: "0a020400000032", decode: "DP10 VALUE raw 50 -> 5.0 s at scale 0.1"}
+      plus_sustain_5_seconds: {record_hex: "0a020400000005", decode: "DP10 VALUE raw 5 -> 5 s at scale 1"}
+
+  legacy_asb_abb_plaintext:
+    verification: "reported"
+    status: "optional_separate_legacy_surface_not_established_for_the_three_products_above"
+    framing: "ASCII '*' || code || payload || '$' (literal form: *<code><payload>$)"
+    transport: "Legacy ASB/ABB serial/BLE profile; service UUIDs, discovery, code meanings and model applicability are not established"
+    notes: >
+      This optional plaintext note is not the Tuya encrypted DP protocol above
+      and is not SwitchBot's protocol. Do not send these frames to 0x2B11, do
+      not wrap them in AES/Tuya fragmentation, and do not treat a SwitchBot
+      parser as an ASB/ABB implementation. No commands are declared.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["tuya_ble_ota"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "No image has been inspected and no production firmware activation/update claim is made."
+      enter:
+        how: "command"
+        command: "ota_transfer"
+      dfu_mode:
+        notes: "No separate bootloader identity or model-specific update mode is established."
+      recovery:
+        interrupted: "unknown"
+        notes: "No verified recovery path is documented; do not test an update on an installed actuator."
+      verification: "reported"
+      notes: "Only generic reported Tuya OTA function codes are recorded; this entry does not assert a safe Adaprox update implementation."
+
+local_access:
+  status: "native"
+  summary: >
+    After one-time vendor binding/key export, protocol-3 monitoring and control
+    are technically local over BLE. This catalogue entry is identify_only
+    because the mobile app has no dedicated stateful Tuya session handler and
+    every actuation requires attendance, not because the vendor protocol is a
+    cloud-only LAN API.
+  covers:
+    - "Reported advertisement matching, protocol-3 GATT endpoints and encrypted framing"
+    - "Independent synthetic crypto/CRC/fragment and DP/raw-schedule vectors"
+  not_covered:
+    - "Production-ready unattended actuation, generic fixed-byte writes, protocol 4, CubeTouch, weekday ordering or production firmware updates"
+    - "Legacy ASB/ABB discovery and command semantics"
+
+remaining_unknowns:
+  - "Real GATT and device-info dumps tying each physical model/product ID to the reported protocol-3 GATT and DP layout, especially y6kttvd6's DP3/4-7 schedule mapping."
+  - "Whether devices accept fragment nibble 0x20, 0x30, or both; preserve and test each rather than silently normalizing."
+  - "Weekday bit ordering and the enable bit in the week-program days+enable byte, plus DP121 loop representation outside the reported Plus profile."
+  - "Physical factory-reset behavior, schedule survival across reset/rebinding, and connection limits across all three products."
+  - "Protocol 4 and CubeTouch are deliberately out of scope and need separate evidence/specs, not fallback mappings here."
+  - "Legacy ASB/ABB transport UUIDs, product applicability and code/payload semantics; its plaintext framing is not a Tuya or SwitchBot command surface."
+  - "Model-specific OTA image format, signature enforcement and interrupted-update recovery."
+
+helpful_urls:
+  - title: "redphx/poc-tuya-ble-fingerbot"
+    url: "https://github.com/redphx/poc-tuya-ble-fingerbot"
+    kind: "implementation"
+    description: "Reported protocol-3 Fingerbot transport and DP101/DP2 actuation proof of concept; not hardware verification by this project."
+  - title: "PlusPlus-ua/python-tuya-ble"
+    url: "https://github.com/PlusPlus-ua/python-tuya-ble"
+    kind: "implementation"
+    description: "Independent maintained implementation used to cross-check the v3 envelope, CRC, fragmentation and session derivation."
+  - title: "timlaing/ha_tuya_ble product descriptors"
+    url: "https://github.com/timlaing/ha_tuya_ble/tree/main/custom_components/tuya_ble/device_descriptors"
+    kind: "implementation"
+    description: "Per-product Fingerbot descriptors, including original 0.1-second and Plus whole-second sustain scaling."
+  - title: "PlusPlus-ua/ha_tuya_ble issue #9 — ltak7e1p DP listing"
+    url: "https://github.com/PlusPlus-ua/ha_tuya_ble/issues/9"
+    kind: "forum"
+    description: "Owner-reported original-Fingerbot DP list, including DP111 timer and DP112-115 week programs."
+  - title: "Adaprox Fingerbot Plus loop-program guide"
+    url: "https://www.adaprox.io/blogs/articles/set-up-a-loop-program-for-fingerbot-plus"
+    kind: "vendor_support"
+    description: "Vendor guide establishing that loop programming is a Plus feature; no wire representation is verified by this link."
+
+evidence:
+  documentation_review: >
+    Public Fingerbot/Tuya implementations were compared for the protocol-3
+    envelope, product IDs and scaling. Reported vendor research supplies the
+    alternate low-numbered schedule layout and the 0x20/0x30 fragment-nibble
+    discrepancy. None of those sources is treated as this project's hardware
+    verification, and no production activation or update was attempted.
+  open_questions: >
+    The low-numbered schedule association, model/GATT mapping, weekday bits,
+    DP121 representation outside Plus and fragment-nibble acceptance all need
+    owner-controlled dumps/captures before an implementation enables writes.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "redphx/poc-tuya-ble-fingerbot at 5e2f4cd0062aceda46b54b5355521020b4a0f12d"
+      url: "https://github.com/redphx/poc-tuya-ble-fingerbot"
+      description: "Protocol-3 packet construction, security flags, MD5 derivations, fragmentation and DP action names."
+    - type: "public_implementation"
+      artifact: "PlusPlus-ua/python-tuya-ble main, reviewed 2026-11-18"
+      url: "https://github.com/PlusPlus-ua/python-tuya-ble"
+      description: "Independent transport cross-check and the community protocol_version << 4 nibble behavior."
+    - type: "public_implementation"
+      artifact: "timlaing/ha_tuya_ble descriptors, reviewed 2026-11-18"
+      url: "https://github.com/timlaing/ha_tuya_ble"
+      description: "Per-product DP controls and sustain scaling; upstream behavior is reported, not replayed here."
+    - type: "community_thread"
+      artifact: "PlusPlus-ua/ha_tuya_ble issue #9"
+      url: "https://github.com/PlusPlus-ua/ha_tuya_ble/issues/9"
+      description: "Owner-reported ltak7e1p datapoints and product identification; private owner identifiers are not reproduced."

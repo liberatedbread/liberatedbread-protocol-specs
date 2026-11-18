@@ -7,6 +7,8 @@ import math
 import struct
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -254,3 +256,84 @@ def test_pvvx_custom_widths_and_vector_without_losing_newer_firmware_facts():
     assert "release 5.9" in text
     assert "Telink Flasher" in text
     assert "12 bytes for MiBeacon v2/v3" in text
+
+
+def test_tuya_soil_protocol_specific_gatt_and_sgs01b_boundary():
+    document = yaml.safe_load(spec("tuya-bt-soil-tester"))
+    assert document["device"]["integration"] == "identify_only"
+    assert document["device"]["testing"]["status"] == "untested"
+    services = {service["uuid"]: service for service in document["services"]}
+    assert set(services) == {
+        "00001910-0000-1000-8000-00805f9b34fb",
+        "0000fd50-0000-1000-8000-00805f9b34fb",
+    }
+
+    def characteristic_ids(service):
+        return {item["uuid"] for item in service["characteristics"]}
+
+    legacy = services["00001910-0000-1000-8000-00805f9b34fb"]
+    current = services["0000fd50-0000-1000-8000-00805f9b34fb"]
+    assert characteristic_ids(legacy) == {
+        "00002b11-0000-1000-8000-00805f9b34fb",
+        "00002b10-0000-1000-8000-00805f9b34fb",
+    }
+    assert characteristic_ids(current) == {
+        "00000001-0000-1001-8001-00805f9b07d0",
+        "00000002-0000-1001-8001-00805f9b07d0",
+    }
+    for characteristic in current["characteristics"]:
+        assert "commands" not in characteristic
+
+    discovery = document["device"]["discovery"]["methods"][0]["ble"]
+    assert discovery["service_data"] == [
+        "0000a201-0000-1000-8000-00805f9b34fb"
+    ]
+    assert discovery["manufacturer_data"]["company_id"] == 0x07D0
+    assert "service_uuids" not in discovery
+    assert "service_uuids" not in document["device"]["identification"]
+
+    mappings = document["protocol_details"]["tuya_ble_protocol"]["gatt"]
+    assert mappings["protocol_le_3"] == {
+        "service": "0x1910",
+        "write_characteristic": "0x2B11",
+        "notify_characteristic": "0x2B10",
+    }
+    assert mappings["protocol_4"] == {
+        "service": "0xFD50",
+        "write_characteristic": "00000001-0000-1001-8001-00805f9b07d0",
+        "notify_characteristic": "00000002-0000-1001-8001-00805f9b07d0",
+    }
+    ota_notes = document["features"][0]["dfu"]["enter"]["notes"]
+    assert "0x2B11 within service 0x1910" in ota_notes
+    assert "00000001-0000-1001-8001-00805f9b07d0" in ota_notes
+    assert "exact OTA exchange is not established" in " ".join(ota_notes.split())
+
+    variants = {
+        variant["identification"]["product_id"]: variant
+        for variant in document["device"]["variants"]
+        if "identification" in variant
+    }
+    sgs01b = variants["gpkyrocn"]
+    sgs01b_notes = " ".join(sgs01b["notes"].split())
+    assert "BTU" in sgs01b_notes
+    assert "TLSR8250" in sgs01b_notes
+    assert "V1.1Pre2 development image" in sgs01b_notes
+    assert "not a production-ready release" in sgs01b_notes
+    assert "per-model reported boundary" in sgs01b_notes
+    assert "NOT support" not in sgs01b["notes"]
+
+    page = doc("tuya-bt-soil-tester")
+    assert "`gpkyrocn`" in page
+    assert "Tuya BTU" in page
+    assert "V1.1Pre2 development image" in page
+    assert "not production-ready" in page
+    assert "it does NOT support the 2026 SGS01B" not in page
+    for uuid in (
+        "00001910-0000-1000-8000-00805f9b34fb",
+        "00002b11-0000-1000-8000-00805f9b34fb",
+        "00002b10-0000-1000-8000-00805f9b34fb",
+        "0000fd50-0000-1000-8000-00805f9b34fb",
+        "00000001-0000-1001-8001-00805f9b07d0",
+        "00000002-0000-1001-8001-00805f9b07d0",
+    ):
+        assert uuid in page
