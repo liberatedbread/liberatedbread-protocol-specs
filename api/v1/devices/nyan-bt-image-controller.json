@@ -14,7 +14,7 @@
     "manufacturer": "NYAN GEAR / LOY SPACE / popled.cn",
     "manufacturer_status": "active",
     "name": "NYAN BT Image Controller",
-    "notes": "BLE-only variant of the LOY SPACE protocol (identical to AUTOBABA LED Backpack). Vendor-confirmed white-label reskin of the LOY SPACE platform with BLE-only mode (no Wi-Fi): NYAN's own product page tells users to download the LOY space app for the same backpack. BLE device name starts with \"YS\" or \"TL\". Wire frame (hardware-verified by samrodrigues/loy-space-protocol and icedac/open-loyspace): BLE writes carry an outer u16-LE total-length prefix, then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE), sno (u16-LE), flags (0xC1), subflag, ...payload, checksum (u16-LE)]. Every frame ends with a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF, little-endian); the device silently rejects bad checksums. Notifications omit the outer prefix. Commands are JSON objects app-side, serialized to binary TLV opcodes on the wire — the JSON text itself never crosses the link. Image/program upload is GIF89a streamed in 960-byte chunks (a 24-bit BMP encoder exists app-side as a conversion artifact, but BMP is not the wire format). Resolution: vendor documents 64x64 (backpack) and 16x16 (leg bag). Chunked at ~180 bytes per BLE write. Backend: store-cdn.popled.cn. rt_draw (real-time pixel draw), game and pwd (password) are shared LOY SPACE platform opcodes (indices 32/31/42 in the platform app's 45-entry dispatch table), not NYAN-specific additions. Vendor ecosystem active: NYAN GEAR app updated 2025-12-04, vendor store selling, backend CDN live. CONFIDENCE: HIGH — service/char UUIDs, name prefixes and command JSON verified in the uni-app app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2, NotifyId 0000FFF1; rt_draw/game/pwd/dev_info/del_all/value_fix tokens present); wire framing cross-checked against two independent hardware-verified RE repos.\n",
+    "notes": "BLE-only variant of the LOY SPACE protocol (identical to AUTOBABA LED Backpack). Vendor-confirmed white-label reskin of the LOY SPACE platform with BLE-only mode (no Wi-Fi): NYAN's own product page tells users to download the LOY space app for the same backpack. BLE device name starts with \"YS\" or \"TL\". Wire frame (hardware-verified by samrodrigues/loy-space-protocol and icedac/open-loyspace): ordinary BLE commands use an outer u16-LE length prefix, then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE), sno (u16-LE), flags (0xC1), subflag, ...payload, checksum (u16-LE)]. AUTOBABA is the separately capture-proven unprefixed exception, not evidence that this variant accepts unframed commands. Every frame ends with a 2-byte additive checksum (sum of the preceding inner-frame bytes & 0xFFFF, little-endian); the device silently rejects bad checksums. Notifications carry the inner frame without the outer prefix. Commands are JSON objects app-side, serialized to binary TLV opcodes on the wire — the JSON text itself never crosses the link. Image/program upload is GIF89a streamed in 960-byte chunks (a 24-bit BMP encoder exists app-side as a conversion artifact, but BMP is not the wire format). Resolution: vendor documents 64x64 (backpack) and 16x16 (leg bag). Chunked at ~180 bytes per BLE write. Backend: store-cdn.popled.cn. rt_draw (real-time pixel draw), game and pwd (password) are shared LOY SPACE platform opcodes (indices 32/31/42 in the platform app's 45-entry dispatch table), not NYAN-specific additions. Vendor ecosystem active: NYAN GEAR app updated 2025-12-04, vendor store selling, backend CDN live. CONFIDENCE: HIGH — service/char UUIDs, name prefixes and command JSON verified in the uni-app app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2, NotifyId 0000FFF1; rt_draw/game/pwd/dev_info/del_all/value_fix tokens present); wire framing cross-checked against two independent hardware-verified RE repos.\n",
     "pairing": {
       "bonding": "none",
       "confidence": "medium",
@@ -105,6 +105,13 @@
       "type": "image_upload"
     }
   ],
+  "initialization": [
+    {
+      "characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "notes": "Open display acknowledgements before any BLE query or command.",
+      "subscribe": true
+    }
+  ],
   "protocol_handler": "popled_json",
   "remaining_unknowns": [
     "A scan-time signal that tells a NYAN GEAR bag from the AUTOBABA backpack or an LED space panel. All three vendor apps filter on the [\"YS\", \"TL\"] name prefixes and service 0xFFF0 and nothing else; no advertisement of a NYAN unit has been captured. autobaba-led-backpack is the family fallback until one is.\n"
@@ -114,7 +121,7 @@
       "characteristics": [
         {
           "name": "Notify",
-          "notes": "NotifyId in app-service.js. NOTIFY-only — writes go to FFF2 (write-without-response); enable the CCCD before writing or frames are not ACKed. Notifications carry the 0xAA55 inner frame without the outer u16-LE length prefix used on writes. Hardware-verified by samrodrigues/loy-space-protocol.\n",
+          "notes": "NotifyId in app-service.js. NOTIFY-only — writes go to FFF2 (write-without-response); enable the CCCD before writing or frames are not ACKed. Notifications carry the 0xAA55 inner frame with no outer record-length prefix. Hardware-verified by samrodrigues/loy-space-protocol.\n",
           "properties": [
             "notify"
           ],
@@ -171,12 +178,13 @@
               }
             },
             "set_brightness": {
-              "description": "Set brightness 0-15. JSON: {\"cmd\":{\"light\":{\"type\":0,\"value_fix\":N}},\"sno\":N}",
+              "description": "Set brightness 1-15. JSON: {\"cmd\":{\"light\":{\"type\":0,\"value_fix\":N}},\"sno\":N}. The shared app maps zero to 15; this BLE variant is source-derived and not independently capture-verified.",
               "encoding": "json",
               "payload": {
                 "key": "cmd.light.value_fix",
                 "value_type": "int"
-              }
+              },
+              "verification": "reported"
             },
             "set_password": {
               "description": "Set / send device password (shared LOY SPACE platform opcode, dispatch idx 42). The simple string form {\"cmd\":{\"pwd\":\"...\"},\"sno\":N} is not corroborated — the platform builds typed pwd payloads with an appended hash.",
@@ -200,7 +208,7 @@
             "max_chunk_size": 180
           },
           "name": "Write",
-          "notes": "WriteId in app-service.js. Write-without-response is mandatory (regular writes hang). App-side commands are JSON objects wrapped as {\"cmd\": <command>, \"sno\": <sequence>}, but the wire payload is binary TLV opcodes — the app serializes JSON to TLV before send. Each write carries an outer u16-LE total-length prefix and every frame ends with a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF, LE); the device silently rejects bad checksums.\n",
+          "notes": "WriteId in app-service.js. Write-without-response is mandatory (regular writes hang). App-side commands are JSON objects wrapped as {\"cmd\": <command>, \"sno\": <sequence>}, but the wire payload is binary TLV opcodes — the app serializes JSON to TLV before send. Ordinary commands use an outer u16-LE length prefix before the inner AA55 frame; the public client's captured power-on is 10 00 aa 55 ff ff 0a 00 03 00 c1 02 04 02 00 01 d4 03. AUTOBABA is the separately capture-proven unprefixed exception. Every inner frame ends with a 2-byte additive checksum of its preceding bytes (sum & 0xFFFF, LE); the device silently rejects bad checksums.\n",
           "properties": [
             "write_without_response"
           ],

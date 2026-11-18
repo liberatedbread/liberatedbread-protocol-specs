@@ -944,7 +944,8 @@
           "description": "Current device state. State enum (from the app's device-state model): 0=UNKNOWN, 1=INIT, 2=IDLE, 3=RUN, 4=CHARGE, 5=SETUP, 6=FLIGHT_MENU, 7=CHARGE_FORBIDDEN, 8=PRE_RUN, 9=PAUSE, 10=POST_BRUSHING_STATISTICS, 113=FINAL_TEST, 114=PCB_TEST, 115=SLEEP, 116=TRANSPORT, 117=CALIBRATION_TEST. Plus SubState flags: -1=UNKNOWN, 0=TRANSPORT_DISABLED_DEACTIVATE_TIMER_DISABLED, 1=TRANSPORT_ENABLED_DEACTIVATE_TIMER_DISABLED, 3=TRANSPORT_ENABLED_DEACTIVATE_TIMER_ENABLED. Advertising byte 7 carries the same State value.\n",
           "name": "DeviceState",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff04-5047-4d53-8208-4f72616c2d42"
         },
@@ -999,7 +1000,8 @@
           "name": "BatteryLevel",
           "notes": "Length-gated, little-endian battery record. The older one-byte percentage still works. Protocol 6 introduced remaining runtime; protocol 8 added the electrical fields. Protocol 6 treats zero runtime as unavailable, while later versions can return a genuine zero. Runtime 0xffff is unavailable; current -1 is unavailable. Do not decode absent electrical fields from a shorter record.\n",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff05-5047-4d53-8208-4f72616c2d42"
         },
@@ -1007,6 +1009,7 @@
           "description": "Power and mode button press events",
           "name": "ButtonState",
           "properties": [
+            "read",
             "notify"
           ],
           "uuid": "a0f0ff06-5047-4d53-8208-4f72616c2d42"
@@ -1015,7 +1018,8 @@
           "description": "Current brushing mode (9 modes in the V006 enum; 11 total with the V009 additions)",
           "name": "BrushingMode",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff07-5047-4d53-8208-4f72616c2d42"
         },
@@ -1023,7 +1027,8 @@
           "description": "Brushing session duration (2 bytes: min, sec)",
           "name": "BrushingTime",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff08-5047-4d53-8208-4f72616c2d42"
         },
@@ -1031,7 +1036,8 @@
           "description": "Current quadrant coverage and progress",
           "name": "ToothbrushQuadrant",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff09-5047-4d53-8208-4f72616c2d42"
         },
@@ -1039,7 +1045,8 @@
           "description": "Brushing quality feedback (1 byte face value)",
           "name": "Smiley",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff0a-5047-4d53-8208-4f72616c2d42"
         },
@@ -1047,7 +1054,8 @@
           "description": "Pressure sensor reading",
           "name": "Pressure",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff0b-5047-4d53-8208-4f72616c2d42"
         },
@@ -1055,7 +1063,8 @@
           "description": "Accelerometer/motion sensor data for position tracking",
           "name": "SensorData",
           "properties": [
-            "read"
+            "read",
+            "notify"
           ],
           "uuid": "a0f0ff0d-5047-4d53-8208-4f72616c2d42"
         },
@@ -1079,20 +1088,46 @@
           "description": "Metadata read/write (device UUID, FW versions, git commit hash). Carries the SonosMetadata model: Model M4-M10 (M10 has value 16 — no M3/iO3 exists), 19-value Color enum, Language enum, GumGuardSetting (OFF/ON/HD), PostBrushingStatisticsConfiguration. Metadata length grew 14 to 30 bytes at V008 (see protocol_changelog).\n",
           "name": "Configure",
           "properties": [
-            "write"
+            "read",
+            "write",
+            "notify"
           ],
           "uuid": "a0f0ff21-5047-4d53-8208-4f72616c2d42"
         },
         {
-          "description": "Real-time clock (4 bytes, seconds since 2000-01-01)",
+          "description": "Real-time clock, little-endian u32 seconds since 2000-01-01 00:00:00 UTC (Unix seconds minus 946684800)",
+          "format": [
+            {
+              "endianness": "little",
+              "length": 4,
+              "name": "rtc_seconds",
+              "notes": "Decoded Unix time = raw little-endian seconds + 946684800.",
+              "offset": 0,
+              "type": "uint32",
+              "unit": "s",
+              "value_offset": 946684800
+            }
+          ],
           "name": "RTC",
           "properties": [
+            "read",
             "write"
           ],
           "uuid": "a0f0ff22-5047-4d53-8208-4f72616c2d42"
         },
         {
-          "description": "Timezone offset configuration",
+          "description": "Signed timezone offset in quarter-hour units; UTC+05:30 = 0x16 and UTC-08:00 = 0xe0",
+          "format": [
+            {
+              "length": 1,
+              "name": "timezone_quarter_hours",
+              "notes": "Signed quarter-hour offset from UTC.",
+              "offset": 0,
+              "scale": 0.25,
+              "type": "int8",
+              "unit": "h"
+            }
+          ],
           "name": "Timezone",
           "properties": [
             "write"
@@ -1141,10 +1176,9 @@
         },
         {
           "name": "SelectedData",
-          "notes": "Retained latest-session summary, also readable through the charger's 0x37 passthrough. Protocol 7/8 uses the 21-byte layout in protocol_details.retained_session_ff29; protocol 6 differs. The captured direct client reads it after session settlement without an FF21 control command.\n",
+          "notes": "Retained latest-session summary, also readable through the charger's 0x37 passthrough. Protocol 7/8 uses the 21-byte layout in protocol_details.retained_session_ff29; protocol 6 differs. The capture-tested direct client reads it after session settlement without an FF21 control command. Its current protocol table marks FF29 read-only and its notification list excludes FF29; no GATT enumeration or capture establishes a notify property here.\n",
           "properties": [
-            "read",
-            "notify"
+            "read"
           ],
           "uuid": "a0f0ff29-5047-4d53-8208-4f72616c2d42"
         },
@@ -1152,6 +1186,7 @@
           "description": "LED ring colour (RGB)",
           "name": "MyColor",
           "properties": [
+            "read",
             "write"
           ],
           "uuid": "a0f0ff2b-5047-4d53-8208-4f72616c2d42"
@@ -1168,6 +1203,7 @@
           "description": "Brush head replacement reminder",
           "name": "RefillReminder",
           "properties": [
+            "read",
             "write"
           ],
           "uuid": "a0f0ff2d-5047-4d53-8208-4f72616c2d42"

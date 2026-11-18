@@ -1,5 +1,75 @@
 {
   "commands": {
+    "login": {
+      "body": "{\"challenge\":\"{challenge}\"}",
+      "description": "Create a session token; store authentication_token as session_token and activate it with /xled/v1/verify before authenticated requests.",
+      "method": "POST",
+      "parameters": {
+        "challenge": {
+          "description": "Base64-encoded, client-generated random 32-byte challenge.",
+          "type": "string"
+        }
+      },
+      "path": "/xled/v1/login",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "provision_station_current": {
+      "advanced": true,
+      "advanced_reason": "Changes the device's Wi-Fi network and can disconnect the provisioning AP. Use only from 2.4.30 with the newer 48-byte schedule; 2.4.23–2.4.29 behavior is unresolved.",
+      "body": "{\"mode\":1,\"station\":{\"encssid\":\"{encssid}\",\"encpassword\":\"{encpassword}\",\"dhcp\":1}}",
+      "description": "Provision station mode with encssid and encpassword, both RC4-encrypted and Base64-encoded. encssid is documented from 2.4.30. Complete login and verify first and send X-Auth-Token.",
+      "headers": {
+        "X-Auth-Token": "{session_token}"
+      },
+      "method": "POST",
+      "parameters": {
+        "encpassword": {
+          "description": "Base64 ciphertext of the 64-byte zero-padded password using the newer schedule.",
+          "type": "string"
+        },
+        "encssid": {
+          "description": "Base64 ciphertext of the 64-byte zero-padded SSID using the newer schedule.",
+          "type": "string"
+        },
+        "session_token": {
+          "description": "The authentication_token returned by /xled/v1/login and activated by /xled/v1/verify.",
+          "source": "credential:session_token",
+          "type": "string"
+        }
+      },
+      "path": "/xled/v1/network/status",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "provision_station_legacy": {
+      "advanced": true,
+      "advanced_reason": "Changes the device's Wi-Fi network and can disconnect the provisioning AP. Use the owner's credentials and the documented legacy request shape only.",
+      "body": "{\"mode\":1,\"station\":{\"ssid\":\"{ssid}\",\"encpassword\":\"{encpassword}\",\"dhcp\":1}}",
+      "description": "Provision station mode with the plain SSID field documented until 2.4.25 and an RC4/Base64 encpassword. Complete login and verify first and send X-Auth-Token.",
+      "headers": {
+        "X-Auth-Token": "{session_token}"
+      },
+      "method": "POST",
+      "parameters": {
+        "encpassword": {
+          "description": "Base64 ciphertext of the 64-byte zero-padded password using the legacy schedule.",
+          "type": "string"
+        },
+        "session_token": {
+          "description": "The authentication_token returned by /xled/v1/login and activated by /xled/v1/verify.",
+          "source": "credential:session_token",
+          "type": "string"
+        },
+        "ssid": {
+          "description": "Owner's home SSID, sent in the plain ssid field.",
+          "type": "string"
+        }
+      },
+      "path": "/xled/v1/network/status",
+      "transport": "http",
+      "verification": "reported"
+    },
     "set_brightness": {
       "body": "{\"mode\":\"enabled\",\"value\":{level}}",
       "description": "Set brightness 0-100.",
@@ -16,6 +86,46 @@
       "transport": "http",
       "verification": "reported"
     },
+    "set_color": {
+      "body": "{\"red\":{red},\"green\":{green},\"blue\":{blue}}",
+      "description": "Set the static RGB color used by color mode.",
+      "method": "POST",
+      "parameters": {
+        "blue": {
+          "max": 255,
+          "min": 0,
+          "type": "uint8"
+        },
+        "green": {
+          "max": 255,
+          "min": 0,
+          "type": "uint8"
+        },
+        "red": {
+          "max": 255,
+          "min": 0,
+          "type": "uint8"
+        }
+      },
+      "path": "/xled/v1/led/color",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "set_effect": {
+      "body": "{\"mode\":\"effect\",\"effect_id\":{effect_id}}",
+      "description": "Enter effect mode with a firmware-provided numeric effect ID; query /xled/v1/led/effects for availability.",
+      "method": "POST",
+      "parameters": {
+        "effect_id": {
+          "description": "Numeric effect identifier; 0 is a documented example, not a universal default.",
+          "min": 0,
+          "type": "integer"
+        }
+      },
+      "path": "/xled/v1/led/mode",
+      "transport": "http",
+      "verification": "reported"
+    },
     "turn_off": {
       "body": "{\"mode\":\"off\"}",
       "description": "Set mode off.",
@@ -25,8 +135,8 @@
       "verification": "reported"
     },
     "turn_on": {
-      "body": "{\"mode\":\"movie\"}",
-      "description": "Set mode to a lit state (e.g. movie/effect).",
+      "body": "{\"mode\":\"color\"}",
+      "description": "Set color mode, a lit state that does not depend on an uploaded movie existing.",
       "method": "POST",
       "path": "/xled/v1/led/mode",
       "transport": "http",
@@ -76,7 +186,7 @@
     "manufacturer": "Ledworks Srl (Twinkly)",
     "manufacturer_status": "active",
     "name": "Twinkly Smart Lights (string / curtain / matrix)",
-    "notes": "Twinkly are app-controlled decorative RGB/RGBW string, curtain and matrix lights. Control is a private-but-reverse-engineered local HTTP REST API on port 80 with a short-lived token, plus a UDP realtime channel on port 7777 for per-pixel streaming. No cloud is required for local control. Twinkly promised a public API that never shipped; xled documents the private one.\nAUTH: POST /xled/v1/login with a random 32-byte base64 challenge returns a base64 authentication_token (8 bytes), a challenge-response and an expiry (typ. 14400s). The client must then POST /xled/v1/verify. The token goes in the X-Auth-Token header; a new login invalidates the previous token. The challenge-response is derived RC4-style from a key = device MAC XOR the 16-byte constant \"evenmoresecret!!\", then SHA1.\nUNAUTHENTICATED reads: GET /xled/v1/gestalt (device details), /status, /fw/version.\nCONTROL (token required): GET/POST /xled/v1/led/mode (off/color/demo/effect/ movie/playlist/rt), /led/color, /led/effects + /effects/current, /led/out/brightness (0-100), /led/out/saturation. Movies: POST /led/movie/full, /led/movies/current, /movies, /playlist. Layout: GET/POST /led/layout/full. All JSON replies carry an app code (1000 = ok); HTTP 401 on auth failure.\nREALTIME: UDP 7777, three header versions — v1 (Gen I) 0x01 + 8-byte token + LED count; v2 (Gen II fw <= 2.4.6) 0x02 + token; v3 (fw >= 2.4.14) 0x03 + token + fragment number (frames fragmented up to 900 bytes).\n",
+    "notes": "Twinkly are app-controlled decorative RGB/RGBW string, curtain and matrix lights. Control is a private-but-reverse-engineered local HTTP REST API on port 80 with a short-lived token, plus a UDP realtime channel on port 7777 for per-pixel streaming. No cloud is required for local control. Twinkly promised a public API that never shipped; xled documents the private one.\nAUTH: POST /xled/v1/login with a random 32-byte base64 challenge returns a base64 authentication_token (8 bytes), a challenge-response and an expiry (typ. 14400s). The client must then POST /xled/v1/verify. The token goes in the X-Auth-Token header; a new login invalidates the previous token. The To verify the returned challenge-response, repeat the six-byte device MAC to 16 bytes, XOR it with the 16-byte constant \"evenmoresecret!!\", use that key to RC4-encrypt the raw challenge, and compare the SHA1 hex digest of the ciphertext with the returned challenge-response. The MAC-derived key is obfuscation based on public identity, not client access control.\nUNAUTHENTICATED reads: GET /xled/v1/gestalt (device details), /status, /fw/version.\nCONTROL (token required): GET/POST /xled/v1/led/mode (off/color/demo/effect/ movie/playlist/rt), /led/color, /led/effects + /effects/current, /led/out/brightness (0-100), /led/out/saturation. Movies: POST /led/movie/full, /led/movies/current, /movies, /playlist. Layout: GET/POST /led/layout/full. All JSON replies carry an app code (1000 = ok); HTTP 401 on auth failure.\nREALTIME: UDP 7777, three header versions — v1 (Gen I) 0x01 + 8-byte token + LED count; v2 (Gen II fw <= 2.4.6) 0x02 + token; v3 (fw >= 2.4.14) 0x03 + token + fragment number (frames fragmented up to 900 bytes).\n",
     "openness": {
       "license": "MIT",
       "notes": "The API is private but was reverse-engineered by the xled project; xled-docs is a complete unofficial specification. Newest firmware generations may differ — feature-detect.\n",
@@ -119,11 +229,11 @@
         "issued_to_client": [
           "Short-lived auth token (from /xled/v1/login + /verify, ~14400s)"
         ],
-        "notes": "Provisioning passes the home SSID/passphrase to /xled/v1/network/status over plain HTTP on the device AP. Control requires the per-session token, but that token is obtainable by any client that can reach port 80: the client only echoes the device's challenge-response back to /verify. The device MAC is needed only by a client that wants to check that response itself, i.e. to authenticate the device.\n",
+        "notes": "Provisioning uses HTTP on the device AP, but the credential fields are not plaintext on the wire. Through firmware 2.4.22 only the password is RC4-encrypted with the older 16-byte key schedule. The newer 48-byte schedule appears from 2.4.25 and encrypts both SSID and password, but the encssid request field is documented only from 2.4.30; behavior and schedule selection across 2.4.23–2.4.29 remain unresolved. See protocol_details.wifi_provisioning for complete authenticated bodies. Both schedules repeat and XOR the public device MAC, so this is obfuscation rather than access control. Control requires a per-session token obtainable by any client that can reach port 80. The optional challenge-response check authenticates the device, not the client.\n",
         "stored_on_device": [
           "Wi-Fi credentials"
         ],
-        "wifi_passphrase_protection": "plaintext"
+        "wifi_passphrase_protection": "device_encrypted"
       },
       "factory_reset": {
         "applicable": true,
@@ -163,6 +273,13 @@
       "methods": [
         {
           "description": "Join the device AP (\"Twinkly_XXXXXX\") and use the REST network endpoints (/xled/v1/network/scan, /network/status) to hand it the home Wi-Fi credentials; it reboots onto the LAN.\n",
+          "issues_credentials": {
+            "session_token": {
+              "command": "login",
+              "notes": "Store the Base64 token returned by /xled/v1/login, then activate it with /xled/v1/verify before using it as X-Auth-Token.\n",
+              "reply_path": "authentication_token"
+            }
+          },
           "softap": {
             "ssid_prefix": "Twinkly_"
           },
@@ -172,9 +289,14 @@
               "actor": "user"
             },
             {
-              "action": "GET /xled/v1/network/scan then POST /xled/v1/network/status with the home SSID/passphrase.",
+              "action": "Complete POST /xled/v1/login and /verify and retain the returned session token.",
               "actor": "client",
-              "expect": "The device reboots and joins the home Wi-Fi."
+              "expect": "A verified token is available for X-Auth-Token."
+            },
+            {
+              "action": "POST /xled/v1/network/status with X-Auth-Token and the generation-appropriate advanced provisioning command: legacy station.ssid+encpassword, or encssid+encpassword from 2.4.30, always mode=1 and station.dhcp=1.",
+              "actor": "client",
+              "expect": "The device reboots and joins the home Wi-Fi. Do not infer behavior across 2.4.23–2.4.29."
             }
           ],
           "type": "softap_http",
@@ -199,11 +321,14 @@
     {
       "commands": {
         "set_brightness": "set_brightness",
+        "set_color": "set_color",
+        "set_effect": "set_effect",
         "turn_off": "turn_off",
         "turn_on": "turn_on"
       },
       "features": [
         "brightness",
+        "rgb",
         "effect"
       ],
       "name": "Twinkly",
@@ -254,10 +379,37 @@
       }
     },
     {
+      "description": "Requires X-Auth-Token after /login + /verify. Legacy body: {\"mode\":1,\"station\":{\"ssid\":\"<ssid>\",\"encpassword\":\"<ciphertext>\",\"dhcp\":1}}. From 2.4.30: {\"mode\":1,\"station\":{\"encssid\":\"<ciphertext>\",\"encpassword\":\"<ciphertext>\",\"dhcp\":1}}. The 2.4.23–2.4.29 transition is unresolved.\n",
+      "method": "POST",
+      "name": "Provision station Wi-Fi",
+      "path": "/xled/v1/network/status",
+      "request_body": {
+        "content_type": "application/json"
+      }
+    },
+    {
       "description": "Body {\"mode\":\"off|color|effect|movie|playlist|rt\"}. Requires X-Auth-Token.",
       "method": "POST",
       "name": "Set LED mode",
       "path": "/xled/v1/led/mode",
+      "request_body": {
+        "content_type": "application/json"
+      }
+    },
+    {
+      "description": "Body {red:0-255,green:0-255,blue:0-255}; the color used by color mode. Requires X-Auth-Token.",
+      "method": "POST",
+      "name": "Set static RGB color",
+      "path": "/xled/v1/led/color",
+      "request_body": {
+        "content_type": "application/json"
+      }
+    },
+    {
+      "description": "Body {effect_id:N}; selects an available effect. The set_effect command instead combines effect_id with mode:effect on /led/mode so the lights enter effect mode directly.",
+      "method": "POST",
+      "name": "Select current effect",
+      "path": "/xled/v1/led/effects/current",
       "request_body": {
         "content_type": "application/json"
       }
@@ -271,5 +423,92 @@
         "content_type": "application/json"
       }
     }
-  ]
+  ],
+  "protocol_details": {
+    "challenge_verification": {
+      "steps": [
+        "Use the six-byte AP-mode MAC, or the gestalt mac value, repeated to 16 bytes.",
+        "XOR those 16 bytes with the ASCII key evenmoresecret!!.",
+        "RC4-encrypt the raw 32-byte challenge with the resulting key.",
+        "Compare the lowercase SHA1 hex digest of the ciphertext with the returned challenge-response."
+      ],
+      "synthetic_vector": {
+        "challenge_hex": "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f",
+        "expected_sha1": "5f18f4182fa8d9bb955fdef25595e4574f56730f",
+        "mac": "02:00:00:00:00:01"
+      },
+      "verification": "reported"
+    },
+    "realtime": {
+      "pixel_channel_order": {
+        "rgb": [
+          "red",
+          "green",
+          "blue"
+        ],
+        "rgbw": [
+          "white",
+          "red",
+          "green",
+          "blue"
+        ]
+      },
+      "udp_port": 7777,
+      "verification": "reported",
+      "versions": {
+        "v1": {
+          "applies_to": "Generation I",
+          "header": "01 || eight-byte raw authentication token || LED count u8"
+        },
+        "v2": {
+          "applies_to": "Generation II through firmware 2.4.6",
+          "header": "02 || eight-byte raw authentication token || 00",
+          "header_bytes_before_body": 10
+        },
+        "v3": {
+          "applies_to": "Generation II from firmware 2.4.14",
+          "first_fragment_number": 0,
+          "fragment_number_offset": 11,
+          "fragmentation": "Split the raw pixel frame into consecutive fragments of at most 900 bytes, number them from zero, and send each in its own datagram.",
+          "header": "03 || eight-byte raw authentication token || 00 00 || fragment_number u8",
+          "header_bytes_before_body": 12,
+          "maximum_fragment_body_bytes": 900
+        }
+      }
+    },
+    "wifi_provisioning": {
+      "authentication": "Complete POST /xled/v1/login and /verify, then send X-Auth-Token on the provisioning POST. The credential encryption does not replace this login.",
+      "common_steps": [
+        "Repeat the six-byte AP-mode MAC, or gestalt mac value, to the key-schedule length and XOR it with the schedule.",
+        "Right-pad the SSID or password with zero bytes to 64 bytes.",
+        "RC4-encrypt the padded field and Base64-encode the ciphertext.",
+        "The MAC is public, so this protects the wire representation only; it is not authentication or secret key management."
+      ],
+      "endpoint": "/xled/v1/network/status",
+      "legacy_through_2_4_22": {
+        "fields": [
+          "password"
+        ],
+        "key_schedule_ascii": "supersecretkey!!",
+        "key_schedule_bytes": 16
+      },
+      "schedule_from_2_4_25": {
+        "fields": [
+          "ssid",
+          "password"
+        ],
+        "key_schedule_bytes": 48,
+        "key_schedule_hex": "26 80 f5 87 9f ee 2c 75 11 aa 08 15 47 44 8e 04 99 cd 68 07 6e 09 32 62 5d c4 de 7c 38 98 9e 88 80 ee 2a b7 33 67 8f a2 0d cc 85 d8 94 cd 94 4f"
+      },
+      "synthetic_vector": {
+        "current_base64": "O2BlZzO+L+QHc+YpmP8ludB9C7y02T5x86mrL1Q2kyC4/MUV8JEqdNooXQFZ1s9hPi689gGk0AsmXc3/neAr/A==",
+        "legacy_base64": "t8XWDiPMkolno0pznGkfnh0eSoMnDsuDpVVugSrnwrAgBK3jqhiUUKd0HZHH4x8N+ljnnBCCtxoA2YuPOugrQg==",
+        "mac": "02:00:00:00:00:01",
+        "padded_bytes": 64,
+        "plaintext": "synthetic-password"
+      },
+      "transition_unresolved": "2.4.23–2.4.29: do not infer exact key-schedule selection from the newer schedule's 2.4.25 first appearance. The encssid field is documented only from 2.4.30; plain station.ssid is documented until 2.4.25.",
+      "verification": "reported"
+    }
+  }
 }

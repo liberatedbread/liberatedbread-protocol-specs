@@ -73,7 +73,7 @@
     "manufacturer": "Smarter Applications Ltd",
     "manufacturer_status": "shutdown",
     "name": "Smarter iKettle 2.0 (and Smarter Coffee)",
-    "notes": "The Smarter iKettle 2.0 (and the same-protocol Smarter Coffee) are Wi-Fi kettles/coffee makers. Smarter is still a company, but the smart features for these devices were removed from the app in mid-2025 — owners report the kettles can no longer connect to the app, leaving \"very expensive ordinary kettles\". The LAN protocol needs no cloud at all, so it is the rescue path.\nTRANSPORT: a binary protocol on port 2081, over UDP or TCP, no authentication. Message syntax: <id> <args> <terminator>, terminator always byte 0x7e ('~').\nIDs are written as hex wire byte with decimal in brackets, \"0x15 (21)\". ian-kent/ikettle2 lists them in decimal, iBrew in bare hex, so the same command reads \"21\" in one and \"15\" in the other. A bare \"21\" or \"22\" put on the wire is a different command (iBrew lists 0x21 as heat-to-stored- defaults and 0x22 as an unknown kettle command), so the base matters. COMMANDS:\n  0x15 (21)   heat / boil; args <temperature> <keep-warm minutes>\n  0x16 (22)   stop heating\n  0x64 (100)  get device info — also the UDP-broadcast discovery probe\n  0x6d (109)  firmware-update mode (disables Wi-Fi, creates an \"iKettle\n              Update\" AP)\nRESPONSES:\n  0x03 (3)    command status (ack)\n  0x14 (20)   kettle status (flag byte, temperature, water level)\n  0x65 (101)  device info reply, e.g. 65 01 13 7e = device type 0x01\n              (kettle), firmware 0x13 (19)\nWater-level quirk: the first level byte reads 7 with the kettle OFF its base, 8 when ON the base.\nDISCOVERY: the device-info command 0x64 (100) is used over UDP broadcast after setup — but this fails on routers that do not forward UDP broadcasts, so a direct TCP connection to a known IP is the reliable path.\nNOTE: the original iKettle (v1) uses an older, different protocol. This spec covers the 2.0 / Smarter Coffee family.\n",
+    "notes": "The Smarter iKettle 2.0 (and the same-protocol Smarter Coffee) are Wi-Fi kettles/coffee makers. Smarter is still a company, but the smart features for these devices were removed from the app in mid-2025 — owners report the kettles can no longer connect to the app, leaving \"very expensive ordinary kettles\". The LAN protocol needs no cloud at all, so it is the rescue path.\nTRANSPORT: a binary protocol on port 2081, over UDP or TCP, no authentication. Message syntax: <id> <args> <terminator>, terminator always byte 0x7e ('~').\nIDs are written as hex wire byte with decimal in brackets, \"0x15 (21)\". ian-kent/ikettle2 lists them in decimal, iBrew in bare hex, so the same command reads \"21\" in one and \"15\" in the other. A bare \"21\" or \"22\" put on the wire is a different command (iBrew lists 0x21 as heat-to-stored- defaults and 0x22 as an unknown kettle command), so the base matters. COMMANDS:\n  0x15 (21)   heat / boil; args <temperature> <keep-warm minutes>\n  0x16 (22)   stop heating\n  0x64 (100)  get device info — also the UDP-broadcast discovery probe\n  0x6d (109)  firmware-update mode (disables Wi-Fi, creates an \"iKettle\n              Update\" AP)\nRESPONSES:\n  0x03 (3)    command status (ack)\n  0x14 (20)   kettle status (flag byte, temperature, water level)\n  0x65 (101)  device info reply, e.g. 65 01 13 7e = device type 0x01\n              (kettle), firmware 0x13 (19)\nWater level is an unsigned big-endian u16 raw sensor value requiring a per-unit off-base calibration baseline, not a Boolean first byte. The earlier 7-off/8-on observation belongs to one client/unit. Temperature 0x7f means off-base/unavailable. Status and ACK layouts are declared under protocol_details.smarter_protocol.\nDISCOVERY: the device-info command 0x64 (100) is used over UDP broadcast after setup — but this fails on routers that do not forward UDP broadcasts, so a direct TCP connection to a known IP is the reliable path.\nNOTE: the original iKettle (v1) uses an older, different protocol. This spec covers the 2.0 / Smarter Coffee family.\n",
     "openness": {
       "notes": "No vendor documentation. ian-kent/ikettle2 and iBrew reverse-engineered the protocol; iBrew tested against iKettle 2.0 firmware v19 and also drives Smarter Coffee.\n",
       "reverse_engineered": true,
@@ -267,6 +267,19 @@
   ],
   "protocol_details": {
     "smarter_protocol": {
+      "command_ack": {
+        "full_frame_bytes": 3,
+        "layout": "[0x03][result][0x7e]",
+        "note": "Result 0x69 (105 decimal) is invalid; do not confuse it with the separate device-info response ID 0x65 (101).",
+        "result_offset": 1,
+        "results": {
+          "0": "success",
+          "1": "busy",
+          "105": "invalid",
+          "4": "failed"
+        },
+        "verification": "reported"
+      },
       "commands": {
         "0x15 (21)": "heat / boil; args <temperature 0x00-0x64 = 0-100 C> <keep-warm minutes, 0x00 off or 0x05-0x1e>",
         "0x16 (22)": "stop heating",
@@ -280,8 +293,28 @@
         "0x14 (20)": "kettle status (flag, temperature, water level)",
         "0x65 (101)": "device info reply, e.g. 65 01 13 7e = kettle, firmware 0x13 (19)"
       },
-      "transport": "port 2081, UDP or TCP, binary",
-      "water_level_quirk": "level byte reads 7 off the base, 8 on the base"
+      "status_frame": {
+        "flags": {
+          "0": "ready",
+          "1": "boiling",
+          "2": "keep_warm",
+          "3": "finished",
+          "4": "cooling"
+        },
+        "full_frame_bytes": 7,
+        "layout": "[0x14][flag][temperature][water_hi][water_lo][unknown][0x7e]",
+        "synthetic_off_base_vector": {
+          "expected_flag": "ready",
+          "expected_temperature": null,
+          "expected_unknown": 0,
+          "expected_water_raw": 2007,
+          "frame_hex": "14 00 7f 07 d7 00 7e"
+        },
+        "temperature": "Unsigned byte in C; 0x7f means off-base/unavailable, not 127 C.",
+        "verification": "reported",
+        "water": "Unsigned big-endian u16 raw sensor value at bytes 3-4. Calibrated level = raw minus the per-unit off-base baseline recorded by calibration command 44. The earlier 7-off/8-on observation describes one client/unit and is not a Boolean encoding or a safety threshold."
+      },
+      "transport": "port 2081, UDP or TCP, binary"
     }
   }
 }
