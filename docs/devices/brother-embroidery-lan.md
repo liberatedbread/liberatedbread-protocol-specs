@@ -93,13 +93,20 @@ is a security defect, not behavior a replacement should copy.
 
 Before the first `/info` request, a client must:
 
-1. Show the machine address and SHA-256 fingerprint of the presented DER
-   certificate.
-2. Ask the user to approve that certificate for this machine.
-3. Persist the approved certificate or fingerprint against `machine-id` (and
-   MAC when available), not against a whole model family.
-4. Require the pinned identity on every later connection and stop for renewed
-   approval if it changes.
+1. Show the discovered address and SHA-256 fingerprint of the presented DER
+   certificate and require user approval.
+2. Hold the approved certificate or pin **only in memory** against the
+   discovered address and MAC when available. No durable machine-id binding
+   exists yet.
+3. Fetch `/info` with that volatile pin. Require a nonempty `machine-id`,
+   expected JSON field types, monitoring capability, and an unchanged
+   discovered address. The machine-id's internal format is not assumed.
+4. **Atomically** persist the certificate or pin to the validated `machine-id`,
+   retaining address/MAC as metadata, before any `/status`, `/embinfo` or
+   `/embstatus` request. Do not create this durable binding before `/info`.
+5. Require the pinned identity on every later connection and stop for renewed
+   approval if it changes. A changed certificate goes through the same volatile
+   `/info` validation before replacing the durable binding.
 
 There is no unverified fallback to HTTP and no trust-all certificate or
 hostname mode. Client-side removal of the pin is enough to unpair; it does not
@@ -169,9 +176,10 @@ Coordinate units for `left`/`top`/`right`/`bottom` remain unknown.
 
 | JSON path | Meaning / units |
 |-----------|-----------------|
-| `id`, `embinfoid` | Progress record and corresponding job identifiers |
+| `id` | Progress identifier; reviewed clients compare it to `/embinfo.id` for the job join |
+| `embinfoid` | Additional identifier whose relationship to `/embinfo` is unresolved; do not use it for the join |
 | `status` | Same state enum as `/status` |
-| `currentstitch` | Current stitch count |
+| `currentstitch` | Current stitch count; compare with `/embinfo.totalstitches` only when the two `id` values match |
 | `currenttime`, `stoptime` | **Minutes** |
 | `reservestop` | Whether a stop is reserved |
 | `color` | Zero-based index into `/embinfo` `colors`, not RGB |
@@ -181,12 +189,12 @@ Coordinate units for `left`/`top`/`right`/`bottom` remain unknown.
 
 | Value | State | Value | State |
 |------:|-------|------:|-------|
-| 10, 11 | Ready, home embroidery | 50 | Finished |
-| 12 | Ready, PR | 60, 61 | Thread error |
-| 30 | Embroidering | 62 | Thread broken error |
-| 40 | Waiting for thread | 63, 70, 99 | Other error |
-| 41 | Paused | 98 | Settings screen |
-| 42 | Stopped | | |
+| 10, 11 | Ready, home embroidery | 20 | Sewing |
+| 12 | Ready, PR | 30 | Embroidering |
+| 40 | Waiting for thread | 50 | Finished |
+| 41 | Paused | 60, 61 | Thread error |
+| 42 | Stopped | 62 | Thread broken error |
+| 63, 70, 99 | Other error | 98 | Settings screen |
 
 The vendor app maps an unlisted value to a waiting display. A safe replacement
 must instead render **`unknown(<value>)`**, because an unlisted value has no
@@ -206,8 +214,10 @@ local monitoring.
 3. Select the home SSID (or **Add network** for a hidden one), enter the key on
    the machine and connect. PR1055X/PR1060W requires 2.4 GHz 802.11b/g/n and
    does not support WPA/WPA2 Enterprise.
-4. Keep **Wireless LAN Enable** on, run the SNMP identity check, approve the
-   certificate pin, and require the `/info` capability gate.
+4. Keep **Wireless LAN Enable** on and run the SNMP identity check. Approve the
+   certificate only into memory, fetch `/info`, validate `machine-id` and the
+   capability gate, then atomically persist the pin before other monitoring
+   reads.
 
 EV1/EV1LE uses the Wireless LAN Connection flow on manual page 32.
 PR1055X/PR1060W uses the setup wizard on pages 29–31. Other models have their

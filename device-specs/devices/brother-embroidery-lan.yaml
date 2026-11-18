@@ -58,13 +58,15 @@ device:
     tls:
       verification: "trust_on_first_use"
       notes: >
-        Require an explicit user decision before the first HTTPS request.
+        Require an explicit user decision before the first HTTPS /info request.
         Display the certificate's SHA-256 fingerprint and the already matched
-        machine address, let the user compare them with the physical machine,
-        and persist the certificate or fingerprint only after approval.
-        Subsequent connections require the pinned identity. Never accept every
-        certificate or every hostname as the vendor client does. The actual
-        certificate chain and renewal behavior have not been captured.
+        machine address, and hold an approved pin only in memory against the
+        discovered address/MAC. Fetch /info with that volatile pin, require a
+        nonempty machine-id and monitoring capability, then atomically persist
+        the pin to machine-id before any other monitoring endpoint. Subsequent
+        connections require the pinned identity. Never accept every certificate
+        or every hostname as the vendor client does. The actual certificate
+        chain and renewal behavior have not been captured.
   discovery:
     methods:
       - type: "udp_broadcast"
@@ -135,12 +137,12 @@ device:
           - action: "Keep Wireless LAN Enable on, then discover the machine with the SNMP rules in this spec."
             actor: "client"
             expect: "A response with matching request ID and exact host-resources description brother sewing."
-          - action: "Show the machine address and TLS certificate fingerprint; connect for /info only after the user approves the pin."
+          - action: "Show the discovered address and TLS certificate fingerprint; approve it only for an in-memory pin bound to that address and any discovered MAC, then fetch /info."
             actor: "user"
-            expect: "The client stores the user-approved certificate or SHA-256 pin and refuses later changes."
-          - action: "Require monitoring.version or monitoringpr.version above zero, or monitoring.availableversion whose first dotted component is 1, before enabling monitoring reads."
+            expect: "The client holds the approved pin only in memory and has not created a persistent machine-id binding."
+          - action: "Require a nonempty machine-id, expected /info field types, and monitoring.version or monitoringpr.version above zero, or monitoring.availableversion whose first dotted component is 1; then atomically persist the pin to machine-id before any other endpoint."
             actor: "client"
-            expect: "/info proves monitoring capability. A zero or missing capability is not treated as support."
+            expect: "/info validates identity and capability before the durable trust binding exists. A zero or missing capability is not support."
         troubleshooting:
           - symptom: "The machine previously joined the network but does not reconnect."
             fix: "Keep Wireless LAN Enable on and select the saved SSID again, or repeat the on-machine connection flow with the current key. A full machine reset is not the first recovery step."
@@ -367,7 +369,7 @@ http_endpoints:
     response_body:
       content_type: "application/json"
       fields:
-        - {name: "id", type: "integer", description: "Embroidery job identifier; -1 means no job."}
+        - {name: "id", type: "integer", description: "Embroidery job identifier; -1 means no job. Reviewed clients compare /embstatus.id to this value."}
         - {name: "filename", type: "string", description: "Current design filename, which may be empty."}
         - {name: "left", type: "integer", description: "Design left coordinate; physical unit unknown."}
         - {name: "top", type: "integer", description: "Design top coordinate; physical unit unknown."}
@@ -426,8 +428,8 @@ http_endpoints:
     response_body:
       content_type: "application/json"
       fields:
-        - {name: "id", type: "integer", description: "Progress record identifier."}
-        - {name: "embinfoid", type: "integer", description: "Identifier of the corresponding /embinfo job."}
+        - {name: "id", type: "integer", description: "Progress identifier; reviewed clients compare this value to /embinfo.id, which is the supported id-to-id correlation."}
+        - {name: "embinfoid", type: "integer", description: "Additional identifier whose relationship to /embinfo is unresolved; do not use it for the job join."}
         - {name: "status", type: "integer", description: "Embroidery state using protocol_details.status_codes; unlisted values remain unknown."}
         - {name: "currentstitch", type: "integer", unit: "count", description: "Current stitch position."}
         - {name: "currenttime", type: "integer", unit: "min", description: "Elapsed embroidery time."}
@@ -437,7 +439,7 @@ http_endpoints:
         - {name: "x", type: "number", description: "Current x coordinate in the /info feature coordinate space; unit unknown and read-only."}
         - {name: "y", type: "number", description: "Current y coordinate in the /info feature coordinate space; unit unknown and read-only."}
       example: >
-        {"id":8,"embinfoid":7,"status":30,"currentstitch":600,"currenttime":6,"stoptime":12,"reservestop":false,"color":0,"x":100.5,"y":150.25,"futurefield":[1,2,3]}
+        {"id":7,"embinfoid":0,"status":30,"currentstitch":600,"currenttime":6,"stoptime":12,"reservestop":false,"color":0,"x":100.5,"y":150.25,"futurefield":[1,2,3]}
 
 entities:
   - platform: "sensor"
@@ -458,7 +460,7 @@ entities:
     state_endpoint: "/embstatus"
     state_command: "Embroidery status"
     state_path: "currentstitch"
-    notes: "Compare with totalstitches from /embinfo only when embinfoid matches the current job."
+    notes: "Compare with totalstitches from /embinfo only when /embstatus.id equals /embinfo.id. The separate embinfoid field is not used for this join."
   - platform: "sensor"
     name: "Embroidery Elapsed Time"
     unit: "min"
@@ -535,9 +537,18 @@ protocol_details:
       verification: "trust_on_first_use"
       approval_required_before_first_get: true
       fingerprint: "SHA-256 of the presented DER certificate, lowercase colon-separated hex"
-      persist: "Bind the approved certificate or fingerprint to machine-id (and MAC when available), not to a model family."
-      changed_certificate: "Stop and ask the user again; never automatically accept a replacement."
-      forbidden: ["trust-all certificates", "trust-all hostnames", "disabled certificate verification", "unverified fallback to HTTP"]
+      bootstrap:
+        ordered_steps:
+          - "Show the discovered address and certificate fingerprint and require user approval before the first GET."
+          - "Hold the approved certificate or pin only in memory against the discovered address and MAC when available; do not persist it yet."
+          - "Fetch /info with the volatile pin and require a nonempty machine-id, expected JSON field types and monitoring capability; confirm the discovered address has not changed."
+          - "Atomically persist the certificate or pin to the validated machine-id, retaining address/MAC as metadata, before any /status, /embinfo or /embstatus request."
+        pre_persist_endpoints: ["/info"]
+        post_persist_endpoints: ["/status", "/embinfo", "/embstatus"]
+        machine_id_validation: "A nonempty string is required; its internal format and mapping to numeric model/type are not assumed."
+      persist: "After validated /info, atomically bind the approved certificate or fingerprint to machine-id, not to a model family. A durable binding must not be created before /info."
+      changed_certificate: "Stop and ask the user again; never automatically accept a replacement. Repeat the volatile /info validation before replacing the durable binding."
+      forbidden: ["trust-all certificates", "trust-all hostnames", "disabled certificate verification", "unverified fallback to HTTP", "durable pin-to-machine-id before the first /info response"]
       vendor_defect_not_reproduced: "The reviewed vendor client disables both certificate-chain and hostname verification. This is a defect to correct, not interoperability evidence."
     json_parser:
       unknown_properties: "Ignore unknown properties at every object/array element; they never change known-field meanings. Preserve the raw document for forward diagnostics when practical."
@@ -552,6 +563,7 @@ protocol_details:
       10: "ready_home_embroidery"
       11: "ready_home_embroidery"
       12: "ready_pr"
+      20: "sewing"
       30: "embroidering"
       40: "waiting_for_thread"
       41: "paused"

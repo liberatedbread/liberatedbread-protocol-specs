@@ -63,7 +63,10 @@ def integer(value: int) -> bytes:
     if not 0 <= value <= 0x7FFFFFFF:
         raise ProtocolError("request ID outside positive SNMP Integer32 range")
     width = max(1, (value.bit_length() + 7) // 8)
-    return tlv(0x02, value.to_bytes(width, "big"))
+    content = value.to_bytes(width, "big")
+    if content[0] & 0x80:
+        content = b"\x00" + content
+    return tlv(0x02, content)
 
 
 def dotted_oid(parts: tuple[int, ...]) -> bytes:
@@ -154,7 +157,7 @@ class Reader:
 def decode_positive_integer(data: bytes) -> int:
     if not data or data[0] & 0x80:
         raise ProtocolError("negative or empty SNMP integer")
-    if len(data) > 1 and data[0] == 0:
+    if len(data) > 1 and data[0] == 0 and not data[1] & 0x80:
         raise ProtocolError("non-minimal SNMP integer")
     return int.from_bytes(data, "big")
 
@@ -267,6 +270,7 @@ def status_label(value: int) -> str:
         10: "ready_home_embroidery",
         11: "ready_home_embroidery",
         12: "ready_pr",
+        20: "sewing",
         30: "embroidering",
         40: "waiting_for_thread",
         41: "paused",
@@ -314,6 +318,31 @@ def test_request_ids_are_fresh_range_checked_and_encoded():
     for invalid in (-1, 0x80000000):
         with pytest.raises(ProtocolError):
             desktop_request(invalid)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_content"),
+    [
+        (0x7F, b"\x7f"),
+        (0x80, b"\x00\x80"),
+        (0x7FFF, b"\x7f\xff"),
+        (0x8000, b"\x00\x80\x00"),
+        (0x7FFFFF, b"\x7f\xff\xff"),
+        (0x800000, b"\x00\x80\x00\x00"),
+        (0x7FFFFFFF, b"\x7f\xff\xff\xff"),
+    ],
+)
+def test_positive_integer_roundtrips_boundaries(value, expected_content):
+    encoded = integer(value)
+    _, content = Reader(encoded).read_tlv(0x02)
+    assert content == expected_content
+    assert decode_positive_integer(content) == value
+
+
+def test_positive_integer_rejects_only_nonminimal_leading_zero():
+    assert decode_positive_integer(b"\x00\x80") == 0x80
+    with pytest.raises(ProtocolError, match="non-minimal"):
+        decode_positive_integer(b"\x00\x01")
 
 
 def test_valid_discovery_response_requires_exact_host_description():
@@ -364,7 +393,7 @@ def test_ber_parser_rejects_trailing_and_nonminimal_lengths():
         validate_discovery_response(bytes(packet), 1)
 
 
-def test_all_synthetic_endpoint_documents_parse_and_have_expected_values(endpoints):
+def test_all_synthetic_endpoint_documents_parse_and_have_expected_values(endpoints, spec):
     expected_paths = {"/info", "/status", "/embinfo", "/embstatus"}
     assert set(endpoints) == expected_paths
     documents = {
@@ -384,9 +413,16 @@ def test_all_synthetic_endpoint_documents_parse_and_have_expected_values(endpoin
     assert embinfo["needlebars"][0]["needlebarspm"] == 400
     assert embinfo["colorchangeinfo"][0]["bar"][0]["threadname"] == "Invented blue"
     embstatus = documents["/embstatus"]
+    assert embstatus["id"] == embinfo["id"] == 7
+    assert embstatus["embinfoid"] == 0
     assert embstatus["currenttime"] == 6
     assert embstatus["currentstitch"] == 600
     assert embstatus["x"] == 100.5
+    fields = {field["name"]: field for field in endpoints["/embstatus"]["response_body"]["fields"]}
+    assert "unresolved" in fields["embinfoid"]["description"]
+    assert "/embinfo.id" in fields["id"]["description"]
+    progress = next(entity for entity in spec["entities"] if entity["name"] == "Embroidery Stitch Progress")
+    assert "/embstatus.id equals /embinfo.id" in progress["notes"]
 
 
 def test_json_unknown_properties_and_statuses_are_tolerated(endpoints):
@@ -394,6 +430,7 @@ def test_json_unknown_properties_and_statuses_are_tolerated(endpoints):
     info["apis"]["monitoring"]["new-version-field"] = {"anything": [1, 2]}
     info["whole-new-api"] = [True, None, "future"]
     assert monitoring_capability(info) is True
+    assert status_label(20) == "sewing"
     assert status_label(30) == "embroidering"
     assert status_label(50) == "finished"
     assert status_label(777) == "unknown(777)"
@@ -451,6 +488,20 @@ def test_tls_is_user_approved_tofu_never_trust_all(spec):
     assert tls["verification"] == "trust_on_first_use"
     tofu = spec["protocol_details"]["https_monitoring"]["tofu"]
     assert tofu["approval_required_before_first_get"] is True
+    bootstrap = tofu["bootstrap"]
+    assert bootstrap["pre_persist_endpoints"] == ["/info"]
+    assert bootstrap["post_persist_endpoints"] == ["/status", "/embinfo", "/embstatus"]
+    steps = bootstrap["ordered_steps"]
+    assert len(steps) == 4
+    assert "user approval" in steps[0]
+    assert "only in memory" in steps[1]
+    assert "do not persist it yet" in steps[1]
+    assert steps[2].startswith("Fetch /info with the volatile pin")
+    assert "nonempty machine-id" in steps[2]
+    assert steps[3].startswith("Atomically persist")
+    assert "before any /status, /embinfo or /embstatus request" in steps[3]
+    assert "must not be created before /info" in tofu["persist"]
+    assert "durable pin-to-machine-id before the first /info response" in tofu["forbidden"]
     assert "changed_certificate" in tofu
     assert "trust-all certificates" in tofu["forbidden"]
     assert "trust-all hostnames" in tofu["forbidden"]

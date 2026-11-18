@@ -65,21 +65,23 @@ Two unresolved conflicts are preserved:
   needs remeasurement; cricut-re-toolkit separately reports **198347 baud**.
   The alternate is not a proven correction or automatic fallback.
 - licut's examples show **six-byte** requests, while its builder and
-  libcutter's fixed command writer emit **five bytes**.
+  libcutter's fixed command writer both emit **five bytes**. The sixth byte in
+  the example is an extra-zero documentary inconsistency, not a wire variant.
 
-Choose the baud and request width only from evidence for the selected unit.
-Stop rather than cycling through every combination after a timeout.
+Choose the baud only from evidence for the selected unit. Always emit the
+five-byte implementation request. Do not cycle baud rates or send the six-byte
+example after a timeout.
 
-### Request widths
+### Request width
 
-For an allowed opcode `XX`:
+For an allowed opcode `XX`, the sole executable request is:
 
 ```text
-Six-byte documentary form:  04 XX 00 00 00 00
-Five-byte implementation form: 04 XX 00 00 00
+04 XX 00 00 00
 ```
 
-Do not concatenate the forms, send both in succession, or infer that a missing
+The separate six-byte comment is retained only as evidence of the documentary
+inconsistency. Do not concatenate forms, send both, or infer that a missing
 response licenses another opcode. Only `11`, `12`, `14` and `18` (hex) are
 allowed in this spec.
 
@@ -98,15 +100,14 @@ Expected body lengths are 8 for `0x11`, 6 for `0x12`, 4 for `0x14`, and 38 for
 ## The four queries and exact published vectors
 
 The following are licut's published examples, not captures made by this
-project. Independent standard-library tests rebuild both request forms and
+project. Independent standard-library tests rebuild the five-byte request and
 parse every response, including all truncation and malformed-offset cases.
 
 ### Model and firmware — `0x12`
 
 ```text
-Request (documented): 04 12 00 00 00 00
-Request (emitted):    04 12 00 00 00
-Response:             06 00 14 00 02 00 22
+Request (sole executable): 04 12 00 00 00
+Response:                  06 00 14 00 02 00 22
 ```
 
 After the length byte `06`, three big-endian uint16 values decode as:
@@ -123,9 +124,8 @@ Known model IDs are `0x000a` Personal, `0x0014` Expression and `0x001e` Mini
 ### Cartridge and mat status — `0x14`
 
 ```text
-Request (documented): 04 14 00 00 00 00
-Request (emitted):    04 14 00 00 00
-Response:             04 00 01 00 01
+Request (sole executable): 04 14 00 00 00
+Response:                  04 00 01 00 01
 ```
 
 The four body bytes are two big-endian uint16 flags: cartridge loaded = 1 and
@@ -134,9 +134,8 @@ mat loaded = 1. Both fields accept only 0 or 1.
 ### Mat bounds — `0x11`
 
 ```text
-Request (documented): 04 11 00 00 00 00
-Request (emitted):    04 11 00 00 00
-Response:             08 01 3c 00 32 13 62 12 58
+Request (sole executable): 04 11 00 00 00
+Response:                  08 01 3c 00 32 13 62 12 58
 ```
 
 After the length byte `08`, four big-endian uint16 coordinates are:
@@ -155,8 +154,7 @@ still need stock-hardware confirmation.
 ### Cartridge information — `0x18`
 
 ```text
-Request (documented): 04 18 00 00 00 00
-Request (emitted):    04 18 00 00 00
+Request (sole executable): 04 18 00 00 00
 Response:
 26 00 01 00 21 43 72 69 63 75 74 28 52 29 20 43
 61 6b 65 20 42 61 73 69 63 73 00 00 00 00 00 00
@@ -172,10 +170,15 @@ The `26` prefix declares 38 body bytes. They decode as:
 | 4 | 33 | Name region: `Cricut(R) Cake Basics`, then NUL/zero padding |
 | `4 + 33 = 37` | 1 | Cartridge revision = `0x23` = 35 |
 
-A parser must require `4 + name_offset` to be inside the body, find a NUL in
-the name region, and decode only the ASCII before the first NUL. Never read a
-revision through an unchecked offset or assume every future name region is 33
-bytes.
+A parser must require `4 + name_offset` to be inside the body. With a cartridge
+present, it must find a NUL in the name region and decode a nonempty ASCII name
+only before that NUL. Never read a revision through an unchecked offset or
+assume every future name region is 33 bytes.
+
+With no cartridge, `present = 0` and `name_offset = 0` explicitly permit an
+empty name without a terminator. The spec and tests include a synthetic vector
+of `26` followed by 38 zero bytes, which decodes as no cartridge, empty name,
+and revision zero at body offset 4. This boundary is not a hardware capture.
 
 ## Pairing, credentials and network rejoin
 

@@ -33,11 +33,11 @@ class ProtocolError(ValueError):
     pass
 
 
-def build_request(opcode: int, width: int) -> bytes:
+def build_request(opcode: int, width: int = 5) -> bytes:
     if opcode not in QUERY_OPCODES:
         raise ProtocolError("opcode is outside the read-only query surface")
-    if width not in (5, 6):
-        raise ProtocolError("request width must be the five- or six-byte form")
+    if width != 5:
+        raise ProtocolError("only the five-byte implementation request is executable")
     return bytes([0x04, opcode]) + bytes(width - 2)
 
 
@@ -95,26 +95,24 @@ def _parse_response(frame: bytes, opcode: int) -> dict:
     if version_offset >= len(body):
         raise ProtocolError("cartridge revision offset is outside the response")
     name_region = body[4:version_offset]
-    if b"\x00" not in name_region:
-        raise ProtocolError("unterminated cartridge name")
-    raw_name = name_region.split(b"\x00", 1)[0]
+    if present:
+        if b"\x00" not in name_region:
+            raise ProtocolError("unterminated cartridge name")
+        raw_name = name_region.split(b"\x00", 1)[0]
+        if not raw_name:
+            raise ProtocolError("present cartridge has an empty name")
+    else:
+        raw_name = name_region.split(b"\x00", 1)[0]
     try:
         name = raw_name.decode("ascii")
     except UnicodeDecodeError as error:
         raise ProtocolError("cartridge name is not ASCII") from error
-    if present and not name:
-        raise ProtocolError("present cartridge has an empty name")
     return {
         "cartridge_present": present,
         "name_offset": name_offset,
         "name": name,
         "cartridge_version": body[version_offset],
     }
-
-
-# Bind the implementation after the public reader so take_response has one job:
-# split a stream. parse_response alone additionally forbids trailing bytes.
-parse_response.__globals__["_parse_response"] = _parse_response
 
 
 def model_label(model_id: int) -> str:
@@ -135,15 +133,26 @@ def test_published_request_and_response_vectors(spec, vectors):
     messages = {entry["name"]: entry for entry in spec["bus"]["messages"]}
     assert set(messages) == set(expected)
     for name, opcode in expected.items():
-        vector = vectors[name]
-        documented = bytes.fromhex(vector["documented_request_hex"])
-        implementation = bytes.fromhex(vector["implementation_request_hex"])
-        assert build_request(opcode, 6) == documented
-        assert build_request(opcode, 5) == implementation
-        assert bytes.fromhex(messages[name]["request"]) == documented
-        assert len(documented) == 6
-        assert len(implementation) == 5
-        assert documented[:2] == implementation[:2] == bytes([0x04, opcode])
+        request = bytes.fromhex(vectors[name]["request_hex"])
+        assert build_request(opcode) == request
+        assert bytes.fromhex(messages[name]["request"]) == request
+        assert len(request) == 5
+        assert request[:2] == bytes([0x04, opcode])
+        with pytest.raises(ProtocolError, match="only the five-byte"):
+            build_request(opcode, 6)
+
+
+def test_no_cartridge_empty_name_is_accepted(vectors):
+    vector = vectors["no_cartridge"]
+    response = bytes.fromhex(vector["response_hex"])
+    assert len(response) == 39
+    assert "synthetic" in vector["provenance"].lower()
+    assert parse_response(response, 0x18) == vector["expected"] == {
+        "cartridge_present": 0,
+        "name_offset": 0,
+        "name": "",
+        "cartridge_version": 0,
+    }
 
 
 def test_model_firmware_vector_decodes_exactly(vectors):
@@ -311,9 +320,11 @@ def test_serial_and_request_discrepancies_are_preserved(spec):
     assert discrepancies["receive_stop_intervals"] == 1
     assert discrepancies["inter_byte_gap_ms"] == 1
     widths = spec["protocol_details"]["request_width_discrepancy"]
-    assert widths["six_byte_documentary_form"].count("[00]") == 4
-    assert widths["five_byte_implementation_form"].count("[00]") == 3
-    assert "Do not send both" in widths["selection_rule"]
+    assert widths["executable_form"] == "[04][opcode][00][00][00]"
+    assert widths["documentary_comment_only"].count("[00]") == 4
+    assert "not a selectable wire form" in widths["rule"]
+    assert "Always emit five bytes" in widths["rule"]
+    assert "never used by the executable messages or test vectors" in widths["rule"]
 
 
 def test_reset_all_is_physical_and_scoped_to_manual_models(spec):

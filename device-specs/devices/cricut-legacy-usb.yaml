@@ -68,9 +68,9 @@ device:
           Connect a stock legacy cutter by USB, select the exact model and host
           serial port, then configure 200000 baud 8N1 receive with two stop
           intervals on transmit. Use 198347 baud only when independent evidence
-          for that unit supports it. Choose either the six-byte documented
-          example or five-byte implementation request form deliberately, never
-          spray both forms at an unknown device.
+          for that unit supports it. Always emit the five-byte implementation
+          request. The six-byte example is only a documentary inconsistency
+          with an extra trailing zero, not a selectable wire form.
         steps:
           - action: "Identify the cutter as Personal, Create, Expression, Cake or Cake Mini from its physical labels and manual; do not select Mini, Explore Air 2 or a modern Bifrost model."
             actor: "user"
@@ -80,15 +80,15 @@ device:
           - action: "Open the port for one client at 200000 baud, 8 data bits, no parity, 1 stop bit for receive; transmit two stop intervals using 8N2 when supported or a 1 ms inter-byte gap."
             actor: "client"
             notes: "200000 baud is reported by both implementations and explicitly marked for remeasurement by libcutter. Use 198347 only as a separately sourced user override."
-          - action: "Select one documented request-width variant and issue 0x12 alone, then read exactly its 6-byte body after the length prefix."
+          - action: "Issue the five-byte request 04 12 00 00 00 alone, then read exactly its 6-byte body after the length prefix."
             actor: "client"
             expect: "Six body bytes decode as model ID, firmware major and firmware minor, all big-endian uint16. A response has no opcode echo, so only one query may be outstanding."
-          - action: "If status, mat bounds or cartridge information is wanted, issue 0x14, 0x11 or 0x18 separately and validate the exact body length and all offsets before decoding."
+          - action: "If status, mat bounds or cartridge information is wanted, issue the five-byte forms of 0x14, 0x11 or 0x18 separately and validate the exact body length and all offsets before decoding."
             actor: "client"
             expect: "Read-only status is returned. No motion, transaction, upload, key or firmware request follows."
         troubleshooting:
           - symptom: "No response or implausible values."
-            fix: "Stop rather than trying other opcodes. Confirm the physical model and port, drain stale input, verify receive is 8N1 and transmit has two stop intervals, then resolve the unit's baud and request-width evidence. Do not automatically switch to every baud/request combination."
+            fix: "Stop rather than trying other opcodes or the documentary six-byte example. Confirm the physical model and port, drain stale input, verify receive is 8N1 and transmit has two stop intervals, then resolve the unit's baud evidence. Do not automatically switch baud rates."
     factory_reset:
       applicable: true
       confidence: "medium"
@@ -223,15 +223,16 @@ bus:
     - name: "model_firmware"
       description: "0x12: model ID and two firmware-version components."
       direction: "bidirectional"
-      request: "04 12 00 00 00 00"
+      request: "04 12 00 00 00"
       response: "06"
       length: 7
       writes: false
       verification: "reported"
       notes: >
-        The request shown is licut's six-byte documentary example. Its
-        implementation and libcutter emit the five-byte form 04 12 00 00 00;
-        preserve both under protocol_details.request_width_discrepancy.
+        This five-byte request is the sole executable form. licut's separate
+        comment shows an extra trailing zero; that six-byte documentary
+        inconsistency is not a request variant. See
+        protocol_details.request_width_discrepancy.
       fields:
         - {offset: 0, length: 1, name: "payload_length", type: "uint8", encoding: "Always 6 for this response.", verification: "reported"}
         - {offset: 1, length: 2, name: "model_id", type: "uint16", endianness: "big", encoding: "0x000a Personal, 0x0014 Expression, 0x001e Mini detection-only; other values remain unknown.", verification: "reported"}
@@ -240,12 +241,12 @@ bus:
     - name: "status"
       description: "0x14: cartridge-loaded and mat-loaded flags."
       direction: "bidirectional"
-      request: "04 14 00 00 00 00"
+      request: "04 14 00 00 00"
       response: "04"
       length: 5
       writes: false
       verification: "reported"
-      notes: "The five-byte implementation request is 04 14 00 00 00."
+      notes: "The sole executable request is the five-byte form shown here."
       fields:
         - {offset: 0, length: 1, name: "payload_length", type: "uint8", encoding: "Always 4 for this response.", verification: "reported"}
         - {offset: 1, length: 2, name: "cartridge_loaded", type: "uint16", endianness: "big", values: {0: "not loaded", 1: "loaded"}, verification: "reported"}
@@ -253,15 +254,15 @@ bus:
     - name: "mat_bounds"
       description: "0x11: four big-endian uint16 mat-boundary coordinates."
       direction: "bidirectional"
-      request: "04 11 00 00 00 00"
+      request: "04 11 00 00 00"
       response: "08"
       length: 9
       writes: false
       verification: "reported"
       notes: >
-        The five-byte implementation request is 04 11 00 00 00. libcutter uses
-        404 internal position units per inch. Boundary origin and per-model
-        interpretation still need stock-hardware confirmation.
+        The sole executable request is the five-byte form shown here. libcutter
+        uses 404 internal position units per inch. Boundary origin and
+        per-model interpretation still need stock-hardware confirmation.
       fields:
         - {offset: 0, length: 1, name: "payload_length", type: "uint8", encoding: "Always 8 for this response.", verification: "reported"}
         - {offset: 1, length: 2, name: "x_min", type: "uint16", endianness: "big", unit: "in", scale: 0.002475247524752475, notes: "Exact conversion is raw / 404 inches.", verification: "reported"}
@@ -271,16 +272,17 @@ bus:
     - name: "cartridge_info"
       description: "0x18: cartridge presence, name region and revision."
       direction: "bidirectional"
-      request: "04 18 00 00 00 00"
+      request: "04 18 00 00 00"
       response: "26"
       length: 39
       writes: false
       verification: "reported"
       notes: >
-        The five-byte implementation request is 04 18 00 00 00. The published
-        response has a 38-byte body, name_offset 33 and version at body offset
-        4 + 33 = 37. A parser must compute that offset dynamically and bounds-
-        check it instead of trusting it.
+        The sole executable request is the five-byte form shown here. The
+        published response has a 38-byte body, name_offset 33 and version at
+        body offset 4 + 33 = 37. A parser must compute that offset dynamically
+        and bounds-check it instead of trusting it. With no cartridge,
+        present = 0 and name_offset = 0 permit an empty name.
       fields:
         - {offset: 0, length: 1, name: "payload_length", type: "uint8", encoding: "0x26 = 38 in the published response.", verification: "reported"}
         - {offset: 1, length: 2, name: "cartridge_present", type: "uint16", endianness: "big", values: {0: "not present", 1: "present"}, verification: "reported"}
@@ -329,10 +331,10 @@ protocol_details:
     post_response_drain_ms: 250
     inter_byte_rule: "licut sleeps 1 ms after each output byte, including the last, to supply the second stop interval while configured 8N1. libcutter alternatively enables 8N2 output and also delays output bytes."
   request_width_discrepancy:
-    six_byte_documentary_form: "[04][opcode][00][00][00][00]"
-    five_byte_implementation_form: "[04][opcode][00][00][00]"
-    source: "licut's response examples show six bytes, while its packet builder and libcutter's fixed command writer emit five. Both are preserved; neither is declared the universal form."
-    selection_rule: "The user chooses one variant from evidence for the selected model. Do not send both forms in succession, concatenate them, or infer a different protocol from a missing response."
+    executable_form: "[04][opcode][00][00][00]"
+    documentary_comment_only: "[04][opcode][00][00][00][00]"
+    source: "licut's response examples show six bytes, while its packet builder and libcutter's fixed command writer both emit five. The sixth byte in the comment is only an extra-zero documentary inconsistency."
+    rule: "Always emit five bytes. The six-byte example is not a selectable wire form and is never used by the executable messages or test vectors. Do not send both forms or infer a different protocol from a missing response."
   response_framing:
     length_prefix: "One byte; exact number of following body bytes, excluding itself"
     opcode_echo: false
@@ -344,7 +346,7 @@ protocol_details:
       24: 38
     expected_body_lengths_note: "Keys are decimal opcodes: 0x11, 0x12, 0x14 and 0x18 respectively."
     read_rule: "Read the length byte, then exactly that many body bytes. Require the expected length for the outstanding query and reject short or trailing frames. Do not treat a short read as a complete frame."
-    cartridge_rule: "For 0x18, body offsets 0–1 are presence, 2–3 name_offset, 4 onward name bytes, and 4 + name_offset is revision. Require 4 + name_offset < body length and a NUL within the name region; decode only before the first NUL."
+    cartridge_rule: "For 0x18, body offsets 0–1 are presence, 2–3 name_offset, 4 onward name bytes, and 4 + name_offset is revision. Require 4 + name_offset < body length. With present = 0 and name_offset = 0, accept an empty name without a terminator. With present = 1, require a NUL-terminated, nonempty ASCII name; absent-carriage names need no terminator."
   model_ids:
     10: "Personal (0x000a)"
     20: "Expression (0x0014)"
@@ -368,31 +370,31 @@ protocol_details:
       - "Explore Air 2 and modern Bifrost USB/BLE protocols"
       - "universal USB-ID probing or probing a Mini as if it were supported"
   published_vectors:
-    provenance: "Exact licut published request/response examples, independently decoded here; not captured by this project and not evidence of a live unit."
+    provenance: "Exact licut published request/response examples, independently decoded here; not captured by this project and not evidence of a live unit. The no-cartridge response is a synthetic parser boundary vector."
     model_firmware:
-      documented_request_hex: "04 12 00 00 00 00"
-      implementation_request_hex: "04 12 00 00 00"
+      request_hex: "04 12 00 00 00"
       response_hex: "06 00 14 00 02 00 22"
       expected: {model_id: 20, firmware_major: 2, firmware_minor: 34}
     status:
-      documented_request_hex: "04 14 00 00 00 00"
-      implementation_request_hex: "04 14 00 00 00"
+      request_hex: "04 14 00 00 00"
       response_hex: "04 00 01 00 01"
       expected: {cartridge_loaded: 1, mat_loaded: 1}
     mat_bounds:
-      documented_request_hex: "04 11 00 00 00 00"
-      implementation_request_hex: "04 11 00 00 00"
+      request_hex: "04 11 00 00 00"
       response_hex: "08 01 3c 00 32 13 62 12 58"
       expected: {x_min: 316, y_min: 50, x_max: 4962, y_max: 4696}
       expected_inches: "x_min = 79/101, y_min = 25/202, x_max = 2481/202, y_max = 1174/101"
     cartridge_info:
-      documented_request_hex: "04 18 00 00 00 00"
-      implementation_request_hex: "04 18 00 00 00"
+      request_hex: "04 18 00 00 00"
       response_hex: "26 00 01 00 21 43 72 69 63 75 74 28 52 29 20 43 61 6b 65 20 42 61 73 69 63 73 00 00 00 00 00 00 00 00 00 00 00 00 23"
       expected: {cartridge_present: 1, name_offset: 33, name: "Cricut(R) Cake Basics", cartridge_version: 35}
+    no_cartridge:
+      provenance: "Synthetic boundary vector for the documented present = 0, name_offset = 0 parser case; not a hardware capture."
+      response_hex: "26 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      expected: {cartridge_present: 0, name_offset: 0, name: "", cartridge_version: 0}
 
 remaining_unknowns:
-  - "No stock-hardware serial capture establishes whether 200000 or 198347 is correct for a given model/firmware, or whether the five- or six-byte documentary request is required."
+  - "No stock-hardware serial capture establishes whether 200000 or 198347 is correct for a given model/firmware, or why licut's documentary example carries an extra trailing zero. The emitted five-byte request remains the only executable form here."
   - "Create, Cake and Cake Mini model IDs and field-presence/version variation are unestablished; libcutter's support table is reported, not a live query guarantee."
   - "Mat boundary origin and per-model interpretation, and confirmation that every boundary uses the 404-units-per-inch motion scale, need hardware evidence."
   - "Cake Mini's physical Reset All procedure is not established by the manuals reviewed; do not copy Cake's procedure without its manual."
