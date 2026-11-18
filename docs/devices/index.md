@@ -301,6 +301,11 @@ spec's `device.setup` block; the patterns are explained in
 | [Sportstech F15 / F31](sportstech-f15-f31.md) | BLE | Identify-only (untested; public capture) | Dedicated frame handler required | Sportstech |
 | [Brother My Stitch Monitor embroidery machines](brother-embroidery-lan.md) | WiFi (SNMPv1 + HTTPS) | Spec Available (untested; read-only monitoring) | On-device Wi-Fi + user-approved TLS pin (medium) | Brother |
 | [Cricut legacy USB cutters](cricut-legacy-usb.md) | USB serial (query-only) | Spec Available (untested) | Manual model/port selection (medium) | Cricut / Provo Craft |
+| [Oclean BLE Smart Toothbrushes](oclean-toothbrushes.md) | BLE | Identify-only (untested) | Dedicated DIS-first model-routed handler required | Oclean |
+| [BlueMaestro Tempo Disc Environmental Sensors](bluemaestro-tempo-disc.md) | BLE (passive) | Identify-only (untested) | Dedicated measurement handler required | Blue Maestro |
+| [SensorBlue ThermoBeacon Hygrometers](sensorblue-thermobeacon.md) | BLE (passive) | Identify-only (untested) | Manual compound verification + dedicated measurement handler | SensorBlue / SEVEN-LIKE |
+| [SOMA Smart Shades 2 / Tilt 2 / Smart Shades 3](soma-smart-shades.md) | BLE | Identify-only (untested) | Dedicated V2 generation + byte-1 Tilt-bit selection handler required | Wazombi Labs |
+| [Flic 2 and Flic Duo](flic-2-duo.md) | BLE | Identify-only (untested) | Dedicated signed-session/reliable-event handler required | Shortcut Labs |
 
 ## Not everything here was liberated
 
