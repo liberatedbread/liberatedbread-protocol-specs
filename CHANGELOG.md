@@ -17,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reset behavior and firmware/bulk operations remain explicit unknowns. Static
   app evidence corroborates only their UUIDs, including the Mini's `96e3` clock
   mapping, not live compatibility or framing.
+- **Ninebot Z EUC and reported FIXD transport identities.** The WheelLog spec
+  gains read-only Ninebot Z framing, session-key XOR, controller/dual-BMS
+  telemetry and independent standard-library codec/reassembly vectors. The OBD
+  adapter spec records FIXD2, legacy/OEM FFF0/FFF1/FFF2 profiles and legacy
+  Kickstarter SPP without asserting scan names, initialization or ELM327
+  compatibility. Both remain untested; no Ninebot vehicle writes were added.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an

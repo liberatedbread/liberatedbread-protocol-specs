@@ -79,6 +79,37 @@ Notes that matter in practice:
   which bonds with a fixed passkey of `123456` during the first five minutes after
   power-on and always encrypts the link.
 
+### Reported FIXD transport profiles (identification only)
+
+Static analysis of FIXD OBD2 Scanner version 26.22 establishes the following
+app hardware-profile mappings. The profile identifiers and display names are
+metadata, **not observed BLE advertisement or Classic inquiry names**.
+
+Six BLE profiles use service `0000fff0-0000-1000-8000-00805f9b34fb`, with
+`0000fff1-0000-1000-8000-00805f9b34fb` labeled as the read characteristic and
+`0000fff2-0000-1000-8000-00805f9b34fb` as the write characteristic:
+
+| App hardware profile | Display name | Reported transport |
+|---|---|---|
+| `FIXD2` | FIXD2 | BLE FFF0/FFF1/FFF2 |
+| `SETOSMART` | FIXD | BLE FFF0/FFF1/FFF2 |
+| `VIECAR` | FIXD | BLE FFF0/FFF1/FFF2 |
+| `VIECAR_V2` | FIXD | BLE FFF0/FFF1/FFF2 |
+| `APPRAISAL_PRO` | Appraisal PRO | BLE FFF0/FFF1/FFF2 |
+| `VIECAR_AUTHENTICATED` | Auto Assist | BLE FFF0/FFF1/FFF2 |
+
+The separate `OLD_KICKSTARTER` profile, displayed as `OBDII`, uses standard SPP
+`00001101-0000-1000-8000-00805f9b34fb`. This legacy mapping does not imply that
+other FIXD sensors support SPP.
+
+These facts are reported and untested. FFF0 is shared with unrelated devices,
+so neither it nor an unconfirmed `FIXD2`/`FIXD` label is added as a scan-time
+matcher. The role label on FFF1 does not establish whether it is read, notified
+or both. Initialization, subscriptions, flow control, response reassembly and
+ELM327 session compatibility remain unverified. The FIXD entries therefore do
+not inherit the generic family-A AT commands or the Classic ELM327 session
+above, and they are not a completed FIXD client.
+
 ### Application layer: the ELM327 command set
 
 Two request kinds share one channel, distinguished by prefix:

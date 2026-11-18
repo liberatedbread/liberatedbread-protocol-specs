@@ -159,6 +159,55 @@ def test_obd_hm10_uart_is_post_connect_routing_not_identity():
     assert matches(spec, "OBDII", [ffe0])
 
 
+def test_fixd_profiles_are_reported_transport_identities_not_scan_matchers():
+    spec = specs()["obd2-bluetooth-adapter"]
+    fixd = spec["protocol_details"]["fixd_profiles"]
+    expected_ble = {
+        "FIXD2": "FIXD2",
+        "SETOSMART": "FIXD",
+        "VIECAR": "FIXD",
+        "VIECAR_V2": "FIXD",
+        "APPRAISAL_PRO": "Appraisal PRO",
+        "VIECAR_AUTHENTICATED": "Auto Assist",
+    }
+    assert fixd["verification"] == "reported"
+    assert spec["device"]["testing"]["status"] == "untested"
+    for profile_id, display_name in expected_ble.items():
+        profile = fixd["profiles"][profile_id]
+        assert profile == {
+            "display_name": display_name,
+            "transport": "ble_gatt_fff0",
+        }
+        transport = fixd["transports"][profile["transport"]]
+        assert transport["service_uuid"] == FFF0
+        assert transport["read_characteristic_uuid"] == (
+            "0000fff1-0000-1000-8000-00805f9b34fb"
+        )
+        assert transport["write_characteristic_uuid"] == (
+            "0000fff2-0000-1000-8000-00805f9b34fb"
+        )
+
+    legacy = fixd["profiles"]["OLD_KICKSTARTER"]
+    assert legacy == {"display_name": "OBDII", "transport": "legacy_kickstarter_spp"}
+    assert fixd["transports"][legacy["transport"]]["profile_uuid"] == (
+        "00001101-0000-1000-8000-00805f9b34fb"
+    )
+
+    # The app profile labels are not captured radio names, and shared FFF0 must
+    # not activate this spec. No FIXD profile inherits a generic AT/SPP client.
+    for name in ("FIXD", "FIXD2", "Appraisal PRO", "Auto Assist"):
+        assert not matches(spec, name, [])
+        assert not matches(spec, name, [FFF0])
+    assert "FIXD2" not in spec["device"]["identification"].get(
+        "local_name_prefixes", []
+    )
+    assert not any(
+        variant.startswith("FIXD")
+        for variant in spec["bluetooth_classic"]["variants"]
+    )
+    assert "commands" not in fixd
+
+
 def test_thermopro_uses_the_scan_configs_exact_names():
     spec = specs()["thermopro-tempspike-bbq"]
     identity = spec["device"]["identification"]
