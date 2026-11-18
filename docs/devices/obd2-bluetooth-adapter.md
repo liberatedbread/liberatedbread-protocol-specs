@@ -187,10 +187,12 @@ common) and typically fails on:
 - honouring an ECU's requested separation time in flow control
 - custom headers via `ATSH` on some protocols
 
-Single-frame reads (`03` for DTCs, `01xx` for live data) work almost everywhere, which is
-exactly why vendor tools accept any adapter for reading and name specific ones for
-maintenance functions. If a documented function works on an OBDLink and fails on a clone,
-the function is multi-frame — that is a protocol fact you get for free.
+Single-frame Mode 01 reads and small Mode 03 replies work almost everywhere. On
+classic CAN normal addressing, Mode 03 returns `43`, a DTC count and two bytes
+per DTC: three DTCs need eight application bytes and ISO-TP multiframe receive,
+with replies from multiple ECUs kept separate. If a documented function works on
+an OBDLink and fails on a clone, multiframe support is one protocol capability
+to check.
 
 A quick capability probe:
 

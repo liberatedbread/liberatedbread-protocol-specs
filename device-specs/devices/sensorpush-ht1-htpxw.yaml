@@ -42,11 +42,11 @@ device:
     Temperature/humidity accessed via write-then-read pattern: write 4-byte trigger, ~110ms delay, then read.
     Values are 4-byte signed int LE in hundredths (vendor doc: "4 Byte Signed Int LE";
     a u16 cannot encode the -40 °C bottom of the HT1 range).
-    History data retrieved in bulk notification chunks with 4-byte timestamp header.
-    Device reports battery voltage + raw temperature sensor in Battery Info characteristic.
+    HT1 history uses bulk notification chunks with a 4-byte timestamp header; V2 marks the bulk slots reserved.
+    V2 Battery Info is two int16 LE fields (mV, then last-battery-reading temperature); HT1 raw semantics stay separate.
     Uses SensorPush BLE Advertisement Detection: name/address prefix check plus UUID slicing.
     The Android app (v4.5.9, legacy package com.cousins_sears.beaconthermometer) ships a
-    definitions table (res/raw/definitions.json) confirming the device-version IDs:
+    model definitions table confirming the device-version IDs:
     1=HT1, 64=HTP.xw, 65=HT.w, 66=TC.x, 67=Aqua (binary water-leak sensor, 1-byte
     timestamped samples). The app matches the primary service by UUID prefix
     ef090000-11d6-42ba-93b8-9dd7ec090a* rather than an exact generation UUID.
@@ -188,7 +188,11 @@ services:
       - uuid: "ef090002-11d6-42ba-93b8-9dd7ec090aa9"
         name: RevisionCode
         properties: ["read"]
-        description: "7-byte firmware revision: i1_i2.i3_i4.i5_i6.i7 format"
+        description: >
+          Seven uint8 bytes, not ASCII. HT1 community clients format them as
+          b0_b1.b2_b3.b4_b5.b6 with three decimal digits per byte. V2 instead
+          defines byte 0 as model ID (0 = HTP.xw) and bytes 1-6 as detailed
+          version data; never apply the HT1 display string to V2.
 
       - uuid: "ef090003-11d6-42ba-93b8-9dd7ec090aa9"
         name: TxPower
@@ -198,7 +202,7 @@ services:
       - uuid: "ef090004-11d6-42ba-93b8-9dd7ec090aa9"
         name: SampleInterval
         properties: ["read"]
-        description: Logging sample interval in seconds (integer)
+        description: "HT1 logging sample interval in seconds (integer, community client). The V2 vendor API marks this slot RESERVED; it is not a live HTP.xw setting."
 
       - uuid: "ef090005-11d6-42ba-93b8-9dd7ec090aa9"
         name: AdvertisingInterval
@@ -208,25 +212,29 @@ services:
       - uuid: "ef090007-11d6-42ba-93b8-9dd7ec090aa9"
         name: BatteryInfo
         properties: ["read"]
-        description: "4 bytes: [battery_voltage_u16le / 1000 = volts, raw_temp_u16le]"
+        description: >
+          V2: two int16 LE values — battery voltage in mV, then temperature at
+          the last battery reading. HT1 community-client semantics are recorded
+          separately in protocol_details; do not generalize the second field as
+          an unsigned universal raw value.
 
       - uuid: "ef090008-11d6-42ba-93b8-9dd7ec090aa9"
         name: Timestamp
         # Source spec recorded `type: write` with `access: read_write`; the union
         # of the two is read+write.
         properties: ["read", "write"]
-        description: "Device clock (4 bytes, u32le, seconds since Unix epoch)"
+        description: "HT1 device clock (4 bytes, u32le, seconds since Unix epoch, community client). The V2 vendor API marks this slot RESERVED."
         access: read_write
 
       - uuid: "ef090009-11d6-42ba-93b8-9dd7ec090aa9"
         name: BulkData27
         properties: ["notify"]
-        description: Bulk sample data block (timestamp + 4-byte sample records)
+        description: "HT1 bulk-history data; timestamp header and notification boundaries are generation-specific. The V2 vendor API marks this slot RESERVED."
 
       - uuid: "ef09000a-11d6-42ba-93b8-9dd7ec090aa9"
         name: BulkData29
         properties: ["notify"]
-        description: Bulk sample data block (remote history retrieval)
+        description: "HT1 remote-history retrieval (community client). The V2 vendor API marks this slot RESERVED; no universal HTP.xw history decoder is asserted."
 
       - uuid: "ef09000b-11d6-42ba-93b8-9dd7ec090aa9"
         name: Unknown32
@@ -248,21 +256,21 @@ services:
         # write-then-read: the trigger write and the value read are both real
         # accesses, so both properties are listed. `access` keeps the ordering.
         properties: ["read", "write"]
-        description: "Temperature in °C. Write 4-byte trigger (0x01000100), wait 110ms, read 4-byte int32le / 100 (vendor doc: 4 Byte Signed Int LE; a u16 cannot encode -40 °C)"
+        description: "Temperature in °C, signed int32 LE / 100. HT1 trigger is 01 00 01 00; V2 accepts any 32-bit trigger (vendor example 01 00 00 00). Wait 110 ms before reading. Official V2 vector b2 07 00 00 = 19.70 °C."
         access: write_read
         trigger_write: "01000100"
 
       - uuid: "ef090081-11d6-42ba-93b8-9dd7ec090aa9"
         name: Humidity
         properties: ["read", "write"]
-        description: "Humidity in %RH. Write 4-byte trigger (0x01000100), wait 110ms, read 4-byte int32le / 100 (vendor doc: 4 Byte Signed Int LE)"
+        description: "Humidity in %RH, signed int32 LE / 100. HT1 trigger is 01 00 01 00; V2 accepts any 32-bit trigger (vendor example 01 00 00 00). Wait 110 ms before reading."
         access: write_read
         trigger_write: "01000100"
 
       - uuid: "ef090082-11d6-42ba-93b8-9dd7ec090aa9"
         name: BarometricPressure
         properties: ["read", "write"]
-        description: "Barometric pressure (station pressure) in hundredths of Pa, 4-byte int32le / 100 (vendor Bluetooth API doc). HTP.xw (V2) only; follows the same write-then-read trigger pattern as temperature/humidity."
+        description: "Barometric pressure (station pressure) in hundredths of Pa, signed int32 LE / 100. HTP.xw (V2) only; V2 accepts any 32-bit trigger (vendor example 01 00 00 00), with the retained HT1 value also valid."
         access: write_read
         trigger_write: "01000100"
 
@@ -337,12 +345,17 @@ advertising:
 protocol_details:
   data_format:
     battery:
-      encoding: u16le
-      scale: 0.001
-      unit: V
-      byte_offset: 0
-      size: 2
-      description: Battery voltage
+      size: 4
+      v2:
+        battery_mv: {byte_offset: 0, size: 2, encoding: int16le, unit: mV}
+        temperature_at_last_battery_reading:
+          byte_offset: 2
+          size: 2
+          encoding: int16le
+          description: "Signed V2 field per the vendor API; no universal display scale is inferred here."
+      ht1:
+        battery_voltage: {byte_offset: 0, size: 2, encoding: u16le, scale: 0.001, unit: V}
+        raw_temperature: {byte_offset: 2, size: 2, encoding: u16le, description: "HT1 community-client raw field; not the V2 signed temperature interpretation."}
     temperature:
       encoding: int32le
       scale: 0.01
@@ -350,6 +363,7 @@ protocol_details:
       byte_offset: 0
       size: 4
       description: Signed 32-bit LE, hundredths of °C (vendor doc; signed matters below 0 °C)
+      official_v2_example: "b2 07 00 00 = 1970 raw = 19.70 C"
     humidity:
       encoding: int32le
       scale: 0.01
@@ -358,25 +372,36 @@ protocol_details:
       size: 4
       description: Signed 32-bit LE, hundredths of %RH (vendor doc)
     revision:
-      encoding: ascii
-      format: "{b[0]:03d}_{b[1]:03d}.{b[2]:03d}_{b[3]:03d}.{b[4]:03d}_{b[5]:03d}.{b[6]:03d}"
+      encoding: uint8[7]
+      ht1_display_format: "{b[0]:03d}_{b[1]:03d}.{b[2]:03d}_{b[3]:03d}.{b[4]:03d}_{b[5]:03d}.{b[6]:03d}"
+      example: "00 01 02 03 04 05 06"
+      ht1_example_display: "000_001.002_003.004_005.006"
+      v2_layout: "byte 0 = model ID (0 = HTP.xw); bytes 1-6 = detailed version data, not the HT1 display string"
+    trigger:
+      size: 4
+      ht1_hex: "01 00 01 00"
+      v2_rule: "Any 32-bit value is accepted; vendor example 01 00 00 00. The retained trigger_write is the HT1 value and is also valid on V2."
     bulk_sample:
       description: |
-        Each sample is 4 bytes. Bulk data: [4-byte u32le timestamp] + [N × 4-byte sample records].
-        All 4 bytes of each sample record are packed payload (encoded temp/humidity fields).
-        Stop token: 0xFFFFFFFF marks end of valid data.
+        Do not apply one universal history layout across generations. The V2 vendor
+        API marks SampleInterval, Timestamp and both bulk slots RESERVED. The HT1
+        community flow uses a four-byte u32le timestamp header, packed records and
+        0xFFFFFFFF as its stop token; notification chunk boundaries are not record
+        boundaries. The maintained advertisement parser does not prove GATT history
+        layout, so no universal HTP.xw decoder is asserted.
         Note: the "65 = standard reading type prefix" in sensorpush-bleak is a hardcoded
         dummy byte that library prepends to select its HT.w (type 65) pack-params —
         it is NOT a per-record type byte on the wire.
-        Packed-sample widths and encoding ranges per the app's shipped definitions
-        table (res/raw/definitions.json, app v4.5.9): each record packs one value per
-        dimension as (min, max, step) scaled integers — HT1: 4 bytes/sample, gen-1 raw
-        fields (no pack params); HTP.xw: 6 bytes — temperature (-40..140 °C, step
-        0.0025), humidity (0..100 %RH, step 0.0025), pressure (30000..125000 Pa, step
-        1); HT.w: 4 bytes — temperature (-40..125 °C, step 0.0025), humidity (0..100,
-        step 0.0025); TC.x: 2 bytes — thermocouple temperature (-200..1800 °C, step
-        0.0625, minimum value = probe-disconnected null); Aqua: 1 byte — water present
-        (0..1, step 1, timestamped sample mode).
+        The vendor app's model definitions table reports these record widths and
+        scaled-integer ranges: HT1: 4 bytes/sample, gen-1 raw fields (no pack params);
+        HTP.xw: 6 bytes — temperature (-40..140 °C, step 0.0025), humidity
+        (0..100 %RH, step 0.0025), pressure (30000..125000 Pa, step 1); HT.w:
+        4 bytes — temperature (-40..125 °C, step 0.0025), humidity (0..100,
+        step 0.0025); TC.x: 2 bytes — thermocouple temperature (-200..1800 °C,
+        step 0.0625, minimum = probe-disconnected null); Aqua: 1 byte — water
+        present (0..1, step 1, timestamped sample mode). The HTP.xw entry is not
+        promoted to a live V2 GATT format without a capture on firmware that
+        exposes bulk history.
 
 evidence:
   vendor_documentation:

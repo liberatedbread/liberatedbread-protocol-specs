@@ -31,7 +31,7 @@ decoding off the box label.
 |---|---|---|---|
 | `TS0601_soil` (classic) | `_TZE200_myd45weu`, `_TZE200_ga1maeof`, `_TZE200_2se8efxh`, `_TZE200_9cqcpkgb`, `_TZE204_myd45weu`, `_TZE284_myd45weu`, `_TZE284_oitavov2`, `_TZE284_2nhqasjh`, `_TZE284_2se8efxh` | Qoto QT-07S, GXM-01, "3-in-1" probes | Soil moisture, soil temp, battery |
 | `TS0601_soil_2` | `_TZE284_g2e6cpnw`, `_TZE284_sgabhwa6` | — | + alarm thresholds/sensitivity, report interval |
-| `TS0601_soil_3` | `_TZE284_aao3yzhs`, `_TZE284_nhgdf6qr` (GX04), `_TZE284_3urschql` (GX06) | GIEX GX04/GX06 | GX06 adds a light sensor (DP 2) |
+| `TS0601_soil_3` | `_TZE284_aao3yzhs`, `_TZE284_nhgdf6qr` (GX04), `_TZE2841000000_nhgdf6qr`, `_TZE284_ap9owrsa`, `_TZE284_33bwcga2`, `_TZE284_wckqztdq`, `_TZE284_tgrzpqf4`, `_TZE2841000000_tgrzpqf4`, `_TZE284_3urschql` (GX06) | GIEX GX04/GX06 | GX06 adds a light sensor (DP 2) |
 | `ZG-303Z` (HOBEIAN) | `_TZE200_wqashyqo` | ZG-303Z | + ambient air temp/humidity, calibration, sampling periods (DP 102–112 layout) |
 | `CS-201Z` | `_TZE200_npj9bug3`, `_TZE200_wrmhp6b3` | COOLO CS-201Z, AOYAN AY-302Z/303Z | + calibration, humidity (not AY-302Z), warnings; 4-in-1 spin adds soil fertility |
 

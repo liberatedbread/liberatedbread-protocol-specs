@@ -35,9 +35,10 @@ device:
     5-6 the AES-CTR IV/nonce (u16 LE); byte 7 the first byte of the encryption key
     (a key-check byte, so a receiver can detect a stale key); bytes 8+ the AES-CTR
     ciphertext. Encryption: AES-CTR, 128-bit key; the nonce is the 2-byte IV at
-    bytes 5-6; the CTR counter is MSB and starts at 0; all current records fit one
-    AES block (<= 20 bytes on nRF devices). Changing the Bluetooth PIN rotates
-    the key.
+    bytes 5-6; the CTR counter is MSB and starts at 0. A record of <=16 bytes
+    needs one AES counter operation; a 17-20 byte record (possible on nRF
+    devices) needs a second counter block. Do not truncate after one block or
+    reverse the documented counter. Changing the Bluetooth PIN rotates the key.
 
     RECORD TYPES (the byte-4 readout type, NOT byte 0): 0x01 Solar Charger,
     0x02 Battery Monitor, 0x03 Inverter, 0x04 DC/DC, 0x05 SmartLithium, 0x06
@@ -194,62 +195,80 @@ services:
 payload_formats:
   solar_charger_0x01:
     description: >
-      Record type 0x01 (SmartSolar MPPT). Decrypted body, little-endian; all-ones
-      values are NA sentinels (0xFF / 0x7FFF / 0xFFFF / 0x1FF).
+      Record type 0x01 (SmartSolar MPPT). The decrypted body is an LSB-first
+      bitstream, not byte-aligned integers; bit_offset is relative to its first
+      bit. Test the exact all-ones sentinel BEFORE any signed extension.
+    bit_order: "lsb_first"
     fields:
       - name: "device_state"
-        description: "8-bit charger state."
+        bit_offset: 0
+        description: "8-bit charger state; raw 0xFF = unavailable."
       - name: "charger_error"
-        description: "8-bit charger error code."
+        bit_offset: 8
+        description: "8-bit charger error code; raw 0xFF = unavailable."
       - name: "battery_voltage"
+        bit_offset: 16
         unit: "V"
         scale: 0.01
-        description: "16-bit, 0.01 V."
+        description: "16-bit, 0.01 V; raw 0x7FFF = unavailable."
       - name: "battery_current"
+        bit_offset: 32
         unit: "A"
         scale: 0.1
-        description: "16-bit signed, 0.1 A."
+        description: "16-bit signed, 0.1 A; raw 0x7FFF = unavailable before sign extension."
       - name: "yield_today"
+        bit_offset: 48
         unit: "kWh"
         scale: 0.01
-        description: "16-bit, 0.01 kWh."
+        description: "16-bit unsigned, 0.01 kWh; raw 0xFFFF = unavailable."
       - name: "pv_power"
+        bit_offset: 64
         unit: "W"
         scale: 1
-        description: "16-bit, 1 W."
+        description: "16-bit unsigned, 1 W; raw 0xFFFF = unavailable."
       - name: "load_current"
+        bit_offset: 80
         unit: "A"
         scale: 0.1
-        description: "9-bit, 0.1 A."
+        description: "9-bit unsigned, 0.1 A; raw 0x1FF = unavailable."
   battery_monitor_0x02:
     description: >
-      Record type 0x02 (BMV / SmartShunt). Decrypted body, little-endian; NA
-      sentinels as above.
+      Record type 0x02 (BMV / SmartShunt), an LSB-first bitstream. Check every
+      sentinel before sign extension or negation; bit_offset is relative to the
+      decrypted body's first bit.
+    bit_order: "lsb_first"
     fields:
       - name: "time_to_go"
+        bit_offset: 0
         unit: "min"
         scale: 1
-        description: "16-bit, minutes."
+        description: "16-bit unsigned minutes; raw 0xFFFF = unavailable."
       - name: "battery_voltage"
+        bit_offset: 16
         unit: "V"
         scale: 0.01
-        description: "16-bit, 0.01 V."
+        description: "16-bit SIGNED, 0.01 V; raw 0x7FFF = unavailable before sign extension."
       - name: "alarm_reason"
-        description: "16-bit alarm bitfield."
+        bit_offset: 32
+        description: "16-bit alarm bitfield; raw 0xFFFF = unavailable."
       - name: "aux_input"
-        description: "16-bit aux field (aux voltage / mid-voltage / temperature, selected by a 2-bit aux-input selector)."
+        bit_offset: 48
+        description: "16-bit aux field (aux voltage / mid-voltage / temperature selected by the 2-bit aux-input selector); raw 0xFFFF = unavailable."
       - name: "battery_current"
+        bit_offset: 64
         unit: "A"
         scale: 0.001
-        description: "22-bit signed, 0.001 A."
+        description: "22-bit SIGNED, 0.001 A; raw 0x3FFFFF = unavailable before 22-bit sign extension."
       - name: "consumed_ah"
+        bit_offset: 86
         unit: "Ah"
         scale: 0.1
-        description: "20-bit, 0.1 Ah (negated)."
+        description: "20-bit UNSIGNED, then negate the scaled value; raw 0xFFFFF = unavailable before negation."
       - name: "state_of_charge"
+        bit_offset: 106
         unit: "%"
         scale: 0.1
-        description: "10-bit, 0.1 %."
+        description: "10-bit UNSIGNED, 0.1 %; raw 0x3FF = unavailable."
 
 entities:
   - platform: "sensor"

@@ -38,26 +38,28 @@ Kit 2 has a separate, unverified GATT and credential profile and is not covered.
 | Setup required | Yes — installer commissioning |
 | Method | `ble_provisioning` (BLE provisioning push) |
 | Advertised name | `Enpower/<serial>`, `Encharg/<serial>` |
-| Passphrase protection | SRP-6a unlock + AES-encrypted channel; generic XBee default `password`, manager-specific `030609` |
+| Passphrase protection | Four-frame SRP-6a + AES-256-CTR; reviewed Ensemble paths use `030609` |
 | Confidence | medium (app-derived; only advertisement verified on hardware) |
 
-Commissioning over BLE: connect to the XBee 3 BLE service and perform the SRP-6a
-unlock (XBee API frame `0x2C`, user `apiservice`). The generic library default is
-`password`, but both provisioning-manager constructor paths for the PAN/link-key
-checks use `030609`. Use the value for the flow being implemented rather than
-assuming one universal password. Then send User Data Relay frames to the radio's
-serial interface carrying the provisioning frames: link key push (frame type 1,
+Commissioning over BLE: connect to the XBee 3 BLE service and perform the
+four-frame SRP-6a unlock (XBee API `0x2C`/response `0xAC`, user `apiservice`).
+Reviewed Ensemble provisioning, existing-device link-key verification and live
+data all expect `030609`; `password` is confined to separate range-test and
+gateway helpers. Verify the 32-byte proof, then use the 32-byte session key for
+AES-256-CTR with direction-specific 12-byte nonces and initial remaining counter
+value 1. Then send User Data Relay frames carrying link key push (frame type 1,
 `[0x01][0x10][16 key bytes]`), gateway serial write (type 7), and
-pairing/commissioning status polls (types 4/5). The 16-byte 802.15.4 link key
-is generated locally by the commissioning app; no cloud is needed on the BLE
-link itself.
+pairing/commissioning status polls (types 4/5). The 16-byte 802.15.4 link key is
+generated locally. A candidate with 13 zero bytes plus the reserved `03 06 09`
+prefix is rejected; that prefix is not a fallback mesh key. Envoy serial derives
+and verifies the PAN ID; no separate numeric PAN-ID write is established.
 
 **Factory reset**: not documented. Frame type 2 (`RESET_DEV`) exists but its
 effect is unverified — do not poke it on a live site. De-commissioning is
 normally done via the gateway by an installer.
 
-**Rebinding**: re-running the BLE provisioning push (PAN ID, link key,
-gateway serial) re-joins a unit to the site mesh in place; no reset needed.
+**Rebinding**: re-running link-key/Envoy-serial provisioning and PAN-ID
+verification re-joins a unit to the site mesh in place; no reset needed.
 
 ## Protocol Summary
 
@@ -71,15 +73,17 @@ gateway serial) re-joins a unit to the site mesh in place; no reset needed.
 
 XBee API frame types in play (public digi-xbee-java): `0x2C` BLE Unlock,
 `0xAC` BLE Unlock Response, `0x2D` User Data Relay (client→device), `0xAD`
-User Data Relay Output (device→client). After the SRP-6a unlock, both
-directions are AES-encrypted with session keys from the handshake. Enphase
-payloads ride in the relay frames' user-data field, addressed to the radio's
-serial interface (micropython interface on the IQ Extender).
+User Data Relay Output (device→client). After the four-frame SRP-6a unlock,
+both directions use AES-256-CTR with the verified 32-byte session key and their
+own 12-byte nonce. Enphase payloads ride in the relay frames' user-data field,
+addressed to the radio's serial interface (micropython interface on the IQ
+Extender).
 
 ### Enphase provisioning frames (inside User Data Relay)
 
-Byte 0 = frame type, byte 1 = `0x00` placeholder; responses echo the type and
-carry the payload from byte 2 on.
+Byte 0 = frame type. Polls are `[type, 0]`, but write byte 1 can be a length:
+`[01][10][16 key bytes]` is 18 bytes, and gateway serial is length-prefixed.
+Responses echo the type and carry the payload from byte 2 on.
 
 | Type | Name | Purpose |
 |------|------|---------|

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sensor, energy, mobility and diagnostic protocol correctness.** Aranet
+  Radiation, SensorPush generations, Ruuvi DF3/DF5, b-parasite/BTHome,
+  Mopeka and pvvx layouts now use their actual widths, offsets, signedness and
+  unavailable sentinels. Tuya BLE v3 has one-byte DP lengths, signed values and
+  the local-key/device-random KDF; Zigbee keeps two-byte DP lengths and gains six
+  soil_3 fingerprints. Mi Flora clear history requires its two-write sequence.
+  Bluetti/JBD no longer cross-identify over their shared endpoint; JBD checksum,
+  reassembly and 10/100-unit variants are explicit, and all constant Bluetti
+  output commands are advanced. Enphase documents the reviewed password map,
+  four-frame SRP and AES-256-CTR without reversing relay directions. Victron
+  describes second-block CTR and LSB-first sentinel-before-sign decoding.
+  OpenEVSE, Concept2, FTMS, VESC, OBD/ISO-TP/UDS and clean-room labels receive
+  corresponding focused corrections. Two new standard-library modules carry 20
+  independent fixture and regression checks; verification levels are unchanged.
+
 ### Added
 
 - **November 15 audit follow-up: Anova Mini and Nano protocols.** Separate,

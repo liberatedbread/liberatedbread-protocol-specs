@@ -42,13 +42,16 @@ Flashing pads: Vcc/GND/SWS (Telink single-wire, chip type B85); flash above
 | Setup required | Yes (pairing is mandatory; nothing is readable unpaired) |
 | Method | `ble_provisioning` (vendor app + Tuya cloud account), then `ble_direct` with extracted keys |
 | Setup AP / advertised name | BLE advertisement with service-data `0xA201` + manufacturer data `0x07D0` |
-| Passphrase protection | not_applicable (BLE; session key derived from device uuid + cloud local key) |
+| Passphrase protection | not_applicable (BLE; local-key secret + six-byte device_random KDF) |
 | Confidence | medium (community implementations + Smart Life SDK decompile; not replayed by this project) |
 
-Stock pairing happens in Smart Life / Tuya Smart with a Tuya cloud account; the
-cloud issues the device id + 16-char local key that the encrypted BLE session
-is derived from. For third-party local access, extract those credentials once
-via a Tuya IoT developer account (tuya-iot-py-sdk / ha_tuya_ble automate it).
+Stock pairing happens in Smart Life / Tuya Smart with a Tuya cloud account,
+which issues the device id and 16-character local key. BLE v3 uses the first
+six local-key characters as `secret`: `login_key = MD5(secret)` and
+`session_key = MD5(secret || six-byte device_random)`. PAIR carries UUID,
+secret and device ID padded to 44 bytes, but UUID is not a session-key input.
+For third-party local access, extract the device ID and local key once via a
+Tuya IoT developer account (tuya-iot-py-sdk / ha_tuya_ble automate it).
 
 **Factory reset**: remove the device in the vendor app — the app drives an
 UNBIND (function code `0x0005`) or DEVICE_RESET (`0x0006`) frame over GATT and
@@ -87,7 +90,7 @@ Commands are function codes inside the encrypted frame:
 | Code | Direction | Meaning |
 |------|-----------|---------|
 | `0x0000` | host→device | DEVICE_INFO |
-| `0x0001` | host→device | PAIR — establishes session keys from device uuid + local key |
+| `0x0001` | host→device | PAIR — UUID + secret + device ID (44-byte padded payload); session KDF uses secret + device_random, not UUID |
 | `0x0002` | host→device | DPS (DP query/set); `0x0027` = DPS_V4 |
 | `0x0003` | host→device | DEVICE_STATUS |
 | `0x0005` / `0x0006` | host→device | UNBIND / DEVICE_RESET |
@@ -95,8 +98,12 @@ Commands are function codes inside the encrypted frame:
 | `0x8001` / `0x8006` | device→host | DP report / DP report V4 |
 | `0x8011` / `0x8012` | device→host | Time requests (answer them) |
 
-DP types: RAW=0, BOOL=1, VALUE=2 (32-bit big-endian), STRING=3, ENUM=4,
-BITMAP=5. A DP report is a list of `[dp id u8][type u8][length u16be][payload]`.
+BLE v3 DP types: RAW=0, BOOL=1, VALUE=2, STRING=3, ENUM=4, BITMAP=5. Records
+are `[dp id u8][type u8][length u8][payload]`. VALUE and ENUM decode as signed
+big-endian integers of the declared length; VALUE writes use signed four-byte
+big-endian. DP_V4 is not generalized. Vector
+`05 02 04 ff ff ff f6 03 02 04 00 00 00 32` decodes DP5 = -10 (-1.0 °C) and
+DP3 = 50 (% moisture).
 
 ### DP map (zwjcy, product `gvygg3m8`) — reported, not byte-verified
 
