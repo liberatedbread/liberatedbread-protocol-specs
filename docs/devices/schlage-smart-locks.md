@@ -26,8 +26,9 @@ Protocol facts here were recovered from the Schlage Home Android app
 (`com.allegion.leopard` 3.6.0 and 6.1.0, jadx) and cross-checked against the
 independent Go reimplementation
 [schlage-uweave](https://github.com/huguesb/schlage-uweave), which agrees on
-every constant checked. Facts not independently re-derived are marked
-*(reported)*.
+every constant checked. All wire facts are *(reported)*: static analysis and
+third-party implementations are not hardware confirmation, and this project
+has not replayed them against a lock.
 
 ## Hardware
 

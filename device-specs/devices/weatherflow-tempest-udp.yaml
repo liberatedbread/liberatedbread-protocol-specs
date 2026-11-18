@@ -37,8 +37,8 @@ device:
       hub_status     firmware revision, uptime, RSSI
     obs_st observation array (order): wind lull/avg/gust (m/s), wind direction
     (deg), station pressure (mb), air temperature (C), relative humidity (%),
-    illuminance (lux), UV index, solar radiation (W/m^2), rain accumulation (mm),
-    lightning strike distance/count, battery volts, report interval.
+    illuminance (lux), UV index, solar radiation (W/m^2), previous-minute rain
+    (mm), lightning strike distance/count, battery volts, report interval.
 
   openness:
     status: "documented_api"
@@ -57,21 +57,27 @@ device:
 
   discovery:
     methods:
-      - type: "mdns"
-        mdns:
-          # No mDNS; discovery is passive — just listen on UDP 50222 for the hub
-          # broadcasts. Placeholder block.
-          service_type: "_http._tcp.local."
+      - type: "udp_broadcast"
+        udp_broadcast:
           port: 50222
+          passive_ok: true
+          response_format: "json"
+          response_match:
+            - source: "json:type"
+              match: "regex"
+              value: "^(obs_st|obs_air|obs_sky|rapid_wind|evt_precip|evt_strike|device_status|hub_status)$"
+              description: "WeatherFlow's documented UDP message vocabulary; no probe is sent."
           identity_mapping:
             stable_keys:
-              - source: "udp:50222#serial_number"
+              - source: "json:serial_number"
                 key: "serial_number"
             display:
-              source: "udp:50222#hub_sn"
+              source: "json:serial_number"
         notes: >
-          Passive discovery: listen for UDP 50222 broadcasts; every datagram
-          carries the hub and device serial numbers.
+          Listen only. The hub broadcasts unsolicited JSON datagrams on UDP
+          50222; there is no mDNS advertisement and no discovery request to
+          send. ST/AR/SK/HB serial prefixes distinguish Tempest, AIR, SKY and
+          hub senders, and hub_sn links a sensor to its hub.
     identity:
       stable_keys: ["serial_number"]
       display: "serial_number"
@@ -81,17 +87,29 @@ device:
     required: true
     confidence: "low"
     notes: >
-      The hub's Wi-Fi onboarding is app-driven (not part of the local UDP API);
-      once the hub is on the LAN it broadcasts with no further setup and no
-      account needed for local reads.
+      Initial station claiming and Wi-Fi onboarding use the WeatherFlow app,
+      its account flow and Bluetooth; that provisioning exchange is not part
+      of the local UDP API. Once the hub is on the LAN, current observations
+      arrive by unauthenticated broadcast with no cloud connection or account
+      needed for ongoing local reads.
     methods:
-      - type: "device_ui"
+      - type: "cloud_account"
         verified: false
         description: >
-          Onboard the hub onto Wi-Fi with the WeatherFlow app. After it joins the
-          LAN it broadcasts observations on UDP 50222 with no further setup.
+          Claim and onboard the station in the WeatherFlow app using its
+          account flow and Bluetooth. After provisioning, a local client only
+          listens for UDP 50222 broadcasts; it does not log in or poll the
+          vendor cloud.
+        cloud:
+          provider: "WeatherFlow"
+          local_alternative: >
+            Ongoing current observations are fully local after provisioning:
+            no cloud request, account session or subscription is needed to
+            receive UDP 50222. Forecast, history and calibration are not part
+            of this local API, and no account-free onboarding path is
+            established.
         steps:
-          - action: "Onboard the hub onto Wi-Fi with the WeatherFlow app."
+          - action: "Claim the station and complete Wi-Fi onboarding in the WeatherFlow app with Bluetooth enabled."
             actor: "user"
             expect: "The hub broadcasts obs_st / rapid_wind datagrams on UDP 50222."
     factory_reset:
@@ -244,6 +262,7 @@ payload_formats:
       - "Index 12 can derive an instantaneous rain rate in mm/h by multiplying by 60; it is not a trustworthy daily total."
       - "Rapid wind is instantaneous and distinct from index 2's report-interval average; do not overwrite one with the other."
       - "Station pressure is local measured pressure. Sea-level pressure requires a separate altitude-aware calculation."
+    example: "[[1588948614,0.18,0.22,0.27,144,6,1017.57,22.37,50.26,328,0.03,3,0.000000,0,0,0,2.410,1]]"
 
   obs_air:
     description: "Legacy AIR observation: the eight-element array in obs[0]; do not apply obs_st offsets."
@@ -296,6 +315,7 @@ payload_formats:
       - {index: 2, name: "energy", description: "Opaque integer; clear bit 24 (1 << 24) to work around affected Tempest firmware, not a physical-unit conversion."}
     parse_rules:
       - "Require three elements. Emit only newer events and preserve energy as a number without assigning it a unit."
+    example: "[1493322445,27,3848]"
 
 protocol_details:
   transport:
@@ -348,6 +368,20 @@ entities:
     name: "Pressure"
     device_class: "atmospheric_pressure"
     unit: "mbar"
+
+remaining_unknowns:
+  - >
+    The four entities are capability declarations, not request/response state
+    polls: there is no `state_command` because the hub only pushes datagrams.
+    A consumer must dispatch unsolicited UDP by message type and serial,
+    validate array lengths, and feed payload_formats; a consumer limited to
+    request/response entities cannot render them yet and must not invent an
+    HTTP poll or substitute zero for missing observations.
+  - >
+    Initial app/account/Bluetooth onboarding was not replayed by this
+    project. Verify whether current firmware permits account-free station
+    claiming before treating it as available; ongoing UDP reads do not depend
+    on that answer.
 
 helpful_urls:
   - title: "WeatherFlow — Tempest UDP API v171"

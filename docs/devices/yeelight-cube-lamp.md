@@ -89,22 +89,25 @@ Single-line JSON documents terminated by `\r\n`, both directions, on TCP
 55443. Requests `{"id":N,"method":"<name>","params":[...]}`; replies echo the
 `id` with `result` or `error`; the lamp pushes
 `{"method":"props","params":{...}}` on state change. No authentication once
-LAN control is on. Rate limit ~60 commands/minute unless music mode
-(`set_music`) is active — music mode points the lamp at a client UDP socket
-and is what matrix drivers use when streaming frames.
+LAN control is on. Rate limit ~60 commands/minute unless music mode is active.
+For music mode the client first opens a **TCP listener**, then sends
+`set_music` with that address and port; the lamp connects back over TCP for
+subsequent high-rate JSON. It is not a UDP channel. Queries and property
+notifications may be suppressed in music mode, so silence is not an off
+reading: preserve the last state or leave music mode and re-query.
 
 ### Commands (standard, vendor-documented)
 
 | Method | Meaning |
 |---|---|
-| `get_prop` | Property poll; reply array is **positional** (lines up with the request order). `support` returns the capability list. |
+| `get_prop` | Property poll; every reply element is a **string**, positionally zipped to the request order. Numeric values are decimal strings; an empty string means unavailable, never zero (`name` may legitimately be empty). `support` returns the capability list. |
 | `set_power` / `toggle` | On/off (`["on","smooth",500]`) / flip. |
 | `set_bright` | Brightness 1–100 %. |
 | `set_rgb` | 24-bit RGB as one int (`R<<16\|G<<8\|B`). |
 | `set_hsv` | Hue 0–359, saturation 0–100. |
 | `set_ct_abx` | Colour temperature (cube K-range unverified; classic range 1700–6500). |
 | `start_cf` / `stop_cf` / `set_scene` / `set_default` | Colour flows, scenes, power-on default. |
-| `set_music` | Music mode: `[1,"<host>",<port>]` opens the high-rate UDP channel; `[0]` exits. |
+| `set_music` | Music mode: `[1,"<host>",<port>]` tells the lamp where to make its reverse-TCP connection; `[0]` exits. |
 
 ### Commands (cube-specific — COMMUNITY-SOURCED, not vendor-documented)
 
