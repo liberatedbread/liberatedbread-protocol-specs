@@ -136,6 +136,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   setup, pairing, reset/rejoin and credential boundaries plus independent
   standard-library tests. No output, belt, robot-motion, garage actuation or
   firmware operation was run; unsupported models and writes stay excluded.
+- **Two safe crafting-machine protocol specs.** Brother My Stitch Monitor
+  machines gain family-level SNMPv1 discovery and read-only HTTPS information,
+  status and embroidery-progress monitoring with explicit user-approved TLS
+  pinning. Legacy stock Cricut USB cutters gain manual-selection-only model,
+  firmware, mat and cartridge queries with independent response parsers. Both
+  are reported/untested and include lifecycle guidance and stdlib vectors.
+  Motion, design transfer, uploads, push/lens operations, command keys and
+  firmware remain out of scope; ScanNCut and Explore Air 2/Bifrost are not
+  claimed, and the existing Skitch PP1 spec is unchanged.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an

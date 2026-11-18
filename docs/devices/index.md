@@ -299,6 +299,8 @@ spec's `device.setup` block; the patterns are explained in
 | [Felicita Arc](felicita-arc.md) | BLE | Identify-only (untested) | Dedicated Arc handler and first-frame validation required | Felicita Coffee |
 | [ThermoWorks BlueDOT](thermoworks-bluedot.md) | BLE | Identify-only (untested) | Dedicated BlueDOT handler and status-gated readings required | ThermoWorks |
 | [Sportstech F15 / F31](sportstech-f15-f31.md) | BLE | Identify-only (untested; public capture) | Dedicated frame handler required | Sportstech |
+| [Brother My Stitch Monitor embroidery machines](brother-embroidery-lan.md) | WiFi (SNMPv1 + HTTPS) | Spec Available (untested; read-only monitoring) | On-device Wi-Fi + user-approved TLS pin (medium) | Brother |
+| [Cricut legacy USB cutters](cricut-legacy-usb.md) | USB serial (query-only) | Spec Available (untested) | Manual model/port selection (medium) | Cricut / Provo Craft |
 
 ## Not everything here was liberated
 
