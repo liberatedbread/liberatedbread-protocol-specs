@@ -80,7 +80,7 @@
       "methods": [
         {
           "basis": "Public receiver/configuration implementations and vendor desktop analysis; no physical card was used.",
-          "description": "Back up the card, read its existing network/receiver configuration or owner upload key through the mounted-card records, then configure a fixed-address local receiver. A historical O 0x06 record may allow listener provisioning but is not hardware-verified, so no automatic listener-write recipe is claimed.\n",
+          "description": "Back up the card and read its existing network/receiver configuration. Recover an existing owner upload key only through the exact firmware route below: direct o 0xfd on X2 5.2010/5.2011 or Mobi Pro 5.3008, and dump recovery on X2 5.0018/5.0019. Other versions are not interchangeable. Mailbox recreation restores that recovery channel; it does not create a key or activate a card. A historical O 0x06 record may allow listener provisioning but is not hardware-verified.\n",
           "name": "Configured card to a new local receiver",
           "role": "primary",
           "steps": [
@@ -89,7 +89,11 @@
               "actor": "user"
             },
             {
-              "action": "Read the existing receiver/network settings and, for X2 or Mobi Pro infrastructure mode, export the owner upload key using the mounted-card channel.",
+              "action": "Read firmware with o 0x02, then use only its qualified direct/dump recovery route; stop on 5.0020 or an unlisted version rather than attempting a generic SetToken/write.",
+              "actor": "client"
+            },
+            {
+              "action": "Read the existing receiver/network settings and recovered owner upload key without logging the key or real card address.",
               "actor": "client"
             },
             {
@@ -192,6 +196,12 @@
   ],
   "helpful_urls": [
     {
+      "description": "Source of the reported direct-query/dump matrix for X2 5.0018/5.0019/ 5.2010/5.2011 and Mobi Pro 5.3008, the 4.5166 static-only boundary, mailbox recreation and the RSPC=0xffffffff reseed fix. Its live-hardware results are upstream reports, not this project's verification.\n",
+      "kind": "implementation",
+      "title": "RamSet/eyefi-recovery — firmware-specific key recovery",
+      "url": "https://github.com/RamSet/eyefi-recovery"
+    },
+    {
       "description": "Archived quick guide for Eye-Fi Mobi cards, covering the historical activation-code and direct phone/tablet reception flow. Spanish.\n",
       "kind": "manual",
       "title": "Eye-Fi Mobi quick guide (Spanish PDF, Internet Archive)",
@@ -227,10 +237,10 @@
       "StartSession, GetPhotoStatus, UploadPhoto and compatibility-aware roll completion",
       "Owner-keyed X2/Mobi credential verification and single-use nonce state",
       "Multipart TAR media reception with conservative validation and storage",
-      "Read-side mounted-card configuration export with owner consent"
+      "Read-side mounted-card configuration export with owner consent, restricted to the exact firmware key-recovery matrix"
     ],
     "not_covered": [
-      "Factory-reset activation, universal receiver-IP discovery and unverified network provisioning",
+      "Generic SetToken/upload-key creation, offline activation including 5.0020, universal receiver-IP discovery and unverified network provisioning",
       "Camera shutter/delete/format control, universal RAW/video profiles and verified interruption resume"
     ],
     "status": "native",
@@ -261,7 +271,7 @@
       "profiles": {
         "mobi_pro_infrastructure": {
           "get_photo_status": "Same formula with the real owner upload key where configured",
-          "key_source": "Mounted-card read token 0xfd on an already-configured card",
+          "key_source": "Existing owner key via lowercase o 0xfd only on reported Mobi Pro 5.3008 (or X2 5.2010/5.2011 for X2 profiles); never a generic SetToken or offline activation",
           "start_session": "Same formula with the real owner upload key where configured"
         },
         "reviewed_mobi": {
@@ -296,10 +306,56 @@
     },
     "mounted_configuration": {
       "buffer_bytes": 16384,
-      "caution": "Back up first. Network changes, AP start, reboot and Mobi coverage are unverified; the reference utility also has a compiler-reported mount-path lifetime warning.",
+      "caution": "Back up first. Network changes, AP start, reboot, command sweeps and Mobi coverage are unverified except where an exact source report is quoted; the reference utility also has a compiler-reported mount-path lifetime warning.",
       "channel": "Files under EyeFi/ on a mounted FAT card, not a single XML settings file",
+      "firmware_key_recovery": {
+        "4.5166": {
+          "card": "firmware-specific static-analysis boundary; no live 4.x card tested",
+          "direct_o_0xfd": "not established",
+          "dump_recovery": "Existing-dump key extraction and the '?' assertion trigger are static-analysis-derived only; no live crash/dump confirmation"
+        },
+        "5.0018": {
+          "card": "X2",
+          "direct_o_0xfd": "empty",
+          "dump_recovery": "ordinary reboot saves board data and recovers the existing upload key"
+        },
+        "5.0019": {
+          "card": "X2",
+          "direct_o_0xfd": "empty",
+          "dump_recovery": "ordinary reboot saves board data and recovers the existing upload key"
+        },
+        "5.0020": {
+          "card": "firmware-specific negative report",
+          "direct_o_0xfd": "lowercase o 0xfd returns no upload key/read",
+          "dump_recovery": "not established",
+          "generic_set_token": false,
+          "offline_activation": "not established; do not infer SetToken or activation from the generic one-byte-write shape or mailbox recreation",
+          "write_O_0xfd": "uppercase O 0xfd is rejected"
+        },
+        "5.2010": {
+          "card": "X2",
+          "direct_o_0xfd": "returns the existing upload key",
+          "dump_recovery": "also reported via command 0x01, but unnecessary when direct read works"
+        },
+        "5.2011": {
+          "card": "X2",
+          "direct_o_0xfd": "returns the existing upload key",
+          "dump_recovery": "also reported via command 0x01, but unnecessary when direct read works"
+        },
+        "5.3008": {
+          "card": "Mobi Pro",
+          "direct_o_0xfd": "returns the existing upload key",
+          "dump_recovery": "no dump obtainable in the reported command/reboot/slot tests"
+        },
+        "scope": "Only these exact reported firmware/card combinations; do not infer other X2, Pro X2, Mobi or Mobi Pro behavior"
+      },
       "information_request": "ASCII o + one-byte subcommand",
-      "one_byte_write": "ASCII O + subcommand + 01 + value",
+      "mailbox_recreation": {
+        "does_not": "Does not create or assign an upload key, activate a reset card, recover erased photos, or substitute for retired activation services",
+        "effect": "Restores the mounted-card request channel so direct/dump operations can recover an upload key that already exists on the card",
+        "operation": "Recreate EyeFi/ and four zero-filled 16 KiB control files after a format removed them"
+      },
+      "one_byte_write": "ASCII O + subcommand + 01 + value; a shape, not permission to use 0xfd as a key-writing SetToken operation",
       "padding": "zero",
       "read_tokens": {
         "0x01": "card MAC (private)",
@@ -310,7 +366,7 @@
         "0x23": "direct-mode passphrase (private)",
         "0x24": "direct-mode wait-for-connection; zero disables, 0xff indefinitely",
         "0x25": "direct-mode wait-after-transfer",
-        "0xfd": "owner-only upload-key export"
+        "0xfd": "Owner-only existing-key read only on the exact direct-query firmware below; not a universal read, write or activation token"
       },
       "records": {
         "reqc": "request sequence",
@@ -318,8 +374,9 @@
         "rspc": "response sequence/status",
         "rspm": "card response buffer"
       },
-      "sequence_encoding": "Native u32 in the reference utility, little-endian on its Linux host; do not generalize without checking the card representation.",
-      "transaction": "Increment previous response sequence (seed 0x1234 if zero), write reqc, poll rspc up to 50 times at 300 ms intervals, then read rspm only on a matching fresh sequence."
+      "sequence_encoding": "Native u32 in the reference utility, little-endian on its Linux host; do not generalize without checking the card representation. Sequence zero means no request.",
+      "transaction": "Read RSPC. If it is 0x00000000 or 0xffffffff, use 0x1234 as the next REQC; otherwise use previous RSPC + 1 as u32. Never wrap 0xffffffff to sequence zero. Write reqc, poll rspc up to 50 times at 300 ms intervals, then read rspm only on a matching fresh nonzero sequence.",
+      "verification": "reported"
     },
     "receiver": {
       "direction": "card_initiates_upload_to_host",
@@ -424,9 +481,9 @@
     }
   },
   "remaining_unknowns": [
-    "Factory-reset activation and reset-card upload-key creation without retired services.",
+    "Factory-reset activation and reset-card upload-key creation without retired services, including any 5.0020 SetToken/offline-activation path.",
     "Receiver-IP selection after DHCP, real X2/Mobi/Mobi Pro sessions and the correct MarkLastPhotoInRoll compatibility response.",
     "filesignature, nonzero interruption/resume, concurrent cards, RAW/video/log variants and remaining transfer-mode bits.",
-    "Mounted-utility coverage across Mobi firmware and hardware-validated network/listener changes."
+    "Mounted-utility coverage across unlisted firmware, live 4.5166 behavior, 5.0020 dump recovery, and hardware-validated network/listener changes."
   ]
 }

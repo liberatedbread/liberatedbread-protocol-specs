@@ -2027,6 +2027,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../adaprox-fingerbot/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Adaprox Fingerbot / Fingerbot Plus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../tuya-bt-soil-tester/" class="md-nav__link">
         
   
@@ -6779,9 +6800,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#mounted-card-configuration" class="md-nav__link">
+  <a href="#mounted-card-configuration-and-key-recovery" class="md-nav__link">
     <span class="md-ellipsis">
-      Mounted-card configuration
+      Mounted-card configuration and key recovery
     </span>
   </a>
   
@@ -8070,9 +8091,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#mounted-card-configuration" class="md-nav__link">
+  <a href="#mounted-card-configuration-and-key-recovery" class="md-nav__link">
     <span class="md-ellipsis">
-      Mounted-card configuration
+      Mounted-card configuration and key recovery
     </span>
   </a>
   
@@ -8196,8 +8217,10 @@ those bytes and emit lowercase hex. Do not hash ASCII hex text. The card MAC is
 </tbody>
 </table>
 <p>The Mobi placeholder decodes to 16 zero bytes; it is legacy behavior, not a
-recommended secret. Mobi Pro infrastructure mode can use its real upload key,
-exported from an already-configured mounted card through token <code>0xfd</code>.</p>
+recommended secret. Mobi Pro infrastructure mode can use its real existing
+upload key. Direct lowercase <code>o 0xfd</code> recovery is reported only for Mobi Pro
+5.3008 (and X2 5.2010/5.2011 for X2 profiles), never as a generic SetToken or
+offline-activation operation.</p>
 <p>StartSession alone does not authenticate the card. Verify the second credential
 in constant time, bind state to card/session/server nonce/item, use single-use
 expiring nonces and define one outstanding transfer policy per card. Never log
@@ -8243,7 +8266,9 @@ receiver should be single-card and JPEG-only:</p>
 <h2 id="setup-and-direct-mode">Setup and direct mode<a class="headerlink" href="#setup-and-direct-mode" title="Permanent link">&para;</a></h2>
 <p>For an already-configured card, back it up and read its existing receiver and
 network configuration. X2 and Mobi Pro infrastructure profiles need the owner
-upload key. A historical <code>O 0x06</code> mounted-card record may allow listener
+upload key. Read the exact firmware first and use only the qualified direct or
+dump route below; on 5.0020 or an unlisted build, stop rather than attempting a
+generic SetToken. A historical <code>O 0x06</code> mounted-card record may allow listener
 provisioning, but it is not first-party or hardware-verified; the spec does not
 automate it.</p>
 <p>Mobi direct mode uses SSID <code>Eye-Fi Card</code> (trailing space included) plus the
@@ -8254,7 +8279,7 @@ receiver IP after DHCP is not established; do not scan indefinitely.</p>
 <p>Changing routers/receivers may require mounted-card reconfiguration, not a
 factory reset. No reset procedure or offline reactivation path is established;
 do not erase a working card to test the retired cloud flow.</p>
-<h2 id="mounted-card-configuration">Mounted-card configuration<a class="headerlink" href="#mounted-card-configuration" title="Permanent link">&para;</a></h2>
+<h2 id="mounted-card-configuration-and-key-recovery">Mounted-card configuration and key recovery<a class="headerlink" href="#mounted-card-configuration-and-key-recovery" title="Permanent link">&para;</a></h2>
 <p>The public configuration utility uses four 16384-byte zero-padded files under
 <code>EyeFi/</code>, not one XML file:</p>
 <table>
@@ -8283,17 +8308,64 @@ do not erase a working card to test the retired cloud flow.</p>
 </tr>
 </tbody>
 </table>
-<p>An information request is ASCII <code>o</code> plus a one-byte subcommand. A one-byte write
-is ASCII <code>O</code>, subcommand, length <code>01</code>, value. Increment the previous response
-sequence (seed <code>0x1234</code> if zero), write <code>reqc</code>, poll <code>rspc</code> up to 50 times at
-300 ms intervals and accept only a fresh matching response. The reference Linux
-utility treats sequence values as native u32/little-endian; do not generalize
-that without checking the card representation.</p>
+<p>An information request is ASCII <code>o</code> plus a one-byte subcommand. The one-byte
+write shape is ASCII <code>O</code>, subcommand, length <code>01</code>, value, but that does not
+prove a generic key-writing SetToken operation. For each transaction, read
+<code>RSPC</code>; if it is zero <strong>or <code>0xffffffff</code></strong>, use <code>0x1234</code> as the next <code>REQC</code>.
+Otherwise increment the previous response as u32. Never wrap <code>0xffffffff</code> to
+zero: firmware treats sequence zero as no request. Poll <code>rspc</code> up to 50 times
+at 300 ms intervals and accept only a fresh matching nonzero response. The
+reference Linux utility treats sequence values as native u32/little-endian;
+do not generalize that representation without checking.</p>
 <p>Read tokens include MAC <code>01</code>, firmware <code>02</code>, upload API <code>04</code>, transfer mode
-<code>11</code>, direct-mode SSID/passphrase <code>22</code>/<code>23</code>, timers <code>24</code>/<code>25</code>, and owner-only
-upload key <code>fd</code>. Network changes, AP start and reboot are unverified writes;
-back up and obtain owner consent. The utility also has a compiler-reported
-mount-path lifetime warning.</p>
+<code>11</code>, direct-mode SSID/passphrase <code>22</code>/<code>23</code>, and timers <code>24</code>/<code>25</code>. Read the
+firmware before attempting <code>0xfd</code>; existing-key recovery is not generic:</p>
+<table>
+<thead>
+<tr>
+<th>Firmware / card</th>
+<th>Lowercase <code>o 0xfd</code></th>
+<th>Recovery boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>X2 5.0018 / 5.0019</td>
+<td>Empty</td>
+<td>Ordinary reboot saves board data; recover the existing key from the dump</td>
+</tr>
+<tr>
+<td>X2 5.2010 / 5.2011</td>
+<td>Returns existing key</td>
+<td>Direct read is the preferred route</td>
+</tr>
+<tr>
+<td>Mobi Pro 5.3008</td>
+<td>Returns existing key</td>
+<td>Direct read works; no dump was obtainable in the reported tests</td>
+</tr>
+<tr>
+<td>4.5166</td>
+<td>Not established</td>
+<td>Existing-dump extraction and <code>?</code> trigger are static-analysis-derived only; no live 4.x test</td>
+</tr>
+<tr>
+<td>5.0020</td>
+<td>No key/read</td>
+<td>Uppercase <code>O 0xfd</code> is rejected; no generic SetToken, dump or offline activation</td>
+</tr>
+</tbody>
+</table>
+<p>These are upstream <strong>reported</strong> results, not this project’s hardware
+verification. Do not infer behavior on Pro X2, plain Mobi or unlisted builds.</p>
+<p>Formatting can remove the <code>EyeFi/</code> mailbox. Recreating the directory and four
+zero-filled control files restores the request channel so direct/dump
+operations can recover an <strong>existing</strong> key. It does not create or assign a key,
+activate a reset card, recover erased photos or replace activation services.</p>
+<p>Network changes, AP start, reboot and command sweeps remain unverified except
+for the exact upstream reports above. Back up and obtain owner consent. The
+original utility also has a compiler-reported mount-path lifetime warning.
+See <a href="https://github.com/RamSet/eyefi-recovery">RamSet/eyefi-recovery</a>.</p>
 <h2 id="security-and-firmware-boundaries">Security and firmware boundaries<a class="headerlink" href="#security-and-firmware-boundaries" title="Permanent link">&para;</a></h2>
 <p>Use an isolated direct-mode network or trusted segmented LAN. Never expose TCP
 59278 publicly. Photographs are private: avoid content logs, onward sync and
