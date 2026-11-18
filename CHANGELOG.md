@@ -20,8 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   four-frame SRP and AES-256-CTR without reversing relay directions. Victron
   describes second-block CTR and LSB-first sentinel-before-sign decoding.
   OpenEVSE, Concept2, FTMS, VESC, OBD/ISO-TP/UDS and clean-room labels receive
-  corresponding focused corrections. Two new standard-library modules carry 20
-  independent fixture and regression checks; verification levels are unchanged.
+  corresponding focused corrections. WheelLog's other-brand speed/current/voltage/
+  temperature scales and shared FFE0/FFE1 transport are explicit, with manual
+  discovery retained. Two standard-library modules carry 21 independent fixture
+  and regression checks; verification levels are unchanged.
 
 ### Added
 

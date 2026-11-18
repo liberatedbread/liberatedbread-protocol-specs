@@ -18,24 +18,29 @@ device:
       Not driven against hardware by this project. The per-brand frame formats
       (headers, field offsets, command bytes) are from WheelLog's Android
       per-brand adapters; Ninebot Z also uses its upstream unit tests as
-      reported evidence. Other brands' serial UUIDs remain module-specific and
-      unasserted. The Ninebot Z Nordic-UART trio is reported by WheelLog's
-      constants and GATT fingerprints, but is transport only and never identity.
+      reported evidence. Common King Song/Gotway transport is service 0xFFE0
+      with characteristic 0xFFE1, selected using the complete GATT layout and
+      then frame validation; it is not identity. The Ninebot Z Nordic-UART trio
+      is reported by WheelLog's constants and GATT fingerprints, but is
+      transport only and never identity.
   protocol: "ble"
   category: "vehicle"
   notes: >
     Electric unicycles from King Song, Gotway/Begode, Veteran/Leaperkim and
-    Ninebot Z are decoded by the open-source WheelLog Android app. Each brand
-    uses framed packets over a BLE serial notify stream; brand is identified
-    from the first packets rather than a fixed advertised UUID. Fully local
-    BLE, no cloud. The per-brand frame formats below are the load-bearing
-    facts. Other brands' transport UUIDs are device-specific; Ninebot Z's
-    reported Nordic-UART trio is declared below without making it a matcher.
+    Ninebot Z are decoded by the open-source WheelLog Android app. King Song
+    and Gotway commonly use service 0xFFE0 and characteristic 0xFFE1 for their
+    serial stream. Select a candidate manually, compare its complete GATT
+    layout, then validate the brand's frame format before decoding; FFE0/FFE1
+    alone is not a discovery signature. Fully local BLE, no cloud. Ninebot Z's
+    reported Nordic-UART trio is separately declared below without making it a
+    matcher.
 
     KING SONG (KingsongAdapter): 20-byte frame, header AA 55, trailer 14 5A 5A;
-    the packet-type selector is byte 16. Live-data type 0xA9: voltage bytes 2-3
-    (LE), speed 4-5, total distance 6-9 (32-bit), current 10-11, temperature
-    12-13. Other types: 0xB9 distance/time/fan, 0xBB name/model, 0xB3 serial,
+    the packet-type selector is byte 16. Live-data type 0xA9: voltage, speed,
+    current and temperature are each signed int16 little-endian, respectively
+    at bytes 2-3 (raw * 0.01 V), 4-5 (raw * 0.01 km/h), 10-11 (raw * 0.01 A)
+    and 12-13 (raw * 0.01 C); total distance is a 32-bit value at 6-9.
+    Other types: 0xB9 distance/time/fan, 0xBB name/model, 0xB3 serial,
     0xA4/0xB5 speed/alarm settings, 0xF1/0xF2 dual-battery BMS. Commands (write
     byte 16): beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40.
 
@@ -43,16 +48,19 @@ device:
     5A 5A (bytes 20-23); type byte at index 18 — 0x00 live "Frame A", 0x04
     "Frame B" (totals/settings), 0x07 motor-temp/batt-current, 0x01/0x02/0x03
     BMS, 0xFF advanced settings. Frame A (big-endian): voltage 2-3 (1/100 V),
-    speed 4-5 (km/h = x3.6), distance 8-9 (m), phase current 10-11 (1/100 A
-    signed), temperature 12-13 (v/340 + 36.53 C), PWM 14-15. Voltage base 67.2 V
-    with a config-selected multiplier (0->1.0x ... 4->2.0x) to cover 84/100.8 V
-    packs. Commands (ASCII): beep 'b', calibration 'c', lights E/Q/T, max-speed
-    'W', miles/km 'm'/'g'.
+    speed 4-5 (SIGNED, raw * 3.6 / 100 = raw * 0.036 km/h, NOT raw * 3.6),
+    distance 8-9 (m), phase current 10-11 (1/100 A signed), temperature 12-13
+    (v/340 + 36.53 C), PWM 14-15. Voltage base 67.2 V with a config-selected
+    multiplier (0->1.0x ... 4->2.0x) to cover 84/100.8 V packs. Commands
+    (ASCII): beep 'b', calibration 'c', lights E/Q/T, max-speed 'W', miles/km
+    'm'/'g'.
 
     VETERAN / LEAPERKIM (VeteranAdapter): header DC 5A 5C + length byte;
-    big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed
-    int), total distance @12, phase current @16 (x10), temperature @18; CRC32 on
-    longer frames. 24S (100.8 V nominal) reference.
+    big-endian: voltage @4 (raw * 0.01 V), speed @6 (SIGNED raw * 0.1 km/h),
+    distance @8 (word-reversed int), total distance @12, phase current @16
+    (SIGNED raw * 0.1 A), temperature @18 (SIGNED raw * 0.01 C); CRC32 on
+    longer frames. Pack/cell configuration is model/firmware-dependent; do not
+    generalize every Veteran to 24S.
 
     NINEBOT Z (NinebotZAdapter): variable-length 5A A5 frames with a clear
     payload-length byte, a 16-bit ones-complement checksum and repeating-XOR
@@ -86,9 +94,10 @@ device:
         covers: "Reported plaintext live and BMS examples; its key example does not verify key extraction."
     notes: >
       No vendor documentation; WheelLog reverse-engineered each brand's frames.
-      Other brands' serial UUIDs remain module-specific. The Ninebot Z NUS trio
-      is restated from the cited constants and GATT fingerprints only as a
-      reported post-connect transport.
+      Common King Song/Gotway FFE0/FFE1 transport comes from the same constants
+      and layout table, with decoder selection by complete GATT layout followed
+      by frame validation. The Ninebot Z NUS trio is separately restated only
+      as a reported post-connect transport.
 
   variants:
     - model: "Ninebot Z"
@@ -101,8 +110,10 @@ device:
 
   discovery:
     none: >
-      Deliberate. Other brands' serial modules are generic, and no
-      discriminating advertisement name is established. Ninebot Z shares its
+      Deliberate manual selection. FFE0/FFE1 is shared with other wheel and
+      serial protocols, so it cannot identify King Song, Gotway or Veteran by
+      itself and must not be an advertisement matcher. Compare the complete
+      GATT layout and then validate frames. Ninebot Z separately shares its
       Nordic-UART service/characteristic trio with Ninebot/Segway scooters,
       InMotion V2 and unrelated UART peripherals; it also shares the 5A A5
       outer framing with the scooter. Neither is an advertisement matcher.
@@ -118,8 +129,8 @@ device:
     required: false
     confidence: "medium"
     notes: >
-      Connect to the wheel's BLE serial characteristic and subscribe to
-      notifications; the brand is auto-detected from the first packets. No
+      Manually select the wheel, compare its complete GATT layout, then
+      subscribe to notifications and validate the brand's frame format. No
       pairing secret. Confidence medium: King Song and Gotway frames are fully
       read from the adapters; Veteran offsets are read but less cross-checked.
       Ninebot Z's NUS trio is reported transport, not identity. Its real key
@@ -130,8 +141,9 @@ device:
         verified: false
         description: >
           Manually select the exact wheel before any GATT write. Connect over
-          BLE, subscribe to the wheel's serial/notify characteristic, and decode
-          incoming frames per the selected brand. For Ninebot Z, use only the
+          BLE, compare the complete GATT layout and subscribe to the compatible
+          serial/notify characteristic (commonly FFE1 under FFE0), then validate
+          incoming frames before decoding. For Ninebot Z, use only the
           documented read requests and confirm role addresses and payloads;
           never treat NUS or the shared outer frame as model confirmation.
         ble:
@@ -167,21 +179,29 @@ device:
     bonding: "none"
     enter_pairing_mode:
       required: false
-# Other EUC brands use module-specific serial UUIDs not asserted here. The
-# Ninebot Z NUS trio below is reported by WheelLog's constants and GATT
-# fingerprints; it is post-connect transport, never advertisement identity.
+# Generic Access records the standard surface. The common serial transport is
+# declared separately, but is not an advertisement identity: WheelLog compares
+# the complete GATT layout and then validates frames before choosing a decoder.
+# The Ninebot Z NUS trio remains reported transport, never identity.
 services:
   - uuid: "00001800-0000-1000-8000-00805f9b34fb"
     name: "Generic Access (standard)"
-    notes: >
-      Placeholder connectable surface. Other brands use a module-specific BLE
-      serial/notify characteristic; obtain it from the connected wheel. Decode
-      per protocol_details.euc_frame_formats.
     characteristics:
       - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
         name: "Device Name"
         properties: ["read"]
         notes: "Standard device-name characteristic."
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "WheelLog serial transport (shared; not an identity)"
+    notes: >
+      Common King Song/Gotway service from WheelLog's transport constants and
+      GATT-layout table. This endpoint is shared with other protocols. Select
+      manually, compare the complete GATT layout, then validate frames.
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Serial write/notify"
+        properties: ["write", "notify"]
+        notes: "Serial command write and notification stream. Other layouts may expose additional characteristics; do not use FFE1 alone to choose a decoder."
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     name: "Nordic UART serial bridge (Ninebot Z, reported)"
     verification: "reported"
@@ -206,18 +226,35 @@ services:
 # `protocol_details`, the schema's namespace for single-spec protocol blocks
 # (the top level is closed).
 protocol_details:
+  transport:
+    common_service: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    common_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    selection: "Manual selection, then complete GATT-layout comparison, then brand-frame validation; never decoder selection from FFE0/FFE1 alone."
   euc_frame_formats:
     king_song:
       frame: "20 bytes, header AA 55, trailer 14 5A 5A; packet-type selector at byte 16."
       live_type_0xA9: "voltage @2-3 LE, speed @4-5, total distance @6-9 (32-bit), current @10-11, temperature @12-13."
+      live_fields:
+        voltage: {offset: 2, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "V"}
+        speed: {offset: 4, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "km/h"}
+        current: {offset: 10, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "A"}
+        temperature: {offset: 12, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "C"}
       commands: "beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40 (written at byte 16)."
     gotway_begode:
       frame: "24 bytes, header 55 AA, footer 5A 5A 5A 5A (@20-23); type byte @18."
-      frame_a_0x00: "big-endian: voltage @2-3 (1/100 V), speed @4-5 (km/h=x3.6), distance @8-9 (m), phase current @10-11 (1/100 A signed), temperature @12-13 (v/340+36.53 C), PWM @14-15."
+      frame_a_0x00: "big-endian: voltage @2-3 (1/100 V), speed @4-5 (signed raw * 3.6 / 100 = raw * 0.036 km/h), distance @8-9 (m), phase current @10-11 (1/100 A signed), temperature @12-13 (v/340+36.53 C), PWM @14-15."
+      frame_a_fields:
+        speed: {offset: 4, length: 2, type: "int16", endianness: "big", scale: 0.036, unit: "km/h", example: "00 64 = +100 -> +3.6 km/h; ff 9c = -100 -> -3.6 km/h"}
       voltage_multiplier: "base 67.2 V x {0:1.0, 1:1.25, 2:1.5, 3:1.738, 4:2.0, 5:2.5, 6:2.25} (config-selected) for 84/100.8 V packs."
       commands: "ASCII: beep 'b', calibration 'c', lights E/Q/T, max-speed 'W', miles/km 'm'/'g'."
     veteran_leaperkim:
-      frame: "header DC 5A 5C + length byte; big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed), total @12, phase current @16 (x10), temperature @18; CRC32 on longer frames."
+      frame: "header DC 5A 5C + length byte; big-endian: voltage @4 (0.01 V), speed @6 (signed 0.1 km/h), distance @8 (word-reversed), total @12, phase current @16 (signed 0.1 A), temperature @18 (signed 0.01 C); CRC32 on longer frames."
+      live_fields:
+        voltage: {offset: 4, length: 2, endianness: "big", scale: 0.01, unit: "V"}
+        speed: {offset: 6, length: 2, type: "int16", endianness: "big", scale: 0.1, unit: "km/h"}
+        phase_current: {offset: 16, length: 2, type: "int16", endianness: "big", scale: 0.1, unit: "A"}
+        temperature: {offset: 18, length: 2, type: "int16", endianness: "big", scale: 0.01, unit: "C"}
+      pack_configuration: "Model/firmware-dependent; no universal 24S pack or cell-count assumption."
     ninebot_z:
       verification: "reported"
       source: "WheelLog NinebotZAdapter.java, Constants.kt, bluetooth_services.json and NinebotZAdapterTest.kt at 1b3707973e3b4528bd88778f9ebdf7a79817cf3f; no hardware replay by this project."

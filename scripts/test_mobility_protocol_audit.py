@@ -254,3 +254,42 @@ def test_bosch_and_urevo_vendor_internal_labels_are_scrubbed():
         assert label not in urevo
     assert "device-information reader" in urevo
     assert "Frame-A grammar" in urevo
+
+
+
+def test_wheellog_other_brand_scales_and_shared_transport():
+    for wire, expected in ((bytes.fromhex("00 64"), 3.6), (bytes.fromhex("ff 9c"), -3.6)):
+        raw = int.from_bytes(wire, "big", signed=True)
+        assert raw in (100, -100)
+        assert round(raw * 3.6 / 100, 6) == expected
+        assert round(raw * 0.036, 6) == expected
+
+    veteran_speed = int.from_bytes(bytes.fromhex("00 19"), "big", signed=True)
+    veteran_current = int.from_bytes(bytes.fromhex("ff e7"), "big", signed=True)
+    assert veteran_speed * 0.1 == 2.5
+    assert veteran_current * 0.1 == -2.5
+    assert round(10080 * 0.01, 2) == 100.80
+    assert round(2500 * 0.01, 2) == 25.00
+
+    assert round(6650 * 0.01, 2) == 66.50
+    assert round(2500 * 0.01, 2) == 25.00
+    assert round(1234 * 0.01, 2) == 12.34
+    assert round(2345 * 0.01, 2) == 23.45
+
+    text = spec("euc-wheellog-ble")
+    other_brands = text.split("    ninebot_z:", 1)[0]
+    assert "raw * 3.6 / 100 = raw * 0.036 km/h" in text
+    assert 'scale: 0.036, unit: "km/h"' in text
+    assert 'scale: 0.1, unit: "km/h"' in text
+    assert 'scale: 0.1, unit: "A"' in text
+    assert other_brands.count('scale: 0.01, unit: "V"') == 2
+    assert other_brands.count('scale: 0.01, unit: "C"') == 2
+    assert "no universal 24S" in text
+    assert "km/h=x3.6" not in text
+    assert "x10 signed" not in text
+    assert "0000ffe0-0000-1000-8000-00805f9b34fb" in text
+    assert "0000ffe1-0000-1000-8000-00805f9b34fb" in text
+    assert "complete GATT-layout comparison" in text
+    assert "Deliberate manual selection" in text
+    assert "FFE0/FFE1 alone" in text
+    assert "Gotway" in doc("euc-wheellog-ble")
