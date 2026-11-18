@@ -46,7 +46,7 @@ See [AUTOBABA LED Backpack](autobaba-led-backpack.md) for the full protocol spec
 
 ### Packet Format, Commands, and Image Upload
 
-Identical to [AUTOBABA LED Backpack](autobaba-led-backpack.md). Same 0xAA55 header, JSON commands, BMP image encoding, and sliding window ACK protocol.
+Identical to [AUTOBABA LED Backpack](autobaba-led-backpack.md). Same 0xAA55 header, JSON commands, BMP image encoding, and sliding window ACK protocol. Subscribe to FFF1 before commands. Ordinary BLE writes on this variant use an outer u16-LE length prefix before the inner AA55 frame; AUTOBABA is the separately capture-proven unprefixed exception. The public-client power-on is `10 00 aa 55 ff ff 0a 00 03 00 c1 02 04 02 00 01 d4 03`. Fixed brightness is 1–15, with zero mapped to 15; this variant is source-derived and not independently capture-verified.
 
 ## Tools Used
 

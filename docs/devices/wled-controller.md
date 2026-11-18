@@ -121,6 +121,12 @@ device.
 | GET | `/win` | Legacy query-parameter API answering XML |
 | GET | `/update` | OTA firmware upload, gated by the OTA lock passphrase |
 
+Set only segment 0's primary RGB color with a partial state object such as
+`{"seg":[{"id":0,"col":[[0,255,200]]}]}`; omitting the other `col` slots
+leaves background and custom colors alone. In `/json/info`, `deviceId` is the
+stable MAC-derived ID, `psrSz` is total PSRAM in MiB rounded up, and `psram`
+is free PSRAM in bytes—not the total.
+
 ### WebSocket
 
 `ws://<device>/ws` pushes the same state object on change, and accepts state

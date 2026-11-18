@@ -18,13 +18,14 @@ def characteristic(service_uuid, characteristic_uuid):
     return next(char for char in service["characteristics"] if char["uuid"] == characteristic_uuid)
 
 
-def parse_battery(payload):
+def parse_battery(payload, protocol=None):
     if not payload:
         raise ValueError("missing battery")
     output = {"battery_percent": payload[0]}
     if len(payload) >= 3:
         runtime = int.from_bytes(payload[1:3], "little")
-        output["remaining_brushing_seconds"] = None if runtime == 0xFFFF else runtime
+        unavailable = runtime == 0xFFFF or (protocol == 6 and runtime == 0)
+        output["remaining_brushing_seconds"] = None if unavailable else runtime
     if len(payload) >= 5:
         output["battery_millivolts"] = int.from_bytes(payload[3:5], "little")
     if len(payload) >= 7:
@@ -135,3 +136,46 @@ def test_diagnostic_widths_and_metadata_versions():
     assert metadata["protocol_8_plus_length_bytes"] == 30
     assert metadata["statistics_markers"] == {"default_available_separator": 0xFE, "end": 0xFF}
     assert metadata["fields"][-1]["length"] == 16
+
+
+def test_audit_battery_vectors_and_protocol_6_zero_runtime():
+    assert parse_battery(bytes.fromhex("17 10 0e a0 0f 7b 00 19")) == {
+        "battery_percent": 23,
+        "remaining_brushing_seconds": 3600,
+        "battery_millivolts": 4000,
+        "battery_current": 123,
+        "battery_temperature": 25,
+    }
+    assert parse_battery(bytes.fromhex("3b 00 00 00"), protocol=6) == {
+        "battery_percent": 59,
+        "remaining_brushing_seconds": None,
+    }
+    assert parse_battery(bytes.fromhex("17 ff ff"))[
+        "remaining_brushing_seconds"
+    ] is None
+
+
+def test_rtc_timezone_and_capture_access_properties_use_read_only_ff29():
+    rtc = characteristic(BRUSH_SERVICE, "a0f0ff22-5047-4d53-8208-4f72616c2d42")
+    assert rtc["properties"] == ["read", "write"]
+    rtc_field = rtc["format"][0]
+    unix_seconds = 1700000000
+    raw_seconds = unix_seconds - rtc_field["value_offset"]
+    wire = raw_seconds.to_bytes(4, "little")
+    assert int.from_bytes(wire, "little") + rtc_field["value_offset"] == unix_seconds
+
+    timezone = characteristic(BRUSH_SERVICE, "a0f0ff23-5047-4d53-8208-4f72616c2d42")
+    zone_field = timezone["format"][0]
+    assert zone_field["scale"] == 0.25
+    assert int.from_bytes(bytes([0x16]), "little", signed=True) * zone_field["scale"] == 5.5
+    assert int.from_bytes(bytes([0xE0]), "little", signed=True) * zone_field["scale"] == -8.0
+
+    for short in ("ff04", "ff05", "ff06", "ff07", "ff08", "ff09", "ff0a", "ff0b", "ff0d"):
+        char = characteristic(BRUSH_SERVICE, f"a0f0{short}-5047-4d53-8208-4f72616c2d42")
+        assert char["properties"] == ["read", "notify"]
+    assert characteristic(BRUSH_SERVICE, "a0f0ff21-5047-4d53-8208-4f72616c2d42")["properties"] == ["read", "write", "notify"]
+    assert characteristic(BRUSH_SERVICE, "a0f0ff2b-5047-4d53-8208-4f72616c2d42")["properties"] == ["read", "write"]
+    assert characteristic(BRUSH_SERVICE, "a0f0ff2d-5047-4d53-8208-4f72616c2d42")["properties"] == ["read", "write"]
+    ff29 = characteristic(BRUSH_SERVICE, "a0f0ff29-5047-4d53-8208-4f72616c2d42")
+    assert ff29["properties"] == ["read"]
+    assert "notification list excludes FF29" in ff29["notes"]

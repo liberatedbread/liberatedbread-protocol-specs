@@ -89,7 +89,7 @@ it to the wire and decodes replies.
 
 ### Commands
 
-The shared LOY SPACE vocabulary (`power`, `light` 0–15, `get dev_info`,
+The shared LOY SPACE vocabulary (`power`, `light` 1–15 (zero mapped to 15), `get dev_info`,
 `delete del_all`, `rotate`, `pgm_play` with the 60-slot `ids_pro` array)
 applies; see the AUTOBABA doc. Commands first seen in the LED space app:
 
@@ -115,7 +115,12 @@ templates use `id_pro` 11–19; the platform supports 60 sparse program slots.
 
 Identical GATT surface to the AUTOBABA backpack: service
 `0000fff0-0000-1000-8000-00805f9b34fb`, write `…fff2…`, notify `…fff1…`,
-advertised name prefix `YS` / `TL`. See the
+advertised name prefix `YS` / `TL`. Subscribe to FFF1 before commands.
+Ordinary BLE writes on this variant use an outer u16-LE length prefix before
+the inner AA55 frame; AUTOBABA is the separately capture-proven unprefixed
+exception, not a family-wide rule. The captured public-client power-on is
+`10 00 aa 55 ff ff 0a 00 03 00 c1 02 04 02 00 01 d4 03`. The UDP datagram
+prefix remains in force. See the
 [AUTOBABA doc](autobaba-led-backpack.md) for the full BLE protocol.
 
 ### Backend API

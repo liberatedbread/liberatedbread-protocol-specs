@@ -94,3 +94,42 @@ def test_raw_gif_worked_chunk_has_exact_layout_and_checksum():
     assert packet[-2:] == (sum(packet[:-2]) & 0xFFFF).to_bytes(2, "little")
     assert packet[-2:] == bytes.fromhex("0d09")
     assert len(packet) - upload["value_chunk_bytes"] == upload["packet_overhead_bytes"]
+
+
+def _ordinary_frame(sequence: int, command_type: int, payload: bytes) -> bytes:
+    frame = bytearray.fromhex("aa 55 ff ff")
+    frame += (len(payload) + 6).to_bytes(2, "little")
+    frame += sequence.to_bytes(2, "little")
+    frame += bytes([0xC1, command_type])
+    frame += payload
+    frame += (sum(frame) & 0xFFFF).to_bytes(2, "little")
+    return bytes(frame)
+
+
+def test_brightness_vectors_are_unprefixed_checksum_valid_frames():
+    details = SPEC["protocol_details"]["brightness_write"]
+    for sequence, level, key in (
+        (2, 6, "set_6_example_hex"),
+        (3, 7, "restore_7_example_hex"),
+    ):
+        expected = bytes.fromhex(details[key])
+        encoded = _ordinary_frame(sequence, 0x02, bytes([0x06, 0x02, 0x00, level]))
+        assert encoded == expected
+        assert encoded[:4] == bytes.fromhex("aa 55 ff ff")
+        assert int.from_bytes(encoded[4:6], "little") == len(encoded) - 6
+        assert int.from_bytes(encoded[-2:], "little") == sum(encoded[:-2]) & 0xFFFF
+    assert details["app_range"] == [1, 15]
+    assert SPEC["services"][0]["characteristics"][1]["framing"][
+        "length_prefix"
+    ] is False
+
+
+def test_platform_geometry_bounds_remain_device_reported():
+    feature = SPEC["features"][0]
+    assert (feature["max_width"], feature["max_height"]) == (192, 128)
+    assert feature["resolution_source"] == "device_reported"
+    assert feature["verification"] == "reported"
+    assert "bounds_verification" not in feature
+    assert SPEC["protocol_details"]["raw_gif_upload"]["verification"] == "confirmed"
+    observed = SPEC["protocol_details"]["panel_discovery"]["observed_reply"]
+    assert (observed["width"], observed["height"]) == (64, 64)

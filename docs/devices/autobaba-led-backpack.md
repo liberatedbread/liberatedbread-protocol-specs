@@ -58,7 +58,8 @@ SPOTLED's big-endian dimensions.
 
 The reply's literal model field and version/capability strings are preserved in the
 research evidence but are not a retail-model identification. The initial 64×64 app
-state was not used as geometry evidence.
+state was not used as geometry evidence. The platform bounds are 192×128, but the
+device-reported geometry always wins; do not stretch content to those maxima.
 
 ## Brightness
 

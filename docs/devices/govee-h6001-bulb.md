@@ -26,9 +26,9 @@ Machine-readable spec: `device-specs/devices/govee-h6001-bulb.yaml`.
 | Advertised service | `00010203-0405-0607-0809-0a0b0c0d1910` |
 | Manufacturer company ID | `0xEC88` (60552) when the `88 EC` bytes lead the payload; firmware with a leading version byte reports `0x88XX` instead — match `88 EC` at payload offset 0 or 1. Bulb family goodsType = 20 |
 
-The H6001 supports Govee's local Wi-Fi API alongside BLE per the Home
-Assistant `govee_light_local` integration, though the BLE protocol here is
-the documented local path.
+The H6001 is BLE-only. Govee's local Wi-Fi API and the Home Assistant
+`govee_light_local` integration apply to other models, not this bulb; the BLE
+protocol here is its documented local path.
 
 ## Initial Setup
 

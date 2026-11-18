@@ -202,7 +202,14 @@ All Family C characteristics are UTF-8 strings carrying JSON. To join a network 
 
 ### Temperature Data Encoding
 
-All temperatures are **IEEE 754 single-precision floats (4 bytes, little-endian)**. The app applies **no unit conversion in the decode path** (`parseBytesData` is a plain `readFloatLE`), so the unit on the wire is not determinable from the app code — it is governed by the writable Temperature Unit characteristic `9C6FFFC0`: `0` = Fahrenheit, `1` = Celsius. No out-of-box default is evidenced; the app writes the setting from the phone locale during setup. (The connectionless advertisement path, by contrast, is always signed int16 LE in tenths of °C — see the YAML spec's device notes.)
+All temperatures are **IEEE 754 single-precision floats (4 bytes, little-endian)**. The app applies **no unit conversion in the decode path** (`parseBytesData` is a plain `readFloatLE`), so the unit on the wire is not determinable from the app code — it is governed by the writable Temperature Unit characteristic `9C6FFFC0`: `0` = Fahrenheit, `1` = Celsius. No out-of-box default is evidenced; the app writes the setting from the phone locale during setup.
+
+The connectionless advertisement path instead uses signed int16 LE in tenths
+of °C with exact generation boundaries: legacy majors 2/3 (battery only in
+major 3), V2 major 4, and V3 major 5. Unknown majors fail closed. Status starts
+at major 4; battery and SoC status fields start at major 5. Raw values at or
+above **32000** (`0x7d00`) mean no reading, and every value outside −40…600 °C
+is suppressed. Battery-byte scaling remains contested and is not normalized.
 
 ### Probe Data TLV Format
 
