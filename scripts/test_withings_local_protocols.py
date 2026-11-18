@@ -177,12 +177,41 @@ def parse_measurement_messages(
     return groups
 
 
-def deduplicate(groups: list[dict]) -> dict[tuple[int, int], dict]:
-    result = {}
+def attributed_user(group: dict) -> int:
+    return next((user for user in group["user_ids"] if user), 0)
+
+
+def merge_groups(groups: list[dict]) -> list[dict]:
+    merged = {}
     for group in groups:
+        user = attributed_user(group)
+        key = (group["time"], user)
+        target = merged.setdefault(
+            key,
+            {
+                "time": group["time"],
+                "attributed_user": user,
+                "user_ids": group["user_ids"],
+                "label": group.get("label"),
+                "values": [],
+            },
+        )
+        by_type = {measure["type"]: measure for measure in target["values"]}
         for measure in group["values"]:
-            result[(measure["time"], measure["type"])] = measure
-    return result
+            by_type[measure["type"]] = measure | {"attributed_user": user}
+        target["values"] = list(by_type.values())
+    return [merged[key] for key in sorted(merged)]
+
+
+def unseen_measurements(groups: list[dict], seen: set[tuple[int, int, int]]) -> list[dict]:
+    novel = []
+    for group in merge_groups(groups):
+        for measure in group["values"]:
+            key = (group["attributed_user"], group["time"], measure["type"])
+            if key not in seen:
+                novel.append(measure)
+                seen.add(key)
+    return novel
 
 
 def test_sha1_answers_and_exact_advertised_mac_string() -> None:
@@ -271,7 +300,7 @@ def test_malformed_wpp_is_rejected(raw: bytes) -> None:
         decode_message(raw)
 
 
-def test_exponent_scaling_metadata_and_timestamp_type_deduplication() -> None:
+def test_exponent_scaling_metadata_and_per_user_type_deduplication() -> None:
     messages = [
         decode_message(bytes.fromhex(V["measurement_hex"])),
         decode_message(bytes.fromhex(V["list_end_hex"])),
@@ -294,10 +323,66 @@ def test_exponent_scaling_metadata_and_timestamp_type_deduplication() -> None:
         "exponent": 0,
         "value": Decimal(61),
     }
-    deduped = deduplicate([group, {"values": [duplicate_weight, heart_rate]}])
-    assert set(deduped) == {(1700000000, 1), (1700000000, 6), (1700000000, 11)}
-    assert deduped[(1700000000, 1)]["value"] == Decimal("72.345")
-    assert deduped[(1700000000, 11)]["value"] == Decimal(61)
+    split_group = {
+        "time": group["time"],
+        "user_ids": group["user_ids"],
+        "values": [duplicate_weight, heart_rate],
+    }
+    merged = merge_groups([group, split_group])
+    assert len(merged) == 1
+    assert merged[0]["attributed_user"] == 42
+    by_type = {measure["type"]: measure for measure in merged[0]["values"]}
+    assert set(by_type) == {1, 6, 11}
+    assert by_type[1]["value"] == Decimal("72.345")
+    assert by_type[11]["value"] == Decimal(61)
+
+
+def test_same_timestamp_weights_survive_with_bob_guest_and_another_user() -> None:
+    vector = V["multi_user_regression"]
+    groups = []
+    for row in vector["groups"]:
+        groups.append(
+            {
+                "time": vector["time"],
+                "user_ids": [row["attributed_user"]] if row["attributed_user"] else [],
+                "uid": row["uid"],
+                "label": row["label"],
+                "values": [
+                    {
+                        "time": vector["time"],
+                        "type": row["type"],
+                        "raw": row["raw"],
+                        "exponent": row["exponent"],
+                        "value": Decimal(str(row["decoded"])),
+                    }
+                ],
+            }
+        )
+    assert len({group["uid"] for group in groups}) == 1
+    merged = merge_groups(groups)
+    assert len(merged) == vector["expected_group_count"] == 3
+    weights = {
+        group["attributed_user"]: group["values"][0]["value"] for group in merged
+    }
+    assert weights == {
+        42: Decimal("90.0"),
+        0: Decimal("55.0"),
+        43: Decimal("65.0"),
+    }
+    assert {group["label"] for group in merged} == {
+        "Bob (invented)",
+        "Guest/unknown (invented)",
+        "Alice (invented)",
+    }
+    seen = set()
+    first = unseen_measurements(groups, seen)
+    assert len(first) == 3
+    assert seen == {
+        (42, vector["time"], 1),
+        (0, vector["time"], 1),
+        (43, vector["time"], 1),
+    }
+    assert unseen_measurements(groups, seen) == []
 
 
 def test_bad_metadata_drops_values_instead_of_moving_them_to_prior_group() -> None:

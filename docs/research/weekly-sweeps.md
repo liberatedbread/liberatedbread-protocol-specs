@@ -23,8 +23,16 @@ used.
 | Spec | Transport and exact scope | Deliberate omissions / follow-up |
 |---|---|---|
 | [VanMoof S3 / X3](../devices/vanmoof-s3-x3.md) | Legacy `6acc55` BLE only, exported 16-byte key + one-byte user key ID, strict fresh two-byte challenges, AES-128-ECB/zero padding, authenticated battery/distance/speed/lock reads. Lock/unlock/bell-tone writes are advanced, attended and readback-gated. `scripts/test_vanmoof_s3_x3_spec.py`. | No other VanMoof generation or `8e7f1a5x`; no assist, lights, alarm, speed/region, backup/reset/bonding or OTA. Needs a scrubbed GATT/authentication capture and current key-export check. |
-| [Withings Body Smart WBS13 / Body Comp WBS12](../devices/withings-body-smart-comp-ble.md) | Read-only BLE WPP with exact-MAC mutual SHA-1, stored state/all reads, exponent values and `(time,type)` dedupe. WBS13 model `0x10` uses `00000024-5749-5448-0010-000000000000` and `SYNC_OK`; WBS12 model `0x12` uses FD77, service `00000000-0000-5749-5448-494e47530000`, WPP `00000004-0000-5749-5448-494e47530000`, and no `SYNC_OK`. `scripts/test_withings_local_protocols.py`. | No delete, association, roster, unit, Wi-Fi, clock or firmware writes. WBS12 needs more than its one community hardware report; unknown types stay unnamed. |
+| [Withings Body Smart WBS13 / Body Comp WBS12](../devices/withings-body-smart-comp-ble.md) | Read-only BLE WPP with exact-MAC mutual SHA-1, stored state/all reads, exponent values and per-user/time/type dedupe. WBS13 model `0x10` uses `00000024-5749-5448-0010-000000000000` and `SYNC_OK`; WBS12 model `0x12` uses FD77, service `00000000-0000-5749-5448-494e47530000`, WPP `00000004-0000-5749-5448-494e47530000`, and no `SYNC_OK`. `scripts/test_withings_local_protocols.py`. | No delete, association, roster, unit, Wi-Fi, clock or firmware writes. WBS12 needs more than its one community hardware report; unknown types stay unnamed. |
 | [Withings Body / Nokia Body WBS06](../devices/withings-body-wbs06-classic.md) | Incoming BlueZ BR/EDR listener on `00000001-e1ba-dfb7-c7f0-da2b149de289` and `00009990-0000-1000-8000-00805f9b34fb`; FragFsm RESET/DATA, mutual WPP, weight/time/battery only. CoreBluetooth and ESPHome BLE proxies are incompatible. Shared independent tests cover fragmented and coalesced frames. | No composition or `SYNC_OK`; no WBS06 v551/WBS05S patch claim or YourOwnWeigh replacement service. Needs a stock-firmware matrix and RESET/reset-retention checks. |
+
+Independent review corrected two details in this follow-up: unlock now uses
+VanMoofKit's explicit `awaitingUnlock` `0x02`, accepting only transitional 2
+before eventual 0 within five one-second reads and documenting pymoof's
+conflicting `0x00` as unproven. Withings dedupe now preserves groups by
+`(time, attributed_user)`, types within each group, and reread suppression per
+user/time/type; Bob 90 kg, guest 55 kg and Alice 65 kg at one timestamp all
+survive in the regression.
 
 The older [missing-device survey](missing-devices.md) now links the bounded
 VanMoof spec and no longer claims older models or unimplemented controls. The

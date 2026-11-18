@@ -37,9 +37,10 @@ device:
       and the physical result under direct observation. A successful GATT write
       is not proof of authentication or of the resulting state. Complete an
       authenticated read first, then read the same characteristic back after
-      every write and reject an absent, malformed or unexpected value. Never
-      write lock state 2 (awaiting unlock); it is a reported state, not a
-      command. Keep the owner's existing recovery method available.
+      every write and reject an absent, malformed or unexpected value. Unlock
+      uses VanMoofKit's awaiting-unlock command (2): bounded readback may
+      observe 2 transiently but must reach unlocked (0). Keep the owner's
+      existing recovery method available.
     acknowledge_required: true
   notes: >
     SCOPE IS THE S3/X3 LEGACY 6acc55 PROFILE ONLY. Do not infer support for
@@ -215,8 +216,11 @@ services:
         notes: >
           Reads are whole AES blocks; decrypt and parse byte 0 only. Commands
           below are one-byte command_data values for the fresh-challenge/zero-
-          padding codec, not raw GATT writes. After lock or unlock, read and
-          decrypt this characteristic again and require the requested state.
+          padding codec, not raw GATT writes. Lock requires readback of 1.
+          Unlock follows VanMoofKit's command 2 and uses the bounded polling
+          lifecycle below: 2 is an accepted intermediate read, final 0 is
+          mandatory. Pymoof's generic setter instead accepts 0 for unlocked;
+          no physical capture establishes that alternate unlock encoding.
         format:
           - offset: 0
             length: 1
@@ -226,13 +230,13 @@ services:
               0: "unlocked"
               1: "locked"
               2: "awaiting_unlock"
-            notes: "Reject every other value. State 2 is never a command. Single byte, so no endianness applies."
+            notes: "Reject every other value. State 2 is VanMoofKit's unlock command and a valid transitional read; 0 is the final unlocked state. Single byte, so no endianness applies."
         commands:
           unlock:
-            description: "Attended owner-confirmed unlock: command_data 00 through the encrypted-session codec, followed by authenticated readback of state 0."
-            value: [0x00]
+            description: "Attended owner-confirmed unlock using VanMoofKit's awaiting-unlock command_data 02. Poll authenticated readback at one-second intervals, accepting 02 only as intermediate and requiring 00 within five attempts; never resend on timeout."
+            value: [0x02]
             advanced: true
-            advanced_reason: "Changes the physical bicycle lock. Use only with the owner present and the bicycle stationary, preserve owner recovery, and require an authenticated readback of unlocked (0); otherwise report failure rather than retrying blindly."
+            advanced_reason: "Changes the physical bicycle lock through awaiting-unlock (2). Use only with the owner present and stationary, preserve recovery, and require eventual authenticated readback of unlocked (0) within five one-second polls; transitional 2 is not final success and timeout is not a reason to resend blindly."
             verification: "reported"
           lock:
             description: "Attended owner-confirmed lock: command_data 01 through the encrypted-session codec, followed by authenticated readback of state 1."
@@ -361,7 +365,20 @@ protocol_details:
       - "Read a NEW two-byte challenge for this write; never reuse the authentication challenge or another command's challenge."
       - "plaintext = challenge || command_data || zero bytes to the next 16-byte boundary; the two challenge bytes count toward block length."
       - "Encrypt all plaintext blocks with AES-128-ECB and write the ciphertext with response to the command characteristic. Do not append the authentication suffix."
-      - "Read the same characteristic, decrypt and require the intended lock state or bell tone. A write response without valid readback is an unconfirmed operation, not success and not an instruction to retry automatically."
+      - "Read the same characteristic, decrypt and require the intended lock state or bell tone, except that unlock uses the transitional readback state machine below. A write response without valid readback is an unconfirmed operation, not success and not an instruction to retry automatically."
+    unlock_readback:
+      command_data: "02 (VanMoofKit awaitingUnlock)"
+      accepted_intermediate_state: 2
+      required_final_state: 0
+      poll_interval_ms: 1000
+      max_attempts: 5
+      total_budget_seconds: 5
+      steps:
+        - "Send 02 through the ordinary fresh-challenge encrypted write path, then wait one second before the first authenticated lock-state read; that initial delay follows VanMoofKit."
+        - "At one-second intervals, read and decrypt lock state. Accept 02 only as awaiting unlock and keep polling. Require 00 (unlocked) by attempt five."
+        - "A sequence 2, 2, 0 succeeds. State 1 or any other value is an immediate unexpected-state failure. Absent/malformed reads and five attempts without 0 fail with an unconfirmed result."
+        - "Never resend unlock automatically after a timeout or unexpected read. Keep the owner present and let them assess the physical state and recovery path. The five-attempt ceiling is a client safety bound, not an observed firmware timing constant."
+      conflicting_evidence: "Pymoof's generic set_lock_state accepts its UNLOCKED enum 00 and its fake-GATT smoke path uses that value. VanMoofKit's explicit unlock() writes awaitingUnlock 02. No physical capture chooses between them, so this spec adopts the explicit VanMoofKit unlock path and does not declare 00 as an established unlock command."
     read_steps:
       - "Challenge is plaintext. Every telemetry/state read in this spec is encrypted whole AES blocks."
       - "Require ciphertext length > 0 and ciphertext length % 16 == 0, decrypt, then parse only the characteristic's declared plaintext format."
@@ -382,6 +399,12 @@ protocol_details:
         command_data_hex: "01"
         plaintext_hex: "01020100000000000000000000000000"
         ciphertext_hex: "a3113740eee5fcc2379526ff72b8d6a6"
+      unlock_command:
+        challenge_hex: "0304"
+        command_data_hex: "02"
+        plaintext_hex: "03040200000000000000000000000000"
+        ciphertext_hex: "198f9ca7fbde1458c373da1d2256578e"
+        readback_sequence: [2, 2, 0]
       bell_command:
         challenge_hex: "a1b2"
         command_data_hex: "16"
@@ -393,6 +416,7 @@ protocol_details:
         - {name: "distance", plaintext_hex: "d2040000000000000000000000000000", ciphertext_hex: "ae60846dd3795832f0af896387b9296e", raw_le: 1234, decoded: 123.4, unit: "km"}
         - {name: "speed", plaintext_hex: "19000000000000000000000000000000", ciphertext_hex: "3ab3667cb687f4fb36c782721ea10268", decoded: 25, unit: "km/h"}
         - {name: "lock_state", plaintext_hex: "02000000000000000000000000000000", ciphertext_hex: "fb8ae31ba5db9cad97364d8722d47326", decoded: "awaiting_unlock"}
+        - {name: "unlocked", plaintext_hex: "00000000000000000000000000000000", ciphertext_hex: "c6a13b37878f5b826f4f8162a1c8d879", decoded: "unlocked"}
     openssl_equivalent: "openssl enc -aes-128-ecb -nopad -K <32-hex-owner-key>; add -d to decrypt. Input and output are raw bytes, with zero padding supplied by the caller."
   omitted_surfaces:
     models: "S2/X2, S4/X4, S5/A5, S6 and every non-S3/X3 model; the 8e7f1a5x protocol generation."
@@ -458,8 +482,12 @@ evidence:
     map, AES-128-ECB challenge construction, command bodies and Python read
     semantics. VanMoofKit d258b2575115f11ccfcfbcb8ecf6dd3c740c30fc
     independently corroborated authentication, UInt8 speed/battery/enums,
-    UInt32 little-endian distance and readback-after-write behavior. Open-source
-    files are cited in the research handoff, not vendor application internals.
+    UInt32 little-endian distance and readback-after-write behavior. Its
+    explicit unlock() writes awaitingUnlock 02; pymoof's generic setter instead
+    accepts unlocked 00. This spec follows the explicit VanMoofKit unlock path
+    and preserves the conflict rather than treating either fake-GATT path as
+    physical proof. Open-source files are cited in the research handoff, not
+    vendor application internals.
   offline_validation: >
     VALIDATION-2026-11-02 records 14 passing upstream pymoof tests and 110
     independent AES/fake-GATT assertions, including strict-field fixtures,
@@ -489,6 +517,7 @@ evidence:
       description: "Model and owner-operation reference; no protocol encryption or reset command inferred from it."
 
 remaining_unknowns:
+  - "Physical unlock encoding and timing: VanMoofKit writes 02 and pymoof's generic setter accepts 00, but no capture resolves the conflict or establishes how long 02 can remain transitional."
   - "Exact current S3/X3 firmware range carrying the legacy service set; no live bicycle or current GATT dump was available."
   - "Authentication acceptance indication beyond a subsequent authenticated read; delivery of the key-index write is not sufficient."
   - "OS-level BLE bonding requirements, notification behavior and connection exclusivity on current firmware."

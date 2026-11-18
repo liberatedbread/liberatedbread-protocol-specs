@@ -142,11 +142,16 @@ enums instead of substituting zero.
 | Lock state | byte 0, enum | 0 unlocked, 1 locked, 2 awaiting unlock |
 | Bell tone | byte 0, enum | `0x16` bell, `0x17` party, `0x18` boat |
 
-State 2 is an intermediate lock state, **never a command**.
+State 2 is both a transitional read state and VanMoofKit's
+`awaitingUnlock` command. This spec follows that client's unlock command
+`0x02`; pymoof's generic setter instead accepts `0x00` for its unlocked enum.
+No physical capture establishes pymoof's `0x00` as an unlock command here, so
+it is not declared. Unlocked `0x00` is the required final readback, not the
+command selected by this spec.
 
 ### Attended writes
 
-Lock and unlock send command bodies `01` and `00` respectively through the
+Lock and unlock send command bodies `01` and `02` respectively through the
 fresh-challenge encryption routine. Bell-tone selection sends one of `16`,
 `17` or `18` hexadecimal. Every write has all of these gates:
 
@@ -157,8 +162,17 @@ fresh-challenge encryption routine. Bell-tone selection sends one of `16`,
 5. the same characteristic is read and decrypted afterwards, and must report
    the requested state or tone.
 
-If readback is absent, malformed or different, report an unconfirmed result;
-do not retry blindly and do not infer success from the GATT response.
+Unlock has a transitional exception to the last rule: after sending `0x02`,
+poll once per second for at most five attempts. Accept `0x02` only while the
+unlock is pending and require `0x00` by the final attempt. A sequence such as
+`2, 2, 0` succeeds; `2, 1` fails immediately, and five attempts without `0`
+time out. The one-second initial delay follows VanMoofKit's post-write read;
+the five-attempt ceiling is a conservative client-side bound, not an observed
+firmware constant.
+
+If readback is absent, malformed, unexpectedly locked or times out, report an
+unconfirmed result; do not retry blindly and do not infer success from the
+GATT response.
 
 ## Verification and remaining work
 
@@ -169,12 +183,21 @@ and 110 independent offline AES/fake-GATT assertions passed. No bicycle,
 owner credential or live BLE exchange was used.
 
 `scripts/test_vanmoof_s3_x3_spec.py` independently rebuilds the spec's NIST,
-authentication, ordinary-command and telemetry fixtures with OpenSSL. All
-keys and nonces in those fixtures are invented. The tests also enforce the
+authentication, ordinary-command and telemetry fixtures with OpenSSL. Its
+unlock-specific vector checks the `0x02` command and a decrypted `2, 2, 0`
+readback sequence, plus locked-state rejection and the five-attempt timeout.
+All keys and nonces in those fixtures are invented. The tests also enforce the
 model/write allowlist and attended advanced-command metadata.
 
+The evidence disagreement is explicit: VanMoofKit's named `unlock()` writes
+`awaitingUnlock` (`0x02`), whereas pymoof's generic setter accepts its unlocked
+enum (`0x00`). Neither client's fake-GATT path proves what a bicycle accepts.
+The spec therefore adopts the named VanMoofKit operation and does not claim
+`0x00` as an established unlock command.
+
 Still needed: a privacy-scrubbed GATT dump tied to exact firmware, captured
-authentication acceptance and readback, current key-export availability, and
+authentication acceptance and unlock/readback behavior resolving the `0x00`
+versus `0x02` client disagreement, current key-export availability, and
 hardware confirmation of connection/bonding behavior. None of those gaps
 should be filled from another VanMoof generation.
 

@@ -174,9 +174,17 @@ triple. The required synthetic example is `72345e-3 = 72.345 kg` for weight;
 `215e-1 = 21.5%` for fat ratio.
 
 Every sync returns the whole store and one weigh-in can be split across
-groups. **Deduplicate by `(time, measurement type)`**, never by `uid` or user
-ID. Coalesce within a sync, and do not publish the whole history as new
-samples on the next sync. User attribution remains separate.
+groups. First preserve groups by **`(time, attributed_user)`**, where the
+attributed user is the first nonzero valid user ID or `0` for guest/unknown.
+Deduplicate measurement types **within each group**, retaining `user_ids` and
+`attrib` for attribution; `uid` is not required as a stable identity key.
+
+Across syncs, suppress already published samples by
+**`(attributed_user, time, measurement type)`**. This prevents whole-store
+rereads from becoming new history without collapsing different people. For
+example, invented Bob at 90 kg, guest at 55 kg and Alice at 65 kg at one
+timestamp all survive with their attribution. Guest/unknown `0` is distinct
+from every named user at that timestamp.
 
 | Type | Measurement | Unit |
 |------|-------------|------|
@@ -217,8 +225,10 @@ data.
 
 `scripts/test_withings_local_protocols.py` independently checks SHA-1 and
 mutual-proof layouts, exact-MAC behavior, WPP bounds/fragmentation, exponent
-scaling, `(time,type)` deduplication, model routing and FragFsm. Fixtures use
-a placeholder MAC, invented key/challenges and invented measurements.
+scaling, per-user/time/type deduplication, model routing and FragFsm. Its
+regression preserves Bob, guest and Alice at one timestamp and suppresses only
+their identical records on a reread. Fixtures use a placeholder MAC, invented
+key/challenges and invented measurements.
 
 Remaining work includes more WBS12 units/firmware, unknown type meanings,
 reset retention, battery-loss pairing and clarification of Wi-Fi/BLE

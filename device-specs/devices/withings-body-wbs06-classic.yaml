@@ -281,7 +281,11 @@ protocol_details:
         - "Do NOT send or echo SYNC_OK; its model-specific effect is unproven. Finish with DISCONNECT 272 without waiting for a reply, then close the accepted socket."
       stored_meta: "uid:u32 BE | valid:u8 | slot_count:u8 | user_ids[slot_count]:u32 BE | attrib:u8 | time:u32 BE. time is UTC Unix seconds. Only the first `valid` IDs are meaningful. A malformed META drops its following values, never attaches them to the prior group."
       stored_data: "Exactly 8 bytes: value:int32 BE | type:u16 BE | exponent:int16 BE. Decimal value = raw * 10^exponent; preserve raw triple and decimal precision. 72345e-3 = 72.345 kg for type 1."
-      deduplication: "Key is (time, measurement type), never uid/userId. Coalesce split groups and do not republish the whole store as new samples on every sync. Later complete duplicates within one sync replace earlier ones; preserve user attribution separately."
+      deduplication:
+        group_key: "(time, attributed_user), where attributed_user is the first nonzero valid user ID or 0 for guest/unknown. Preserve user_ids/attrib; uid is not required as a stable identity key."
+        within_group: "Deduplicate measurement types within each group. Later complete duplicates of one type replace earlier ones only for that user/time/type, never for another user or guest."
+        cross_sync_key: "(attributed_user, time, measurement type). Suppress already published samples across whole-store rereads without dropping another attributed user at the same timestamp."
+        guest_unknown: "attributed_user 0 remains distinct from every named user at that timestamp. Do not merge Bob, guest and another user into one weight record; multi_user_regression below proves all three survive."
       published_values:
         weight: "Only type 1, unit kg after exponent scaling."
         weigh_in_time: "META time, UTC Unix seconds; one timestamp can cover several groups."
@@ -312,6 +316,15 @@ protocol_details:
         values:
           - {raw: 72345, type: 1, exponent: -3, decoded: 72.345, unit: "kg"}
           - {raw: 215, type: 6, exponent: -1, decoded: 21.5, unit: "%", codec_only: true}
+      multi_user_regression:
+        provenance: "Entirely invented weight records; repeated uid demonstrates it is not the attribution key."
+        time: 1700000000
+        groups:
+          - {label: "Bob (invented)", attributed_user: 42, uid: 7, raw: 90000, type: 1, exponent: -3, decoded: 90.0, unit: "kg"}
+          - {label: "Guest/unknown (invented)", attributed_user: 0, uid: 7, raw: 55000, type: 1, exponent: -3, decoded: 55.0, unit: "kg"}
+          - {label: "Alice (invented)", attributed_user: 43, uid: 7, raw: 65000, type: 1, exponent: -3, decoded: 65.0, unit: "kg"}
+        expected_group_count: 3
+        cross_sync_rule: "First publication emits all three; an identical reread emits none, with separate attribution preserved."
       list_end_hex: "01 01 0f 00 04 01 00 00 00"
       fragfsm_wrapped_measurement_hex: "01 01 00 38 01 01 0f 00 33 01 16 00 17 00 00 00 07 01 03 00 00 00 2a 00 00 de ad 00 00 be ef 00 65 53 f1 00 01 17 00 08 00 01 1a 99 00 01 ff fd 01 17 00 08 00 00 00 d7 00 06 ff ff"
   prohibited_writes:

@@ -193,9 +193,12 @@ values rather than misattributing them to the previous group.
 
 Data object 279 is exactly eight bytes: `value:int32be | type:u16be |
 exponent:int16be`. Decode with decimal arithmetic as
-`value × 10^exponent`; `72345e-3 = 72.345 kg`. Deduplicate by
-`(time, measurement type)`, never by `uid` or user ID, because every sync
-returns the whole store and one weigh-in can span groups.
+`value × 10^exponent`; `72345e-3 = 72.345 kg`. Preserve groups by
+`(time, attributed_user)` and deduplicate measurement types within each group.
+The attributed user is the first nonzero valid user ID or `0` for guest/
+unknown; `uid` is not required as a stable identity key. Across whole-store
+rereads, suppress samples by `(attributed_user, time, measurement type)`, so
+Bob 90 kg, guest 55 kg and another user 65 kg at one timestamp all survive.
 
 Only type 1 becomes a WBS06 weight value. The synthetic fat-ratio vector in
 the machine spec proves generic exponent parsing, **not** WBS06 composition
@@ -212,7 +215,9 @@ scale or owner data was used for this spec.
 
 `scripts/test_withings_local_protocols.py` independently reproduces SHA-1,
 authentication and WPP vectors, exact-MAC handling, exponent/deduplication
-and fragmented/coalesced FragFsm frames with synthetic values only.
+and fragmented/coalesced FragFsm frames with synthetic values only. Its
+same-timestamp regression preserves Bob, guest and Alice with attribution,
+then suppresses only identical per-user/time/type records on reread.
 
 Open questions are the stock firmware matrix (upstream did not state a
 version for its successful scale), RESET optionality, reset retention and

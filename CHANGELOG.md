@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Independent review: VanMoof unlock and Withings attribution.** VanMoof
+  unlock now follows VanMoofKit's explicit `awaitingUnlock` command `0x02`,
+  with bounded polling that accepts transitional 2 but requires eventual 0;
+  pymoof's conflicting generic `0x00` setter is documented as unproven rather
+  than declared. Withings measurement merging now preserves groups by
+  `(time, attributed_user)`, deduplicates types within each group and suppresses
+  reread duplicates per user/time/type. Regression vectors cover unlock
+  transition/timeout behavior and Bob 90 kg + guest 55 kg + Alice 65 kg at one
+  timestamp, all surviving with attribution.
 - **Sensor, energy, mobility and diagnostic protocol correctness.** Aranet
   Radiation, SensorPush generations, Ruuvi DF3/DF5, b-parasite/BTHome,
   Mopeka and pvvx layouts now use their actual widths, offsets, signedness and
@@ -54,7 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   challenges, authenticated battery/distance/speed/lock reads and attended,
   readback-gated lock/unlock/bell-tone writes only. Withings Body Smart WBS13
   and Body Comp WBS12 gain separate BLE WPP model routes with mutual SHA-1,
-  stored-state/all-record reads, exponent scaling and timestamp/type dedupe;
+  stored-state/all-record reads, exponent scaling and per-user/time/type dedupe;
   `SYNC_OK` remains WBS13-only. Withings Body/Nokia Body WBS06 gains its
   distinct incoming BlueZ RFCOMM listener, FragFsm and weight/time/battery
   scope, with CoreBluetooth and ESPHome BLE proxies explicitly incompatible.

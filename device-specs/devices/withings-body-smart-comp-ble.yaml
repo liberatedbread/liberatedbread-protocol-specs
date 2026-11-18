@@ -322,8 +322,13 @@ protocol_details:
         scaling: "Decimal mathematical value = value * 10^exponent. Preserve decimal precision and the raw triple. Example 72345e-3 = 72.345 kg for type 1; 215e-1 = 21.5% for type 6."
         extras: "META_EXTEND 299, position/algorithm parameters and unknown objects attach to the current record where documented; otherwise preserve their type/raw value without inventing a measurement."
       deduplication:
-        key: "(time, measurement type)"
-        rule: "Every sync returns the whole store and one weigh-in can split values sharing a timestamp across groups. Coalesce to one value per key and never use uid or user IDs as stable dedupe keys. Within a sync, a later complete record for the same key replaces the earlier; across syncs, do not emit duplicate historical samples. Keep user attribution separately and never merge different timestamps or types."
+        group_key: "(time, attributed_user)"
+        attributed_user: "First nonzero ID in the valid user_ids, or 0 for guest/unknown (empty or all-zero valid IDs). Retain user_ids and attrib for display/attribution; uid is not required as a stable identity key."
+        within_group: "Deduplicate measurement types within each (time, attributed_user) group. A later complete record of the same type replaces the earlier one, but never replaces another user, guest or a different type."
+        cross_sync_key: "(attributed_user, time, measurement type)"
+        cross_sync_rule: "Suppress already published samples per user/time/type across syncs. Every sync returns the whole store, so do not republish old records, but a different attributed user or guest at the same time and type is a new sample and must survive."
+        unknown_users: "attributed_user 0 is its own guest/unknown group at each timestamp, distinct from every named user. Do not collapse all people into one timestamp/type bucket or use uid to merge them."
+        regression: "multi_user_regression below preserves invented Bob 90 kg, guest 55 kg and Alice 65 kg at one timestamp with their attribution."
       measure_types:
         1: {name: "weight", unit: "kg"}
         5: {name: "fat_free_mass", unit: "kg"}
@@ -367,6 +372,15 @@ protocol_details:
         values:
           - {raw: 72345, type: 1, exponent: -3, decoded: 72.345, unit: "kg"}
           - {raw: 215, type: 6, exponent: -1, decoded: 21.5, unit: "%"}
+      multi_user_regression:
+        provenance: "Entirely invented people and measurements; repeated uid demonstrates uid is not the group identity key."
+        time: 1700000000
+        groups:
+          - {label: "Bob (invented)", attributed_user: 42, uid: 7, raw: 90000, type: 1, exponent: -3, decoded: 90.0, unit: "kg"}
+          - {label: "Guest/unknown (invented)", attributed_user: 0, uid: 7, raw: 55000, type: 1, exponent: -3, decoded: 55.0, unit: "kg"}
+          - {label: "Alice (invented)", attributed_user: 43, uid: 7, raw: 65000, type: 1, exponent: -3, decoded: 65.0, unit: "kg"}
+        expected_group_count: 3
+        cross_sync_rule: "First publication emits all three; an identical reread emits none. Bob, guest and Alice retain separate (time, attributed_user) groups despite sharing timestamp and type."
       list_end_hex: "01 01 0f 00 04 01 00 00 00"
   prohibited_writes:
     destructive: "STORED_MEASURE action=2/delete-all and every record deletion."
@@ -385,7 +399,7 @@ evidence:
   public_implementation: >
     withings-local v0.5.0 at 52cfaa1f9157972373d34ce3021dbcd481c2f907
     supplied the WPP codec, mutual SHA-1 proofs, model profiles, non-deleting
-    session, measurement parser, timestamp/type deduplication and host setup.
+    session, measurement parser, per-user/time/type deduplication and host setup.
     Its own tests include fragmented/back-to-back messages, strict metadata,
     exponent scaling and proof verification. No upstream code is imported by
     this spec's independent test.

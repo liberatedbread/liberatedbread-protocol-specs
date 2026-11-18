@@ -53,6 +53,17 @@ def decrypted_plaintext(ciphertext: bytes) -> bytes:
     return aes_ecb(ciphertext, decrypt=True)
 
 
+def await_unlock(readbacks: list[int], *, max_attempts: int = 5) -> int:
+    for attempt, state in enumerate(readbacks, start=1):
+        if attempt > max_attempts:
+            break
+        if state == 0:
+            return attempt
+        if state != 2:
+            raise ValueError("unexpected lock state after awaiting-unlock")
+    raise TimeoutError("unlock did not reach unlocked within five attempts")
+
+
 def test_nist_aes_128_vector() -> None:
     vector = VECTORS["nist_aes_128"]
     assert aes_ecb(bytes.fromhex(vector["plaintext_hex"])).hex() == vector["ciphertext_hex"]
@@ -79,6 +90,33 @@ def test_lock_and_bell_commands_use_fresh_challenge_zero_padding() -> None:
         )
         assert payload.hex() == vector["ciphertext_hex"]
         assert decrypted_plaintext(payload).hex() == vector["plaintext_hex"]
+
+
+def test_unlock_command_vector_and_transitional_readback() -> None:
+    vector = VECTORS["unlock_command"]
+    payload = command_payload(
+        bytes.fromhex(vector["challenge_hex"]),
+        bytes.fromhex(vector["command_data_hex"]),
+    )
+    assert vector["command_data_hex"] == "02"
+    assert payload.hex() == vector["ciphertext_hex"]
+    assert decrypted_plaintext(payload).hex() == vector["plaintext_hex"]
+    encrypted_reads = {row["name"]: row for row in VECTORS["decrypted_reads"]}
+    readbacks = [
+        decrypted_plaintext(bytes.fromhex(encrypted_reads[name]["ciphertext_hex"]))[0]
+        for name in ("lock_state", "lock_state", "unlocked")
+    ]
+    assert readbacks == vector["readback_sequence"] == [2, 2, 0]
+    assert await_unlock(readbacks) == 3
+
+
+def test_unlock_readback_rejects_locked_and_bounded_timeout() -> None:
+    with pytest.raises(ValueError, match="unexpected lock state"):
+        await_unlock([2, 1, 0])
+    with pytest.raises(TimeoutError, match="within five attempts"):
+        await_unlock([2, 2])
+    with pytest.raises(TimeoutError, match="within five attempts"):
+        await_unlock([2, 2, 2, 2, 2, 0])
 
 
 def test_zero_padding_never_adds_an_aligned_extra_block() -> None:
@@ -116,6 +154,7 @@ def test_encrypted_telemetry_vectors_decode_only_the_declared_fields() -> None:
     assert int.from_bytes(plaintexts["distance"][:4], "little") * 0.1 == pytest.approx(123.4)
     assert plaintexts["speed"][0] == 25
     assert plaintexts["lock_state"][0] == 2
+    assert plaintexts["unlocked"][0] == 0
 
 
 @pytest.mark.parametrize("ciphertext", [b"", b"\x00", bytes(15), bytes(17)])
@@ -152,7 +191,7 @@ def test_scope_is_s3_x3_and_only_bounded_commands_exist() -> None:
         assert "owner" in reason
         assert "readback" in reason
         assert command["verification"] == "reported"
-    assert commands["unlock"]["value"] == [0]
+    assert commands["unlock"]["value"] == [2]
     assert commands["lock"]["value"] == [1]
     tone = commands["set_bell_tone"]["parameters"]["tone"]
     assert (tone["min"], tone["max"]) == (22, 24)
