@@ -1,0 +1,404 @@
+{
+  "device": {
+    "category": "fitness",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "none": "Manual selection only. No reliable advertised local name was established, and shared FFF0 must not activate this spec. After the owner selects an F15/F31, subscribe and require the F15/F31 frame dialect before publishing any reading; never identify every FitShow product by that service.\n",
+      "static_ip_required": false
+    },
+    "identification": {
+      "notes": "No safe automatic identity signal is documented. FFF0 is shared by many unrelated devices and is deliberately not an identification axis. After manual selection, require checksum-valid 0x02...0x03 frames with marker 0x51 and the documented lengths/field values.\n"
+    },
+    "integration": "identify_only",
+    "manufacturer": "Sportstech",
+    "manufacturer_status": "active",
+    "name": "Sportstech F15 / F31 treadmill (read-only)",
+    "notes": "Phone-direct FFF0/FFF1 telemetry for the F15/F31 profile. Frames start 0x02, end 0x03 and carry XOR in the penultimate byte. The XOR covers bytes 1 through len-3 inclusive, excluding the start, checksum and end. A fixed four-byte status poll on FFF2 is documented; no belt-control command is.\nFull 17-byte status frames report operation mode, speed, elapsed time, distance and heart rate. The five-byte stopped fixture carries mode only. The six-byte starting fixture also carries unresolved raw byte 0x05 at offset 3; it is returned as offset_3_raw, not interpreted as speed. The public decoder publishes speed and heart rate zero for short frames, which is compatibility behavior and not proof of a physical measurement.\nConsumer integration is identify_only: no dedicated F15/F31 frame handler ships here. The protocol blocks and stdlib vectors preserve implementation facts, not live app telemetry; supported status requires that handler.\nINCLINE/CALORIE UNITS ARE UNRESOLVED. Byte 4 and bytes 9-10 are preserved as raw bytes only and deliberately have no calibrated entities, units or scale in this spec. Do not publish them as percent, calories or kcal.\nOther FitShow/Sportstech bikes, ellipticals, rowers and treadmills can use different characteristics and payload layouts. The rower's 20-byte frames, alternate FFE1/FFE4/AE01 endpoints and authorization flows are excluded.\n",
+    "openness": {
+      "notes": "Protocol recovered by a public independent implementation and capture; no vendor wire specification was found.",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/syssi/esphome-treadmill-f15/tree/6e1617c1e505433ecb4c52ba9c99eff3097bcc22",
+      "status": "undocumented"
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "The independent local implementation connects over ordinary GATT without a proprietary pairing flow.",
+        "required": false
+      },
+      "exclusivity": {
+        "recovery": "Close other fitness apps and reconnect; do not replay a vendor authorization exchange.",
+        "single_bond": false,
+        "single_connection": "unknown"
+      },
+      "required": false,
+      "security_mode": "none",
+      "unpair": {
+        "notes": "No bond is created by this profile.",
+        "requires_factory_reset": false,
+        "supported": false
+      }
+    },
+    "protocol": "ble",
+    "safety_advisory": {
+      "detail": "Do not infer a safe belt state from stale telemetry. Keep clear of the treadmill while validating a client, and do not replay initialization, authorization, speed, incline or firmware commands from another FitShow device.\n",
+      "severity": "warning",
+      "summary": "The physical console and safety key remain authoritative; this spec never starts, stops or changes the belt."
+    },
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No account token, authorization key or workout credential is needed for this read-only path.",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "No genuine model-matched owner manual was acquired. Do not substitute a generic FitShow reset or another Sportstech model's procedure.",
+        "effect": "No F15/F31 factory-reset operation or cleared-state list was established. Removing the safety key is not a factory reset."
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false,
+            "read_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+            "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb",
+            "write_characteristic": "0000fff2-0000-1000-8000-00805f9b34fb"
+          },
+          "description": "Connect, subscribe and validate delimited XOR frames; optionally issue only the fixed status poll.",
+          "name": "Direct FFF1 telemetry with strict frame checks",
+          "role": "primary",
+          "steps": [
+            {
+              "action": "Keep the treadmill stationary with the safety key under the owner's control and close other fitness apps.",
+              "actor": "user"
+            },
+            {
+              "action": "Connect, verify FFF0/FFF1/FFF2 and enable FFF1 notifications.",
+              "actor": "client",
+              "expect": "Checksum-valid F15 frames arrive; do not write any initialization or belt command."
+            },
+            {
+              "action": "If a poll is required, send only 02 51 51 03 on FFF2.",
+              "actor": "client",
+              "expect": "A status notification, not a belt start. Do not infer this poll's effect on other FitShow models."
+            },
+            {
+              "action": "Reassemble and validate each frame before decoding the supported fields.",
+              "actor": "client",
+              "expect": "Bad delimiters, excess length, unknown types, bad XOR and truncated fields are rejected without updating state."
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "No account, cloud workout session, pairing key or authorization exchange is needed for passive decoding. The physical console remains in control.",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "BLE only: no treadmill network membership or client credential is used. Disconnect the previous central and revalidate the frame dialect.",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Disconnect the previous client and keep the physical console authoritative.",
+            "actor": "user"
+          },
+          {
+            "action": "Reconnect and subscribe; send no session or authorization command.",
+            "actor": "client"
+          }
+        ]
+      },
+      "required": false
+    },
+    "testing": {
+      "detail": "capture-verified",
+      "notes": "No treadmill or motion-control command was used by this project. The public F15 capture and the independent implementation's four public frame envelopes support the read-only decoder. F31 support is reported by that implementation, not independently captured here. Tests are local stdlib transcriptions with malformed and fragmented input only.\n",
+      "status": "untested"
+    },
+    "transport": "ble-gatt",
+    "type": "treadmill"
+  },
+  "entities": [
+    {
+      "name": "Operation Mode",
+      "notes": "0 stopped, 2 starting, 3 running, 4 stopping; unknown modes are rejected.",
+      "platform": "sensor"
+    },
+    {
+      "device_class": "speed",
+      "name": "Speed",
+      "notes": "Full frames: byte 3 * 0.1. Short frames use the public decoder's compatibility zero.",
+      "platform": "sensor",
+      "unit": "km/h"
+    },
+    {
+      "device_class": "duration",
+      "name": "Elapsed Time",
+      "notes": "Full frames only, uint16 little-endian at offset 5.",
+      "platform": "sensor",
+      "unit": "s"
+    },
+    {
+      "device_class": "distance",
+      "name": "Distance",
+      "notes": "Full frames only, uint16 little-endian at offset 7 * 0.001.",
+      "platform": "sensor",
+      "unit": "km"
+    },
+    {
+      "name": "Heart Rate",
+      "notes": "Full frames: uint16 little-endian at offset 13. Short frames use compatibility zero.",
+      "platform": "sensor",
+      "unit": "bpm"
+    }
+  ],
+  "evidence": {
+    "open_questions": "Verify incline and energy against console values before assigning units. Capture F31 separately and determine whether any poll is required for continuous telemetry on each firmware revision.\n",
+    "public_capture": "syssi/esphome-treadmill-f15 includes an F15 btsnoop and JSON export. The research review cross-checked the public decoder and its four frame envelopes; no new capture or command was generated.\n",
+    "public_implementation": "syssi/esphome-treadmill-f15 at 6e1617c1e505433ecb4c52ba9c99eff3097bcc22 supplied F15/F31 support, GATT endpoints, XOR/delimiter validation, full and short status handling and test fixtures. QZ's separate bike, elliptical and rower drivers establish that those protocols must not be merged into this spec.\n"
+  },
+  "helpful_urls": [
+    {
+      "description": "F15/F31 local decoder, public capture, XOR framing, full/short status fixtures and tests.",
+      "kind": "implementation",
+      "title": "syssi/esphome-treadmill-f15 (pinned implementation and capture)",
+      "url": "https://github.com/syssi/esphome-treadmill-f15/tree/6e1617c1e505433ecb4c52ba9c99eff3097bcc22"
+    },
+    {
+      "description": "Evidence that other Sportstech equipment uses different 20-byte telemetry and is not covered here.",
+      "kind": "implementation",
+      "title": "QZ Sportstech rower (separate protocol boundary)",
+      "url": "https://github.com/cagnulein/qdomyos-zwift/tree/afd4f90db35ed7ee29c76a6c19b84de4cf558922/src/devices/sportstechrower"
+    }
+  ],
+  "initialization": [
+    {
+      "characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "notes": "Subscribe before any status poll and validate every received frame before publishing state.",
+      "subscribe": true,
+      "when": "connect"
+    }
+  ],
+  "protocol_details": {
+    "f15_f31_frames": {
+      "description": "Frame delimiter 0x02...0x03 with XOR at len-2. XOR is computed over frame[1:len-2] (bytes 1 through len-3 inclusive). Reject lengths above 108, bad delimiters, bad XOR, unknown operation/frame types and truncation.\n",
+      "full_status_fields": [
+        {
+          "length": 1,
+          "name": "start",
+          "offset": 0,
+          "type": "uint8",
+          "values": {
+            "2": "start delimiter"
+          }
+        },
+        {
+          "length": 1,
+          "name": "marker",
+          "offset": 1,
+          "type": "uint8",
+          "values": {
+            "81": "status"
+          }
+        },
+        {
+          "length": 1,
+          "name": "operation_mode",
+          "offset": 2,
+          "type": "uint8",
+          "values": {
+            "0": "stopped",
+            "2": "starting",
+            "3": "running",
+            "4": "stopping"
+          }
+        },
+        {
+          "length": 1,
+          "name": "speed",
+          "offset": 3,
+          "scale": 0.1,
+          "type": "uint8",
+          "unit": "km/h"
+        },
+        {
+          "length": 1,
+          "name": "incline_raw_unresolved",
+          "notes": "Raw only; no unit, scale or entity is declared.",
+          "offset": 4,
+          "type": "uint8"
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "elapsed_seconds",
+          "offset": 5,
+          "scale": 1,
+          "type": "uint16",
+          "unit": "s"
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "distance",
+          "offset": 7,
+          "scale": 0.001,
+          "type": "uint16",
+          "unit": "km"
+        },
+        {
+          "length": 2,
+          "name": "energy_raw_unresolved",
+          "notes": "Raw only; do not label cal, kcal or apply the source's inconsistent 0.1 scale.",
+          "offset": 9,
+          "type": "bytes"
+        },
+        {
+          "length": 2,
+          "name": "reserved",
+          "offset": 11,
+          "type": "bytes"
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "heart_rate",
+          "offset": 13,
+          "scale": 1,
+          "type": "uint16",
+          "unit": "bpm"
+        },
+        {
+          "length": 1,
+          "name": "xor_checksum",
+          "offset": 15,
+          "type": "uint8"
+        },
+        {
+          "length": 1,
+          "name": "end",
+          "offset": 16,
+          "type": "uint8",
+          "values": {
+            "3": "end delimiter"
+          }
+        }
+      ],
+      "mode_length_pairs": {
+        "running": 17,
+        "starting": 6,
+        "stopped": 5,
+        "stopping": 17
+      },
+      "public_fixture_vectors": {
+        "frames": [
+          {
+            "decoded": {
+              "heart_rate_bpm": 0,
+              "mode": "stopped",
+              "speed_kmh": 0.0
+            },
+            "hex": "02 51 00 51 03",
+            "name": "stopped"
+          },
+          {
+            "decoded": {
+              "heart_rate_bpm": 0,
+              "mode": "starting",
+              "offset_3_raw": "0x05 (unresolved)",
+              "speed_kmh": 0.0
+            },
+            "hex": "02 51 02 05 56 03",
+            "name": "starting"
+          },
+          {
+            "decoded": {
+              "distance_km": 0.009,
+              "elapsed_s": 32,
+              "energy": "omitted",
+              "heart_rate_bpm": 83,
+              "incline": "omitted",
+              "mode": "running",
+              "speed_kmh": 1.3
+            },
+            "hex": "02 51 03 0d 00 20 00 09 00 03 00 00 00 53 00 26 03",
+            "name": "running"
+          },
+          {
+            "decoded": {
+              "distance_km": 0.009,
+              "elapsed_s": 33,
+              "energy": "omitted",
+              "heart_rate_bpm": 84,
+              "incline": "omitted",
+              "mode": "stopping",
+              "speed_kmh": 1.0
+            },
+            "hex": "02 51 04 0a 00 21 00 09 00 03 00 00 00 54 00 20 03",
+            "name": "stopping"
+          }
+        ],
+        "provenance": "Public independent implementation fixtures, checked against its decoder and the public F15 capture; not new hardware traffic."
+      },
+      "short_frames": "Enforce exactly (stopped, 5), (starting, 6), (running, 17) and (stopping, 17); reject every cross-combination and truncation even when delimiters and XOR are valid. The five-byte stopped fixture contains only delimiter, marker, mode, XOR and end. The six-byte starting fixture has an additional unresolved byte 0x05 at offset 3: return it as offset_3_raw and do not decode it as speed. For either valid short frame, publish mode and compatibility zeroes for speed and heart rate, leave full-frame-only distance/elapsed state unavailable, and never read beyond the payload. Longer partial telemetry layouts are not guessed.\n",
+      "stream_reassembly": "Notification callbacks may split or coalesce frames. Buffer from 0x02, validate a complete candidate against its expected known length and XOR, and resynchronize at the next 0x02 after a malformed candidate. Do not treat an embedded 0x03 as a terminator before the candidate's expected length and checksum have been checked.\n"
+    }
+  },
+  "protocol_handler": "sportstech_f15_f31",
+  "remaining_unknowns": [
+    "The six-byte starting fixture's offset-3 value 0x05 is unresolved and preserved raw; it is not a speed field.",
+    "Incline and energy units/scales are deliberately omitted pending console-labelled evidence.",
+    "F31 is supported by the public implementation but has no separate public capture in this research.",
+    "Long/fragmented frame variants beyond the public full and short fixtures and actual notification cadence.",
+    "Factory reset, pairing details, authorization, firmware update and every belt-control operation."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "name": "Delimited status notifications",
+          "notes": "Decode with protocol_details.f15_f31_frames. Both full and short frames occur, so no single fixed characteristic format is declared.\n",
+          "properties": [
+            "notify"
+          ],
+          "role": "notify",
+          "uuid": "0000fff1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "commands": {
+            "request_status": {
+              "description": "Fixed four-byte status poll used by the independent implementation; does not encode a motion operation.",
+              "value": [
+                2,
+                81,
+                81,
+                3
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "Read poll write (no motor control)",
+          "notes": "Start/stop, speed/incline, authorization and session commands are intentionally absent.",
+          "properties": [
+            "write",
+            "write_without_response"
+          ],
+          "role": "command",
+          "uuid": "0000fff2-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "Sportstech F15/F31 BLE service",
+      "notes": "Shared 16-bit service; FFF1 carries delimited notifications and FFF2 carries only the fixed read poll declared here.",
+      "uuid": "0000fff0-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}

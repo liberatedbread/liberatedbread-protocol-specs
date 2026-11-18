@@ -1,0 +1,367 @@
+{
+  "device": {
+    "category": "sensor",
+    "category_hierarchy": [
+      "measurement",
+      "temperature"
+    ],
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "notes": "Host scanner address is used only for connection identity. Do not persist or publish the address embedded in notifications.",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "values": [
+                "BlueDOT"
+              ]
+            }
+          },
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefixes": [
+        "BlueDOT"
+      ],
+      "notes": "Match the case-sensitive BlueDOT name prefix, then verify the notification characteristic and exact 20-byte shape."
+    },
+    "integration": "identify_only",
+    "manufacturer": "ThermoWorks, Inc",
+    "manufacturer_status": "active",
+    "name": "ThermoWorks BlueDOT (read-only)",
+    "notes": "BlueDOT provides direct offline BLE monitoring without a ThermoWorks Cloud account. The client connects, subscribes to the 128-bit notification characteristic, waits for one exact 20-byte notification, then disconnects. There are no alarm-setting, calibration, firmware or other writes in this spec.\nTemperature and alarm threshold are little-endian SIGNED int32 whole degrees in the device-selected unit. Unit byte 11 selects 0 Celsius or 1 Fahrenheit; conversion to Celsius is (F-32)*5/9. Probe status byte 0 is 0 connected or 3 disconnected. Alarm flags are byte 9 silenced, byte 10 disabled and byte 19 active. Byte 12 is unknown and preserved. Bytes 13-18 contain the device address as an identifier; never log or publish an owner's address and do not assume a display byte order. For EVERY nonzero probe status, both current temperature and alarm threshold are unavailable and must not be published as current values; status and alarm flags may be retained only as diagnostic metadata.\nConsumer integration is identify_only: no dedicated BlueDOT handler ships here. The protocol blocks and stdlib vectors preserve implementation facts, not live app telemetry; supported status requires a handler that enforces this availability gate.\nSCOPE IS BLUEDOT ONLY. Signals, Billows, RFX GATEWAY, RFX MEAT, RFX MEAT Mini and RFX THERMOCOUPLE are not covered. In particular, an RFX probe's RF link to its gateway is not phone-direct BLE, and the ThermoWorks Smoke IP integration is a different device/protocol.\n",
+    "openness": {
+      "notes": "BlueDOT parser recovered and packaged by a public community integration; no vendor wire specification was found.",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/jamesshannon/thermoworks-ha/tree/c235a525f883cc22b0a8e1bd7ee626d077316443",
+      "status": "undocumented"
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "The public local integration uses ordinary unbonded GATT and no application authentication.",
+        "required": false
+      },
+      "exclusivity": {
+        "recovery": "Disconnect the other client and retry the subscription; no bond deletion is required.",
+        "single_bond": false,
+        "single_connection": "unknown"
+      },
+      "required": false,
+      "security_mode": "none",
+      "unpair": {
+        "notes": "There is no client bond to remove.",
+        "requires_factory_reset": false,
+        "supported": false
+      }
+    },
+    "protocol": "ble",
+    "safety_advisory": {
+      "detail": "Confirm doneness with a calibrated thermometer and published safe minimum temperatures. A disconnected probe or malformed notification must not be displayed as a current temperature.\n",
+      "severity": "warning",
+      "summary": "Do not use an unverified community decode as the only check that food is safely cooked."
+    },
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No API credential, PIN, account token or Wi-Fi passphrase is used by this BLE monitoring path.",
+        "stored_on_device": [
+          "Device address embedded in each notification (identifier, not a credential)"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "No verified BlueDOT manual or reset procedure was acquired. Do not substitute procedures from Smoke, Signals, Billows or RFX.",
+        "effect": "No factory-reset operation or cleared-state list was established. Disconnecting a client does not reset BlueDOT."
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false,
+            "read_characteristic": "783f2991-23e0-4bdc-ac16-78601bd84b39"
+          },
+          "description": "Read-only single-shot local monitoring with no command writes.",
+          "name": "Connect, read one notification, disconnect",
+          "role": "primary",
+          "steps": [
+            {
+              "action": "Wake BlueDOT and close any other client holding its BLE link.",
+              "actor": "user"
+            },
+            {
+              "action": "Connect and subscribe to 783f2991-23e0-4bdc-ac16-78601bd84b39 wherever it appears in the GATT table.",
+              "actor": "client",
+              "expect": "Notifications are enabled without resolving or assuming the parent service UUID."
+            },
+            {
+              "action": "Wait up to 10 seconds for one notification; accept it only at exactly 20 bytes and decode with protocol_details.bluedot_frame.",
+              "actor": "client",
+              "expect": "Only status 0 publishes current temperature and alarm threshold. Every nonzero status makes both unavailable and suppresses stale values while retaining diagnostic status/alarm metadata.",
+              "timeout_seconds": 10
+            },
+            {
+              "action": "Stop notifications and disconnect.",
+              "actor": "client",
+              "expect": "The link is released for the next poll or another client."
+            }
+          ],
+          "timing": {
+            "notes": "The public integration's 30-second minimum advertisement-triggered poll and 60-second fallback are host policies, not device timing requirements.",
+            "notification_timeout_seconds": 10
+          },
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "No provisioning, account, bond or cloud session. Connect and subscribe, wait up to 10 seconds for one valid frame, then disconnect cleanly.",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "BLE only: no network membership exists. Disconnect, then connect and subscribe from the new client.",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Disconnect the previous client.",
+            "actor": "user"
+          },
+          {
+            "action": "Connect, subscribe and wait for a fresh exact-length notification before publishing state.",
+            "actor": "client"
+          }
+        ]
+      },
+      "required": false
+    },
+    "testing": {
+      "notes": "No BlueDOT or capture was used by this project. The exact 20-byte layout and connect/subscribe/disconnect behavior come from the pinned public integration and its parser tests. Vectors here are synthetic and use a documentation-range address.\n",
+      "status": "untested"
+    },
+    "transport": "ble-gatt",
+    "type": "bluetooth-cooking-thermometer"
+  },
+  "entities": [
+    {
+      "device_class": "temperature",
+      "name": "Temperature",
+      "notes": "Publish only for probe status 0 as signed whole device-selected degrees, normalized to Celsius. Every nonzero status makes this unavailable and suppresses stale values.",
+      "platform": "sensor",
+      "state_characteristic": "783f2991-23e0-4bdc-ac16-78601bd84b39",
+      "state_mapping": {
+        "value": "current_temperature"
+      }
+    },
+    {
+      "device_class": "temperature",
+      "name": "Alarm Temperature",
+      "notes": "Read-only threshold published only for probe status 0; every nonzero status makes it unavailable too. Never written by this spec.",
+      "platform": "sensor",
+      "state_characteristic": "783f2991-23e0-4bdc-ac16-78601bd84b39",
+      "state_mapping": {
+        "value": "alarm_temperature"
+      }
+    },
+    {
+      "device_class": "connectivity",
+      "name": "Probe Connected",
+      "notes": "True only when byte 0 is 0; status 3 is disconnected and other nonzero statuses are unknown. Preserve raw status diagnostically.",
+      "platform": "binary_sensor"
+    },
+    {
+      "device_class": "problem",
+      "name": "Alarm Active",
+      "notes": "Byte 19 nonzero. Silenced/disabled states remain separately available from bytes 9/10 as diagnostic metadata, never as proof of current temperatures.",
+      "platform": "binary_sensor"
+    }
+  ],
+  "evidence": {
+    "app_static_analysis": "Public vendor-app string review independently names the BlueDOT characteristic. Signals/Billows/RFX role strings were not mapped to UUIDs and are deliberately excluded rather than guessed.\n",
+    "open_questions": "Capture both unit modes, probe-disconnected frames and the parent GATT service. Verify byte 12 and address byte ordering without recording a real unit's identifier.\n",
+    "public_implementation": "jamesshannon/thermoworks-ha at c235a525f883cc22b0a8e1bd7ee626d077316443 supplied the name matcher, characteristic UUID, exact 20-byte parser, Celsius conversion and one-notification connect/disconnect flow, plus synthetic parser tests including negative temperatures and wrong lengths.\n"
+  },
+  "helpful_urls": [
+    {
+      "description": "BlueDOT-only local BLE integration and parser tests used for the exact 20-byte layout and read-only session.",
+      "kind": "implementation",
+      "title": "jamesshannon/thermoworks-ha (pinned BlueDOT integration)",
+      "url": "https://github.com/jamesshannon/thermoworks-ha/tree/c235a525f883cc22b0a8e1bd7ee626d077316443"
+    }
+  ],
+  "protocol_details": {
+    "bluedot_frame": {
+      "decoding": [
+        "probe_connected = (frame[0] == 0). Status 3 means disconnected; retain every other nonzero status as unknown rather than connected, and preserve raw probe_status diagnostically.",
+        "ONLY when frame[0] == 0, read current temperature at 1 and alarm threshold at 5 as int32 LE in the unit selected by frame[11], then publish those readings.",
+        "For EVERY nonzero status, including 3 and unknown values, current temperature AND alarm threshold are unavailable: omit both from the current-state result and suppress publication of prior cached values. Retain raw status, units and alarm flags only as diagnostic metadata.",
+        "For connected frames, when frame[11] == 1 convert each value to Celsius with (F-32)*5/9; when 0, values are already Celsius. Other unit codes on a connected frame are unsupported and must reject the reading rather than silently select Celsius.",
+        "alarm_silenced = frame[9] != 0; alarm_disabled = frame[10] != 0; alarm_active = frame[19] != 0. These flags can remain diagnostic when the probe is disconnected/unknown; they never make temperatures current.",
+        "Preserve frame[12] and frame[13:19] only as unknown/identifier data. Never publish a real device address in examples or logs.",
+        "On disconnect, unknown status or malformed input, mark readings unavailable rather than displaying stale values as current."
+      ],
+      "description": "Exact 20-byte notification. Reject any other length before reading fields. Integer fields are signed little-endian with scale 1 (whole degrees).\n",
+      "vectors": [
+        {
+          "address_note": "Raw identifier bytes 01 53 00 5e 00 00 are synthetic documentation data, not an owner address.",
+          "decoded": {
+            "alarm_active": true,
+            "alarm_disabled": false,
+            "alarm_silenced": true,
+            "alarm_temperature_c": 100.0,
+            "probe": "connected",
+            "temperature_c": -10.0,
+            "units": "C",
+            "unknown": "0xa5"
+          },
+          "hex": "00 f6 ff ff ff 64 00 00 00 01 00 00 a5 01 53 00 5e 00 00 01"
+        },
+        {
+          "decoded": {
+            "alarm_active": false,
+            "alarm_temperature_c_rounded": 65.6,
+            "alarm_temperature_f": 150,
+            "probe": "connected",
+            "temperature_c_rounded": 22.2,
+            "temperature_f": 72,
+            "units": "F"
+          },
+          "hex": "00 48 00 00 00 96 00 00 00 00 00 01 00 01 53 00 5e 00 00 00",
+          "provenance": "Synthetic Fahrenheit conversion case; no captured owner payload."
+        }
+      ]
+    }
+  },
+  "protocol_handler": "thermoworks_bluedot_v1",
+  "remaining_unknowns": [
+    "Parent service UUID and complete GATT map; clients must resolve the characteristic by UUID.",
+    "Meaning of byte 12, address byte order, unknown probe statuses and unsupported unit codes.",
+    "Actual connection limits, notification cadence, factory reset and firmware-update behavior.",
+    "Signals, Billows and every RFX product require separate protocol documents and are not compatibility variants."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "probe_status",
+              "offset": 0,
+              "type": "uint8",
+              "values": {
+                "0": "connected",
+                "3": "disconnected"
+              }
+            },
+            {
+              "device_class": "temperature",
+              "endianness": "little",
+              "length": 4,
+              "name": "current_temperature",
+              "offset": 1,
+              "scale": 1,
+              "type": "int32",
+              "unit": "C",
+              "unit_reference": "units",
+              "unit_source": "device_setting",
+              "unit_values": {
+                "0": "C",
+                "1": "F"
+              }
+            },
+            {
+              "device_class": "temperature",
+              "endianness": "little",
+              "length": 4,
+              "name": "alarm_temperature",
+              "offset": 5,
+              "scale": 1,
+              "type": "int32",
+              "unit": "C",
+              "unit_reference": "units",
+              "unit_source": "device_setting",
+              "unit_values": {
+                "0": "C",
+                "1": "F"
+              }
+            },
+            {
+              "length": 1,
+              "name": "alarm_silenced",
+              "offset": 9,
+              "type": "uint8",
+              "values": {
+                "0": "no",
+                "1": "yes"
+              }
+            },
+            {
+              "length": 1,
+              "name": "alarm_disabled",
+              "offset": 10,
+              "type": "uint8",
+              "values": {
+                "0": "enabled",
+                "1": "disabled"
+              }
+            },
+            {
+              "length": 1,
+              "name": "units",
+              "offset": 11,
+              "type": "uint8",
+              "values": {
+                "0": "C",
+                "1": "F"
+              }
+            },
+            {
+              "length": 1,
+              "name": "unknown_byte",
+              "notes": "Unknown; preserve and do not decode.",
+              "offset": 12,
+              "type": "uint8"
+            },
+            {
+              "length": 6,
+              "name": "device_address_bytes",
+              "notes": "Unit identifier, not a credential. Sanitize in logs; display byte order is not asserted.",
+              "offset": 13,
+              "type": "bytes"
+            },
+            {
+              "length": 1,
+              "name": "alarm_active",
+              "offset": 19,
+              "type": "uint8",
+              "values": {
+                "0": "inactive",
+                "1": "active"
+              }
+            }
+          ],
+          "name": "Temperature/alarm notification",
+          "notes": "Accept exactly 20 bytes. Reject short and long values. No commands are declared.",
+          "properties": [
+            "notify"
+          ],
+          "role": "notify",
+          "uuid": "783f2991-23e0-4bdc-ac16-78601bd84b39"
+        }
+      ],
+      "name": "BlueDOT notification characteristic (grouping placeholder)",
+      "notes": "IMPORTANT: this UUID is established as a CHARACTERISTIC, not as its parent service. It is grouped under itself only to keep the document's GATT structure explicit. A client MUST enumerate all services and resolve the characteristic by UUID across the whole table, exactly as the public integration does; do not assert or scan for a service with this UUID.\n",
+      "uuid": "783f2991-23e0-4bdc-ac16-78601bd84b39"
+    }
+  ]
+}

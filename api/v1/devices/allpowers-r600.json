@@ -1,0 +1,561 @@
+{
+  "device": {
+    "aliases": [
+      "AP-SS-005-Pro"
+    ],
+    "category": "energy",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "values": [
+                "R600",
+                "AP R600",
+                "ALLPOWERS R600"
+              ]
+            }
+          },
+          "notes": "Retain only an exact R600-family candidate. Verify FFF0/FFF1/FFF2 only after connecting, then check the current-session revision.\n",
+          "type": "ble_scan"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefixes": [
+        "R600",
+        "AP R600",
+        "ALLPOWERS R600"
+      ],
+      "notes": "Name is only a candidate filter, not revision proof. FFF0 is deliberately absent from automatic matching because it is shared by unrelated protocols. Confirm the exact R600 identity and read raw hardware byte 0x03 from a current-session settings notification before presenting this profile. Do not match R1500, R2500, P1800 or a bare AP R prefix here.\n"
+    },
+    "integration": "identify_only",
+    "manufacturer": "ALLPOWERS",
+    "manufacturer_status": "active",
+    "name": "ALLPOWERS R600 (hardware 0.3, read-only)",
+    "notes": "Read-only phone-direct BLE telemetry for the R600 profile whose current- session settings report raw hardware revision 0x03 (displayed 0.3). A client subscribes to FFF1, sends the fixed status request on FFF2, and validates status, settings and optional name notifications. No cloud, account, Wi-Fi module or application-layer credential is needed.\nConsumer integration is identify_only: this project does not ship the dedicated R600 stream/revision handler. The protocol blocks and stdlib vectors preserve implementation facts, not live app telemetry; supported status requires that handler and its bounded validation gates.\nSCOPE IS DELIBERATELY NARROW. R1500 LITE moves fields, R2500 V2 uses a different packet interpretation and output masks, and VOLIX/P1800 identity has separate qualification requirements. None of those models inherits this document. A shared FFF0 service or a broad AP R-series name is not proof of compatibility. Do not emit output-control, settings-write, keepalive, bootloader or firmware operations from this spec.\nNotification responses use A5 65 framing with a payload-length byte at offset 5, command at 6, payload at 7 and a final XOR byte. The whole-frame XOR is zero. The 12-byte status request is a fixed observed request and must not be forced into the response-length rule. Notification callbacks are a byte stream: implement fragmentation, coalescing and resynchronizing rather than assuming one callback equals one frame.\n",
+    "openness": {
+      "notes": "Protocol recovered and implemented by public community clients. The vendor application was reviewed only for transport and model boundaries; no vendor implementation symbols are reproduced here.\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/dedalodaelus/home-assistant-allpowers-ble/tree/2fc2570630c8f6d7229c533060bdd3afef7a33da",
+      "status": "undocumented"
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "Ordinary GATT connection without a pairing-mode button, PIN or bonding exchange.",
+        "required": false
+      },
+      "exclusivity": {
+        "recovery": "Close the vendor app or other central and reconnect; no OS bond needs to be deleted.",
+        "single_bond": false,
+        "single_connection": "unknown"
+      },
+      "required": false,
+      "security_mode": "none",
+      "unpair": {
+        "notes": "There is no bond to remove; disconnecting is sufficient.",
+        "requires_factory_reset": false,
+        "supported": false
+      }
+    },
+    "pictogram": "power-station",
+    "protocol": "ble",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "This BLE profile has no client credential or application encryption. Radio proximity is not an authentication boundary; that is one reason no output or settings writes are declared.\n",
+        "stored_on_device": [],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "The acquired R600 manual identifies the model but this research did not establish a reset sequence. Do not invent a button hold or treat an output power cycle as a factory reset.\n",
+        "effect": "No R600 factory-reset operation or cleared-state list was established. Disconnecting BLE does not reset the station, its outputs or its battery.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false,
+            "read_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+            "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb",
+            "write_characteristic": "0000fff2-0000-1000-8000-00805f9b34fb"
+          },
+          "description": "Connect without bonding, verify all three GATT endpoints, subscribe, request status and require hardware revision 0x03 in settings.\n",
+          "name": "Direct BLE telemetry with current-session revision check",
+          "role": "primary",
+          "steps": [
+            {
+              "action": "Close the vendor app or any other BLE central, then scan for an R600 candidate.",
+              "actor": "user"
+            },
+            {
+              "action": "Connect and verify service 0000fff0-0000-1000-8000-00805f9b34fb with FFF1 notifications and FFF2 writes.",
+              "actor": "client",
+              "expect": "All three endpoints exist; FFE1/FFE2 alternatives belong to other profiles and are not accepted here."
+            },
+            {
+              "action": "Enable FFF1 notifications and send only the 12-byte status request A5 65 B1 00 01 06 01 00 00 00 00 00 on FFF2.",
+              "actor": "client",
+              "expect": "A checksum-valid command-0x01 status frame arrives, possibly fragmented or coalesced with another frame."
+            },
+            {
+              "action": "Wait up to 10 seconds for a checksum-valid command-0x03 settings frame from this same GATT session and require payload byte 4 to equal 0x03. Do not assume the status request elicits settings.",
+              "actor": "client",
+              "expect": "Hardware 0.3 is proven by a fresh settings frame. The 10-second bound is client policy, not a measured device timeout; status alone never qualifies the profile.",
+              "timeout_seconds": 10
+            },
+            {
+              "action": "On settings timeout, malformed settings or another hardware revision, fail candidate validation, publish no R600 telemetry and disconnect. Never substitute cached settings or emit a settings write/keepalive.",
+              "actor": "client",
+              "expect": "The candidate remains unidentified and unavailable rather than waiting indefinitely or presenting unqualified data."
+            }
+          ],
+          "troubleshooting": [
+            {
+              "causes": [
+                "It is another model or protocol generation; do not try R1500/R2500 layouts or alternate characteristics.",
+                "Another central is holding the link; disconnect it and power-cycle only the BLE client connection."
+              ],
+              "symptom": "The station has a similar name or FFF0 but no valid telemetry."
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "Nothing is provisioned and no OS pairing or bond is used. The only write in this read-only profile is the fixed status request. Confidence is medium because public clients implement this flow but this project did not replay it.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "BLE only: no network membership or bond exists. Disconnect the previous central and repeat the identity and current-session revision checks.\n",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Disconnect the old client and close the vendor app.",
+            "actor": "user"
+          },
+          {
+            "action": "Reconnect and repeat the FFF1 subscription, status request and hardware-0x03 check.",
+            "actor": "client"
+          }
+        ]
+      },
+      "required": false
+    },
+    "testing": {
+      "notes": "No hardware or new radio capture was used. The R600 hardware-0.3 profile, framing and vectors come from the pinned public integration and its offline tests. Physical qualification of that profile is still pending; nothing in this spec enables output, settings or firmware writes.\n",
+      "status": "untested"
+    },
+    "transport": "ble-gatt",
+    "type": "portable-power-station"
+  },
+  "entities": [
+    {
+      "device_class": "battery",
+      "name": "Battery",
+      "platform": "sensor",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "battery_percent"
+      },
+      "unit": "%"
+    },
+    {
+      "device_class": "power",
+      "name": "Input Power",
+      "platform": "sensor",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "input_power_w"
+      },
+      "unit": "W"
+    },
+    {
+      "device_class": "power",
+      "name": "Output Power",
+      "platform": "sensor",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "output_power_w"
+      },
+      "unit": "W"
+    },
+    {
+      "device_class": "duration",
+      "name": "Remaining Time",
+      "platform": "sensor",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "remaining_minutes"
+      },
+      "unit": "min"
+    },
+    {
+      "name": "DC Output Enabled",
+      "notes": "Read-only state; no switch is declared.",
+      "platform": "binary_sensor",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "dc_enabled"
+      }
+    },
+    {
+      "name": "AC Output Enabled",
+      "notes": "Read-only state; no switch is declared.",
+      "platform": "binary_sensor",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "ac_enabled"
+      }
+    },
+    {
+      "name": "Light Enabled",
+      "notes": "Read-only state; no switch is declared.",
+      "platform": "binary_sensor",
+      "state_characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "state_mapping": {
+        "value": "light_enabled"
+      }
+    }
+  ],
+  "evidence": {
+    "app_static_analysis": "Public vendor-app material corroborated phone-direct BLE and separate Wi-Fi/cloud paths. It did not establish a hardware qualification or any write in this document.\n",
+    "artifacts": [
+      {
+        "artifact": "dedalodaelus/home-assistant-allpowers-ble@2fc2570630c8f6d7229c533060bdd3afef7a33da",
+        "description": "R600 profile and independent codec/stream tests; no physical HIL claim.",
+        "obtained_via": "Public source review, 2026-11",
+        "type": "public_implementation"
+      },
+      {
+        "artifact": "ALLPOWERS AP-R600 user manual, 2023-01-10",
+        "description": "Model AP-SS-005-Pro and owner documentation, not wire-protocol evidence.",
+        "obtained_via": "Vendor CDN; HTTP 200 application/pdf verified 2026-11-17",
+        "type": "vendor_documentation"
+      }
+    ],
+    "open_questions": "Exact advertisement variants and settings frames need an owner-labelled R600 hardware-0.3 capture. Physical qualification remains open even though offline public codec tests exist.\n",
+    "public_implementation": "dedalodaelus/home-assistant-allpowers-ble at 2fc2570630c8f6d7229c533060bdd3afef7a33da supplied the R600 framing, revision gate, status request, defensive stream behavior and test fixtures. mattgorle/allpowers-ble at a63cd36e568757bae5dcee30efb10edad8cf22ac and R0b0To/allpowers-companion at c19ba2c692cfdae8590fa14fd0b77ec90005f5da were used only to establish that R1500 LITE and R2500 V2 differ.\n"
+  },
+  "helpful_urls": [
+    {
+      "description": "Pinned R600 protocol, revision checks and stream/codec tests used for this read-only profile.",
+      "kind": "implementation",
+      "title": "dedalodaelus/home-assistant-allpowers-ble",
+      "url": "https://github.com/dedalodaelus/home-assistant-allpowers-ble/tree/2fc2570630c8f6d7229c533060bdd3afef7a33da"
+    },
+    {
+      "description": "Independent R2500 V2 client cited only as a compatibility boundary, not as R600 evidence.",
+      "kind": "implementation",
+      "title": "R0b0To/allpowers-companion",
+      "url": "https://github.com/R0b0To/allpowers-companion/tree/c19ba2c692cfdae8590fa14fd0b77ec90005f5da"
+    },
+    {
+      "description": "Independent R600/R1500 LITE bridge; demonstrates that R1500 LITE fields differ.",
+      "kind": "implementation",
+      "title": "mattgorle/allpowers-ble",
+      "url": "https://github.com/mattgorle/allpowers-ble/tree/a63cd36e568757bae5dcee30efb10edad8cf22ac"
+    },
+    {
+      "description": "Vendor-hosted manual for the R600 / AP-SS-005-Pro; verified as a complete PDF response on 2026-11-17.",
+      "kind": "manual",
+      "title": "ALLPOWERS R600 / AP-SS-005-Pro user manual (PDF)",
+      "url": "https://cdn.shopify.com/s/files/1/0443/1223/2089/files/AP-R600-User_Manuals-2023-01-10_compressed.pdf?v=1678773110"
+    }
+  ],
+  "initialization": [
+    {
+      "characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+      "notes": "Enable notifications before the status request.",
+      "subscribe": true,
+      "when": "connect"
+    },
+    {
+      "characteristic": "0000fff2-0000-1000-8000-00805f9b34fb",
+      "notes": "The fixed observed status request; repeat only as a read poll, never as an output or settings write.",
+      "when": "connect",
+      "write": [
+        165,
+        101,
+        177,
+        0,
+        1,
+        6,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "protocol_details": {
+    "r600_settings": {
+      "description": "Command-0x03 payload. Offsets below are relative to the payload, not the complete frame. Version bytes render as high.low only when both nibbles are decimal; otherwise render raw hexadecimal.\n",
+      "fields": [
+        {
+          "length": 1,
+          "name": "settings_flags",
+          "notes": "ECO 0x01; work mode 0x06 shifted right one; car charger 0x10; preserve unknown bits.",
+          "offset": 0,
+          "type": "uint8"
+        },
+        {
+          "length": 1,
+          "name": "eco_timeout_hours",
+          "offset": 1,
+          "type": "uint8",
+          "unit": "h"
+        },
+        {
+          "length": 2,
+          "name": "reserved",
+          "offset": 2,
+          "type": "bytes"
+        },
+        {
+          "length": 1,
+          "name": "raw_hardware_version",
+          "offset": 4,
+          "type": "uint8",
+          "values": {
+            "3": "R600 hardware 0.3"
+          }
+        },
+        {
+          "length": 1,
+          "name": "raw_firmware_version",
+          "offset": 5,
+          "type": "uint8"
+        }
+      ],
+      "revision_gate": "This spec requires raw_hardware_version 0x03 in a fresh settings frame in the current session. Cached settings and status-only exchanges cannot establish the profile. Revision checks are for identity only; they do not authorize any write in this read-only spec.\n",
+      "settings_wait": {
+        "basis": "Bounded client policy, not a measured device timeout. A status request is not assumed to elicit a settings response.",
+        "on_timeout_or_invalid": "Fail candidate validation, publish no R600 telemetry and disconnect; never reuse cached settings or send settings writes/keepalives.",
+        "timeout_seconds": 10
+      },
+      "work_modes": {
+        "0": "mute",
+        "1": "standard",
+        "2": "fast",
+        "3": "reserved/unknown"
+      }
+    },
+    "r600_stream": {
+      "algorithm": [
+        "Scan for A5 65, retaining a trailing single A5 between callbacks.",
+        "Once at least seven bytes are buffered, read N at offset 5 and wait until 8+N bytes are present.",
+        "After a successful decode, delete exactly the decoded candidate's total 8+N bytes.",
+        "On checksum OR payload-validation failure, discard only the first buffered byte and rescan from the next A5 65; never delete the whole failed candidate, which may contain a valid inner frame. Oversize N likewise discards only the first byte.",
+        "Process callbacks in chunks of at most 1024 bytes and cap retained data at 4096 bytes, dropping oldest noise while preserving a partial header.",
+        "A callback may contain several frames, a frame fragment, noise, or a bad outer candidate containing a valid inner STATUS frame."
+      ],
+      "command_types": {
+        "1": "status; requires at least eight payload bytes",
+        "3": "settings; requires at least six payload bytes",
+        "53": "optional UTF-8 device name; remove NUL padding and controls, trim, cap at 64 characters"
+      },
+      "description": "Response envelope: A5 65, three vendor bytes, payload length N at offset 5, command at 6, N payload bytes at 7, then one XOR byte. Total length is 8+N. Reject N above 128 and every length/checksum mismatch before decoding.\n"
+    },
+    "vectors": {
+      "provenance": "The two notification vectors are public integration fixtures; the status request is the published observed request. scripts/test_allpowers_r600_spec.py independently validates and reassembles them.",
+      "settings_decoded": {
+        "eco_hours": 4,
+        "firmware": "0xaf",
+        "flags": "0xb5",
+        "hardware": "0x03",
+        "reserved": "aa55"
+      },
+      "settings_frame": "a5 65 00 00 00 06 03 b5 04 aa 55 03 af 27",
+      "status_decoded": {
+        "ac": true,
+        "battery_percent": 73,
+        "dc": true,
+        "input_w": 300,
+        "light": true,
+        "output_w": 150,
+        "remaining_min": 120
+      },
+      "status_frame": "a5 65 00 00 00 08 01 13 49 01 2c 00 96 00 78 50",
+      "status_request": "a5 65 b1 00 01 06 01 00 00 00 00 00"
+    }
+  },
+  "remaining_unknowns": [
+    "Current-session advertisement, status and settings captures from an owner-labelled R600 hardware-0.3 unit.",
+    "Which R600 retail revisions report a hardware byte other than 0x03 and how they differ.",
+    "Notification cadence, maximum simultaneous centrals and behavior when the vendor app is connected.",
+    "R1500 LITE, R2500 V2 and VOLIX/P1800 protocols are intentionally unresolved here and must not be inferred.",
+    "Factory reset and any persistent settings cleared by it."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "format": [
+            {
+              "length": 2,
+              "name": "header",
+              "notes": "Must be A5 65.",
+              "offset": 0,
+              "type": "bytes"
+            },
+            {
+              "length": 3,
+              "name": "vendor_envelope",
+              "notes": "Vendor envelope bytes; preserve, do not reinterpret.",
+              "offset": 2,
+              "type": "bytes"
+            },
+            {
+              "length": 1,
+              "name": "payload_length",
+              "notes": "N; complete response length is 8+N, N <= 128.",
+              "offset": 5,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "command",
+              "offset": 6,
+              "type": "uint8",
+              "values": {
+                "1": "status"
+              }
+            },
+            {
+              "length": 1,
+              "name": "status_flags",
+              "notes": "Known masks only: DC 0x01, AC 0x02, light 0x10. Preserve all bits.",
+              "offset": 7,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 1,
+              "name": "dc_enabled",
+              "notes": "1 when DC output is enabled.",
+              "offset": 7,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 2,
+              "name": "ac_enabled",
+              "notes": "1 when AC output is enabled.",
+              "offset": 7,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "mask": 16,
+              "name": "light_enabled",
+              "notes": "1 when the light is enabled; this is a STATUS mask, not the different output-write mask.",
+              "offset": 7,
+              "type": "uint8"
+            },
+            {
+              "device_class": "battery",
+              "length": 1,
+              "name": "battery_percent",
+              "notes": "Reject values above 100 rather than clamping them.",
+              "offset": 8,
+              "type": "uint8",
+              "unit": "%"
+            },
+            {
+              "device_class": "power",
+              "endianness": "big",
+              "length": 2,
+              "name": "input_power_w",
+              "offset": 9,
+              "type": "uint16",
+              "unit": "W"
+            },
+            {
+              "device_class": "power",
+              "endianness": "big",
+              "length": 2,
+              "name": "output_power_w",
+              "offset": 11,
+              "type": "uint16",
+              "unit": "W"
+            },
+            {
+              "device_class": "duration",
+              "endianness": "big",
+              "length": 2,
+              "name": "remaining_minutes",
+              "offset": 13,
+              "type": "uint16",
+              "unit": "min"
+            },
+            {
+              "length": 1,
+              "name": "xor_checksum",
+              "notes": "XOR of every byte in the complete 16-byte status frame, including this byte, is zero.",
+              "offset": 15,
+              "type": "uint8"
+            }
+          ],
+          "format_match": {
+            "notes": "The fields below are for command 0x01 with its eight-byte status payload; settings and name frames use protocol_details.",
+            "offset": 6,
+            "value": 1
+          },
+          "name": "R600 notification stream",
+          "properties": [
+            "notify"
+          ],
+          "role": "notify",
+          "uuid": "0000fff1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "commands": {
+            "request_status": {
+              "description": "Request a command-0x01 status notification. Fixed 12-byte request; no parameters and no actuation.",
+              "value": [
+                165,
+                101,
+                177,
+                0,
+                1,
+                6,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "R600 read-request write",
+          "notes": "Only the status request is declared. The command-0x02 settings write, combined output command and settings keepalive are intentionally absent, including their different light mask 0x20.\n",
+          "properties": [
+            "write",
+            "write_without_response"
+          ],
+          "role": "command",
+          "uuid": "0000fff2-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "name": "ALLPOWERS R600 BLE service",
+      "notes": "FFF1 carries the notification stream and FFF2 carries the read poll. Response frames are parsed using protocol_details.r600_stream. This service UUID is shared by unrelated protocols and is never sufficient identification by itself.\n",
+      "uuid": "0000fff0-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}
