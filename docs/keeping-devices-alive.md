@@ -51,7 +51,7 @@ flashing, broker config), `High` = real engineering (emulate a cloud service),
 | Broadcast BLE sensors (Govee, Inkbird, ThermoPro, SwitchBot, SensorPush, Xiaomi, Aranet4, Airthings) | BLE adverts | Passive listen-only; HA Bluetooth / `ble_monitor` / ESPHome proxy / Theengs | None–Low | §4 |
 | Kwikset Kevo | BLE (+ dead cloud) | Local BLE lock/unlock survives; eKeys/time-sync are cloud-mediated and partly lost | Low + Blocked parts | [doc](devices/kwikset-kevo.md), §5 |
 | SmartThings Hub v2 | Ethernet (Edge drivers local) | Drivers run locally, but claiming a hub needs the cloud | Blocked (claim) | [doc](devices/smartthings-hub-v2.md), §5 |
-| Withings | Wi-Fi/BLE | Cloud-keyed; no spec here, no known full local path | Blocked | §5 |
+| Withings Body Smart WBS13 / Body Comp WBS12 / Body WBS06 | BLE (WBS13/WBS12); incoming Classic RFCOMM (WBS06) | Existing-association-key local reads are now specced; initial kl export and model-specific pairing remain prerequisites | Medium; untested here | [BLE scales](devices/withings-body-smart-comp-ble.md), [WBS06 Classic](devices/withings-body-wbs06-classic.md), §5 |
 
 ---
 
@@ -308,9 +308,14 @@ buying again.
   integration (HACS) drives them over the LAN with no Samsung account, so
   move those first. See
   [devices/smartthings-hub-v2.md](devices/smartthings-hub-v2.md).
-- **Withings** — not covered by this knowledge base (no spec). Their devices
-  are known to be cloud-keyed with no documented local API; treat as blocked
-  pending reverse engineering. *(Unverified — outside this repo's evidence.)*
+- **Withings, scope correction** — local readout is no longer accurate to
+  describe as universally blocked. [Body Smart WBS13 and Body Comp WBS12](devices/withings-body-smart-comp-ble.md)
+  have a reported read-only BLE WPP path, and [Body/Nokia Body WBS06](devices/withings-body-wbs06-classic.md)
+  has a separate incoming Classic RFCOMM path with weight/time/battery only.
+  All require an existing 32-character association key and model-specific
+  pairing, and all remain untested by this project. Fresh association/roster
+  provisioning, other Withings models, destructive/settings writes and
+  replacement-firmware services remain outside these paths.
 - **Frigidaire / Electrolux OCP devices** — listed in §2, but until an OCP
   emulator exists they effectively belong here too.
 

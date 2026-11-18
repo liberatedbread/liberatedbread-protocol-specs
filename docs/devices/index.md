@@ -306,6 +306,9 @@ spec's `device.setup` block; the patterns are explained in
 | [SensorBlue ThermoBeacon Hygrometers](sensorblue-thermobeacon.md) | BLE (passive) | Identify-only (untested) | Manual compound verification + dedicated measurement handler | SensorBlue / SEVEN-LIKE |
 | [SOMA Smart Shades 2 / Tilt 2 / Smart Shades 3](soma-smart-shades.md) | BLE | Identify-only (untested) | Dedicated V2 generation + byte-1 Tilt-bit selection handler required | Wazombi Labs |
 | [Flic 2 and Flic Duo](flic-2-duo.md) | BLE | Identify-only (untested) | Dedicated signed-session/reliable-event handler required | Shortcut Labs |
+| [VanMoof S3 / X3 (legacy 6acc55)](vanmoof-s3-x3.md) | BLE (encrypted GATT) | Identify-only (untested) | Existing owner key + dedicated encrypted/attended-control handler | VanMoof |
+| [Withings Body Smart WBS13 / Body Comp WBS12](withings-body-smart-comp-ble.md) | BLE (WPP) | Identify-only (untested) | Existing kl + six-digit bond + dedicated WPP handler | Withings |
+| [Withings Body / Nokia Body WBS06](withings-body-wbs06-classic.md) | Bluetooth Classic (incoming RFCOMM) | Identify-only (untested) | Existing kl + Just Works bond + local BlueZ listener | Withings |
 
 ## Not everything here was liberated
 
