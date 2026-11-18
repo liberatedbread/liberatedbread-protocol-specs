@@ -1,6 +1,6 @@
 # Flic 2 and Flic Duo
 
-> **Status**: Spec Available (untested; vendor-published protocol)
+> **Status**: Identify only (untested; vendor-published protocol; no handler yet)
 > **Protocol**: BLE GATT with application pairing and authenticated sessions
 > **Manufacturer**: Shortcut Labs AB
 > **Manufacturer Status**: Active
@@ -9,8 +9,10 @@
 
 Flic 2 and Flic Duo can pair directly with a third-party phone or computer and
 deliver reliable button events without a cloud account. The vendor publishes the
-protocol and an official SDK. The consumer Flic app's initial onboarding is a
-separate flow and does require an account and Internet access.
+protocol and an official SDK. This spec is not a supported mobile integration yet:
+pairing, signed sessions and reliable events need a dedicated handler, not just a
+battery reader. The consumer Flic app's initial onboarding is a separate flow and
+does require an account and Internet access.
 
 **Scope is direct Flic 2/Duo only.** Flic 1, Flic Twist and all Flic Hub
 transports/APIs are excluded. One button has one active central, while multiple
@@ -88,6 +90,15 @@ persisted `event_count` and `boot_id`, then opcode-12 notifications. Event items
 pack a 48-bit boot timestamp (1/32768-second units), event encoding and queue
 flags into eight bytes. Acknowledge qualifying click events once per packet with
 opcode 16 after processing and storing the count.
+
+For a multi-item base notification, assign the packet's final `event_count` to the
+last item and reconcile earlier items backwards using the official modulo-4 rules
+in the YAML. Modulo 0/2 steps back once; modulo 1 distinguishes an adjacent
+timeout from an up that skipped timeout; modulo 3 distinguishes an adjacent hold
+from a down that skipped hold. Process the items forward with their reconstructed
+per-event counts, but acknowledge with the packet's original final count—not the
+last qualifying item's count. A seven-item synthetic vector covers every branch,
+including skipped timeout count 4 and skipped hold count 6.
 
 Duo uses opcode 35 with counters for big button 0 and small button 1, millisecond
 timestamps, and opcode-32 bitstream notifications. Its decoder includes variable

@@ -142,3 +142,4 @@ def test_only_public_capture_versions_are_marked_confirmed():
     assert confirmed == {13, 23}
     assert reported == {8, 22, 27, 41, 42, 43}
     assert SPEC["device"]["testing"]["status"] == "untested"
+    assert SPEC["device"]["integration"] == "identify_only"

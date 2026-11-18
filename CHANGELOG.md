@@ -148,18 +148,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Personal sensors, buttons and shades: five research-backed protocol specs.**
   Oclean gains exact model-ID Type 0/Type 1/Z1/Air 1 routing, core battery/device/
   time/session layouts, fragmented `*B#` records and Air 1 direct-read fallback;
-  Type F remains separate. BlueMaestro gains passive v8/v13/v22/v23/v27/v41/v42/
-  v43 environmental decoding, with public-capture evidence limited to v13/v23 and
-  transmitted-versus-calculated dew point preserved. SensorBlue gains the passive
-  20-byte ThermoBeacon record and numeric IDs without retail-model guesses. SOMA
-  gains mandatory V2/V3 selection and position/motor/identify commands, with the
-  V3-read-versus-V2-factory-reset collision called out. Flic 2/Duo gains Public
-  advertising, fragmentation, per-app full/quick pairing, Chaskey-LTS sessions,
-  reliable events and Duo gestures/accelerometer/push-twist. Independent standard-
-  library tests use public sanitized or synthetic vectors, including malformed,
-  fragment and replay cases. Connected logger/history/settings, calibration,
-  schedules, destructive discovery writes and Flic 1/Twist/hub transports are
-  excluded; every new spec is honestly marked untested.
+  Type F remains separate and its lifecycle reads exact DIS identity before any
+  calibration, subscription or query. BlueMaestro gains passive v8/v13/v22/v23/
+  v27/v41/v42/v43 environmental decoding, with public-capture evidence limited to
+  v13/v23 and transmitted-versus-calculated dew point preserved. SensorBlue gains
+  the passive 20-byte ThermoBeacon record and numeric IDs without retail-model
+  guesses, with manual fff0+numeric-key+length verification instead of automatic
+  partial-signal matching. SOMA gains mandatory exact-name V2/V3 selection,
+  calibrated V3 position-based open/close and a separate position-50 Tilt 2 open,
+  with the V3-read-versus-V2-factory-reset collision called out. Flic 2/Duo gains
+  Public advertising, fragmentation, per-app full/quick pairing, Chaskey-LTS
+  sessions, reliable multi-item event-counter reconciliation and Duo gestures/
+  accelerometer/push-twist. Independent standard-library tests use public
+  sanitized or synthetic vectors, including malformed, fragment and replay cases.
+  BlueMaestro, SensorBlue, Flic and Oclean are identify_only pending real handlers;
+  Oclean exposes no generic model-routed writes. Connected logger/history/settings,
+  calibration, schedules, destructive discovery writes and Flic 1/Twist/hub
+  transports are excluded; every new spec is honestly marked untested.
 
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current

@@ -435,3 +435,74 @@ def test_vectors_are_synthetic_and_reassembly_has_no_record_length_word():
     for row in VECTORS.values():
         assert "invented" in row["evidence"].lower() or "synthetic" in row["evidence"].lower()
     assert SPEC["device"]["testing"]["status"] == "untested"
+
+
+def sync_events(model_id):
+    steps = DETAILS["sync_lifecycle"]["order"]
+    dis_step = steps[0]
+    for characteristic in dis_step["characteristics"]:
+        yield "read", characteristic
+    route = route_for_model(model_id)
+    yield "route", route
+    for step in steps[1:]:
+        if step["action"] == "write":
+            yield "write", step["operation"], route
+        else:
+            yield step["action"], step["operation"], route
+
+
+def test_dis_read_and_route_selection_is_first_lifecycle_operation():
+    lifecycle = DETAILS["sync_lifecycle"]
+    steps = lifecycle["order"]
+    assert lifecycle["first_command_related_operation"] == "read_dis_and_select_route"
+    assert lifecycle["reconfirm_route_before_every_write"] is True
+    assert steps[0]["operation"] == lifecycle["first_command_related_operation"]
+    assert steps[0]["action"] == "read"
+    assert steps[0]["characteristics"] == [
+        "00002a24-0000-1000-8000-00805f9b34fb",
+        "00002a27-0000-1000-8000-00805f9b34fb",
+        "00002a28-0000-1000-8000-00805f9b34fb",
+    ]
+    assert steps[1]["operation"] == "calibrate_time"
+    assert steps[1]["action"] == "write"
+    operations = [step["operation"] for step in steps]
+    assert operations.index("calibrate_time") < operations.index("subscribe") < operations.index("query")
+
+
+@pytest.mark.parametrize(
+    ("model_id", "route"),
+    [("OCLEANY3M", "type1"), ("OCLEANY5", "type_z1"), ("OCLEANA1", "air1_legacy")],
+)
+def test_no_write_precedes_known_model_id(model_id, route):
+    events = list(sync_events(model_id))
+    assert events[:4] == [
+        ("read", "00002a24-0000-1000-8000-00805f9b34fb"),
+        ("read", "00002a27-0000-1000-8000-00805f9b34fb"),
+        ("read", "00002a28-0000-1000-8000-00805f9b34fb"),
+        ("route", route),
+    ]
+    assert all(index > 3 for index, event in enumerate(events) if event[0] == "write")
+    assert events[4] == ("write", "calibrate_time", route)
+    operations = [event[1] for event in events]
+    assert operations.index("calibrate_time") < operations.index("subscribe") < operations.index("query")
+
+
+def test_unknown_model_stops_after_dis_reads_without_a_write():
+    events = []
+    with pytest.raises(ValueError, match="unsupported model"):
+        for event in sync_events("OCLEAN-UNKNOWN"):
+            events.append(event)
+    assert events == [
+        ("read", "00002a24-0000-1000-8000-00805f9b34fb"),
+        ("read", "00002a27-0000-1000-8000-00805f9b34fb"),
+        ("read", "00002a28-0000-1000-8000-00805f9b34fb"),
+    ]
+    assert all(event[0] != "write" for event in events)
+
+
+def test_identify_only_has_no_generic_model_routed_executable_writes():
+    assert SPEC["device"]["integration"] == "identify_only"
+    for service in SPEC["services"]:
+        for characteristic in service["characteristics"]:
+            assert "commands" not in characteristic
+    assert "protocol_details" in SPEC

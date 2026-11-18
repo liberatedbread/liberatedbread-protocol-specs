@@ -18,6 +18,7 @@ device:
   category: "sensor"
   category_hierarchy: ["measurement", "environmental"]
   type: "temperature-humidity-sensor"
+  integration: "identify_only"
   aliases: ["ThermoBeacon", "SensorBlue WS03", "SensorBlue WS07", "SensorBlue WS08"]
   openness:
     status: "undocumented"
@@ -40,35 +41,28 @@ device:
 
     For decoding, prepend the scanner's two-byte little-endian numeric key to the
     manufacturer payload. Only the resulting 20-byte form emits measurements. The
-    22-byte form is recognized as the same family for discovery but is otherwise
-    undocumented here; all other lengths are rejected.
+    22-byte form corroborates the family during manual compound verification but
+    is otherwise undocumented here; all other lengths are rejected.
 
     The similarly spelled connected service and its history/settings protocol are
     deliberately absent. The passive 0000fff0 advertisement filter is not evidence
-    that this spec can download history or change settings.
+    that this spec can download history or change settings. Integration is
+    identify_only until a real handler implements manual selection, compound
+    verification and measurement decoding.
   identification:
-    manufacturer_data:
-      company_id: 16
-      company_id_hex: "0x0010"
-      additional_company_ids: [17, 20, 21, 24, 27, 48]
-      description: >
-        Seven accepted numeric keys: 0x10, 0x11, 0x14, 0x15, 0x18, 0x1b, 0x30.
-        Require the fff0 advertisement UUID as well, then require a 20-byte
-        reconstructed record before emitting values. No retail-SKU mapping is implied.
     notes: >
-      fff0 is shared by unrelated products and is never sufficient alone. The
-      vendor app also uses the local name ThermoBeacon on its connected scan path,
-      but passive matching does not depend on that name.
+      No automatic matcher is declared: fff0 is shared by unrelated products and
+      the numeric manufacturer keys are not unique company identity. The vendor
+      app also uses the local name ThermoBeacon on its connected scan path, but
+      that name alone is not a passive matcher here. Use the manual compound
+      verification in protocol_details.advertisement_verification.
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          manufacturer_data:
-            company_id: 16
-            additional_company_ids: [17, 20, 21, 24, 27, 48]
-            description: "Numeric ThermoBeacon keys, narrowed by fff0; 20-byte records decode, 22-byte records identify only."
-        notes: "Passive scan only; no GATT connection is needed for live values."
-        verification: "reported"
+    none: >
+      Manual selection only. Neither the shared fff0 service UUID nor any numeric
+      manufacturer key may select this spec by itself. After the owner selects a
+      candidate, require fff0, an accepted numeric key and a reconstructed 20- or
+      22-byte record together before treating it as this family; only the 20-byte
+      form may emit measurements.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -81,17 +75,17 @@ device:
     methods:
       - type: "ble_direct"
         verified: false
-        description: "Passively match fff0 plus a known numeric key, reconstruct the record and decode only the 20-byte form."
+        description: "After manual selection, passively verify fff0 plus a known numeric key and a 20/22-byte reconstructed record; decode only the 20-byte form."
         ble:
           pairing_required: false
         steps:
-          - action: "Power the sensor so it begins advertising."
+          - action: "Power the sensor and select the SensorBlue/ThermoBeacon candidate manually; do not select it from fff0 or a numeric key alone."
             actor: "user"
-          - action: "Match the fff0 service UUID and one of the seven numeric manufacturer keys."
+          - action: "Require the fff0 service UUID, one of the seven numeric manufacturer keys and a reconstructed record of exactly 20 or 22 bytes together."
             actor: "client"
           - action: "Prepend the key in little-endian and accept a measurement only when the reconstructed record is exactly 20 bytes."
             actor: "client"
-            expect: "Temperature, humidity, battery millivolts and the raw button bit update; 22-byte and malformed records emit no measurement."
+            expect: "Temperature, humidity, battery millivolts and the raw button bit update; fff0-only, numeric-key-only, 22-byte and malformed records emit no measurement."
     factory_reset:
       applicable: "unknown"
       confidence: "low"
@@ -125,7 +119,7 @@ device:
 services:
   - uuid: "00001800-0000-1000-8000-00805f9b34fb"
     name: "Generic Access (standard)"
-    notes: "Placeholder only; the supported telemetry is in advertisements, not a connected history/settings surface."
+    notes: "Placeholder only; the documented telemetry is in advertisements, not a connected history/settings surface."
     characteristics:
       - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
         name: "Device Name"
@@ -153,6 +147,19 @@ payload_formats:
     example: "10 00 00 00 b0 02 00 00 47 a4 e2 0c 80 01 b6 02 4a 00 00 00"
 
 protocol_details:
+  advertisement_verification:
+    automatic_spec_selection: false
+    manual_candidate_required: true
+    required_service_uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    accepted_numeric_keys: ["0x10", "0x11", "0x14", "0x15", "0x18", "0x1b", "0x30"]
+    numeric_key_endianness: "little"
+    reconstruction: "numeric_key_u16le || manufacturer_payload"
+    accepted_reconstructed_lengths: [20, 22]
+    measurement_reconstructed_length: 20
+    rules:
+      - "After manual candidate selection, ALL of fff0, an accepted numeric key and an accepted reconstructed length are required; no subset selects this spec."
+      - "A 22-byte reconstructed record corroborates identity only. Require exactly 20 bytes before decoding or emitting measurements."
+      - "fff0-only, numeric-key-only and all other reconstructed lengths fail closed."
   numeric_device_ids:
     - { id: "0x10", library_label: "Lanyard/mini hygrometer", retail_model_mapping: "unresolved" }
     - { id: "0x11", library_label: "Smart hygrometer", retail_model_mapping: "unresolved" }
@@ -242,7 +249,7 @@ evidence:
 
 remaining_unknowns:
   - "One-to-one mapping from numeric IDs 0x10/11/14/15/18/1b/30 to WS03/WS07/WS08 is unproven."
-  - "The 22-byte advertisement is recognized for discovery but its extra bytes and measurement semantics are not established."
+  - "The 22-byte advertisement corroborates a manually selected candidate, but its extra bytes and measurement semantics are not established."
   - "Button-event semantics and the battery-percentage estimate need comparison with on-device indicators."
   - "Connected history/settings framing is excluded pending fresh read-only model-specific captures."
   - "No standalone official WS03/WS07/WS08 manual was verified."

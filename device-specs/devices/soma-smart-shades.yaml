@@ -27,10 +27,8 @@ device:
       documented battery surfaces. Calibration, schedules and OTA are excluded.
   variants:
     - model: "Smart Shades 2 (V2)"
-      identification: { local_name_prefix: "S" }
-      notes: "Manufacturer version below 0x10; V2 characteristic-value protocol."
+      notes: "Manufacturer version below 0x10 and exact local name S; V2 characteristic-value protocol."
     - model: "Tilt 2 (V2)"
-      identification: { local_name_prefix: "S" }
       notes: "V2 with advertisement byte 1 bit 0x80; position 0 closed upwards, 50 open, 100 closed downwards."
     - model: "Smart Shades 3 (V3)"
       notes: "Manufacturer version at least 0x10, normally no local name; V3 type-length command protocol."
@@ -190,17 +188,22 @@ services:
             parameters:
               position: { type: "uint8", min: 0, max: 100, unit: "%", description: "Target percent closed" }
             verification: "reported"
+          tilt2_open:
+            description: "Tilt 2 open: set target position 50 (0x32), between closed-up 0 and closed-down 100."
+            encoding: "bytes"
+            value: [0x32]
+            verification: "reported"
       - uuid: "00001530-b87f-490c-92cb-11ba5ea5167c"
         name: "V2 Motor Command"
         properties: ["write"]
         commands:
           v2_open:
-            description: "V2 fully up/open (0x69)."
+            description: "Smart Shades 2 fully up/open (0x69); not the Tilt 2 open action."
             encoding: "bytes"
             value: [0x69]
             verification: "reported"
           v2_close:
-            description: "V2 fully down/closed (0x96)."
+            description: "V2 fully down/closed (0x96); on Tilt 2 this is closed downwards at position 100."
             encoding: "bytes"
             value: [0x96]
             verification: "reported"
@@ -250,14 +253,28 @@ services:
         role: "command"
         commands:
           v3_open:
-            description: "V3 open request 01 00."
+            description: "Calibrated V3 open: set closed percentage to 0 with 08 01 00."
             encoding: "bytes"
-            value: [0x01, 0x00]
+            value: [0x08, 0x01, 0x00]
             verification: "reported"
           v3_close:
-            description: "V3 close request 02 00."
+            description: "Calibrated V3 close: set closed percentage to 100 with 08 01 64."
+            encoding: "bytes"
+            value: [0x08, 0x01, 0x64]
+            verification: "reported"
+          v3_raw_jog_open:
+            description: "Raw open-direction uncalibrated jog 01 00, only while travel limits are explicitly known to be unconfigured; a calibrated shade ignores it. The client must bound the jog and send v3_stop."
+            encoding: "bytes"
+            value: [0x01, 0x00]
+            advanced: true
+            advanced_reason: "An uncalibrated motor has no end stops. Use only for a deliberately supervised, time-bounded calibration jog, never as ordinary open."
+            verification: "reported"
+          v3_raw_jog_close:
+            description: "Raw close-direction uncalibrated jog 02 00, only while travel limits are explicitly known to be unconfigured; a calibrated shade ignores it. The client must bound the jog and send v3_stop."
             encoding: "bytes"
             value: [0x02, 0x00]
+            advanced: true
+            advanced_reason: "An uncalibrated motor has no end stops. Use only for a deliberately supervised, time-bounded calibration jog, never as ordinary close."
             verification: "reported"
           v3_stop:
             description: "V3 stop request 03 00."
@@ -379,7 +396,7 @@ entities:
   - platform: "cover"
     name: "V2 Shade"
     device_class: "shade"
-    variants: ["Smart Shades 2 (V2)", "Tilt 2 (V2)"]
+    variants: ["Smart Shades 2 (V2)"]
     state_characteristic: "00001525-b87f-490c-92cb-11ba5ea5167c"
     state_mapping: { value: "position_closed" }
     commands:
@@ -387,7 +404,19 @@ entities:
       close_cover: "v2_close"
       stop_cover: "v2_stop"
       set_cover_position: "v2_set_position"
-    notes: "Percent closed on the wire; Tilt 2 has the special 0/50/100 meanings in device.notes."
+    notes: "Percent closed on the wire: 0 open and 100 closed."
+  - platform: "cover"
+    name: "Tilt 2"
+    device_class: "shade"
+    variants: ["Tilt 2 (V2)"]
+    state_characteristic: "00001525-b87f-490c-92cb-11ba5ea5167c"
+    state_mapping: { value: "position_closed" }
+    commands:
+      open_cover: "tilt2_open"
+      close_cover: "v2_close"
+      stop_cover: "v2_stop"
+      set_cover_position: "v2_set_position"
+    notes: "Open writes target position 50, not motor-up position 0. Close is closed downwards at 100; position 0 remains available through set_cover_position for closed upwards."
   - platform: "cover"
     name: "V3 Shade"
     device_class: "shade"
@@ -397,7 +426,7 @@ entities:
       close_cover: "v3_close"
       stop_cover: "v3_stop"
       set_cover_position: "v3_set_position"
-    notes: "Poll v3_get_position and parse V3PositionReply after moves; percent closed."
+    notes: "Open and close use calibrated set-position frames. Poll v3_get_position and parse V3PositionReply after moves; percent closed."
   - platform: "button"
     name: "V2 Identify"
     variants: ["Smart Shades 2 (V2)", "Tilt 2 (V2)"]

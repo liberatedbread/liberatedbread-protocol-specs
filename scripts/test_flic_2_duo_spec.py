@@ -30,7 +30,10 @@ def decode_public_advertisement(local_name, manufacturer_payload):
         raise ValueError("invalid public manufacturer payload")
     top = bytes(reversed(manufacturer_payload[1:4]))
     flags = manufacturer_payload[4]
-    address = ":".join(f"{byte:02x}" for byte in top + low)
+    address_octets = top + low
+    if flags & 1 and address_octets[0] & 0xC0 != 0xC0:
+        raise ValueError("static-random address must have top bits 11")
+    address = ":".join(f"{byte:02x}" for byte in address_octets)
     return {
         "address": address,
         "firmware": int(local_name[2:4]),
@@ -486,4 +489,63 @@ def test_no_legacy_or_hub_surface_is_declared():
     assert {variant["model"] for variant in SPEC["device"]["variants"]} == {"Flic 2", "Flic Duo"}
     assert len(SPEC["services"]) == 1
     assert SPEC["device"]["testing"]["status"] == "untested"
+    assert SPEC["device"]["integration"] == "identify_only"
     assert {tuple(feature.get("variants", [])) for feature in SPEC["features"]} == {("Flic 2",), ("Flic Duo",)}
+
+
+def reconcile_base_event_counts(packet_event_count, items):
+    if not items:
+        raise ValueError("event notification has no items")
+    events = [parse_base_event(item) for item in items]
+    counts = [None] * len(items)
+    ec = packet_event_count
+    counts[-1] = ec
+    for index in range(len(items) - 2, -1, -1):
+        m4 = ec % 4
+        event_type = events[index]["type"]
+        if m4 in {0, 2}:
+            ec -= 1
+        elif m4 == 1:
+            ec -= 1 if event_type == 2 else 2
+        else:
+            ec -= 1 if event_type == 3 else 2
+        counts[index] = ec
+    return counts
+
+
+def test_static_random_advertisement_has_required_top_bits():
+    row = DETAILS["public_advertising"]["test_vector"]
+    assert row["address"] == "c2:00:00:76:42:06"
+    assert row["manufacturer_payload_hex"] == "020000c201"
+    first_octet = int(row["address"].split(":", 1)[0], 16)
+    assert first_octet & 0xC0 == 0xC0
+    decoded = decode_public_advertisement(row["local_name"], bytes.fromhex(row["manufacturer_payload_hex"]))
+    assert decoded["address_type"] == "static random"
+    with pytest.raises(ValueError, match="top bits 11"):
+        decode_public_advertisement(row["local_name"], bytes.fromhex("0200000201"))
+
+
+def test_base_multi_item_reverse_reconciliation_with_skipped_hold_and_timeout():
+    row = DETAILS["reliable_events"]["multi_item_test_vector"]
+    items = [bytes.fromhex(value) for value in row["items_hex"]]
+    events = [parse_base_event(item) for item in items]
+    assert [event["type"] for event in events] == row["expected"]["types"]
+
+    counts = reconcile_base_event_counts(row["event_count"], items)
+    assert counts == row["expected"]["event_counts"]
+    assert set(range(counts[0], counts[-1] + 1)) - set(counts) == {4, 6}
+    for count in row["expected"]["skipped_timeout_counts"]:
+        assert count not in counts
+        assert count % 4 == 0
+    for count in row["expected"]["skipped_hold_counts"]:
+        assert count not in counts
+        assert count % 4 == 2
+
+    qualifying_counts = [count for count, event in zip(counts, events, strict=True) if event["acknowledge"]]
+    assert qualifying_counts == [3, 7, 8]
+    assert any(event["acknowledge"] for event in events) is row["expected"]["acknowledge"]
+    acknowledgement = bytes([row["acknowledgement_opcode"]]) + row["acknowledgement_event_count"].to_bytes(4, "little")
+    assert acknowledgement == bytes.fromhex("100a000000")
+    assert row["acknowledgement_event_count"] == counts[-1] == row["event_count"]
+    assert row["acknowledgement_event_count"] != qualifying_counts[-1]
+    assert len(DETAILS["reliable_events"]["reverse_reconciliation"]["rules"]) == 5

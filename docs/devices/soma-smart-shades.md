@@ -57,6 +57,11 @@ for closed downwards.
 | `00001531-b87f-490c-92cb-11ba5ea5167c` | Identify/beep: write `01` |
 | `0000ba71-b87f-490c-92cb-11ba5ea5167c` | Little-endian uint16 voltage, raw × 10 mV |
 
+Tilt 2 has a separate cover mapping: ordinary open writes target position `0x32`
+(50) to `00001526-b87f-490c-92cb-11ba5ea5167c`, rather than issuing motor-up and
+ending closed upwards at position 0. Ordinary close remains closed downwards at
+100; position 0 is available as an explicit target for closed upwards.
+
 V2 advertisement byte 1 supplies only the Tilt bit `0x80` here. It is not emitted
 as battery percentage. The standard battery characteristic also has unresolved
 semantics and is not used. The voltage-to-percent conversion in the YAML is an
@@ -68,14 +73,18 @@ Service `8998a466-a65f-4d49-90b2-927f41c55190` contains command write
 `8998a466-a65f-4d49-90b2-927f41c55191` and response read
 `8998a466-a65f-4d49-90b2-927f41c55192`.
 
-Requests and replies are `opcode | length | data`. Basic opcodes are open `01`,
-close `02`, stop `03`, set closed percent `08`, get closed percent `0a`, battery
-percent `0b` and identify `17`. A getter has zero length; set-position is
-`08 01 <0..100>`. After writing, perform a plain GATT read and verify both opcode
-and declared length so a stale response is not accepted as success.
+Requests and replies are `opcode | length | data`. Ordinary calibrated open and
+close are the fixed set-position frames `08 01 00` and `08 01 64`. Raw `01 00`
+and `02 00` are advanced, explicitly uncalibrated jog operations only: a
+calibrated shade ignores them, and an uncalibrated jog must be time-bounded and
+followed by stop `03 00`. Get closed percent uses `0a 00`, battery percent uses
+`0b 00`, and identify uses `17 00`. After writing, perform a plain GATT read and
+verify both opcode and declared length so a stale response is not accepted as
+success.
 
 `scripts/test_soma_smart_shades_spec.py` checks generation selection, V2/V3
-vectors, malformed frames and the reset-collision guard.
+vectors, entity-to-command mappings, malformed frames and the reset-collision
+guard.
 
 ## Out of Scope
 

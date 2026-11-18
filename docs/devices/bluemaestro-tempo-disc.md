@@ -1,6 +1,6 @@
 # BlueMaestro Tempo Disc Environmental Sensors
 
-> **Status**: Spec Available (untested)
+> **Status**: Identify only (untested; no measurement handler yet)
 > **Protocol**: Passive BLE manufacturer advertisements
 > **Manufacturer**: Blue Maestro
 > **Manufacturer Status**: Active
@@ -9,7 +9,9 @@
 
 Tempo Disc and related BlueMaestro environmental sensors broadcast live readings
 under company ID `0x0133`. A phone can monitor them without pairing, an account,
-a GATT connection or a cloud service. The version byte selects the decoder.
+a GATT connection or a cloud service. The version byte selects the decoder. This
+spec preserves the formats but is not a supported mobile integration until a real
+measurement handler exists.
 
 Only v13 and v23 have redacted physical-advertisement evidence in the public
 parser fixtures. Other versions below are reported from synthetic app

@@ -13,13 +13,27 @@ import yaml
 SPEC = yaml.safe_load(
     (Path(__file__).parents[1] / "device-specs/devices/sensorblue-thermobeacon.yaml").read_text()
 )
-SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
-KNOWN_IDS = {0x10, 0x11, 0x14, 0x15, 0x18, 0x1B, 0x30}
+VERIFICATION = SPEC["protocol_details"]["advertisement_verification"]
+SERVICE_UUID = VERIFICATION["required_service_uuid"]
+KNOWN_IDS = {int(value, 0) for value in VERIFICATION["accepted_numeric_keys"]}
+ACCEPTED_LENGTHS = set(VERIFICATION["accepted_reconstructed_lengths"])
 VECTORS = SPEC["protocol_details"]["test_vectors"]
 
 
+def select_spec(service_uuids, manufacturer_data):
+    if SERVICE_UUID not in service_uuids:
+        return False
+    for numeric_id, payload in manufacturer_data.items():
+        if numeric_id not in KNOWN_IDS:
+            continue
+        reconstructed = numeric_id.to_bytes(2, VERIFICATION["numeric_key_endianness"]) + payload
+        if len(reconstructed) in ACCEPTED_LENGTHS:
+            return True
+    return False
+
+
 def identify(service_uuid, numeric_id, reconstructed):
-    return service_uuid == SERVICE_UUID and numeric_id in KNOWN_IDS and len(reconstructed) in {20, 22}
+    return service_uuid == SERVICE_UUID and numeric_id in KNOWN_IDS and len(reconstructed) in ACCEPTED_LENGTHS
 
 
 def battery_estimate(millivolts):
@@ -153,7 +167,37 @@ def test_numeric_ids_have_no_retail_model_mapping():
     assert SPEC["device"]["testing"]["status"] == "untested"
 
 
-def test_shared_service_is_not_an_identity_matcher():
-    assert "service_uuids" not in SPEC["device"]["identification"]
-    for method in SPEC["device"]["discovery"]["methods"]:
-        assert "service_uuids" not in method.get("ble", {})
+def test_weak_signals_are_not_automatic_identity_matchers():
+    identification = SPEC["device"]["identification"]
+    discovery = SPEC["device"]["discovery"]
+    assert set(identification) == {"notes"}
+    assert "manufacturer_data" not in identification
+    assert "service_uuids" not in identification
+    assert "methods" not in discovery
+    assert "Manual selection only" in discovery["none"]
+    assert SPEC["device"]["integration"] == "identify_only"
+    assert VERIFICATION["automatic_spec_selection"] is False
+    assert VERIFICATION["manual_candidate_required"] is True
+    assert ACCEPTED_LENGTHS == {20, 22}
+    assert VERIFICATION["measurement_reconstructed_length"] == 20
+    assert KNOWN_IDS == {int(row["id"], 0) for row in SPEC["protocol_details"]["numeric_device_ids"]}
+
+
+def test_fff0_only_and_company_id_only_both_fail_to_select_spec():
+    payload, _ = vector("public_id_10_measurements")
+    manufacturer_payload = payload[2:]
+    cases = {
+        "fff0-only": ([SERVICE_UUID], {}),
+        "company-ID-only": ([], {0x10: manufacturer_payload}),
+        "company-ID-only with unrelated service": (
+            ["0000ffe0-0000-1000-8000-00805f9b34fb"],
+            {0x10: manufacturer_payload},
+        ),
+    }
+    for label, (service_uuids, manufacturer_data) in cases.items():
+        assert not select_spec(service_uuids, manufacturer_data), label
+
+    assert select_spec([SERVICE_UUID], {0x10: manufacturer_payload})
+    assert not select_spec([SERVICE_UUID], {0x10: manufacturer_payload + b"\x00"})
+    with pytest.raises(ValueError, match="not a supported"):
+        decode(payload, service_uuid=None)

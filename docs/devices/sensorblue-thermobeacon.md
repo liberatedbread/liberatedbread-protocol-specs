@@ -1,6 +1,6 @@
 # SensorBlue ThermoBeacon Hygrometers
 
-> **Status**: Spec Available (untested)
+> **Status**: Identify only (untested; no measurement handler yet)
 > **Protocol**: Passive BLE advertisements
 > **Manufacturer**: SensorBlue / SEVEN-LIKE (OEM relationship unresolved)
 > **Manufacturer Status**: Active
@@ -8,20 +8,24 @@
 ## Overview
 
 SensorBlue WS03/WS07/WS08 and ThermoBeacon devices can provide live temperature,
-humidity and battery voltage without a connection or cloud account. The passive
-parser requires advertised service UUID `0000fff0-0000-1000-8000-00805f9b34fb`
-and one numeric manufacturer key: `0x10`, `0x11`, `0x14`, `0x15`, `0x18`, `0x1b`
-or `0x30`.
+humidity and battery voltage without a connection or cloud account. This is a
+protocol reference, not a supported mobile integration yet. After manual candidate
+selection, the passive parser requires ALL of advertised service UUID
+`0000fff0-0000-1000-8000-00805f9b34fb`, one numeric manufacturer key (`0x10`,
+`0x11`, `0x14`, `0x15`, `0x18`, `0x1b` or `0x30`) and a reconstructed 20- or
+22-byte record.
 
-Those numbers are **not** proven mappings to WS03, WS07 or WS08. Do not infer a
-retail model from one. The shared `fff0` UUID is not sufficient identification by
-itself.
+Those numbers are **not** proven mappings to WS03, WS07 or WS08, nor unique
+company identity. Do not infer a retail model from one. Automatic discovery is
+disabled: `fff0` alone, a numeric manufacturer key alone and every other partial
+combination must fail to select this spec. A 22-byte record corroborates identity
+only; measurements require the 20-byte form.
 
 ## Initial Setup
 
 | Property | Value |
 |----------|-------|
-| Setup required | No — power the sensor and scan |
+| Setup required | No provisioning — power the sensor, select it manually, then verify the compound advertisement |
 | Method | `ble_direct`, passive only |
 | Passphrase protection | `not_applicable` |
 | Confidence | Medium (public parser and fixtures; no new scan) |
@@ -29,8 +33,8 @@ itself.
 **Factory reset**: Unknown. No reset was established. Passive monitoring holds no
 host credential or network binding to clear.
 
-**Rebinding**: Start the same scan on the replacement controller. No old phone,
-factory reset or credentials are needed.
+**Rebinding**: Repeat manual selection and compound verification on the
+replacement controller. No old phone, factory reset or credentials are needed.
 
 ## Pairing
 

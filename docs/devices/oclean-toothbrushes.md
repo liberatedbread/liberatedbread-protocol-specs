@@ -1,6 +1,6 @@
 # Oclean BLE Smart Toothbrushes
 
-> **Status**: Spec Available (untested here; upstream X/Air 1 core evidence)
+> **Status**: Identify only (untested here; upstream X/Air 1 core evidence; no handler yet)
 > **Protocol**: BLE GATT
 > **Manufacturer**: Oclean / Zhuhai Ice Bear Smart Home Technology
 > **Manufacturer Status**: Active
@@ -8,9 +8,15 @@
 ## Overview
 
 Oclean brushes can synchronize battery, model/firmware, clock and session records
-directly over BLE without an Oclean account. The protocol has incompatible model
-families, so a client must read the exact Device Information model ID before any
-command write.
+directly over BLE without an Oclean account. This spec preserves that protocol but
+is not a supported mobile integration yet: a standard battery read alone is not a
+working sync surface, and no generic model-routed writes are exposed without the
+dedicated DIS guard.
+
+The protocol has incompatible model families. A client must read exact Device
+Information Model Number, Hardware Revision and Software Revision and select a
+route as its first command-related operation, before any subscription, calibration,
+query or other write.
 
 Upstream reports tested core sync on Oclean X (`OCLEANY3M`, including the Y3MH
 hardware variant) and battery/core behavior on Air 1 (`OCLEANA1`). Other models
@@ -53,6 +59,14 @@ permissions on partial models and Type F are not asserted.
 
 Unknown model IDs fail closed in this spec; do not send speculative Type 1
 commands. `fbb89` is write-only on tested Type 1 units, so never subscribe to it.
+
+The lifecycle order is strict: read all three DIS fields and select the exact
+route; calibrate with that route's time command; subscribe; then issue route
+queries. Reconfirm the model route before every write, rereading DIS if identity
+is not pinned to the connection. An unknown model stops after the DIS reads with
+no calibration, subscription or query. These bytes are documentary under
+`protocol_details` until a dedicated handler implements that guard; the YAML's
+GATT characteristics deliberately declare no generic executable commands.
 
 Air 1 fallback: after the route queries, wait 1.5 seconds and directly read
 `fbb86` up to six times at one-second intervals. `0302` payload byte 0 is a

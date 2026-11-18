@@ -17,6 +17,7 @@ device:
   transport: "ble-gatt"
   category: "personal_care"
   type: "electric-toothbrush"
+  integration: "identify_only"
   openness:
     status: "undocumented"
     reverse_engineered: true
@@ -61,6 +62,11 @@ device:
     Type F is a separate Wi-Fi-capable BLE profile, not a command namespace to try
     after standard sync fails. Wi-Fi provisioning, cloud APIs, firmware update and
     destructive/settings writes are outside this spec.
+
+    Integration is identify_only until a dedicated handler implements the DIS-first
+    lifecycle and model-routed parsers. The standard battery characteristic alone
+    does not make the family supported, and protocol_details is not an executable
+    mobile control surface.
   identification:
     service_uuids: ["8082caa8-41a6-4021-91c6-56f9b954cc18"]
     notes: >
@@ -89,18 +95,18 @@ device:
     methods:
       - type: "ble_direct"
         verified: false
-        description: "Read DIS model ID, choose an exact route, synchronize clock/subscriptions, issue core queries, then disconnect."
+        description: "First read exact DIS model/hardware/software and select a route, then calibrate on that route, then subscribe/query and disconnect; documentary until a dedicated handler exists."
         ble:
           pairing_required: false
         steps:
           - action: "Close Oclean Care + and other clients so notification subscriptions and session retrieval do not race."
             actor: "user"
-          - action: "Connect and read Model Number, Hardware Revision and Software Revision from Device Information."
+          - action: "As the first command-related operation, connect and read exact Model Number, Hardware Revision and Software Revision from Device Information, then select the declared route."
             actor: "client"
-            expect: "An exact model ID present in protocol_details.model_routing; otherwise stop before any command write."
-          - action: "Select the declared route and calibrate time using only that route's command and encoding."
+            expect: "An exact model ID present in protocol_details.model_routing with its firmware constraints satisfied; otherwise stop before any subscription, calibration, query or other write."
+          - action: "Reconfirm the model route and calibrate time using only that route's command and encoding; no write may precede the known model ID."
             actor: "client"
-          - action: "Subscribe on the declared response channels, query status/device/session data, and read standard Battery Level."
+          - action: "Only after calibration, subscribe on the declared response channels, reconfirm the route before each query write, query status/device/session data, and read standard Battery Level."
             actor: "client"
             expect: "Battery, identity and any model-supported session records decode; Air 1 instead uses its direct-read fallback when fbb86 has no CCCD."
           - action: "Stop subscriptions and disconnect after the poll."
@@ -163,87 +169,12 @@ services:
         name: "Standard Command Write"
         properties: ["write"]
         role: "command"
-        commands:
-          type0_calibrate_time:
-            description: "Type 0 / Air 1 legacy only: 020e plus Unix seconds as uint32 big-endian."
-            encoding: "bytes"
-            template: [0x02, 0x0e, "{epoch_seconds}"]
-            parameters:
-              epoch_seconds: { type: "uint32", endianness: "big", min: 0, max: 4294967295, unit: "s" }
-            advanced: true
-            advanced_reason: "Writes the brush clock; send only after exact Type 0/Air 1 model routing."
-            verification: "reported"
-          type1_z1_calibrate_time:
-            description: "Type 1 / Type Z1 only: 0201 plus YY MM DD HH mm ss weekday tzIndex."
-            encoding: "bytes"
-            template: [0x02, 0x01, "{year_since_2000}", "{month}", "{day}", "{hour}", "{minute}", "{second}", "{weekday}", "{timezone_index}"]
-            parameters:
-              year_since_2000: { type: "uint8", min: 0, max: 255 }
-              month: { type: "uint8", min: 1, max: 12 }
-              day: { type: "uint8", min: 1, max: 31 }
-              hour: { type: "uint8", min: 0, max: 23 }
-              minute: { type: "uint8", min: 0, max: 59 }
-              second: { type: "uint8", min: 0, max: 59 }
-              weekday: { type: "uint8", min: 0, max: 6, description: "0 Sunday through 6 Saturday" }
-              timezone_index: { type: "uint8", min: 1, max: 33, description: "1-based index into protocol_details.time_calibration.timezone_offsets_minutes" }
-            advanced: true
-            advanced_reason: "Writes local date/time and timezone; send only after exact Type 1/Z1 model routing."
-            verification: "reported"
-          type0_query_status:
-            description: "Type 0 status 0303."
-            encoding: "bytes"
-            value: [0x03, 0x03]
-            verification: "reported"
-          type0_query_device_info:
-            description: "Type 0 simple device-info acknowledgement 0202."
-            encoding: "bytes"
-            value: [0x02, 0x02]
-            verification: "reported"
-          type0_query_device_settings:
-            description: "Type 0 detailed settings/clock 030201; response starts 0302."
-            encoding: "bytes"
-            value: [0x03, 0x02, 0x01]
-            verification: "reported"
-          type0_query_sessions:
-            description: "Type 0 newest 0308 session page."
-            encoding: "bytes"
-            value: [0x03, 0x08]
-            verification: "reported"
-          type0_next_session_page:
-            description: "Type 0 older-page request 0309; response remains 0308. Stop when no new page arrives."
-            encoding: "bytes"
-            value: [0x03, 0x09]
-            verification: "reported"
-          z1_query_status:
-            description: "Type Z1 status 0303 on the standard write characteristic."
-            encoding: "bytes"
-            value: [0x03, 0x03]
-            verification: "reported"
-          z1_query_device_info:
-            description: "Type Z1 simple device info 0202 on the standard write characteristic."
-            encoding: "bytes"
-            value: [0x02, 0x02]
-            verification: "reported"
-          z1_query_device_settings:
-            description: "Type Z1 detailed settings/clock 030201 on the standard write characteristic."
-            encoding: "bytes"
-            value: [0x03, 0x02, 0x01]
-            verification: "reported"
-          air1_query_status:
-            description: "Air 1 legacy status 0303 on the standard write characteristic."
-            encoding: "bytes"
-            value: [0x03, 0x03]
-            verification: "reported"
-          air1_query_device_info:
-            description: "Air 1 legacy simple device info 0202."
-            encoding: "bytes"
-            value: [0x02, 0x02]
-            verification: "reported"
-          air1_query_device_settings:
-            description: "Air 1 legacy detailed settings/clock 030201; payload byte 0 is a battery fallback."
-            encoding: "bytes"
-            value: [0x03, 0x02, 0x01]
-            verification: "reported"
+        notes: >
+          Documentary write endpoint only while integration is identify_only.
+          Route-specific calibration and query bytes remain in
+          protocol_details.model_routing and time_calibration; no generic executable
+          command is declared because a dedicated handler must read and reconfirm
+          the exact DIS model route before every write.
       - uuid: "6c290d2e-1c03-aca1-ab48-a9b908bae79e"
         name: "Type 0 Change Information"
         properties: ["notify"]
@@ -252,38 +183,11 @@ services:
         name: "Type 1 / Z1 / Air 1 Session Command Write"
         properties: ["write"]
         role: "command"
-        notes: "Write-only on tested Type 1 units. Never subscribe to this characteristic."
-        commands:
-          type1_query_status:
-            description: "Type 1 status 0303 on the Type 1 command characteristic."
-            encoding: "bytes"
-            value: [0x03, 0x03]
-            verification: "reported"
-          type1_query_device_info:
-            description: "Type 1 simple device info 0202 on the Type 1 command characteristic."
-            encoding: "bytes"
-            value: [0x02, 0x02]
-            verification: "reported"
-          type1_query_device_settings:
-            description: "Type 1 detailed settings/clock 030201 on the Type 1 command characteristic."
-            encoding: "bytes"
-            value: [0x03, 0x02, 0x01]
-            verification: "reported"
-          type1_query_sessions:
-            description: "Type 1 session request 0307; responses/reassembly use the declared Type 1 channels."
-            encoding: "bytes"
-            value: [0x03, 0x07]
-            verification: "reported"
-          z1_query_sessions:
-            description: "Type Z1 session request 0307, routed here while ordinary Z1 queries use fbb85."
-            encoding: "bytes"
-            value: [0x03, 0x07]
-            verification: "reported"
-          air1_query_sessions:
-            description: "Air 1 legacy session request 0307; response is read from fbb86 when notification is unavailable."
-            encoding: "bytes"
-            value: [0x03, 0x07]
-            verification: "reported"
+        notes: >
+          Write-only on tested Type 1 units; never subscribe to this characteristic.
+          Session query bytes are documentary in protocol_details.model_routing
+          while integration is identify_only. No generic executable command is
+          declared without the dedicated exact-DIS route guard.
       - uuid: "5f78df94-798c-46f5-990a-855b673fbb90"
         name: "Type 1 / Z1 Session Notifications"
         properties: ["notify"]
@@ -552,13 +456,30 @@ protocol_details:
     session_notification_wait_seconds: 8
     pagination_timeout_seconds: 2
     maximum_poll_seconds: 60
+    first_command_related_operation: "read_dis_and_select_route"
+    reconfirm_route_before_every_write: true
     order:
-      - "Calibrate using the route's time command"
-      - "Read DIS model/hardware/software and reconfirm route"
-      - "Subscribe on declared response channels and standard battery when supported"
-      - "Run route queries, then Air 1 direct-read fallback if required"
-      - "Paginate only Type 0, waiting for no new page"
-      - "Read standard battery unless already notified, then disconnect"
+      - operation: "read_dis_and_select_route"
+        action: "read"
+        characteristics: ["00002a24-0000-1000-8000-00805f9b34fb", "00002a27-0000-1000-8000-00805f9b34fb", "00002a28-0000-1000-8000-00805f9b34fb"]
+        selection: "Read exact Model Number, Hardware Revision and Software Revision, then select the case-sensitive model route and apply firmware constraints before any subscription, calibration, query or other write"
+        failure_policy: "Unknown or mismatched model ID stops here; no route fallback and no later lifecycle operation"
+      - operation: "calibrate_time"
+        action: "write"
+        route: "Use only the selected route's time command and encoding after the exact model ID is known"
+      - operation: "subscribe"
+        action: "subscribe"
+        route: "Subscribe on the selected route's response channels and standard battery when supported"
+      - operation: "query"
+        action: "write"
+        route: "Run selected-route queries, then Air 1 direct-read fallback if required"
+      - operation: "paginate_type0"
+        action: "write"
+        route: "Type 0 only; wait for no new page"
+      - operation: "battery_read_and_disconnect"
+        action: "read_then_disconnect"
+        route: "Read standard battery unless already notified, then disconnect"
+    write_guard: "Reconfirm the exact model ID and selected route before every write; if identity is not pinned to this connection, reread DIS first. No write may precede a known model ID."
   air1_read_fallback:
     trigger: "fbb86 has no CCCD or subscription fails on OCLEANA1/A1a-d"
     initial_delay_seconds: 1.5

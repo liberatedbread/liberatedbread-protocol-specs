@@ -198,3 +198,66 @@ def test_unverified_pairing_is_not_claimed_verified():
     assert SPEC["device"]["pairing"]["required"] == "unknown"
     assert SPEC["device"]["testing"]["status"] == "untested"
     assert SPEC["device"]["setup"]["factory_reset"]["applicable"] == "unknown"
+
+
+def command_definition(name):
+    for service in SPEC["services"]:
+        for characteristic in service["characteristics"]:
+            if name in characteristic.get("commands", {}):
+                return characteristic, characteristic["commands"][name]
+    raise AssertionError(f"missing command {name}")
+
+
+def cover_for_variant(model):
+    return next(
+        entity
+        for entity in SPEC["entities"]
+        if entity["platform"] == "cover" and model in entity.get("variants", [])
+    )
+
+
+def test_v3_calibrated_open_and_close_use_position_frames():
+    _, open_command = command_definition("v3_open")
+    _, close_command = command_definition("v3_close")
+    assert open_command["value"] == [0x08, 0x01, 0x00]
+    assert close_command["value"] == [0x08, 0x01, 0x64]
+
+    v3_cover = cover_for_variant("Smart Shades 3 (V3)")
+    assert v3_cover["commands"]["open_cover"] == "v3_open"
+    assert v3_cover["commands"]["close_cover"] == "v3_close"
+    for name, value in (
+        ("v3_raw_jog_open", [0x01, 0x00]),
+        ("v3_raw_jog_close", [0x02, 0x00]),
+    ):
+        _, command = command_definition(name)
+        assert command["value"] == value
+        assert command["advanced"] is True
+        assert "uncalibrated" in command["description"]
+        assert name not in v3_cover["commands"].values()
+
+
+def test_tilt2_open_uses_position_50_on_the_v2_target_characteristic():
+    tilt_cover = cover_for_variant("Tilt 2 (V2)")
+    shade_cover = cover_for_variant("Smart Shades 2 (V2)")
+    assert tilt_cover is not shade_cover
+    assert tilt_cover["commands"]["open_cover"] == "tilt2_open"
+    assert shade_cover["commands"]["open_cover"] == "v2_open"
+
+    characteristic, command = command_definition("tilt2_open")
+    assert characteristic["uuid"] == "00001526-b87f-490c-92cb-11ba5ea5167c"
+    assert command["value"] == [0x32]
+    assert command_definition("v2_open")[0]["uuid"] != characteristic["uuid"]
+
+
+def test_v2_name_is_exact_and_tilt_is_discriminated_by_payload():
+    identification = SPEC["device"]["identification"]
+    assert identification["local_names"] == ["S"]
+    assert "local_name_prefix" not in identification
+    for variant in SPEC["device"]["variants"]:
+        assert "local_name_prefix" not in variant.get("identification", {})
+
+    _, decoded = select_generation({COMPANY_ID: payload("v2_tilt_advertisement")}, "S")
+    selected_variant = "Tilt 2 (V2)" if decoded["tilt"] else "Smart Shades 2 (V2)"
+    assert selected_variant == "Tilt 2 (V2)"
+    with pytest.raises(ValueError, match="complete V2"):
+        select_generation({COMPANY_ID: payload("v2_tilt_advertisement")}, "S2")

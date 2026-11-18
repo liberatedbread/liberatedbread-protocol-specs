@@ -17,6 +17,7 @@ device:
   transport: "ble-gatt"
   category: "switch"
   type: "wireless-button"
+  integration: "identify_only"
   openness:
     status: "open_by_design"
     reverse_engineered: false
@@ -57,6 +58,10 @@ device:
     Signatures authenticate; they do not encrypt opcode/data. Standard BLE Just
     Works bonding is encouraged as an additional encrypted-link layer, not a
     substitute for the Flic application pairing and session keys.
+
+    Integration is identify_only until a dedicated handler implements pairing,
+    signed sessions and reliable events. A standard battery reading alone is not
+    a working Flic integration.
   identification:
     local_name_prefixes: ["F2"]
     service_uuids: ["00420000-8f59-4420-870d-84f3b617e493"]
@@ -297,15 +302,15 @@ protocol_details:
     scan_response_payload: "02 | address_top_24_bit_little_endian[3] | flags; extra trailing bytes are RFU"
     flags: "bit 0 address type (0 public, 1 static random); bit 1 already connected (1); all others RFU"
     private_mode: "Flags only and empty scan response; not identifiable as a new Flic 2/Duo and not eligible for initial Full Verify."
-    address_recovery: "Join the three manufacturer bytes (reverse them to big-endian top 24) with the three name-decoded low bytes; verify again in Full Verify Response 1."
+    address_recovery: "Join the three manufacturer bytes (reverse them to big-endian top 24) with the three name-decoded low bytes; verify again in Full Verify Response 1. When flags select static random, require the reconstructed first octet's two most-significant bits to be 11."
     test_vector:
-      address: "02:00:00:76:42:06"
+      address: "c2:00:00:76:42:06"
       firmware: 7
       local_name: "F207dkIG"
-      manufacturer_payload_hex: "0200000201"
+      manufacturer_payload_hex: "020000c201"
       address_type: "static random"
       connected: false
-      evidence: "Synthetic locally administered address using the vendor's public suffix example; no real unit"
+      evidence: "Synthetic static-random address with required top bits 11, using the vendor's public suffix example; no real unit"
   packet_framing:
     byte_zero:
       bits_0_4: "Logical connection ID; 0 only for connectionless packets"
@@ -422,7 +427,20 @@ protocol_details:
       opcode: 12
       layout: "event_count u32le | items[8 bytes each], item layout in payload_formats.ButtonEventItem"
       event_count_modulo: "1 down, 2 hold, 3 up, 0 single-click timeout. event_count/4 approximates clicks; skipped hold/timeout values require backwards reconciliation for per-item counts."
-      acknowledgement: "After every item is processed, persist event_count and send at most one signed opcode 16 | event_count u32le when the rule in payload_formats.ButtonEventItem fires."
+      acknowledgement: "After every item is processed, persist event_count and send at most one signed opcode 16 | event_count u32le when the rule in payload_formats.ButtonEventItem fires. Use the packet's original final count, not the last qualifying item's reconstructed count."
+    reverse_reconciliation:
+      source: "Official flic2lib-android 2.1.1 Flic2Button.java:1896-1928 @ d18733ac31a8a20f217b64507836bf8c87d58169"
+      item_type: "Start with event_encoded & 3 (0 up, 1 down, 2 single-click timeout, 3 hold). If event_encoded >> 3 is nonzero, force type 0 before applying the rules, matching the enriched-up decode."
+      algorithm:
+        - "Set ec to the packet event_count and assign it to the final item."
+        - "Visit preceding items from penultimate to first. For each, compute m4 = ec % 4 using the next item's already-assigned count, apply the matching rule below to ec, then assign the resulting ec to the current item."
+        - "After reverse reconciliation, process items forward with their individual counts. The packet acknowledgement still uses the original packet event_count."
+      rules:
+        - { next_count_modulo_4: [0, 2], current_item_type: "any", subtract: 1, meaning: "The next item is single-click timeout or hold; the preceding count is adjacent." }
+        - { next_count_modulo_4: 1, current_item_type: 2, subtract: 1, meaning: "Single-click timeout immediately precedes down." }
+        - { next_count_modulo_4: 1, current_item_type: "not 2 (normally 0 up)", subtract: 2, meaning: "Up precedes down and the intermediate modulo-0 single-click timeout count was skipped." }
+        - { next_count_modulo_4: 3, current_item_type: 3, subtract: 1, meaning: "Hold immediately precedes up." }
+        - { next_count_modulo_4: 3, current_item_type: "not 3 (normally 1 down)", subtract: 2, meaning: "Down precedes up and the intermediate modulo-2 hold count was skipped." }
     test_vector:
       event_count: 3
       item_hex: "0080000000000a00"
@@ -430,6 +448,18 @@ protocol_details:
       acknowledgement_opcode: 16
       acknowledgement_event_count: 3
       evidence: "Invented event, not user history"
+    multi_item_test_vector:
+      event_count: 10
+      items_hex: ["0080000000000300", "0180000000000a00", "0280000000000100", "0380000000000a00", "0480000000000200", "0580000000000100", "0680000000000300"]
+      expected:
+        event_counts: [2, 3, 5, 7, 8, 9, 10]
+        types: [3, 0, 1, 0, 2, 1, 3]
+        skipped_timeout_counts: [4]
+        skipped_hold_counts: [6]
+        acknowledge: true
+      acknowledgement_opcode: 16
+      acknowledgement_event_count: 10
+      evidence: "Invented seven-item sequence exercising every reverse branch, including skipped hold/timeout; not user history"
     ping: "Button opcode 15 requires a signed opcode 14 response on the same session."
     disconnect: "Opcode 9 ends a verified link. Button reason codes: 0 ping timeout, 1 invalid signature, 2 new session with same pairing ID, 3 user disconnect."
   duo_events:
