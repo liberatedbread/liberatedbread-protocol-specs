@@ -29,6 +29,11 @@ def commands(spec) -> dict[str, dict]:
     return tx["commands"]
 
 
+@pytest.fixture(scope="module")
+def logical_commands(spec) -> dict[str, dict]:
+    return spec["protocol_details"]["logical_commands"]
+
+
 def encode_varint(value: int) -> bytes:
     """Unsigned protobuf base-128 varint used by non-negative UI parameters."""
     if value < 0:
@@ -104,13 +109,13 @@ def cobs_decode_framed(data: bytes) -> bytes:
     return bytes(output)
 
 
-def logical_command(command: dict, parameters: dict[str, int]) -> bytes:
-    """Render a declared pre-COBS value/template; do not write it directly."""
-    if "value" in command:
+def logical_command(command: dict, logical: dict, parameters: dict[str, int]) -> bytes:
+    """Rebuild a documentary pre-COBS packet; never emit it without framing."""
+    if "packet_hex" in logical:
         assert not parameters
-        return bytes(command["value"])
+        return bytes.fromhex(logical["packet_hex"])
     output = bytearray()
-    for item in command["template"]:
+    for item in logical["packet_parts"]:
         if isinstance(item, int):
             output.append(item)
             continue
@@ -119,6 +124,19 @@ def logical_command(command: dict, parameters: dict[str, int]) -> bytes:
         assert definition["type"] == "varint"
         output.extend(encode_varint(parameters[name]))
     return bytes(output)
+
+
+def generic_consumer_bytes(command: dict) -> bytes:
+    """Minimal generic BLE consumer: only value/template can produce a write.
+
+    This deliberately has no Nano handler. It mirrors the important consumer
+    boundary rather than implementing COBS or pretending that support exists.
+    """
+    if "value" in command:
+        return bytes(command["value"])
+    if "template" in command:
+        return bytes(item for item in command["template"] if isinstance(item, int))
+    raise LookupError("documentary command has no generic executable byte sequence")
 
 
 def parse_fields(data: bytes) -> list[tuple[int, int, int | bytes]]:
@@ -162,16 +180,38 @@ def decode_sensor_list(raw: bytes) -> list[dict[str, int]]:
     return sensors
 
 
-def test_command_vectors_rebuild_from_pre_cobs_templates(spec, commands):
+def test_documentary_commands_cannot_be_emitted_by_a_generic_consumer(spec, commands):
+    assert "protocol_handler" not in spec, "no anova_nano_cobs handler exists"
+    assert "entities" not in spec, "no generic action or on/off binding is safe"
+    assert set(commands) == {
+        "set_target_temperature",
+        "get_target_temperature",
+        "get_sensors",
+        "set_temperature_unit",
+        "get_temperature_unit",
+        "start_cooking",
+        "stop_cooking",
+        "set_cooking_timer",
+        "get_cooking_timer",
+        "get_firmware_info",
+    }
+    for name, command in commands.items():
+        assert "value" not in command, name
+        assert "template" not in command, name
+        with pytest.raises(LookupError, match="documentary command"):
+            generic_consumer_bytes(command)
+
+
+def test_command_vectors_rebuild_from_documentary_logical_packets(spec, commands, logical_commands):
     vectors = spec["protocol_details"]["command_vectors"]
     assert len(vectors) == 8
     for vector in vectors:
-        command = commands[vector["name"]]
+        name = vector["name"]
         parameters = vector.get("parameters", {})
-        raw = logical_command(command, parameters)
-        assert raw == bytes.fromhex(vector["raw_hex"]), vector["name"]
-        assert frame(raw) == bytes.fromhex(vector["framed_hex"]), vector["name"]
-        assert cobs_decode_framed(frame(raw)) == raw, vector["name"]
+        raw = logical_command(commands[name], logical_commands[name], parameters)
+        assert raw == bytes.fromhex(vector["raw_hex"]), name
+        assert frame(raw) == bytes.fromhex(vector["framed_hex"]), name
+        assert cobs_decode_framed(frame(raw)) == raw, name
 
 
 def test_cobs_matches_independent_standard_examples():
@@ -200,8 +240,12 @@ def test_framed_decoder_rejects_truncation_and_bad_delimiters():
             cobs_decode_framed(value)
 
 
-def test_twenty_byte_chunking_preserves_complete_frame(commands):
-    raw = logical_command(commands["set_target_temperature"], {"setpoint": 655})
+def test_twenty_byte_chunking_preserves_complete_frame(commands, logical_commands):
+    raw = logical_command(
+        commands["set_target_temperature"],
+        logical_commands["set_target_temperature"],
+        {"setpoint": 655},
+    )
     framed = frame(raw)
     chunks = [framed[index : index + 20] for index in range(0, len(framed), 20)]
     assert all(len(chunk) <= 20 for chunk in chunks)
@@ -245,6 +289,19 @@ def test_every_temperature_unit_has_the_documented_scale(spec):
     assert rows[3]["scale"] == 1.0 and "false" in rows[3]["unit"]
 
 
+def test_setpoint_accepts_every_documented_temperature_unit(commands):
+    parameter = commands["set_target_temperature"]["parameters"]["setpoint"]
+    assert parameter["scale"] == 0.1
+    assert parameter["unit_values"] == {
+        0: "C",
+        1: "F",
+        4: "C",
+        5: "F",
+        6: "C",
+        7: "F",
+    }
+
+
 def test_varint_encoding_is_not_fixed_width_little_endian():
     assert encode_varint(0) == b"\x00"
     assert encode_varint(60) == b"\x3c"
@@ -259,28 +316,29 @@ def test_varint_encoding_is_not_fixed_width_little_endian():
         encode_varint(-1)
 
 
-def test_start_and_setpoint_are_advanced_but_stop_is_not(commands):
+def test_start_and_setpoint_are_advanced_but_stop_is_not(commands, logical_commands):
     for name in ("start_cooking", "set_target_temperature"):
         assert commands[name]["advanced"] is True
         assert commands[name]["advanced_reason"]
     assert "advanced" not in commands["stop_cooking"]
-    assert commands["start_cooking"]["value"] == [0, 10]
-    assert commands["stop_cooking"]["value"] == [0, 11]
+    assert logical_commands["start_cooking"]["packet_hex"] == "00 0a"
+    assert logical_commands["stop_cooking"]["packet_hex"] == "00 0b"
     assert commands["set_cooking_timer"]["parameters"]["minutes"]["unit"] == "min"
     assert commands["set_target_temperature"]["parameters"]["setpoint"]["scale"] == 0.1
+    assert "does not prove" in commands["stop_cooking"]["description"]
 
 
-def test_raw_templates_require_the_handler_and_configuration_domain(spec, commands):
-    assert spec["protocol_handler"] == "anova_nano_cobs"
+def test_logical_packets_are_not_final_wire_bytes(spec, commands, logical_commands):
     assert spec["protocol_details"]["transport"]["configuration_domain"] == 0
     for name, command in commands.items():
-        raw = logical_command(command, {"setpoint": 655, "unit": 0, "minutes": 60} if "template" in command else {})
+        parameters = {"setpoint": 655, "unit": 0, "minutes": 60} if "packet_parts" in logical_commands[name] else {}
+        raw = logical_command(command, logical_commands[name], parameters)
         assert raw[0] == 0, name
         assert raw[1] == command["command_id"], name
     for vector in spec["protocol_details"]["command_vectors"]:
-        command = commands[vector["name"]]
-        parameters = vector.get("parameters", {})
-        assert logical_command(command, parameters) != bytes.fromhex(vector["framed_hex"])
+        name = vector["name"]
+        raw = logical_command(commands[name], logical_commands[name], vector.get("parameters", {}))
+        assert raw != bytes.fromhex(vector["framed_hex"])
 
 
 def test_initialization_subscribes_before_any_framed_unit_request(spec):

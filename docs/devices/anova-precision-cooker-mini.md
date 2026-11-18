@@ -77,7 +77,7 @@ is unknown.
 |----------|-------|
 | Pairing required | **Yes**, per the official Mini client |
 | Security mode | Unknown; accepting a prompt does not name the association model |
-| Bonding | Required; capacity and reconnect behavior unknown |
+| Bonding | Unknown; the official pairing requirement does not prove persistent bonding |
 | PIN | None documented |
 | One central / one bond | Unknown / unknown |
 | Confidence | medium for the requirement, low for those details |
@@ -130,7 +130,10 @@ rule is known.
 Temperatures use the current STATE unit, not a unit embedded in each command.
 Start timer values are integer seconds. The reference emits all four start
 payload fields; the example recipe strings are not real cloud identifiers and
-zero-timer semantics are unknown.
+zero-timer semantics are unknown. The spec therefore has **no generic `turn_on`
+binding**: a dedicated start action must gather setpoint, cookable ID, cookable
+type and timer explicitly, with no automatic timer-zero default. Stop remains
+bound as the ordinary recovery action, subject to STATE confirmation.
 
 Two exact source vectors are:
 

@@ -50,9 +50,9 @@ device:
   safety_advisory:
     severity: "warning"
     summary: >-
-      This spec can start and retarget an immersion heater. Starting a cook and
-      changing its setpoint require a deliberate action; stopping remains an
-      ordinary, immediately available command.
+      This spec documents commands that can start and retarget an immersion
+      heater. Start and setpoint require a deliberate action by a dedicated
+      client; stop remains ordinary/non-advanced in the documentary catalogue.
     detail: >-
       Use only a correctly installed cooker with the water and vessel conditions
       required by its own vendor instructions. No authentic Nano manual was
@@ -60,8 +60,10 @@ device:
       or unattended-use claim. Read the temperature unit before every setpoint,
       preserve every sensor's own unit and scale, and never trust the reference
       client's optimistic local cooking flag or an arbitrary response as proof of
-      a state change. Keep stop_cooking available, serialize requests with
-      timeouts, and confirm attended stop behavior before testing a start.
+      a state change. A dedicated client should expose stop_cooking as recovery,
+      serialize requests with timeouts and confirm attended stop behavior before
+      testing a start. No generic entity action or stopped-state assumption is
+      offered here.
   companion_apps:
     - name: "Anova Culinary"
       package: "com.anovaculinary.android"
@@ -149,7 +151,7 @@ device:
             timeout_seconds: 10
           - action: "Subscribe to RX 0e140002-0af1-4582-a242-773e63054c68 first and ASYNC 0e140003-0af1-4582-a242-773e63054c68 second."
             actor: "client"
-          - action: "Send get_temperature_unit through the COBS handler and wait for its IntegerValue response with a timeout."
+          - action: "A dedicated client must COBS-encode get_temperature_unit before sending it and wait for its IntegerValue response with a timeout; this spec provides no generic COBS handler."
             actor: "client"
             expect: "A known UnitType establishes the current temperature unit. Unknown units are an error, not a Fahrenheit fallback. Do not send start_cooking during setup."
           - action: "Serialize subsequent commands one at a time, reassembling RX with the bounded rules in protocol_details.transport and preserving ASYNC bytes for future capture analysis rather than guessing a state object."
@@ -214,10 +216,11 @@ device:
       official client connects and subscribes without demonstrating whether an
       unbonded link can complete every command.
 
-# Command values/templates below are LOGICAL domain/type/proto2 packets, not
-# bytes safe to write directly. This handler applies strict COBS, the delimiter,
-# chunking and RX reassembly. A consumer without it must not send raw templates.
-protocol_handler: "anova_nano_cobs"
+# The Nano command catalogue is documentary only. Logical domain/type/proto2
+# packets live in protocol_details, never in executable value/template fields.
+# No consumer-side anova_nano_cobs handler exists, and no generic entity action
+# is offered. A dedicated client must apply strict COBS, the delimiter, chunking
+# and RX reassembly before any on-wire write.
 
 initialization:
   - characteristic: "0e140002-0af1-4582-a242-773e63054c68"
@@ -229,7 +232,7 @@ initialization:
     when: "connect"
     notes: "Open ASYNC second, as the official client does. Its payload schema is unknown; do not treat alert/message definitions as proof of the envelope."
   - characteristic: "0e140001-0af1-4582-a242-773e63054c68"
-    description: "Send get_temperature_unit through protocol_handler before interpreting or setting temperatures. This is deliberately not a raw initialization write: the logical 00 07 packet must be COBS-framed first."
+    description: "A future dedicated client must send get_temperature_unit through its COBS encoder before interpreting or setting temperatures. This is deliberately not a raw initialization write: the logical 00 07 packet must be COBS-framed first."
     when: "connect"
 
 services:
@@ -237,9 +240,11 @@ services:
     name: "Anova Precision Cooker Nano control"
     notes: >-
       UUIDs come from Anova's Nano source and are corroborated in the unified
-      app bundle. Commands declared on TX are logical packets BEFORE COBS. RX
-      responses use the same outer framing, but their header/payload correlation
-      is not fully established and must be checked per the expected request.
+      app bundle. Commands declared on TX are documentary descriptions of logical
+      packets BEFORE COBS, held in protocol_details.logical_commands rather than
+      executable value/template fields. RX responses use the same outer framing,
+      but their header/payload correlation is not fully established and must be
+      checked per the expected request.
     characteristics:
       - uuid: "0e140001-0af1-4582-a242-773e63054c68"
         name: "TX (host to cooker)"
@@ -252,17 +257,19 @@ services:
           required ATT write mode were not established. Both write modes are
           listed as candidates, not as a claim that every unit exposes both.
           Discover actual properties and follow the reference's default behavior
-          rather than forcing response=False. Apply the COBS handler to every
-          logical command value/template below before writing.
+          rather than forcing response=False. No generic COBS handler exists:
+          these commands are documentary and have no executable byte fields or
+          entity bindings. A future dedicated encoder must frame every logical
+          packet in protocol_details.logical_commands before writing.
         commands:
           set_target_temperature:
             description: >-
               Domain 0, type 3, IntegerValue field 1. The UI parameter is the raw
               signed-scale numerator: raw = truncate-toward-zero(temperature x
-              10), in the current unit. The template is pre-COBS. This declared
-              varint form accepts non-negative raw values only; negative int32
-              encoding and any safe operating range are outside this spec.
-            template: [0x00, 0x03, 0x08, "{setpoint}"]
+              10), in the current unit. The logical packet parts are pre-COBS.
+              This declared varint form accepts non-negative raw values only;
+              negative int32 encoding and any safe operating range are outside
+              this spec.
             command_id: 3
             parameters:
               setpoint:
@@ -274,27 +281,29 @@ services:
                 unit_values:
                   0: "C"
                   1: "F"
-                description: "Non-negative raw tenths of a degree in the current unit (65.5 becomes 655). The handler truncates temperature x 10 toward zero and emits unsigned protobuf varint; no safe maximum is asserted."
+                  4: "C"
+                  5: "F"
+                  6: "C"
+                  7: "F"
+                description: "Non-negative raw tenths of a degree in the current unit (65.5 becomes 655). UnitTypes 0/4/6 map to C and 1/5/7 to F, while setpoint scale remains 0.1. A future dedicated encoder truncates temperature x 10 toward zero and emits unsigned protobuf varint; no safe maximum is asserted."
             advanced: true
             advanced_reason: >-
               Changing the target can heat an active bath, and the same number
               means different temperatures in C and F. Read the current unit and
               confirm physical setup with the owner present; read target/sensors
-              afterwards and keep stop_cooking available for recovery.
+              afterwards and keep stop_cooking documented for recovery by a
+              dedicated client. This command has no generic action binding.
             verification: "reported"
           get_target_temperature:
-            description: "Domain 0, type 4, empty payload, pre-COBS. Expected IntegerValue response is raw tenths of a degree in the current unit; validate its response header instead of assuming every response echoes type 4."
-            value: [0x00, 0x04]
+            description: "Domain 0, type 4, empty payload, pre-COBS. Expected IntegerValue response is raw tenths of a degree in the current unit; validate its response header instead of assuming every response echoes type 4. Documentary only; no executable value or entity binding."
             command_id: 4
             verification: "reported"
           get_sensors:
-            description: "Domain 0, type 5, empty payload, pre-COBS. Expected SensorValueList response; preserve all sensors and apply each entry's own unit scale. It does not establish cooking state."
-            value: [0x00, 0x05]
+            description: "Domain 0, type 5, empty payload, pre-COBS. Expected SensorValueList response; preserve all sensors and apply each entry's own unit scale. It does not establish cooking state. Documentary only; no executable value or entity binding."
             command_id: 5
             verification: "reported"
           set_temperature_unit:
-            description: "Domain 0, type 6, IntegerValue field 1: 0 selects 0.1 C and 1 selects 0.1 F, pre-COBS. Read the unit and all temperatures afterwards; do not interpret any other input as Fahrenheit."
-            template: [0x00, 0x06, 0x08, "{unit}"]
+            description: "Domain 0, type 6, IntegerValue field 1: 0 selects 0.1 C and 1 selects 0.1 F, pre-COBS. Read the unit and all temperatures afterwards; do not interpret any other input as Fahrenheit. Documentary only; no executable template or entity binding."
             command_id: 6
             parameters:
               unit:
@@ -305,13 +314,11 @@ services:
                 description: "UnitType enum value placed in IntegerValue.value. The reference client uses only 0 and 1 for writes."
             verification: "reported"
           get_temperature_unit:
-            description: "Domain 0, type 7, empty payload, pre-COBS. Required before temperature interpretation. Expected IntegerValue carries a UnitType; 0/4/6 mean C and 1/5/7 mean F for display, with scale 10/100/1 respectively."
-            value: [0x00, 0x07]
+            description: "Domain 0, type 7, empty payload, pre-COBS. Required before temperature interpretation. Expected IntegerValue carries a UnitType; 0/4/6 mean C and 1/5/7 mean F for display, with scale 10/100/1 respectively. Documentary only; no executable value or entity binding."
             command_id: 7
             verification: "reported"
           start_cooking:
-            description: "Domain 0, type 10 (0x0a), empty payload, pre-COBS. The reference sets a local flag after any raw response; that is not evidence of actual heating. Confirm state through real responses once a capture establishes them, and keep stop_cooking available."
-            value: [0x00, 0x0a]
+            description: "Domain 0, type 10 (0x0a), empty payload, pre-COBS. The reference sets a local flag after any raw response; that is not evidence of actual heating. Confirm state through real responses once a capture establishes them. No generic turn_on binding exists: advanced confirmation and outcome-unknown semantics require a dedicated UI. Stop remains documented separately, not a success proof."
             command_id: 10
             advanced: true
             advanced_reason: >-
@@ -319,15 +326,14 @@ services:
               timer and physical setup with the owner present. No validated
               cooking-state response exists here, so stop immediately on any
               unexpected result and do not treat a raw acknowledgment as success.
+              There is deliberately no generic action binding for this command.
             verification: "reported"
           stop_cooking:
-            description: "Domain 0, type 11 (0x0b), empty payload, pre-COBS. Ordinary recovery command, deliberately not advanced. A raw response or cleared local flag does not prove the heater stopped."
-            value: [0x00, 0x0b]
+            description: "Domain 0, type 11 (0x0b), empty payload, pre-COBS. Ordinary recovery command, deliberately not advanced and not exposed as a generic turn_off action. A raw response, cleared local flag or write result does not prove the heater stopped."
             command_id: 11
             verification: "reported"
           set_cooking_timer:
-            description: "Domain 0, type 16 (0x10), IntegerValue field 1 containing MINUTES, pre-COBS. The executable method, README and prompts agree on minutes; the source-file top comment saying seconds is wrong. Zero semantics, maximum and running-timer behavior are unknown."
-            template: [0x00, 0x10, 0x08, "{minutes}"]
+            description: "Domain 0, type 16 (0x10), IntegerValue field 1 containing MINUTES, pre-COBS. The executable method, README and prompts agree on minutes; the source-file top comment saying seconds is wrong. Zero semantics, maximum and running-timer behavior are unknown. Documentary only; no executable template or entity binding."
             command_id: 16
             parameters:
               minutes:
@@ -337,13 +343,11 @@ services:
                 description: "Non-negative whole minutes encoded as unsigned protobuf varint. No maximum is asserted; do not assign disabled/unlimited meaning to zero without device evidence."
             verification: "reported"
           get_cooking_timer:
-            description: "Domain 0, type 18 (0x12), empty payload, pre-COBS. Expected IntegerValue is minutes. Validate the response header; stop/cancel timer operations are not part of the demonstrated client subset."
-            value: [0x00, 0x12]
+            description: "Domain 0, type 18 (0x12), empty payload, pre-COBS. Expected IntegerValue is minutes. Validate the response header; stop/cancel timer operations are not part of the demonstrated client subset. Documentary only; no executable value or entity binding."
             command_id: 18
             verification: "reported"
           get_firmware_info:
-            description: "Domain 0, type 26 (0x1a), empty payload, pre-COBS. Expected FirmwareInfo has commit ID, tag ID and uint32 date code. The client's Unix-timestamp interpretation of date code is not hardware-verified."
-            value: [0x00, 0x1a]
+            description: "Domain 0, type 26 (0x1a), empty payload, pre-COBS. Expected FirmwareInfo has commit ID, tag ID and uint32 date code. The client's Unix-timestamp interpretation of date code is not hardware-verified. Documentary only; no executable value or entity binding."
             command_id: 26
             verification: "reported"
       - uuid: "0e140002-0af1-4582-a242-773e63054c68"
@@ -440,9 +444,12 @@ protocol_details:
     configuration_domain: 0
     bulk_transfer_domain: 1
     command_template_boundary: >-
-      Every value/template under TX.commands is the logical packet above and is
-      NOT COBS-encoded yet. protocol_handler anova_nano_cobs must perform the
-      following steps. Writing a raw template directly is a client bug.
+      TX.commands entries are documentary only and deliberately carry no
+      executable value/template fields or entity bindings. The logical packet
+      forms below are not generic-consumer encoding instructions: no
+      anova_nano_cobs handler exists. A future dedicated client must perform the
+      following steps. Writing any logical packet without those steps is a client
+      bug, including start and stop.
     encode_steps:
       - "Build the two-byte domain/type header and append the exact proto2 payload, if any. Normal commands use domain 0."
       - "COBS-encode the entire header-plus-payload using standard consistent-overhead-byte-stuffing code blocks, including long blocks of 254 non-zero bytes."
@@ -457,6 +464,33 @@ protocol_details:
       The published command vectors are exact source-generated offline vectors.
       The response vector below is synthetic and independently transcribed from
       the actual proto2 field definitions, not a cooker capture.
+  logical_commands:
+    description: >-
+      Documentary pre-COBS domain/type/proto2 forms for the commands above.
+      packet_hex and packet_parts are retained for independent tests and future
+      dedicated-client authors; they are deliberately outside the generic BLE
+      command executor. command_vectors below contains the correct final bytes
+      after transport.encode_steps, not bytes to emit from the logical form.
+    set_target_temperature:
+      packet_parts: [0x00, 0x03, 0x08, "{setpoint}"]
+    get_target_temperature:
+      packet_hex: "00 04"
+    get_sensors:
+      packet_hex: "00 05"
+    set_temperature_unit:
+      packet_parts: [0x00, 0x06, 0x08, "{unit}"]
+    get_temperature_unit:
+      packet_hex: "00 07"
+    start_cooking:
+      packet_hex: "00 0a"
+    stop_cooking:
+      packet_hex: "00 0b"
+    set_cooking_timer:
+      packet_parts: [0x00, 0x10, 0x08, "{minutes}"]
+    get_cooking_timer:
+      packet_hex: "00 12"
+    get_firmware_info:
+      packet_hex: "00 1a"
   command_vectors:
     - name: "get_temperature_unit"
       raw_hex: "00 07"
@@ -542,72 +576,11 @@ protocol_details:
     bulk_domain: "Domain 1 page/file/erase/reset operations are excluded, including firmware transfer and system reset."
     state_and_alerts: "ASYNC, DeviceState and alert vectors are schema candidates only; no live state machine is claimed."
 
-entities:
-  - platform: "climate"
-    name: "Nano Sous Vide"
-    icon: "mdi:pot-steam"
-    temp_step: 0.1
-    state_characteristic: "0e140002-0af1-4582-a242-773e63054c68"
-    state_command: "get_sensors"
-    commands:
-      set_temperature: "set_target_temperature"
-      turn_on: "start_cooking"
-      turn_off: "stop_cooking"
-    notes: >-
-      Sensor responses supply readings, not a validated cooking state. Setpoint
-      and start are advanced. Do not expose the reference client's optimistic
-      local cooking flag as HVAC state; unknown ASYNC state must remain unknown.
-  - platform: "sensor"
-    name: "Nano Water Temperature"
-    device_class: "temperature"
-    state_characteristic: "0e140002-0af1-4582-a242-773e63054c68"
-    state_command: "get_sensors"
-    notes: >-
-      Select only sensorType 0 and decode with that entry's UnitType. Preserve
-      all other sensors separately in diagnostics. A missing water sensor or
-      unknown unit is an unknown reading, never zero or default Fahrenheit.
-  - platform: "sensor"
-    name: "Nano Target Temperature"
-    device_class: "temperature"
-    precision: 0.1
-    state_characteristic: "0e140002-0af1-4582-a242-773e63054c68"
-    state_command: "get_target_temperature"
-    notes: "IntegerValue raw x 0.1 in the current unit returned by get_temperature_unit."
-  - platform: "select"
-    name: "Nano Temperature Unit"
-    state_characteristic: "0e140002-0af1-4582-a242-773e63054c68"
-    state_command: "get_temperature_unit"
-    state_mapping:
-      options:
-        "0": "0.1 Celsius"
-        "1": "0.1 Fahrenheit"
-        "4": "0.01 Celsius"
-        "5": "0.01 Fahrenheit"
-        "6": "Celsius"
-        "7": "Fahrenheit"
-    commands:
-      select_option: "set_temperature_unit"
-    notes: >-
-      Reads may report any temperature UnitType; writes offer only 0 and 1.
-      Values 0/4/6 are C and 1/5/7 are F, with different scaling. Unknown values
-      are not coerced to Fahrenheit.
-  - platform: "number"
-    name: "Nano Timer Remaining"
-    unit: "min"
-    min: 0
-    step: 1
-    icon: "mdi:timer-sand"
-    state_characteristic: "0e140002-0af1-4582-a242-773e63054c68"
-    state_command: "get_cooking_timer"
-    commands:
-      set_value: "set_cooking_timer"
-    notes: "Whole minutes from IntegerValue. Timer running/completion semantics and zero behavior are unknown; set_cooking_timer does not start heating."
-  - platform: "sensor"
-    name: "Nano Firmware Version"
-    icon: "mdi:chip"
-    state_characteristic: "0e140002-0af1-4582-a242-773e63054c68"
-    state_command: "get_firmware_info"
-    notes: "Show FirmwareInfo.tagId and commitId. Keep dateCode raw unless its timestamp interpretation is confirmed."
+# No entities block is declared. Without a real COBS handler and a dedicated UI
+# that preserves advanced confirmation and outcome-unknown state, generic
+# consumer bindings could emit malformed writes or invent on/off success. This
+# covers start/stop as well as setpoint, unit, timer and read actions. Stop stays
+# ordinary/non-advanced in the documentary catalogue, never proof of stopped state.
 
 evidence:
   documentation_review: >-

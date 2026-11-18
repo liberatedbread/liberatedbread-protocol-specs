@@ -184,3 +184,45 @@ def test_model_scope_and_unverified_boundaries(spec):
     for subject in ("Notification", "temperature range", "timer zero", "MTU", "reset"):
         assert subject.lower() in unknowns.lower()
     assert not spec.get("initialization"), "no raw clock/start write belongs in generic initialization"
+
+
+def _no_argument_action_is_fillable(entity: dict, role: str, commands: dict) -> bool:
+    """Whether a generic entity action can run without gathering any fields."""
+    command_name = (entity.get("commands") or {}).get(role)
+    if command_name is None:
+        return False
+    parameters = commands[command_name].get("parameters") or {}
+    return all(
+        any(key in (parameter or {}) for key in ("default", "source", "auto"))
+        for parameter in parameters.values()
+    )
+
+
+def test_mini_start_cannot_be_a_no_argument_climate_action(spec, characteristics):
+    commands = {
+        name: command
+        for _, (_, characteristic) in characteristics.items()
+        for name, command in (characteristic.get("commands") or {}).items()
+    }
+    climate = next(entity for entity in spec["entities"] if entity["name"] == "Mini Sous Vide")
+    assert "turn_on" not in climate["commands"]
+    assert climate["commands"]["turn_off"] == "stop_cooking"
+
+    # Guard against reintroducing the binding: all four start fields still need
+    # explicit values, so the no-argument entity-action contract cannot fill them.
+    start = commands["start_cooking"]
+    for field in ("setpoint", "timer", "cookable_id", "cookable_type"):
+        parameter = start["parameters"][field]
+        assert "default" not in parameter, field
+        assert "source" not in parameter, field
+        assert "auto" not in parameter, field
+    probe = {
+        **climate,
+        "commands": {**climate["commands"], "turn_on": "start_cooking"},
+    }
+    assert not _no_argument_action_is_fillable(probe, "turn_on", commands)
+
+
+def test_mini_pairing_requirement_does_not_prove_bonding(spec):
+    assert spec["device"]["pairing"]["required"] is True
+    assert spec["device"]["pairing"]["bonding"] == "unknown"

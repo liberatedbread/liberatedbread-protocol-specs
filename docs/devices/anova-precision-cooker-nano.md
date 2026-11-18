@@ -56,7 +56,8 @@ compatibility. No Nano was driven by this project.
 1. Scan for the service and connect. The 2019 third-party capture used the name
    `Nano`, but the official client matches the service, not that name alone.
 2. Subscribe to RX first and ASYNC second.
-3. Send `get_temperature_unit` through the COBS handler and wait with a timeout.
+3. A dedicated client must COBS-encode `get_temperature_unit` before sending it
+   and wait with a timeout; no generic handler is provided by this spec.
 4. Serialize later commands one at a time with stale-response rejection. ASYNC is
    logged for analysis, not decoded into a guessed state.
 
@@ -114,8 +115,13 @@ searching for an arbitrary protobuf tag inside the body.
 
 ### Command map
 
-All rows use configuration domain `0x00`. Values/templates in the YAML are
-**pre-COBS logical packets**, never bytes to write directly.
+All rows use configuration domain `0x00`. This catalogue is **documentary only**:
+no `anova_nano_cobs` handler exists, and the spec has no executable
+`value`/`template` fields or generic entity bindings. Logical packets live in
+`protocol_details.logical_commands`; the final COBS/on-wire vectors are below.
+A future dedicated client must perform the framing above. Start and stop must
+never be emitted as raw logical packets, and a write result is not proof of an
+on/off state.
 
 | Operation | Type | Payload / response |
 |---|---:|---|
