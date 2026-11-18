@@ -1,0 +1,330 @@
+# BlueMaestro Tempo Disc environmental sensors — passive BLE advertisements
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "BlueMaestro Tempo Disc Environmental Sensors"
+  manufacturer: "Blue Maestro"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No device was connected or configured by this project. Version 13 and 23
+      layouts are checked against redacted public physical-advertisement fixtures;
+      every other version has synthetic app-versus-parser evidence only. Fixture
+      agreement is not calibrated physical-accuracy verification.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
+  type: "environmental-sensor"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Bluetooth-Devices/bluemaestro-ble"
+    notes: >
+      Live readings are broadcast without a connection. The maintained parser and
+      its public fixtures are the source here; connected logger and configuration
+      operations are deliberately outside this spec.
+  variants:
+    - model: "Legacy temperature advertisement (v8; retail model unresolved)"
+      notes: "Reported only; do not invent a retail SKU from the version byte."
+    - model: "Tempo Disc / Disc Mini temperature (v13)"
+      notes: "Temperature and battery; public physical-advertisement evidence."
+    - model: "Legacy Tempo Disc THD (v22)"
+      notes: "Reported library behavior; not dispatched by the comparison app."
+    - model: "Tempo Disc THD / Disc Mini 3-in-1 (v23)"
+      notes: "Temperature, humidity, transmitted dew point and battery; public physical-advertisement evidence."
+    - model: "Tempo Disc THPD / Disc Mini 4-in-1 (v27)"
+      notes: "Temperature, humidity, pressure and battery; synthetic evidence only."
+    - model: "Disc Maxi temperature (v41)"
+      notes: "Little-endian temperature and battery; synthetic evidence only."
+    - model: "Disc Maxi 3-in-1 (v42)"
+      notes: "Temperature, humidity, calculated dew point and battery; synthetic evidence only."
+    - model: "Disc Maxi 4-in-1 (v43)"
+      notes: "Temperature, humidity, pressure, calculated dew point and battery; synthetic evidence only."
+  companion_apps:
+    - name: "bmLogger"
+      package: "com.bluemaestro.bmLogger"
+      role: "primary"
+      platform: "android"
+      notes: >
+        Not required for passive monitoring. App-generated comparison vectors came
+        from 13.8.4 and a historical decoder, not the separately reviewed 13.8.7.
+  notes: >
+    Match company ID 0x0133 and then dispatch on the first manufacturer-payload
+    byte. Versions 10, 100 and 101 are gateway-status formats, not environmental
+    measurements, and are rejected. RSSI belongs to the receiver, not the sensor.
+
+    A packet shorter than its declared measurement layout is ignored in full.
+    Trailing bytes after that layout are tolerated as statistics. Never decode a
+    partial field or reuse the previous value after a truncated packet.
+
+    Only v13 and v23 have redacted physical-packet evidence in the public parser
+    fixtures. Their `confirmed` markers mean exactly that limited interoperability
+    evidence. Every other version is `reported`: synthetic app comparison does not
+    prove hardware behavior or a retail-model mapping.
+  identification:
+    manufacturer_data:
+      company_id: 307
+      company_id_hex: "0x0133"
+      description: >
+        Blue Maestro. The payload after the two company-ID bytes starts with the
+        advertisement version. Company ID alone is insufficient to emit readings:
+        gateway versions 10, 100 and 101 and unknown versions must be ignored.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 307
+            description: >
+              Passive scan. Accept only the eight environmental versions declared in
+              protocol_details.advertisement_formats; reject all others.
+        notes: "No GATT connection, name filter, account or cloud is needed."
+        verification: "reported"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: "The advertisement version selects the decoder, never a guessed retail SKU."
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Fit the battery and listen. There is no provisioning or pairing for the
+      measurement stream. Confidence is high for the public-capture-backed v13/v23
+      subset and medium for the family as a whole because the remaining versions
+      have only synthetic app comparisons.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: "Passively decode company-0x0133 advertisements; never connect for live values."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Install or replace the battery according to the label on the unit."
+            actor: "user"
+          - action: "Scan for manufacturer company ID 0x0133 and read the version byte."
+            actor: "client"
+          - action: "Require the complete version-specific measurement layout, then decode it and ignore any trailing statistics."
+            actor: "client"
+            expect: "Live measurements without a GATT connection; unsupported and truncated packets produce no update."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No reset procedure or state cleared by one is established. Passive
+        monitoring stores no bond, network membership or client credential on the
+        sensor; connected history/configuration reset behavior is out of scope.
+      description: >
+        No manual or capture establishing a reset was reviewed. Do not probe
+        configuration characteristics in search of one.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "There is no network or host binding to move. A replacement controller simply scans."
+      steps:
+        - action: "Scan from the replacement controller and retain the same version-specific decoder."
+          actor: "client"
+          expect: "The next complete advertisement produces a reading; no old controller is needed."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "Live values are unencrypted broadcasts. Any logger or cloud credentials are separate and not covered."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: "Passive monitoring needs no BLE pairing, bonding or application credential."
+
+# The telemetry surface is the advertisement, not logger GATT. This standard
+# placeholder does not claim that logger/configuration characteristics are known.
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access (standard)"
+    notes: "No connection is required for protocol_details.advertisement_formats."
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "Optional generic GATT surface only; not an identification or logger interface."
+
+payload_formats:
+  LegacyTemperature:
+    description: "Versions 8 and 13; offsets include the version byte but exclude company ID; multi-byte values are big-endian."
+    fields:
+      - { index: 0, name: "version", description: "uint8: 0x08 or 0x0d" }
+      - { index: 1, name: "battery_percent", unit: "%", description: "uint8 at offset 1" }
+      - { index: 2, name: "reserved", description: "Four bytes at offsets 2-5; ignored" }
+      - { index: 6, name: "temperature", type: "int16", endianness: "big", scale: 0.1, unit: "C", device_class: "temperature", description: "Signed int16 at offsets 6-7" }
+    parse_rules:
+      - "Require at least 8 bytes. Ignore the entire packet when shorter; accept trailing statistics."
+      - "temperature = int16be(bytes 6-7) / 10 C; battery = byte 1 percent."
+    example: "0d 61 07 08 17 a0 00 60 01 00"
+  LegacyTHD:
+    description: "Versions 22 and 23; big-endian temperature, humidity and transmitted dew point."
+    fields:
+      - { index: 0, name: "version", description: "uint8: 0x16 or 0x17" }
+      - { index: 1, name: "battery_percent", unit: "%", description: "uint8 at offset 1" }
+      - { index: 2, name: "reserved", description: "Four bytes at offsets 2-5; ignored" }
+      - { index: 6, name: "temperature", type: "int16", endianness: "big", scale: 0.1, unit: "C", device_class: "temperature", description: "Signed int16 at offsets 6-7" }
+      - { index: 8, name: "humidity", type: "uint16", endianness: "big", scale: 0.1, unit: "%", device_class: "humidity", description: "uint16 at offsets 8-9" }
+      - { index: 10, name: "dew_point_transmitted", type: "int16", endianness: "big", scale: 0.1, unit: "C", device_class: "temperature", description: "Signed int16 at offsets 10-11; preserve, never recompute" }
+    parse_rules:
+      - "Require at least 12 bytes. Ignore the entire packet when shorter; accept trailing statistics."
+      - "Decode all three environmental values by dividing by 10; dew point is the transmitted field, not the app's calculated value."
+    example: "17 64 07 08 17 70 00 60 02 d9 00 31 01 00"
+  LegacyTHPD:
+    description: "Version 27; big-endian temperature, humidity and unsigned pressure."
+    fields:
+      - { index: 0, name: "version", description: "uint8: 0x1b" }
+      - { index: 1, name: "battery_percent", unit: "%", description: "uint8 at offset 1" }
+      - { index: 2, name: "reserved", description: "Four bytes at offsets 2-5; ignored" }
+      - { index: 6, name: "temperature", type: "int16", endianness: "big", scale: 0.1, unit: "C", device_class: "temperature", description: "Signed int16 at offsets 6-7" }
+      - { index: 8, name: "humidity", type: "uint16", endianness: "big", scale: 0.1, unit: "%", device_class: "humidity", description: "uint16 at offsets 8-9" }
+      - { index: 10, name: "pressure", type: "uint16", endianness: "big", scale: 0.1, unit: "mbar", device_class: "atmospheric_pressure", description: "uint16 at offsets 10-11" }
+    parse_rules:
+      - "Require at least 12 bytes. Ignore the entire packet when shorter; accept trailing statistics."
+      - "Do not add a dew-point field to this parser's v27 surface; the maintained passive parser does not expose one."
+    example: "1b 57 00 00 00 00 00 f2 01 f2 27 94"
+  MaxiTemperature:
+    description: "Version 41; little-endian with 13 reserved bytes."
+    fields:
+      - { index: 0, name: "version", description: "uint8: 0x29" }
+      - { index: 1, name: "battery_percent", unit: "%", description: "uint8 at offset 1" }
+      - { index: 2, name: "reserved", description: "Thirteen bytes at offsets 2-14; ignored" }
+      - { index: 15, name: "temperature", type: "int16", endianness: "little", scale: 0.01, unit: "C", device_class: "temperature", description: "Signed int16 at offsets 15-16" }
+    parse_rules: ["Require at least 17 bytes; reject truncation and tolerate trailing statistics."]
+    example: "29 57 00 00 00 00 00 00 00 00 00 00 00 00 00 32 fb"
+  MaxiTHD:
+    description: "Version 42; little-endian with calculated, not transmitted, dew point."
+    fields:
+      - { index: 0, name: "version", description: "uint8: 0x2a" }
+      - { index: 1, name: "battery_percent", unit: "%", description: "uint8 at offset 1" }
+      - { index: 2, name: "reserved", description: "Thirteen bytes at offsets 2-14; ignored" }
+      - { index: 15, name: "temperature", type: "int16", endianness: "little", scale: 0.01, unit: "C", device_class: "temperature", description: "Signed int16 at offsets 15-16" }
+      - { index: 17, name: "humidity", type: "int16", endianness: "little", scale: 0.01, unit: "%", device_class: "humidity", description: "int16 at offsets 17-18" }
+    parse_rules:
+      - "Require at least 19 bytes; reject truncation and tolerate trailing statistics."
+      - "Calculate dew point only as protocol_details.maxi_dew_point specifies; humidity <= 0 or > 100 yields unknown."
+    example: "2a 57 00 00 00 00 00 00 00 00 00 00 00 00 00 74 09 74 13"
+  MaxiTHPD:
+    description: "Version 43; little-endian with a signed 32-bit pressure field."
+    fields:
+      - { index: 0, name: "version", description: "uint8: 0x2b" }
+      - { index: 1, name: "battery_percent", unit: "%", description: "uint8 at offset 1" }
+      - { index: 2, name: "reserved", description: "Thirteen bytes at offsets 2-14; ignored" }
+      - { index: 15, name: "temperature", type: "int16", endianness: "little", scale: 0.01, unit: "C", device_class: "temperature", description: "Signed int16 at offsets 15-16" }
+      - { index: 17, name: "humidity", type: "int16", endianness: "little", scale: 0.01, unit: "%", device_class: "humidity", description: "int16 at offsets 17-18" }
+      - { index: 19, name: "pressure", type: "int32", endianness: "little", scale: 0.01, unit: "mbar", device_class: "atmospheric_pressure", description: "int32 at offsets 19-22" }
+    parse_rules:
+      - "Require at least 23 bytes; reject truncation and tolerate trailing statistics."
+      - "Calculate dew point using protocol_details.maxi_dew_point; it is absent on the wire."
+    example: "2b 57 00 00 00 00 00 00 00 00 00 00 00 00 00 74 09 74 13 cd 8b 01 00"
+
+protocol_details:
+  advertisement_formats:
+    - { version: 8, payload_format: "LegacyTemperature", minimum_bytes: 8, verification: "reported", evidence: "Synthetic app comparison only; commercial model unresolved" }
+    - { version: 13, payload_format: "LegacyTemperature", minimum_bytes: 8, verification: "confirmed", evidence: "Redacted public physical proxy fixtures; no new capture or calibration here" }
+    - { version: 22, payload_format: "LegacyTHD", minimum_bytes: 12, verification: "reported", evidence: "Library behavior; not dispatched by the comparison app" }
+    - { version: 23, payload_format: "LegacyTHD", minimum_bytes: 12, verification: "confirmed", evidence: "Redacted public physical proxy fixtures; transmitted dew point is authoritative" }
+    - { version: 27, payload_format: "LegacyTHPD", minimum_bytes: 12, verification: "reported", evidence: "Synthetic app comparison only" }
+    - { version: 41, payload_format: "MaxiTemperature", minimum_bytes: 17, verification: "reported", evidence: "Synthetic app comparison only" }
+    - { version: 42, payload_format: "MaxiTHD", minimum_bytes: 19, verification: "reported", evidence: "Synthetic app comparison only" }
+    - { version: 43, payload_format: "MaxiTHPD", minimum_bytes: 23, verification: "reported", evidence: "Synthetic app comparison only" }
+  rejected_versions:
+    - { version: 10, reason: "Gateway status, not environmental telemetry" }
+    - { version: 100, reason: "Gateway status, not environmental telemetry" }
+    - { version: 101, reason: "Gateway status, not environmental telemetry" }
+  maxi_dew_point:
+    applies_to: [42, 43]
+    formula: >
+      alpha = ln(humidity_percent / 100) + 17.67 * temperature_c /
+      (temperature_c + 243.5). dew_point_c = floor(243.5 * alpha /
+      (17.67 - alpha) * 100 + 0.5) / 100.
+    unavailable_when: "humidity_percent <= 0, humidity_percent > 100, or temperature_c == -243.5"
+    notes: "Use natural logarithm and round half up to 0.01 C exactly as written. Never substitute this calculation for the transmitted v22/v23 field."
+  test_vectors:
+    - { name: "v13_public_temperature", version: 13, payload_hex: "0d61070817a000600100", expected: { battery_percent: 97, temperature_c: 9.6 }, evidence: "Redacted public physical fixture", verification: "confirmed" }
+    - { name: "v23_public_transmitted_dew_point", version: 23, payload_hex: "176407081770006002d900310100", expected: { battery_percent: 100, temperature_c: 9.6, humidity_percent: 72.9, dew_point_c: 4.9 }, app_calculated_dew_point_c: 5.0, evidence: "Redacted public physical fixture; demonstrates why transmitted dew point wins", verification: "confirmed" }
+    - { name: "v8_synthetic_negative", version: 8, payload_hex: "085700000000ff85", expected: { battery_percent: 87, temperature_c: -12.3 }, evidence: "Synthetic app comparison", verification: "reported" }
+    - { name: "v22_synthetic", version: 22, payload_hex: "16640e10000200f201f20083", expected: { battery_percent: 100, temperature_c: 24.2, humidity_percent: 49.8, dew_point_c: 13.1 }, evidence: "Synthetic library regression", verification: "reported" }
+    - { name: "v27_synthetic_pressure", version: 27, payload_hex: "1b570000000000f201f22794", expected: { battery_percent: 87, temperature_c: 24.2, humidity_percent: 49.8, pressure_mbar: 1013.2 }, evidence: "Synthetic app comparison", verification: "reported" }
+    - { name: "v41_synthetic_negative", version: 41, payload_hex: "29570000000000000000000000000032fb", expected: { battery_percent: 87, temperature_c: -12.3 }, evidence: "Synthetic app comparison", verification: "reported" }
+    - { name: "v42_synthetic_calculated_dew", version: 42, payload_hex: "2a570000000000000000000000000074097413", expected: { battery_percent: 87, temperature_c: 24.2, humidity_percent: 49.8, dew_point_c: 13.07 }, evidence: "Synthetic app comparison", verification: "reported" }
+    - { name: "v43_synthetic_calculated_dew_pressure", version: 43, payload_hex: "2b570000000000000000000000000074097413cd8b0100", expected: { battery_percent: 87, temperature_c: 24.2, humidity_percent: 49.8, pressure_mbar: 1013.25, dew_point_c: 13.07 }, evidence: "Synthetic app comparison", verification: "reported" }
+  excluded_surfaces:
+    - "Connected logger download, calibration, settings, reset and configuration writes"
+    - "Cloud export and any embedded request credentials"
+    - "Firmware behavior and update operations"
+    - "BlueMaestro Pacif-i, which is a separate health product"
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    notes: "All eight versions; scaling is version-specific in payload_formats."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    notes: "Versions 22, 23, 27, 42 and 43 only."
+  - platform: "sensor"
+    name: "Dew Point"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Versions 22/23 use the transmitted value; 42/43 calculate locally. No v27 dew point is declared."
+  - platform: "sensor"
+    name: "Pressure"
+    device_class: "atmospheric_pressure"
+    unit: "mbar"
+    notes: "Versions 27 and 43 only; their endianness, width and scale differ."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "Direct byte at payload offset 1 in every supported version."
+
+evidence:
+  documentation_review: >
+    Reviewed Bluetooth-Devices/bluemaestro-ble at
+    5a7f010ee1c330b4103c86d4c2e2c30ebc62d444 and its fixture provenance on
+    2026-11-10. The reviewed parser suite passed 80 tests, including all public
+    and synthetic vectors, truncation, signed values and zero-humidity cases.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "Bluetooth-Devices/bluemaestro-ble @ 5a7f010ee1c330b4103c86d4c2e2c30ebc62d444"
+      description: "Passive company/version dispatch, scaling, transmitted-versus-calculated dew point and truncation contract."
+    - type: "public_capture_fixture"
+      artifact: "bluemaestro-ble live-proxy.json"
+      description: "Seven redacted physical devices: four v13 and three v23; names, addresses, timestamps and proxy credentials omitted upstream."
+    - type: "synthetic_fixture"
+      artifact: "bluemaestro-ble bmlogger-13.8.4.json"
+      description: "App-generated synthetic comparisons; not a capture and not generated by the separately reviewed 13.8.7 binary."
+  open_questions: >
+    Exact v8 retail identity and Disc Mini/Maxi SKU mapping, physical confirmation
+    of v8/v22/v27/v41/v42/v43, and every connected logger/configuration behavior.
+
+remaining_unknowns:
+  - "Exact retail model names for v8 and the Mini/Maxi variants must come from labels or primary documents, not version-byte guesses."
+  - "Physical advertisement captures are still needed for v8, v22, v27, v41, v42 and v43."
+  - "Logger history, calibration, configuration, firmware update and reset semantics are deliberately not claimed."
+  - "App comparison should be repeated on 13.8.7 before treating it as byte-identical to the 13.8.4 reference."
+
+helpful_urls:
+  - title: "Bluetooth-Devices/bluemaestro-ble"
+    url: "https://github.com/Bluetooth-Devices/bluemaestro-ble"
+    kind: "implementation"
+    description: "Maintained passive parser and the public/synthetic fixtures used by this spec."
+  - title: "Home Assistant BlueMaestro integration"
+    url: "https://www.home-assistant.io/integrations/bluemaestro/"
+    description: "Local-discovery implementation; its official model list is narrower than the parser's version table."
+  - title: "Blue Maestro"
+    url: "https://bluemaestro.com"
+    description: "Vendor product overview; no model-specific manual was verified for this spec."

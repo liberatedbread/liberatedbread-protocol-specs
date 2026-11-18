@@ -145,6 +145,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Motion, design transfer, uploads, push/lens operations, command keys and
   firmware remain out of scope; ScanNCut and Explore Air 2/Bifrost are not
   claimed, and the existing Skitch PP1 spec is unchanged.
+- **Personal sensors, buttons and shades: five research-backed protocol specs.**
+  Oclean gains exact model-ID Type 0/Type 1/Z1/Air 1 routing, core battery/device/
+  time/session layouts, fragmented `*B#` records and Air 1 direct-read fallback;
+  Type F remains separate. BlueMaestro gains passive v8/v13/v22/v23/v27/v41/v42/
+  v43 environmental decoding, with public-capture evidence limited to v13/v23 and
+  transmitted-versus-calculated dew point preserved. SensorBlue gains the passive
+  20-byte ThermoBeacon record and numeric IDs without retail-model guesses. SOMA
+  gains mandatory V2/V3 selection and position/motor/identify commands, with the
+  V3-read-versus-V2-factory-reset collision called out. Flic 2/Duo gains Public
+  advertising, fragmentation, per-app full/quick pairing, Chaskey-LTS sessions,
+  reliable events and Duo gestures/accelerometer/push-twist. Independent standard-
+  library tests use public sanitized or synthetic vectors, including malformed,
+  fragment and replay cases. Connected logger/history/settings, calibration,
+  schedules, destructive discovery writes and Flic 1/Twist/hub transports are
+  excluded; every new spec is honestly marked untested.
+
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an

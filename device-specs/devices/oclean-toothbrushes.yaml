@@ -1,0 +1,646 @@
+# Oclean BLE smart toothbrushes — model-routed core synchronization
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Oclean BLE Smart Toothbrushes"
+  manufacturer: "Oclean / Zhuhai Ice Bear Smart Home Technology (brand relationship per public integration notice)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      This project did not connect to a brush, collect brushing history or replay
+      commands. Upstream reports tested core sync on Oclean X/OCLEANY3M(Y3MH) and
+      battery/core behavior on Air 1/OCLEANA1; other models are partial or reported
+      only. All session vectors in this spec are invented, not health history.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "personal_care"
+  type: "electric-toothbrush"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/deniskie/ha-oclean-integration"
+    notes: "Core battery, identity, clock and session sync are local BLE; no Oclean account or cloud is needed for that subset."
+  variants:
+    - model: "Oclean X / X hardware variant"
+      notes: "OCLEANY3M/OCLEANY3MH are Type 1. Upstream-tested core; Y3MH also has the alternate XX03 record shape."
+    - model: "Oclean Air 1"
+      notes: "OCLEANA1 and A1a-d use the Air 1 hybrid route and direct-read fallback; A1e/f are Type 1, not the Air 1 fallback route."
+    - model: "Oclean X Pro / X Pro Elite / X Pro 20 / X Ultra families"
+      notes: "Type 1 routing is reported; session details and model-specific records remain partial."
+    - model: "Oclean Z1"
+      notes: "OCLEANY5 uses the Type-Z1 hybrid: ordinary queries on fbb85 and sessions on fbb89."
+    - model: "Oclean SE"
+      notes: "OCLEANY2 is Type 1 only on firmware >=1.0.0.4; older firmware uses unsupported commands."
+    - model: "Type F / Wi-Fi-capable models"
+      notes: "Separate 0000aaaa profile. No model-ID mapping, provisioning, sync or compatibility claim is made."
+  companion_apps:
+    - name: "Oclean Care +"
+      package: "com.yunding.noopsychebrushforeign"
+      role: "primary"
+      platform: "android"
+      notes: "Not required for the documented core local sync. Close it during polling to avoid subscription conflicts and session-buffer races."
+  notes: >
+    READ THE MODEL BEFORE WRITING. Type 0, Type 1, Type Z1, Air 1 legacy and Type F
+    differ in command routing and payload. Select only from the exact Device
+    Information model-ID table in protocol_details.model_routing and the observed
+    GATT properties, never from the retail name alone. Unknown model IDs fail
+    closed here: unlike the upstream discovery convenience fallback, this spec does
+    not send speculative Type 1 commands to them.
+
+    Upstream-tested Oclean X (OCLEANY3M) and Oclean X Pro (OCLEANY3) are Type 1,
+    not Type 0. Type 0 remains a documented reserved route with no confirmed
+    production model mapping in the current open implementation.
+
+    Poll, then disconnect. Do not infer every short active-brushing interval from
+    the 0303 status byte; upstream removed that feature. Programme IDs are numeric
+    cloud-managed identifiers with no offline name mapping. Scores, pressure and
+    coverage are device data, not dental or medical conclusions.
+
+    Type F is a separate Wi-Fi-capable BLE profile, not a command namespace to try
+    after standard sync fails. Wi-Fi provisioning, cloud APIs, firmware update and
+    destructive/settings writes are outside this spec.
+  identification:
+    service_uuids: ["8082caa8-41a6-4021-91c6-56f9b954cc18"]
+    notes: >
+      Match the standard Oclean service only. Type F's 0000aaaa service is declared
+      separately for implementers and is not an auto-discovery claim for this sync
+      spec. Post-connect model-ID selection is mandatory.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids: ["8082caa8-41a6-4021-91c6-56f9b954cc18"]
+        notes: "Connect for Device Information, then stop unless the exact model ID has a declared route."
+        verification: "reported"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: "Retain the exact DIS model ID and route; never substitute a retail-name guess."
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No Wi-Fi provisioning, vendor account or cloud is needed for core local sync.
+      Confidence is medium because X/Air 1 have upstream hardware evidence while
+      other explicit routes and model-specific records are only partially verified.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: "Read DIS model ID, choose an exact route, synchronize clock/subscriptions, issue core queries, then disconnect."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Close Oclean Care + and other clients so notification subscriptions and session retrieval do not race."
+            actor: "user"
+          - action: "Connect and read Model Number, Hardware Revision and Software Revision from Device Information."
+            actor: "client"
+            expect: "An exact model ID present in protocol_details.model_routing; otherwise stop before any command write."
+          - action: "Select the declared route and calibrate time using only that route's command and encoding."
+            actor: "client"
+          - action: "Subscribe on the declared response channels, query status/device/session data, and read standard Battery Level."
+            actor: "client"
+            expect: "Battery, identity and any model-supported session records decode; Air 1 instead uses its direct-read fallback when fbb86 has no CCCD."
+          - action: "Stop subscriptions and disconnect after the poll."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        App-derived standard and Type F reset opcodes exist, but the complete state
+        they clear and a safe owner recovery flow are not established. No factory-
+        reset procedure is offered, and no reset opcode is used for discovery.
+      description: "Brush-head counter reset is also excluded: it is a settings write with unconfirmed read-back, not a factory reset."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Core BLE sync has no network membership or per-app credential to move. Session history can be affected by the official app syncing."
+      steps:
+        - action: "Disconnect the old client and close the vendor app before polling from the new controller."
+          actor: "user"
+        - action: "Read the model ID again and run the same declared sync route."
+          actor: "client"
+          expect: "Core sync resumes without re-pairing; previously synchronized session buffers are not guaranteed to remain."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Clock, programme IDs, session records and brush-head counters; exact model-dependent persistence is not fully known"
+      issued_to_client: []
+      notes: "No pairing key or cloud token is needed for core local sync. Type F Wi-Fi credentials are not covered."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: "The upstream X/Air 1 local clients require no pairing or account. This does not assert ATT permissions on every partial model or Type F."
+
+services:
+  - uuid: "8082caa8-41a6-4021-91c6-56f9b954cc18"
+    name: "Oclean Standard Service"
+    notes: "Type 0/Type 1/Type Z1/Air 1 only. Route by DIS model ID before any write."
+    characteristics:
+      - uuid: "5f78df94-798c-46f5-990a-855b673fbb86"
+        name: "Main Response / Notify"
+        properties: ["read", "notify"]
+        format_match: { offset: 1, value: 0x03, notes: "0303 status only; 0302/0307/0308 and XX03 use payload_formats instead" }
+        format:
+          - { offset: 0, length: 1, name: "response_type_high", type: "uint8", values: { 3: "standard response" } }
+          - { offset: 1, length: 1, name: "response_type_low", type: "uint8", values: { 3: "status" } }
+          - { offset: 2, length: 1, name: "status_raw", type: "uint8", notes: "Do not infer reliable active-brushing state from this polling byte" }
+          - { offset: 3, length: 1, name: "reserved_1", type: "uint8" }
+          - { offset: 4, length: 1, name: "reserved_2", type: "uint8" }
+          - { offset: 5, length: 1, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery" }
+        notes: >
+          0303 status requires at least 6 bytes total; payload byte 3 (absolute
+          offset 5) is battery 0-100. Other status bytes are not a supported live
+          activity surface. On OCLEANA1 this characteristic can lack a CCCD; use
+          protocol_details.air1_read_fallback rather than treating subscription as mandatory.
+      - uuid: "9d84b9a3-000c-49d8-9183-855b673fbb85"
+        name: "Standard Command Write"
+        properties: ["write"]
+        role: "command"
+        commands:
+          type0_calibrate_time:
+            description: "Type 0 / Air 1 legacy only: 020e plus Unix seconds as uint32 big-endian."
+            encoding: "bytes"
+            template: [0x02, 0x0e, "{epoch_seconds}"]
+            parameters:
+              epoch_seconds: { type: "uint32", endianness: "big", min: 0, max: 4294967295, unit: "s" }
+            advanced: true
+            advanced_reason: "Writes the brush clock; send only after exact Type 0/Air 1 model routing."
+            verification: "reported"
+          type1_z1_calibrate_time:
+            description: "Type 1 / Type Z1 only: 0201 plus YY MM DD HH mm ss weekday tzIndex."
+            encoding: "bytes"
+            template: [0x02, 0x01, "{year_since_2000}", "{month}", "{day}", "{hour}", "{minute}", "{second}", "{weekday}", "{timezone_index}"]
+            parameters:
+              year_since_2000: { type: "uint8", min: 0, max: 255 }
+              month: { type: "uint8", min: 1, max: 12 }
+              day: { type: "uint8", min: 1, max: 31 }
+              hour: { type: "uint8", min: 0, max: 23 }
+              minute: { type: "uint8", min: 0, max: 59 }
+              second: { type: "uint8", min: 0, max: 59 }
+              weekday: { type: "uint8", min: 0, max: 6, description: "0 Sunday through 6 Saturday" }
+              timezone_index: { type: "uint8", min: 1, max: 33, description: "1-based index into protocol_details.time_calibration.timezone_offsets_minutes" }
+            advanced: true
+            advanced_reason: "Writes local date/time and timezone; send only after exact Type 1/Z1 model routing."
+            verification: "reported"
+          type0_query_status:
+            description: "Type 0 status 0303."
+            encoding: "bytes"
+            value: [0x03, 0x03]
+            verification: "reported"
+          type0_query_device_info:
+            description: "Type 0 simple device-info acknowledgement 0202."
+            encoding: "bytes"
+            value: [0x02, 0x02]
+            verification: "reported"
+          type0_query_device_settings:
+            description: "Type 0 detailed settings/clock 030201; response starts 0302."
+            encoding: "bytes"
+            value: [0x03, 0x02, 0x01]
+            verification: "reported"
+          type0_query_sessions:
+            description: "Type 0 newest 0308 session page."
+            encoding: "bytes"
+            value: [0x03, 0x08]
+            verification: "reported"
+          type0_next_session_page:
+            description: "Type 0 older-page request 0309; response remains 0308. Stop when no new page arrives."
+            encoding: "bytes"
+            value: [0x03, 0x09]
+            verification: "reported"
+          z1_query_status:
+            description: "Type Z1 status 0303 on the standard write characteristic."
+            encoding: "bytes"
+            value: [0x03, 0x03]
+            verification: "reported"
+          z1_query_device_info:
+            description: "Type Z1 simple device info 0202 on the standard write characteristic."
+            encoding: "bytes"
+            value: [0x02, 0x02]
+            verification: "reported"
+          z1_query_device_settings:
+            description: "Type Z1 detailed settings/clock 030201 on the standard write characteristic."
+            encoding: "bytes"
+            value: [0x03, 0x02, 0x01]
+            verification: "reported"
+          air1_query_status:
+            description: "Air 1 legacy status 0303 on the standard write characteristic."
+            encoding: "bytes"
+            value: [0x03, 0x03]
+            verification: "reported"
+          air1_query_device_info:
+            description: "Air 1 legacy simple device info 0202."
+            encoding: "bytes"
+            value: [0x02, 0x02]
+            verification: "reported"
+          air1_query_device_settings:
+            description: "Air 1 legacy detailed settings/clock 030201; payload byte 0 is a battery fallback."
+            encoding: "bytes"
+            value: [0x03, 0x02, 0x01]
+            verification: "reported"
+      - uuid: "6c290d2e-1c03-aca1-ab48-a9b908bae79e"
+        name: "Type 0 Change Information"
+        properties: ["notify"]
+        notes: "Type 0 only. Do not require this characteristic on Type 1, Z1 or Air 1."
+      - uuid: "5f78df94-798c-46f5-990a-855b673fbb89"
+        name: "Type 1 / Z1 / Air 1 Session Command Write"
+        properties: ["write"]
+        role: "command"
+        notes: "Write-only on tested Type 1 units. Never subscribe to this characteristic."
+        commands:
+          type1_query_status:
+            description: "Type 1 status 0303 on the Type 1 command characteristic."
+            encoding: "bytes"
+            value: [0x03, 0x03]
+            verification: "reported"
+          type1_query_device_info:
+            description: "Type 1 simple device info 0202 on the Type 1 command characteristic."
+            encoding: "bytes"
+            value: [0x02, 0x02]
+            verification: "reported"
+          type1_query_device_settings:
+            description: "Type 1 detailed settings/clock 030201 on the Type 1 command characteristic."
+            encoding: "bytes"
+            value: [0x03, 0x02, 0x01]
+            verification: "reported"
+          type1_query_sessions:
+            description: "Type 1 session request 0307; responses/reassembly use the declared Type 1 channels."
+            encoding: "bytes"
+            value: [0x03, 0x07]
+            verification: "reported"
+          z1_query_sessions:
+            description: "Type Z1 session request 0307, routed here while ordinary Z1 queries use fbb85."
+            encoding: "bytes"
+            value: [0x03, 0x07]
+            verification: "reported"
+          air1_query_sessions:
+            description: "Air 1 legacy session request 0307; response is read from fbb86 when notification is unavailable."
+            encoding: "bytes"
+            value: [0x03, 0x07]
+            verification: "reported"
+      - uuid: "5f78df94-798c-46f5-990a-855b673fbb90"
+        name: "Type 1 / Z1 Session Notifications"
+        properties: ["notify"]
+        notes: "Subscribe on Type 1 and Z1, not Air 1 legacy. Raw continuation chunks follow a 0307 *B# header on the tested X profile."
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+        notes: "Exact case-sensitive model ID used for protocol selection; read before command writes."
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: "OCLEANY2 below 1.0.0.4 is unsupported by this Type 1 route."
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+        format:
+          - { offset: 0, length: 1, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery" }
+        notes: "Standard one-byte percentage, 0-100. Reject values above 100."
+
+  - uuid: "0000aaaa-0000-1000-8000-00805f9b34fb"
+    name: "Oclean Type F Service (separate; no sync claim)"
+    notes: >
+      Type F is not an alternative routing fallback for standard models. The public
+      reference gives F2xx/F3xx/F7xx command namespaces, but no tested Type F sync,
+      model mapping or Wi-Fi provisioning is claimed here. Do not send standard commands.
+    characteristics:
+      - uuid: "0000bbb2-0000-1000-8000-00805f9b34fb"
+        name: "Type F Write (reserved)"
+        properties: ["write"]
+        notes: "No commands are declared; compatibility and payloads are unverified."
+      - uuid: "0000bbb3-0000-1000-8000-00805f9b34fb"
+        name: "Type F Read / Notify (reserved)"
+        properties: ["read", "notify"]
+        notes: "No parser or sync sequence is claimed."
+
+payload_formats:
+  DeviceSettings0302:
+    description: "Response 0302 to 030201. Offsets below are after the two-byte 0302 marker; multibyte counters are big-endian."
+    fields:
+      - { index: 0, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery", description: "0-100; Air 1 fallback" }
+      - { index: 1, name: "network_status", type: "uint8", values: { 0: "offline", 1: "nonzero means online in the app" } }
+      - { index: 2, name: "raise_to_wake", type: "uint8", values: { 0: "off", 1: "on" } }
+      - { index: 3, name: "voice_switch", type: "uint8", values: { 0: "off", 1: "on" } }
+      - { index: 4, name: "bind_state_raw", type: "uint8", description: "Current integration reads bind state here; do not apply the older byte-6 layout" }
+      - { index: 5, name: "mode_number", type: "uint8", description: "Model-family-specific active mode code, not a universal programme enum" }
+      - { index: 6, name: "brush_song_switch", type: "uint8", values: { 0: "off", 1: "on" } }
+      - { index: 7, name: "reserved_7", type: "uint8" }
+      - { index: 8, name: "over_cross_raw", type: "uint8" }
+      - { index: 9, name: "reserved_9_10", type: "bytes", min_length: 2, max_length: 2 }
+      - { index: 11, name: "device_theme", type: "uint8" }
+      - { index: 12, name: "reserved_12_15", type: "bytes", min_length: 4, max_length: 4 }
+      - { index: 16, name: "clock_year_since_2000", type: "uint8" }
+      - { index: 17, name: "clock_month", type: "uint8" }
+      - { index: 18, name: "clock_day", type: "uint8" }
+      - { index: 19, name: "clock_hour", type: "uint8" }
+      - { index: 20, name: "clock_minute", type: "uint8" }
+      - { index: 21, name: "clock_second", type: "uint8" }
+      - { index: 22, name: "reserved_22", type: "uint8" }
+      - { index: 23, name: "area_remind", type: "uint8", values: { 0: "off", 1: "on" } }
+      - { index: 24, name: "timezone_index", type: "uint8", description: "1-based Oclean timezone-table index, not signed quarter-hours" }
+      - { index: 25, name: "head_max_time_raw", type: "uint16", endianness: "big", description: "Unit unresolved" }
+      - { index: 27, name: "head_used_time_raw", type: "uint16", endianness: "big", description: "Unit unresolved" }
+      - { index: 29, name: "head_used_days", type: "uint16", endianness: "big", unit: "d", description: "Calendar days since brush-head reset" }
+      - { index: 31, name: "head_used_times", type: "uint8", unit: "count", description: "Sessions since brush-head reset on the current integration layout" }
+      - { index: 32, name: "reserved_32_33", type: "bytes", min_length: 2, max_length: 2 }
+    parse_rules:
+      - "Require at least 6 payload bytes for battery/bind/mode, at least 22 for clock fields, and at least 32 for brush-head counters; 34 is the complete core layout."
+      - "This is the current integration layout: bind_state at 4 and mode_number at 5. Do not use the older reference's byte-6 bind and byte-8 mode positions."
+      - "The two head time words have no established unit; head_used_days and head_used_times are separate counters."
+    example: "57 00 01 00 02 04 00 00 00 00 00 01 00 00 00 00 1a 01 02 03 04 05 00 01 1b 00 78 00 1f 00 0a 0c 00 00"
+  Session0308Simple:
+    description: "Type 0 simple session: 20-byte payload after 0308, but core fields end at byte 17 and require only 18 bytes."
+    fields:
+      - { index: 0, name: "year_since_2000", type: "uint8", description: "Must yield a plausible calendar year" }
+      - { index: 1, name: "month", type: "uint8" }
+      - { index: 2, name: "day", type: "uint8" }
+      - { index: 3, name: "hour", type: "uint8" }
+      - { index: 4, name: "minute", type: "uint8" }
+      - { index: 5, name: "second", type: "uint8" }
+      - { index: 6, name: "timezone_quarter_hours", type: "int8", scale: 15, unit: "min", description: "Signed quarter-hours from UTC" }
+      - { index: 7, name: "calendar_week_raw", type: "uint8", description: "Calendar week code; indexing convention unresolved" }
+      - { index: 8, name: "programme_id", type: "uint8", description: "Numeric cloud-managed programme ID; no offline name mapping" }
+      - { index: 9, name: "reserved_9_13", type: "bytes", min_length: 5, max_length: 5 }
+      - { index: 14, name: "brush_head_wear_raw", type: "uint16", endianness: "little", description: "Usage indicator; increment mechanism/unit unresolved" }
+      - { index: 16, name: "pressure_raw", type: "uint16", endianness: "little", scale: 0.0033333333333333335, description: "Divide raw by 300; dimensionless, no physical unit established" }
+      - { index: 18, name: "optional_reserved_18_19", type: "bytes", min_length: 0, max_length: 2, description: "Optional on longer notifications; semantics unresolved" }
+    parse_rules:
+      - "Require at least 18 bytes for the core record and reject invalid calendar fields. Bytes 18-19 may be absent."
+      - "UTC epoch = calendar.timegm(device_local_datetime) - timezone_quarter_hours * 15 * 60 seconds."
+      - "Do not confuse little-endian wear/pressure with the big-endian duration fields in extended records."
+    example: "1a 01 02 03 04 05 20 06 53 00 00 00 00 00 07 00 2c 01 00 00"
+  Session0308Extended:
+    description: "Type 0 extended session: payload begins with a big-endian record length >=32 and includes that header in the length."
+    fields:
+      - { index: 0, name: "record_length", type: "uint16", endianness: "big", unit: "bytes", description: "Total payload length including this field; require it before parsing" }
+      - { index: 2, name: "year_since_2000", type: "uint8" }
+      - { index: 3, name: "month", type: "uint8" }
+      - { index: 4, name: "day", type: "uint8" }
+      - { index: 5, name: "hour", type: "uint8" }
+      - { index: 6, name: "minute", type: "uint8" }
+      - { index: 7, name: "second", type: "uint8" }
+      - { index: 8, name: "programme_id", type: "uint8" }
+      - { index: 9, name: "duration_total", type: "uint16", endianness: "big", unit: "s" }
+      - { index: 11, name: "valid_duration", type: "uint16", endianness: "big", unit: "s", description: "Preserve separately; the current extended parser reports duration_total" }
+      - { index: 13, name: "pressure_zones_raw", type: "bytes", min_length: 5, max_length: 5, description: "Five raw intermediate values; no physical unit established" }
+      - { index: 18, name: "reserved_18", type: "uint8" }
+      - { index: 19, name: "timezone_quarter_hours", type: "int8", scale: 15, unit: "min" }
+      - { index: 20, name: "tooth_area_values_raw", type: "bytes", min_length: 8, max_length: 8, description: "Eight raw zone values; zero means no zone activity in the app" }
+      - { index: 28, name: "score", type: "uint8", unit: "%", description: "Device score 0-100; not a health assessment" }
+      - { index: 29, name: "scheme_type_raw", type: "uint8", description: "0-8 observed; meanings unresolved" }
+      - { index: 30, name: "cloud_sync_flag", type: "uint8", values: { 0: "local record", 1: "cloud-synchronized record" } }
+      - { index: 31, name: "overcross_count", type: "uint8", unit: "count" }
+      - { index: 32, name: "pressure_profile", type: "bytes", min_length: 0, description: "Optional trailing bytes through record_length" }
+    parse_rules:
+      - "Detect extended only when payload[0] == 0, payload[1] >= 32 and actual payload length >= record_length. Never fall back to simple after an extended-header match."
+      - "If payload[0] == 0 but the extended conditions fail, return no session rather than year-2000 garbage."
+      - "Apply the same UTC conversion as the simple format using signed byte 19; ignore trailing pressure-profile bytes beyond the fixed 32 for core sync."
+  Type1Inline0307:
+    description: "0307 | *B# | count_u16be | inline record head. Inline count zero with nonzero year carries no score or full enrichment."
+    fields:
+      - { index: 0, name: "magic", description: "ASCII *B# at payload offsets 0-2" }
+      - { index: 3, name: "record_count", type: "uint16", endianness: "big", description: "Zero selects inline-only core on the tested X profile" }
+      - { index: 5, name: "year_since_2000", type: "uint8" }
+      - { index: 6, name: "month", type: "uint8" }
+      - { index: 7, name: "day", type: "uint8" }
+      - { index: 8, name: "hour", type: "uint8" }
+      - { index: 9, name: "minute", type: "uint8" }
+      - { index: 10, name: "second", type: "uint8" }
+      - { index: 11, name: "programme_id", type: "uint8" }
+      - { index: 12, name: "duration_reported", type: "uint16", endianness: "big", unit: "s", description: "Inline duration field; do not infer scheduled/valid preference" }
+      - { index: 14, name: "valid_duration_raw", type: "uint16", endianness: "big", unit: "s", description: "Present on longer inline payloads; not used to replace inline duration here" }
+      - { index: 16, name: "pressure_area_prefix", type: "bytes", min_length: 0, max_length: 2, description: "First two raw pressure-area bytes when present" }
+    parse_rules:
+      - "Require at least 12 payload bytes for timestamp/programme and 14 for duration. Reject month zero and other invalid dates."
+      - "When count is zero, clear score/area/pressure enrichment left from an older session instead of carrying it forward."
+      - "A count greater than zero enters protocol_details.session_reassembly, not this inline parser."
+  Type1Record42:
+    description: "Tested X-family full 42-byte record after *B# reassembly; local datetime fields, big-endian durations."
+    fields:
+      - { index: 0, name: "year_since_2000", type: "uint8", description: "Nonzero in the tested X path; year-zero model variants are outside this parser" }
+      - { index: 1, name: "month", type: "uint8" }
+      - { index: 2, name: "day", type: "uint8" }
+      - { index: 3, name: "hour", type: "uint8" }
+      - { index: 4, name: "minute", type: "uint8" }
+      - { index: 5, name: "second", type: "uint8" }
+      - { index: 6, name: "programme_id", type: "uint8" }
+      - { index: 7, name: "scheduled_duration", type: "uint16", endianness: "big", unit: "s" }
+      - { index: 9, name: "valid_duration", type: "uint16", endianness: "big", unit: "s" }
+      - { index: 11, name: "pressure_ratio", type: "bytes", min_length: 5, max_length: 5, description: "Five pressure-bucket percentages, NOT tooth areas" }
+      - { index: 16, name: "reserved_16", type: "uint8" }
+      - { index: 17, name: "timezone_index", type: "uint8", description: "1-based timezone-table index; not a direct quarter-hour offset" }
+      - { index: 18, name: "reserved_18_22", type: "bytes", min_length: 5, max_length: 5 }
+      - { index: 23, name: "gesture_array_raw", type: "bytes", min_length: 8, max_length: 8, description: "Eight per-zone values; byte 30 also participates in packed fields" }
+      - { index: 30, name: "gesture_code", type: "uint8", mask: 0x0c, description: "Two-bit code after masking bits 2-3 and shifting right two" }
+      - { index: 30, name: "power_array_prefix", type: "bytes", min_length: 3, max_length: 3, description: "Bytes 30-32, each split MSB-first into four 2-bit values" }
+      - { index: 33, name: "score", type: "uint8", unit: "%", description: "0-100; 0 and 0xff mean unavailable" }
+      - { index: 34, name: "point_raw", type: "uint8", description: "Rating point; not exposed by the current integration" }
+      - { index: 35, name: "reserved_35_41", type: "bytes", min_length: 7, max_length: 7 }
+    parse_rules:
+      - "Require exactly one complete 42-byte record and a valid nonzero calendar year. Do not infer a year for year-zero model variants here."
+      - "actual_duration = valid_duration when valid > 0 and (scheduled == 0 or valid <= scheduled); otherwise scheduled when scheduled > 0; otherwise unknown."
+      - "Preserve local date/time and timezone_index separately; do not apply the 0308 quarter-hour formula to this record."
+      - "Bytes 11-15 are pressure ratios. Per-zone gesture values are at 23-30; neither is a dental-health conclusion."
+  XX03Session:
+    description: "OCLEANY3MH alternate 20-byte notification with score in byte 0 instead of a fixed response marker."
+    fields:
+      - { index: 0, name: "score", type: "uint8", unit: "%", description: "Emit only 1-100; 0 and values >100 unavailable" }
+      - { index: 1, name: "fingerprint_03_03", type: "bytes", min_length: 2, max_length: 2, description: "Must be 03 03" }
+      - { index: 3, name: "session_age_raw", type: "uint8" }
+      - { index: 4, name: "separator_ff", type: "bytes", min_length: 5, max_length: 5, description: "Must be five 0xff bytes" }
+      - { index: 9, name: "year_since_2000", type: "uint8" }
+      - { index: 10, name: "month", type: "uint8" }
+      - { index: 11, name: "day", type: "uint8" }
+      - { index: 12, name: "hour", type: "uint8" }
+      - { index: 13, name: "minute", type: "uint8" }
+      - { index: 14, name: "second", type: "uint8" }
+      - { index: 15, name: "programme_id", type: "uint8" }
+      - { index: 16, name: "duration_reported", type: "uint16", endianness: "big", unit: "s", description: "Use this duration; do not apply the verified 42-byte valid-duration preference" }
+      - { index: 18, name: "trailing_raw", type: "bytes", min_length: 2, max_length: 2, description: "Field order unconfirmed; do not substitute as valid duration" }
+    parse_rules:
+      - "Require at least 20 bytes, data[1:3] == 03 03 and data[4:9] == ff ff ff ff ff; otherwise this is not XX03."
+      - "Validate the calendar and keep device-local time because this layout supplies no direct signed timezone offset."
+
+protocol_details:
+  model_routing:
+    selection: "Exact case-sensitive DIS Model Number match, checked before every command write; unknown means stop"
+    type0:
+      model_ids: []
+      status: "Reserved in the current implementation; no confirmed production model IDs. OCLEANY3M and OCLEANY3 are NOT Type 0."
+      time_command: "020e + uint32be epoch on fbb85"
+      notifications: ["fbb86", "change-info 6c290d2e"]
+      queries:
+        - { operation: "status", write_characteristic: "fbb85", bytes_hex: "0303", response: "0303" }
+        - { operation: "device_info", write_characteristic: "fbb85", bytes_hex: "0202", response: "0202 acknowledgement" }
+        - { operation: "device_settings", write_characteristic: "fbb85", bytes_hex: "030201", response: "0302" }
+        - { operation: "sessions", write_characteristic: "fbb85", bytes_hex: "0308", response: "0308 simple/extended" }
+        - { operation: "older_sessions", write_characteristic: "fbb85", bytes_hex: "0309", response: "0308; stop on no new page" }
+    type1:
+      model_ids: ["OCLEANY3M", "OCLEANY3MH", "OCLEANY3MT", "OCLEANY3MTN", "OCLEANY3MN", "OCLEANY3N", "OCLEANY3MD", "OCLEANY3D", "OCLEANY3D1", "OCLEANY3D2", "OCLEANR3L", "OCLEANY3P", "OCLEANY3PB", "OCLEANY3PD", "OCLEANY3X", "OCLEANX20", "OCLEANV1a", "OCLEANV20", "OCLEANY3", "OCLEANY3S", "OCLEANY3T", "OCLEANA1e", "OCLEANA1f", "OCLEANY2"]
+      time_command: "0201 + 8-byte local datetime on fbb85"
+      notifications: ["fbb86", "fbb90"]
+      queries:
+        - { operation: "status", write_characteristic: "fbb89", bytes_hex: "0303", response: "fbb86 0303" }
+        - { operation: "device_info", write_characteristic: "fbb89", bytes_hex: "0202", response: "fbb86 0202 acknowledgement" }
+        - { operation: "device_settings", write_characteristic: "fbb89", bytes_hex: "030201", response: "fbb86 0302" }
+        - { operation: "sessions", write_characteristic: "fbb89", bytes_hex: "0307", response: "fbb90 *B# stream on the tested X path" }
+      constraints: "OCLEANY2 requires firmware >=1.0.0.4. fbb89 is write-only; no 0309 pagination."
+    type_z1:
+      model_ids: ["OCLEANY5"]
+      time_command: "0201 + 8-byte local datetime on fbb85"
+      notifications: ["fbb86", "fbb90"]
+      queries:
+        - { operation: "status", write_characteristic: "fbb85", bytes_hex: "0303", response: "fbb86 0303" }
+        - { operation: "device_info", write_characteristic: "fbb85", bytes_hex: "0202", response: "fbb86 0202 acknowledgement" }
+        - { operation: "device_settings", write_characteristic: "fbb85", bytes_hex: "030201", response: "fbb86 0302" }
+        - { operation: "sessions", write_characteristic: "fbb89", bytes_hex: "0307", response: "fbb90 session data" }
+    air1_legacy:
+      model_ids: ["OCLEANA1", "OCLEANA1a", "OCLEANA1b", "OCLEANA1c", "OCLEANA1d"]
+      time_command: "020e + uint32be epoch on fbb85"
+      notifications: ["fbb86 when a CCCD exists; otherwise direct reads"]
+      queries:
+        - { operation: "status", write_characteristic: "fbb85", bytes_hex: "0303", response: "fbb86 read/notify 0303" }
+        - { operation: "device_info", write_characteristic: "fbb85", bytes_hex: "0202", response: "fbb86 0202 acknowledgement" }
+        - { operation: "device_settings", write_characteristic: "fbb85", bytes_hex: "030201", response: "fbb86 0302; byte 0 battery fallback" }
+        - { operation: "sessions", write_characteristic: "fbb89", bytes_hex: "0307", response: "fbb86 direct-read 0307/*B# data" }
+      constraints: "Do not subscribe to fbb89 or require fbb90. A1e/A1f are Type 1 instead."
+    type_f:
+      model_ids: []
+      service: "0000aaaa-0000-1000-8000-00805f9b34fb"
+      write: "0000bbb2-0000-1000-8000-00805f9b34fb"
+      notify: "0000bbb3-0000-1000-8000-00805f9b34fb"
+      command_namespaces: ["F2xx", "F3xx", "F7xx"]
+      support: "Separate and unverified: no model mapping, sync commands, Wi-Fi provisioning or fallback claim"
+    unknown_model_policy: "Return unsupported and log the exact ID for research. Do not default to Type 1, Type 0 or Type F."
+  time_calibration:
+    type0_payload: "uint32be Unix seconds"
+    type1_payload: "[year-2000, month, day, hour, minute, second, weekday (0 Sunday..6 Saturday), timezone_index]"
+    timezone_index_rule: "Choose the 1-based index of the nearest offset in this table; on an exact tie the first (lower-offset) entry wins."
+    timezone_offsets_minutes: [-720, -660, -600, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120, 180, 210, 240, 270, 300, 330, 345, 360, 390, 420, 480, 540, 570, 600, 660, 720, 780]
+    examples:
+      - { route: "Type 0 / Air 1", epoch_seconds: 1893456000, command_hex: "020e70dbd880" }
+      - { route: "Type 1 / Z1", local_datetime: "2030-01-04 03:04:05 (Friday)", utc_offset_minutes: 480, weekday: 5, timezone_index: 27, command_hex: "02011e0104030405051b" }
+  session_reassembly:
+    applies_to: "Tested X-family Type 1 42-byte profile; other record widths are not claimed"
+    header: "0307 | 2a 42 23 (*B#) | record_count_u16be | inline_record_bytes"
+    record_bytes: 42
+    record_length_field_present: false
+    continuation: "Append raw continuation bytes to inline bytes until record_count * 42 bytes are buffered. Continuations have no header and may begin with any value, including a response marker."
+    completion: "Parse each complete 42-byte record once, discard any surplus only after the expected records are handled, and reset state before another header."
+    truncation: "At end-of-wait, complete records may be flushed; a final partial record is dropped. Never pad it or interpret its prefix as a record."
+    duplicates: "A strictly newer timestamp replaces current session state. Equal timestamps do not overwrite it and are appended only once to history."
+    stale_enrichment: "Inline count zero means no score/area/pressure enrichment; clear those fields rather than retaining an earlier record's values."
+  sync_lifecycle:
+    post_connect_delay_seconds: 2
+    session_notification_wait_seconds: 8
+    pagination_timeout_seconds: 2
+    maximum_poll_seconds: 60
+    order:
+      - "Calibrate using the route's time command"
+      - "Read DIS model/hardware/software and reconfirm route"
+      - "Subscribe on declared response channels and standard battery when supported"
+      - "Run route queries, then Air 1 direct-read fallback if required"
+      - "Paginate only Type 0, waiting for no new page"
+      - "Read standard battery unless already notified, then disconnect"
+  air1_read_fallback:
+    trigger: "fbb86 has no CCCD or subscription fails on OCLEANA1/A1a-d"
+    initial_delay_seconds: 1.5
+    attempts: 6
+    interval_seconds: 1
+    operation: "Read fbb86 directly after route queries and feed each nonempty value through the normal 0303/0302/0307 parser"
+    battery_fallback: "0302 payload byte 0 when the 0303 or standard battery value is unavailable/stale"
+    failure_policy: "Do not require a CCCD, do not subscribe to fbb89, and do not pretend an empty read is a session."
+  test_vectors:
+    - { name: "synthetic_status_battery", kind: "status", notification_hex: "0303020e461b0100", expected: { battery_percent: 27 }, evidence: "Invented layout vector, not a capture" }
+    - { name: "synthetic_device_settings", kind: "device_settings", notification_hex: "0302570001000204000000000001000000001a010203040500011b0078001f000a0c0000", expected: { battery_percent: 87, bind_state_raw: 2, mode_number: 4, clock_local: "2026-01-02 03:04:05", timezone_index: 27, head_max_time_raw: 120, head_used_time_raw: 31, head_used_days: 10, head_used_times: 12 }, evidence: "Invented layout vector, not a capture" }
+    - { name: "synthetic_simple_session", kind: "session_0308_simple", notification_hex: "03081a0102030405200653000000000007002c010000", expected: { local_datetime: "2026-01-02 03:04:05", timezone_quarter_hours: 32, utc_epoch: 1767294245, programme_id: 83, brush_head_wear_raw: 7, pressure_raw: 300 }, evidence: "Invented session, not health history" }
+    - { name: "synthetic_extended_session", kind: "session_0308_extended", notification_hex: "030800201a01020304055300b4001f0a141e28320020010203040506070858020003", expected: { record_length: 32, duration_total: 180, valid_duration: 31, score: 88, scheme_type_raw: 2, overcross_count: 3, utc_epoch: 1767294245 }, evidence: "Invented session, not health history" }
+    - { name: "synthetic_type1_record_42", kind: "type1_record_42", record_hex: "1a010203040500007800085505040303001b0000000000010203040506070000005b0100000000000000", expected: { scheduled_duration: 120, valid_duration: 8, actual_duration: 8, pressure_ratio: [85, 5, 4, 3, 3], timezone_index: 27, score: 91, point_raw: 1 }, evidence: "Invented session split into synthetic fragments by the independent test" }
+    - { name: "synthetic_type1_inline_empty_enrichment", kind: "type1_inline", notification_hex: "03072a422300001a010203040500007800000000", expected: { record_count: 0, duration_reported: 120, programme_id: 0, score: null }, evidence: "Invented inline session, not health history" }
+    - { name: "synthetic_xx03_session", kind: "xx03", notification_hex: "58030300ffffffffff1a01020304055300b4001f", expected: { score: 88, programme_id: 83, duration_reported: 180, local_datetime: "2026-01-02 03:04:05" }, evidence: "Invented Y3MH-shape session, not a capture" }
+  excluded_operations:
+    - "Factory-reset and brush-head reset writes; neither is used for discovery or safe sync"
+    - "Settings, programme upload, calibration, OTA and Type F Wi-Fi provisioning"
+    - "Cloud programme-name mapping, account APIs and concurrent official-app synchronization"
+    - "Active-brushing detection from polling and any medical/dental-health conclusion"
+    - "Real brushing history in test vectors; every session vector here is invented"
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping: { value: "battery_percent" }
+    notes: "Prefer the standard read; 0303 byte 3 and 0302 byte 0 are route-specific fallbacks."
+  - platform: "sensor"
+    name: "Last Brush Duration"
+    device_class: "duration"
+    unit: "s"
+    notes: "Model-specific layout in payload_formats; 42-byte records prefer plausible valid duration, inline/XX03 use their reported duration."
+  - platform: "sensor"
+    name: "Last Brush Score"
+    unit: "%"
+    notes: "Only when the selected record carries 1-100; inline count zero and 0/0xff are unavailable. Not a health assessment."
+  - platform: "sensor"
+    name: "Brush Head Usage"
+    unit: "count"
+    notes: "0302 head_used_times where available; 0308 simple brush_head_wear_raw has unresolved increment semantics and is not converted."
+
+evidence:
+  documentation_review: >
+    Reviewed deniskie/ha-oclean-integration at
+    8b831484c92a02372ee88b1828148ab9552d1007 and current Oclean Care + 4.0.8
+    static evidence on 2026-11-10. The focused upstream protocol/parser/real-data
+    set passed 372 assertions. Its broader Home Assistant suite also attempted
+    45 passes with 848 setup errors from event-loop fixtures; that is not described
+    as a full-suite pass and is outside this spec's independent tests.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "deniskie/ha-oclean-integration @ 8b831484c92a02372ee88b1828148ab9552d1007"
+      description: "Current model routing, X/Air 1 core sync, parsers, Air 1 direct-read fallback and model-support matrix."
+    - type: "static_analysis"
+      artifact: "Oclean Care + 4.0.8 (118)"
+      description: "Corroborated GATT and device-type facts. No app source, identifiers, accounts or private session data are included."
+  open_questions: >
+    Type 0 production mapping, X Pro/Elite/Z1 and year-zero record variants,
+    Type F sync/provisioning, 0309 completion semantics, programme-name mapping,
+    brush-head wear units, settings ACKs and every unverified write remain open.
+
+remaining_unknowns:
+  - "No confirmed production Type 0 model-ID mapping exists in the current implementation; do not revive the outdated OCLEANY3 Type 0 route."
+  - "X Pro/Elite/Z1 and year-zero/40-byte model-specific record paths need owner-controlled read-only captures before claiming complete sync."
+  - "Type F models, Wi-Fi provisioning, cloud behavior and OTA are separate unverified surfaces."
+  - "Pagination termination, schemeType labels, programme names, pressure units and brush-head wear units are not fully established."
+  - "The 0303 byte is not a reliable active-brushing sensor, and official-app syncing can clear or race session buffers."
+  - "No model-specific official manual was verified; no manual link is included."
+
+helpful_urls:
+  - title: "deniskie/ha-oclean-integration"
+    url: "https://github.com/deniskie/ha-oclean-integration"
+    kind: "implementation"
+    description: "Current local client, model-support matrix, protocol reference and hardware-derived parser tests."
+  - title: "Oclean Home Assistant community discussion"
+    url: "https://community.home-assistant.io/t/custom-integration-oclean-toothbrush/989627"
+    kind: "forum"
+    description: "Deployment reports and model-specific limitations for the public integration."
+  - title: "Oclean Care + on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.yunding.noopsychebrushforeign"
+    description: "Current companion listing; not required for the documented core local sync."

@@ -35,6 +35,9 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     [Bangle.js 1 and 2](../devices/banglejs-watches.md), and
     [YUNMAI Mini / SE / X / Mini 2S](../devices/yunmai-scales.md). All are
     source-derived and untested, with their remaining gaps kept per spec.
+    From the November live-directory gap scan, now covered instead of remaining
+    candidates: Oclean toothbrushes, BlueMaestro Tempo Disc, SensorBlue
+    ThermoBeacon, SOMA Smart Shades and Flic 2/Duo.
 
 This page answers one question: **which locally-controllable devices does the
 catalogue still lack, and which of them should be written up next?** It follows
