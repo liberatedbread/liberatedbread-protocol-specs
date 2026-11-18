@@ -80,44 +80,39 @@ Three hops, any of the first two can drive the third:
 | UUID | Name | Description |
 |------|------|-------------|
 | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | Nordic UART (open bridge firmware) | ASCII command channel |
-| `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | NUS RX | Write commands (write / write-no-response) |
+| `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | NUS RX | **Write-with-response only** in the open-firmware declaration |
 | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | NUS TX | Notifications |
-| `49550001-aad5-59bd-934c-023d807e01d5` | Flowtoys Connect service (production) | Vendor service used by com.flowtoys.app; characteristic roles unverified |
+| `49550001-aad5-59bd-934c-023d807e01d5` | Flowtoys Connect service (production) | Vendor service; characteristic roles unverified |
+
+The companion app has separately been observed using no-response writes. That
+is client behavior, not evidence for a second RX property bit.
 
 ### Commands
 
-Commands are ASCII strings, decimal comma-separated fields, terminated by
-`\n` or `0xFF`. Capital letters target public groups 1–5; lowercase target
-private (learned) groups; group 0 = all groups.
+Commands are ASCII strings with decimal comma-separated fields, terminated by
+`\n` or `0xFF`. In the reviewed open-firmware revision, the public-group
+transmit loop is disabled: **only learned groups are emitted**. Do not infer
+production public-group behavior from this source revision.
 
 #### Command: set pattern
 
 `p<group>,<page>,<mode>,<actives>,<hue>,<sat>,<brightness>,<speed>,<density>,<lfo1>,<lfo2>,<lfo3>,<lfo4>`
-(`P` for public groups).
 
 | Field | Description |
 |-------|-------------|
-| group | Group ID (0 = all) |
-| page, mode | Effect selector (modes are numbered within pages; mode metadata ships in the app as base_modes.json) |
+| group | Learned group ID (0 = all learned groups) |
+| page, mode | Effect selector (modes are numbered within pages) |
 | actives | Bitmask: bit0 LFO, bit1 hue, bit2 sat, bit3 brightness, bit4 speed, bit5 density |
 | hue, sat, brightness, speed, density, lfo1–4 | uint8 0–255 |
 
-Solid color: page 2, mode 7, actives 255, with HSV hue/sat/brightness.
+Solid colour: page 2, mode 7, actives 255, with HSV hue/sat/brightness.
 
-#### Command: wake / power off
+#### Command: wake / power off / sync / configuration
 
-`w<group>` / `W<group>` wake; `z<group>` / `Z<group>` power off.
-
-#### Command: sync
-
-`s<timeout_seconds>` starts RF sync (learn private groups); `S` stops;
-`a` forgets all private groups.
-
-#### Command: configuration
-
-`n<ssid>,<password>` sets WiFi credentials; `g<name>,<mode>` sets bridge
-name and radio mode (0 = WiFi, 1 = BLE, 2 = both; bridge reboots);
-`r` restarts the bridge.
+Lowercase `w<group>` wakes and `z<group>` powers off a learned group.
+`s<timeout_seconds>` starts RF sync, `S` stops, and `a` forgets learned groups.
+`n<ssid>,<password>` sets WiFi credentials; `g<name>,<mode>` sets bridge name
+and radio mode; `r` restarts the bridge.
 
 #### OSC equivalents (UDP)
 
@@ -125,9 +120,11 @@ name and radio mode (0 = WiFi, 1 = BLE, 2 = both; bridge reboots);
 `/stopSync`, `/resetSync`, `/pattern` (14 ints: group, isPublic, page, mode,
 actives, hue, sat, brightness, speed, density, lfo1–4), `/wifiSettings`
 (2 strings), `/globalConfig` (string name, int mode), `/play`, `/stop`,
-`/pause`, `/resume`, `/seek` (float), `/rgb/brightness` (float).
+`/pause`, `/resume`, `/seek` (float), `/rgb/brightness` (float). The OSC
+signature retains its `isPublic` field; the open-firmware public-group emission
+limitation above still applies.
 
-#### RF sync packet (bridge → props, 20 bytes, packed)
+#### RF sync packet (bridge → props, 21 bytes, packed)
 
 | Offset | Length | Description |
 |--------|--------|-------------|
@@ -138,7 +135,24 @@ actives, hue, sat, brightness, speed, density, lfo1–4), `/wifiSettings`
 | 15 | 1 | active flags (bit per parameter: lfo/hue/sat/val/speed/density) |
 | 16 | 2 | reserved |
 | 18 | 1 | page |
-| 19 | 1 | mode + command bit flags packed in the final byte region (adjust, wakeup, poweroff, force_reload, save, delete, alternate) |
+| 19 | 1 | mode |
+| 20 | 1 | separate command flags (adjust, wakeup, poweroff, force_reload, save, delete, alternate) |
+
+### Wired USB firmware update (reported)
+
+The published desktop updater accepts a `.fwimg` ZIP containing exactly `meta`
+(a JSON object with target/version metadata) and `data` (raw firmware). USB HID
+uses 64-byte reports, with a zero report-ID byte prepended on host writes and
+little-endian fields. `Update` (`0x01`) starts the transfer; `Data` (`0x80`)
+carries up to 60 firmware bytes after its four-byte command word. Pad the image
+to a multiple of 60 bytes and follow the device's acknowledged write offset.
+
+For Vision/Club, an **advanced** app-mode `AppReset(Bootloader)` request
+(command `0xFF`, subject u32le `1`) enters the bootloader. Capsule uses the
+vendor's manual button sequence. The product string contains `bootloader` in
+update mode. The complete interrupted-update recovery contract remains
+**unknown**; do not assume a flash can always be resumed. See the open-source
+updater's `brain/FIRMWARE-FORMAT.md` and `brain/HID-PROTOCOL.md`.
 
 ## Tools Used
 

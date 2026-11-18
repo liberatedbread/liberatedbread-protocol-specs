@@ -27,7 +27,7 @@ glove sets) and is not needed for control.
 | Property | Value |
 |----------|-------|
 | Model | Spectra Smart Hub ("PhotoHub") + Spectra gloves |
-| Chipset | Qualcomm CSR101x family (identified via its CSR OTA service UUIDs) |
+| Chipset | Possible Qualcomm CSR101x family (medium-confidence UUID attribution, not proven) |
 | Radio | BLE (phone↔hub); proprietary 2.4 GHz (hub↔gloves) |
 | Power | Battery-powered hub (vendor recovery advice: power off or remove batteries) |
 
@@ -36,18 +36,23 @@ glove sets) and is not needed for control.
 | Property | Value |
 |----------|-------|
 | Setup required | No |
-| Method | `ble_direct` |
-| Setup AP / advertised name | Manufacturer data contains ASCII `LEHUB1` + pairing-mode byte; name is user-renamable and display-only |
+| Method | `ble_direct` with **manual device selection** |
+| Setup AP / advertised name | Raw manufacturer layout unresolved; name is user-renamable and display-only |
 | Passphrase protection | not_applicable |
 | Confidence | medium (static analysis of the delisted app; no live capture yet) |
 
-Power the hub and scan. The hub announces itself in **manufacturer-specific
-advertisement data**, not its name: the company-ID-plus-payload bytes spell the
-ASCII string `LEHUB1`, and the final payload byte is a pairing-mode flag — `0x01`
-means the hub is in pairing mode and will accept a connection. There is no PIN,
-no bonding and no account. Connect and write commands directly; send the
-exit-pairing-mode command (opcode `0x09`) when finished, mirroring the original
-app.
+**Do not auto-match the old `0x454C` company ID or scan for raw ASCII
+`LEHUB1`.** The app formats the little-endian company integer and payload as
+hex before comparing with `4c4548554231`; that does not make the raw bytes a
+contiguous ASCII marker. The direct-reading candidate is company `0x4c45` plus
+payload `HUB1`. Company `0x004c` plus `EHUB1` can also satisfy an unpadded
+formatted-hex comparison, so the raw layout remains unresolved. Neither raw
+form contains contiguous `LEHUB1`.
+
+Have the user select and confirm the hub manually. The trailing payload byte
+`0x01` is the candidate pairing-active flag, pending a real AD capture. There
+is no PIN, bonding or account. Connect and write commands directly; send the
+exit-pairing-mode command (opcode `0x09`) when finished, mirroring the app.
 
 **Factory reset**: there is no documented reset procedure and no credential state
 to clear — the hub holds no network configuration and no pairing bonds. The
@@ -120,8 +125,9 @@ recovered from the community.
 
 ## Open Questions
 
-- Exact company-ID/payload split of the `LEHUB1` manufacturer data (one real
-  advertisement capture settles it).
+- Raw manufacturer AD structure: company `0x4c45` + `HUB1` versus the
+  unresolved `0x004c` + `EHUB1` alternative. Automatic discovery stays disabled
+  until a capture chooses a real layout.
 - The built-in flashing-pattern code table (lives in the app's bundled database;
   not yet extracted).
 - Battery characteristic encoding (percent vs voltage).
@@ -129,6 +135,8 @@ recovered from the community.
   mode writes, and whether the command characteristic notifies.
 - `changeDisplayMode` / `changeRunMode` operand semantics beyond the values the
   app always sends.
+- CSR chip attribution and OTA image/signature behavior; no local firmware was
+  available to establish either.
 
 ## Tools Used
 

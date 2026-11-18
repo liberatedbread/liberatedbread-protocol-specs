@@ -131,14 +131,23 @@ opcode bytes are not yet extracted** — the command entries in the machine-read
 spec are symbolic placeholders. See `device-specs/devices/ignis-pixel.yaml` for the
 full vocabulary.
 
+## Measured `.fw` container
+
+All 133 reviewed firmware images are exactly **262,144 bytes of valid base64**
+and decode to exactly **196,608 bytes**. None of the decoded payloads has a
+plausible ARM vector prefix, so the decoded bytes cannot be treated as a raw
+flash image. The further transform is unresolved. High entropy alone does not
+prove encryption, signature enforcement, or any particular transform; numeric
+opcodes, bulk layouts and NUS chunking also remain open.
+
 ## Open Questions
 
 - **Numeric opcode map** — the one blocker for a working third-party client. The
   constants sit next to the command-name strings in the app's native code; a scripted
   extraction pass is planned.
 - NUS write chunking / MTU behaviour for large image and firmware transfers.
-- Exact image-block and extended-command field layouts; whether `.fw` files are
-  obfuscated.
+- Exact image-block and extended-command field layouts.
+- The further transform after base64-decoding a `.fw` container.
 - On-air protocol of the nRF24 sync link.
 - Advertised BLE local name (never captured — record it on first hardware contact).
 

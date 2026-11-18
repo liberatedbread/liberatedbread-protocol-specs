@@ -24,12 +24,16 @@ Cheap programmable 11x44 monochrome LED dot-matrix badges sold under many brands
 
 | UUID | Name | Description |
 |------|------|-------------|
-| `0xFEE0` | Badge Service | Primary service |
-| `0xFEE1` | Badge Data | Write-only characteristic for all data |
+| `0000fee0-0000-1000-8000-00805f9b34fb` | Badge Service | Primary service |
+| `0000fee1-0000-1000-8000-00805f9b34fb` | Badge Data | Acknowledged-write characteristic for all data |
 
 ### Packet Format
 
-All data is written as 16-byte BLE GATT writes to `0xFEE1` with 100ms delay between writes.
+All data is written to the data characteristic as 16-byte acknowledged GATT
+writes. Allow a 3-second acknowledgment timeout for each write, wait 300 ms
+before the first bitmap-data chunk after the four header chunks, and wait 25 ms
+between subsequent chunks. These are the vendor app's documented timings; some
+community clients successfully use a simpler 100 ms cadence.
 
 #### Header (64 bytes)
 
@@ -53,24 +57,29 @@ All data is written as 16-byte BLE GATT writes to `0xFEE1` with 100ms delay betw
 | `0x02` | Scroll up |
 | `0x03` | Scroll down |
 | `0x04` | Fixed/static |
-| `0x05` | Snowflake |
-| `0x06` | Picture/drop-down |
-| `0x07` | Curtain/animation |
+| `0x05` | Animation |
+| `0x06` | Snowflake/drop-down |
+| `0x07` | Picture/curtain |
 | `0x08` | Laser |
 
 #### Speed (high nibble): 1-8 (slowest to fastest)
 
 #### Bitmap Data (bytes 64+)
 
-Each character is 11 bytes (8 pixels wide x 11 rows). MSB = leftmost pixel, 1 = LED on.
+Bitmap data uses 8-column-wide stripes. Each stripe contains one byte per row,
+MSB = leftmost pixel and 1 = LED on. An 11-row badge uses 11 bytes per stripe;
+12- and 16-row variants use 12 and 16 bytes respectively. The bitmap stream is
+zero-padded to a 16-byte write boundary.
 
 ### Key Properties
 
 - **No pairing required**
-- **Write-only** (no reads, no acknowledgments)
-- **Stateless** -- each write replaces all stored messages
+- **Acknowledged writes** with per-write timeouts and inter-chunk timing
+- **Stateless** -- each complete transfer replaces all stored messages
 - **Persistent** -- messages stored in flash, survive power cycles
-- **Max 8 messages**, max 8192 bytes total payload
+- **Max 8 messages**, max 8192 bytes for the complete flash image, **including
+  the 64-byte header**; bitmap data therefore has at most 8128 bytes before
+  final chunk padding
 
 ## Tools Used
 

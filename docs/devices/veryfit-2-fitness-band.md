@@ -88,18 +88,41 @@ health data `0x08`, dump-stack `0x20`, log `0x21`, restart `0xF0`, factory
 
 #### Command: Get real-time data (cmd `0x02`, key `0xA0`)
 
-Request is `02 A0` followed by 18 zero bytes. A real ID107 HR answered with
-`02 a0 23 00 00 00 01 00 00 00 19 00 00 00 92 00 00 00 00 00` — little-endian
-32-bit counters after the key, but the exact field assignment is **not**
-established.
+Request is `02 A0` followed by 18 zero bytes. The V2.0.37 app's parser
+establishes this 20-byte response layout (all 32-bit fields little-endian):
 
-Further keys (frame shape identical; payload layouts not established):
-get-info keys `0x01`/`0x02`/`0x03`/`0x04`/`0x05` (basic/function/time/MAC/
-battery); app-control keys mic `0x01`, camera `0x02`, single-sport `0x03`,
-find-band `0x04`; notify keys incoming-call `0x01`, call-status `0x02`,
-message `0x03`, missed-message `0x04`. Health-sync keys (on the health
-channel): request `0x01`, success `0x02`, data types `0x03`–`0x08`, finished
-`0xEE`, error `0xFF`.
+| Offset | Field | Decode |
+|--------|-------|--------|
+| 2–5 | Steps | u32 count |
+| 6–9 | Calorie counter | Raw; unit/scale unproven |
+| 10–13 | Distance | u32 metres (app displays value × 0.001 km) |
+| 14–17 | Active-time counter | Raw; unit/scale unproven |
+| 18 | Heart rate | u8 |
+| 19 | Padding | Zero |
+
+Thus the public ID107 HR frame
+`02 a0 23 00 00 00 01 00 00 00 19 00 00 00 92 00 00 00 00 00`
+decodes to **35 steps, calorie counter 1, 25 m, active-time counter 146 and
+heart rate 0**. Do not turn the raw counters into kcal, seconds or minutes
+without further evidence.
+
+#### Command: Get battery (cmd `0x02`, key `0x05`)
+
+The response carries battery type at byte 2, raw u16le voltage at 3–4, status
+at 5, **battery percent at byte 6**, current-use-time u32le counter at 7–10,
+and total-use-time u32le counter at 11–14. Only byte 6 has a proven display
+unit. Voltage scale, status values and time units remain unknown.
+
+#### Command: Set time (cmd `0x03`, key `0x01`)
+
+The app's builder emits an 8-byte payload: u16le year, then month, day, hour,
+minute, second and weekday. Weekday is **Monday=0 through Sunday=6**. Pad the
+10-byte command/key/payload sequence with ten zero bytes to the normal 20-byte
+frame. This layout is app-backed and `reported`, not hardware-confirmed.
+
+Other command/key tables are documented in the YAML. Health-record layouts,
+notification text encoding and firmware-entry key/payload remain unknown;
+the newer Ksix Compass capture is not evidence for this older ID107 dialect.
 
 ## Tools Used
 
