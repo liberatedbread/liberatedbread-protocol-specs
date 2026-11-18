@@ -1171,6 +1171,9 @@ ENTITYLESS_CONTROL_SURFACES = {
     "aqara-hub": "The two commands are onboarding verbs (multicast whois, "
                  "encrypted credential push); the spec's own finding is that "
                  "no post-setup LAN control surface exists to bind.",
+    "picobrew-picostill": "Direct /data exposes nine raw fields whose units "
+                          "and conversions are unknown, so no unit-bearing "
+                          "entity can be declared; all actuation is excluded.",
 }
 
 
@@ -3593,8 +3596,9 @@ PLACEHOLDER_LAN_ADDRESSES = frozenset(
 PRODUCT_FIXED_LAN_ADDRESSES = {
     # Frigidaire v2.0 cleartext exception target (garadget's Particle/Photon
     # SoftAP shares the address but is vouched for by garadget.yaml's ap_ip).
+    # ServerlessNabaztag's head-button setup AP uses the same product-fixed IP.
     "192.168.0.1": frozenset({
-        "frigidaire-portable-ac", "frigidaire-window-ac",
+        "frigidaire-portable-ac", "frigidaire-window-ac", "nabaztag-tag-serverless",
         "docs/devices/frigidaire-local-api-audit.md", "docs/devices/frigidaire-ac.md",
     }),
     # AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket.

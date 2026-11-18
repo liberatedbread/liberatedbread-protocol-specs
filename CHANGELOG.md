@@ -24,6 +24,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   profiles and legacy Kickstarter SPP outside the executable OBD spec, with
   no inherited setup, reset, commands or diagnostic requests. Both remain
   untested; no Ninebot vehicle writes were added.
+- **Replacement-firmware and read-only local protocols.** Three untested specs
+  and guides cover Spotify Car Thing running Bridgething (explicitly not stock),
+  Nabaztag/tag running ServerlessNabaztag, and direct PicoStill telemetry.
+  Bridgething documents Classic RFCOMM, the iAP2 alternative, gateway/webapp
+  WebSocket boundaries, DEAD v2 framing, typed envelopes, and a 122-command
+  directional catalogue with independent golden-frame tests. Nabaztag covers
+  all 34 OpenAPI operations, head-button SoftAP setup, and separate resource,
+  weather, NTP, and AI dependencies; relay secrets never reside on the rabbit.
+  PicoStill is limited to raw nine-field `GET /data` telemetry with unknown
+  units and no actuation or firmware bindings. Existing PicoBrew research now
+  distinguishes appliance-to-replacement-server routes, the no-op
+  `picoChangeState`, and the absence of an HTTP emergency stop.
+
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an

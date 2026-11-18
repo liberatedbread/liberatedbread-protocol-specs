@@ -1,0 +1,774 @@
+# Spotify Car Thing running Bridgething custom firmware/daemon
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Spotify Car Thing (Bridgething custom firmware/daemon)"
+  manufacturer: "Spotify (hardware); Bridgething project (replacement daemon)"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Derived from Bridgething 3f313b655ebd0aea74d194c1349a56a1c13490be,
+      including docs/protocol.md and crates/lib/fixtures/golden.json. No stock
+      or replacement Car Thing, gateway, network listener, or iAP2 session was
+      contacted. The vectors are source fixtures, not hardware verification.
+  protocol: "bluetooth_classic"
+  transport: "rfcomm"
+  category: "display"
+  category_hierarchy: ["display", "screen"]
+  type: "automotive-display-custom-daemon"
+  aliases: ["Car Thing", "superbird", "Bridgething"]
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/JoeyEamigh/bridgething"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/JoeyEamigh/bridgething/blob/3f313b655ebd0aea74d194c1349a56a1c13490be/docs/protocol.md"
+        title: "Bridgething wire protocol"
+        covers: "DEAD v2 framing, gateway/client envelopes, transports, limits, and errors."
+      - url: "https://github.com/JoeyEamigh/bridgething/blob/3f313b655ebd0aea74d194c1349a56a1c13490be/docs/stock-webapp-gateway-contract.md"
+        title: "Stock webapp translation contract"
+        covers: "The port-8890 translation boundary and the modern operations a gateway must supply."
+    notes: >
+      This is a protocol published by the replacement-daemon authors. It is not
+      Spotify's stock protocol and must not be used to identify a stock unit.
+  notes: >
+    SCOPE: this spec applies only after the owner installs the Bridgething
+    custom firmware/daemon. Stock Car Thing firmware does not provide these
+    surfaces. Installation, bootloader access, and firmware images are outside
+    this protocol spec.
+
+    The primary control link is Bluetooth Classic RFCOMM service
+    dead0000-854d-408e-81f0-fb6147f918fd on channel 1. The same DEAD v2 typed
+    gateway protocol also runs over the daemon's iAP2 ExternalAccessory channel
+    and its network-gateway WebSocket on port 8892. Port 8891 is a separate,
+    unframed local-webapp surface. Port 8890 is only a compatibility translator
+    for the stock Spotify webapp's string methods and untyped JSON; it is not the
+    modern gateway API and does not make a stock daemon unnecessary.
+  identification:
+    notes: >
+      Match only a unit already known to run Bridgething. The custom SDP UUID is
+      strong evidence of the replacement daemon; no stock Spotify Bluetooth
+      name or service is claimed. Bluetooth Classic class of device is
+      0x7c0000. There is no stock-firmware auto-detection rule.
+  discovery:
+    methods:
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          service_uuids: ["dead0000-854d-408e-81f0-fb6147f918fd"]
+          class_of_device:
+            value: "0x7c0000"
+          requires_discoverable_mode: "unknown"
+        verification: "reported"
+        notes: >
+          The UUID and class come from the replacement daemon's protocol
+          document. The name and discoverability window are not established;
+          use an existing host pairing or manual selection when inquiry fails.
+    identity:
+      stable_keys: ["identity_address"]
+      display: "local_name"
+      notes: >
+        Keep the host-resolved Bluetooth identity address, not a per-connection
+        RFCOMM channel or a network peer counter. Whether BLE and BR/EDR expose
+        one address is unknown.
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Setup means installing the replacement daemon and pairing a gateway, not
+      provisioning a stock Car Thing. The installation mechanism and any wipe
+      performed by it are deliberately not inferred from the wire document.
+    methods:
+      - type: "bt_classic_pairing"
+        name: "Install Bridgething, then pair the gateway"
+        verified: false
+        description: >
+          Follow the replacement project's own installation instructions, then
+          pair the daemon from the host Bluetooth UI and open its custom
+          RFCOMM service. The iAP2 and LAN surfaces are alternatives after the
+          daemon is running, not evidence of stock support.
+        steps:
+          - action: "Install the Bridgething custom firmware/daemon using the upstream release and installation guide; preserve any owner data required by that guide."
+            actor: "user"
+            expect: "The Bridgething daemon, not the stock Spotify daemon, is running."
+          - action: "Make the unit discoverable if required and pair it from the host's Bluetooth settings."
+            actor: "user"
+            expect: "The host has a Bluetooth Classic bond with the daemon."
+          - action: "Open RFCOMM channel 1 for dead0000-854d-408e-81f0-fb6147f918fd and exchange only DEAD v2 gateway frames."
+            actor: "client"
+            expect: "Typed gateway envelopes can be sent and correlated by UUID."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. A daemon factoryReset request exists in the typed
+        client catalogue, but the sources reviewed do not define its physical
+        entry, complete erase scope, or result on Bluetooth bonds and installed
+        webapps. Do not issue it as a provisioning shortcut.
+      description: >
+        Reinstallation and factory reset are different operations. No physical
+        reset procedure is asserted from the presence of a software request.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        There is no Wi-Fi provisioning rejoin in this Classic spec. To move to
+        another gateway, use the daemon's Bluetooth pairing/connection UI and
+        the host's forget/pair controls. Whether an existing bond excludes a
+        new gateway is unknown; a factory reset is not prescribed.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Bluetooth pairing state, if persisted by the daemon/host stack"
+      issued_to_client: []
+      notes: >
+        No application token is defined for the RFCOMM gateway. Network
+        WebSocket access control, authentication, TLS, and exposure defaults
+        are unknown; do not expose ports 8890-8892 outside a trusted network.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        The protocol allows one paired gateway peer per RFCOMM connection.
+        Close the existing gateway before opening another. If a new host cannot
+        pair, use the daemon's connection UI and forget the old host bond; do
+        not assume that a factory reset is necessary.
+    enter_pairing_mode:
+      required: "unknown"
+      notes: >
+        The protocol document establishes a paired RFCOMM peer but not the
+        physical/UI action or discoverability window that creates the bond.
+    unpair:
+      supported: "unknown"
+      notes: >
+        Host-side forget is available. A daemon-side operation that revokes one
+        bond without broader erasure is not established by the reviewed docs.
+    notes: >
+      Pairing statements apply to the custom daemon only. On iOS/iPadOS,
+      CoreBluetooth cannot open RFCOMM; use the documented iAP2 channel through
+      ExternalAccessory with protocol name com.bridgething.gateway instead.
+  host_compatibility:
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "vendor_mfi"
+      verification: "reported"
+      basis: >
+        Bridgething docs/protocol.md records RFCOMM and a separate iAP2
+        ExternalAccessory channel. CoreBluetooth exposes no RFCOMM API.
+      notes: >
+        The alternative is the custom daemon's iAP2 ExternalAccessory channel:
+        protocol id 1, protocol name com.bridgething.gateway, opened after the
+        iAP2 link is up and carrying the same DEAD v2 stream. An iOS app must
+        declare that protocol string. This is not CoreBluetooth GATT access and
+        is not a claim that the stock Spotify accessory supports it.
+
+bluetooth_classic:
+  dual_mode: "unknown"
+  ble_role: "unknown"
+  address_shared_with_ble: "unknown"
+  profiles:
+    - profile: "vendor"
+      uuid: "dead0000-854d-408e-81f0-fb6147f918fd"
+      channel: 1
+      role: "control"
+      secure: true
+      verification: "reported"
+      notes: >
+        Custom Bridgething gateway RFCOMM service. One paired peer per
+        connection; carries the DEAD v2 byte stream, not BLE GATT or plain SPP
+        text. The fixed channel permits direct RFCOMM binding as well as SDP.
+  serial:
+    profile_uuid: "dead0000-854d-408e-81f0-fb6147f918fd"
+    profile_channel: 1
+    encoding: "binary"
+    framing:
+      length_prefix: true
+      checksum: "none"
+      tx_start_bytes: "de ad"
+      rx_start_bytes: ["de ad"]
+      resync: "scan_to_start_bytes"
+      max_frame_bytes: 16777232
+      notes: >
+        Every frame has a 16-byte header: magic DE AD, version 02, compression,
+        encoding, priority, two reserved bytes, then an unsigned 64-bit
+        big-endian POST-COMPRESSION payload length at offset 8. Total frame
+        length is 16 + that value. The first-class schema has no u64 length-size
+        arm, so the authoritative field table is protocol_details.dead_v2.
+        Reads may split or coalesce frames; scan to the next DE AD after bad
+        magic, unsupported version, or a length above 16 MiB.
+    response_timeout_ms: 60000
+    verification: "reported"
+    notes: >
+      UUID request correlation, msgpack/JSON encoding, compression, and lanes
+      are declared in protocol_details rather than approximated as positional
+      RFCOMM replies. Daemon request timeout is 60 s; SDK callers use 30 s.
+  verification: "reported"
+  notes: >
+    The transport and framing are published replacement-daemon behavior. No
+    stock Spotify protocol compatibility is claimed.
+
+protocol_details:
+  scope:
+    firmware: "Bridgething custom firmware/daemon only; never stock Spotify firmware"
+    direction_vocabulary:
+      gateway_to_bridge: "Phone/host gateway to the on-device daemon."
+      bridge_to_gateway: "On-device daemon to its phone/host gateway."
+      client_to_bridge: "Local webapp to the daemon over port 8891."
+      bridge_to_client: "Daemon to a local webapp over port 8891."
+    verification: "reported"
+  dead_v2:
+    magic_hex: "dead"
+    version: 2
+    header_bytes: 16
+    fields:
+      - {name: "magic", offset: 0, size: 2, type: "uint16", endianness: "big", value: "0xdead"}
+      - {name: "version", offset: 2, size: 1, type: "uint8", values: {2: "DEAD v2; skip every other version"}}
+      - {name: "compression", offset: 3, size: 1, type: "uint8", values: {0: "none", 1: "gzip"}}
+      - {name: "encoding", offset: 4, size: 1, type: "uint8", values: {0: "msgpack named maps", 1: "JSON"}}
+      - {name: "priority", offset: 5, size: 1, type: "uint8", values: {0: "normal", 1: "bulk", 2: "background"}, unknown_value: "normal"}
+      - {name: "reserved", offset: 6, size: 2, type: "bytes", encode_hex: "0000", decode: "ignore"}
+      - {name: "length", offset: 8, size: 8, type: "uint64", endianness: "big", unit: "B", meaning: "payload bytes following the header after compression, not uncompressed size"}
+      - {name: "payload", offset: 16, size: "length", type: "bytes", meaning: "exactly one typed envelope"}
+    payload_cap_bytes: 16777216
+    decompressed_cap_bytes: 16777216
+    resync:
+      triggers: ["bad magic", "unknown version", "declared payload length over 16 MiB"]
+      algorithm: "Discard forward to the next DE AD sequence; preserve a trailing DE byte across reads so split magic is not lost. A malformed body is a failed item, not permission to read the next frame from an unchecked offset."
+    scheduling:
+      drain_order: ["normal", "bulk", "background"]
+      normal: "Control, state, and transport messages."
+      bulk: "Large payloads a user is waiting for, such as requested artwork."
+      background: "Transfers with nothing on screen waiting, such as OTA images."
+      fragmentation: "Split large logical payloads into typed messages so higher-priority lanes interleave."
+  compression:
+    algorithm: "gzip"
+    receive: "Accept compression 0 and 1 on every lane; cap decompressed output at 16 MiB."
+    automatic:
+      lane: "normal only"
+      threshold_bytes: 16256
+      comparison: "strictly greater than"
+      rule: "Above the threshold, gzip once and keep it only when the compressed payload is smaller. Bulk and background do not auto-gzip."
+    explicit_modes:
+      never: "Never compress."
+      always: "Compress even when larger."
+      if_smaller: "Offer gzip on any lane and size; keep only when smaller."
+      auto: "Apply the normal-lane threshold rule."
+    length_rule: "Header length always counts the bytes actually sent, after compression."
+  envelope:
+    shape:
+      id: "Fresh UUID on every sent message, including responses."
+      meta: "{kind: command|event|request|response}; responses add data.requestId."
+      data: "{type: <surface>, data: {event: <variant>, data: <typed payload>}}; unit variants omit their inner data."
+    tagging: "Outer type and inner event are camelCase. The variant fixes the legal meta.kind."
+    uuid:
+      msgpack: "16 raw bytes (bin), not a 36-byte string."
+      json: "Canonical lowercase hyphenated UUID string."
+      correlation: "A response has a fresh id and meta.data.requestId equal to the request's id. Never match by response id, arrival order, or surface alone."
+    request_rules:
+      - "Answer every request with exactly one response; unanswered requests time out."
+      - "A request may instead return a domain error on its own reply variant; distinguish it from a WireError."
+      - "Successful commands normally have no reply and SDK command methods do not wait for one."
+    json_example_request:
+      id: "01924f2b-1f7e-7c1a-9f3a-6b2d9e5a4c18"
+      meta: {kind: "request"}
+      data:
+        type: "library"
+        data: {event: "browse", data: {nodeId: null, limit: 14, offset: 0}}
+    json_example_response:
+      id: "01924f2b-1f7e-7c1a-9f3a-6b2d9e5a4c19"
+      meta:
+        kind: "response"
+        data: {requestId: "01924f2b-1f7e-7c1a-9f3a-6b2d9e5a4c18"}
+      data:
+        type: "library"
+        data: {event: "browseReply", data: {result: {entries: []}}}
+  errors:
+    wire_shape: "data.type=error; data.data is the WireError; meta.kind=response and meta.data.requestId identifies the failed request/command where documented."
+    variants:
+      unsupported: "Receiver has no operation for this request variant."
+      unimplemented: "Variant is known but no backend is wired."
+      malformed: "{data: {reason: string}}; payload failed decoding or validation."
+      handlerFailed: "{data: {reason: string}}; handler hit an internal error."
+    gateway_decode_failure: "An unknown gateway request variant gets unsupported keyed to its request id."
+    webapp_decode_failure: "An unknown webapp request or command gets malformed keyed to its id."
+    webapp_handler_failure: "A failed command gets handlerFailed keyed to its id; it can arrive as an otherwise unmatched response because commands do not have success replies."
+    typed_result:
+      success: "{ok: true, response: R}"
+      domain_error: "{ok: false, kind: domain, error: E}"
+      protocol_error: "{ok: false, kind: protocol, error: WireError}"
+  transports:
+    rfcomm:
+      uuid: "dead0000-854d-408e-81f0-fb6147f918fd"
+      channel: 1
+      device_class: "0x7c0000"
+      framing: "Arbitrary byte-stream splits and coalescing; use DEAD v2 lengths and resync."
+      peers: 1
+    iap2:
+      framework: "ExternalAccessory, not CoreBluetooth"
+      protocol_id: 1
+      protocol_name: "com.bridgething.gateway"
+      framing: "Same DEAD v2 stream after the iAP2 link comes up."
+    network_gateway:
+      url: "ws://{address}:8892/"
+      messages: "WebSocket binary only; each message contains one or more COMPLETE DEAD v2 frames and no trailing partial frame."
+      partial_message_action: "Daemon closes the connection when a message ends part-way through a frame."
+      message_cap_bytes: 1048576
+      peer_address: "6 bytes: fe fe followed by a big-endian u32 counter; this is a connection label, not a Bluetooth MAC."
+      access_control: "unknown"
+      security_warning: "No bind address, authentication, authorization, TLS, or origin check is established. Treat exposure as unsafe until inspected and keep on a trusted network."
+    local_webapp:
+      url: "ws://{address}:8891/"
+      boundary: "Distinct BridgeToClientMsg/ClientToBridgeMsg surface, not the gateway surface."
+      framing: "One envelope per WebSocket message; no 16-byte DEAD header."
+      text_messages: "JSON."
+      binary_messages: "MessagePack."
+      reply_encoding: "Whichever encoding the webapp sent most recently."
+      access_control: "unknown"
+    stock_translation:
+      url: "ws://{address}:8890/"
+      boundary: "Stock Spotify webapp only: string method names and untyped JSON translated by the custom daemon to modern typed operations."
+      not_a_modern_api: "Do not send BridgeToGatewayMsg/GatewayToBridgeMsg here and do not infer stock daemon support."
+      required_modern_operations: ["library.browse", "library.resolveContext", "asset.request", "player.snapshot", "player.queueChanged"]
+      translation_map:
+        - {stock: "com.spotify.superbird.get_home", modern: "library.browse", note: "nodeId=null, sections=10"}
+        - {stock: "com.spotify.get_children_of_item", modern: "library.browse", note: "nodeId=parent id"}
+        - {stock: "com.spotify.superbird.get_podcast", modern: "library.browse", note: "nodeId=show URI"}
+        - {stock: "com.spotify.play_uri", modern: "player.play", note: "{uri, context=null}"}
+        - {stock: "com.spotify.queue_spotify_uri", modern: "player.queue", note: "{uri, position=append}"}
+        - {stock: "com.spotify.set_saved", modern: "library.favoritesSet"}
+        - {stock: "com.spotify.get_saved", modern: "library.favoritesContains"}
+        - {stock: "com.spotify.set_podcast_playback_speed", modern: "player.setSpeed"}
+        - {stock: "com.spotify.get_image", modern: "asset.request", note: "artwork edge=248"}
+        - {stock: "com.spotify.get_thumbnail_image", modern: "asset.request", note: "artwork edge=96"}
+        - {stock: "com.spotify.superbird.earcon", modern: "audio.earcon"}
+        - {stock: "com.spotify.superbird.tts.speak", modern: "audio.earcon", note: "name=spotify-stock:<file>"}
+  limits:
+    daemon_request_timeout_seconds: 60
+    sdk_request_timeout_seconds: 30
+    network_gateway_message_cap_bytes: 1048576
+    frame_payload_cap_bytes: 16777216
+    daemon_fragment_bytes: 4096
+    in_memory_transfer_cap_bytes: 262144
+  transfers:
+    body:
+      inline: "{type: inline, data: bytes}; small payloads carried directly."
+      stream: "{type: stream, data: TransferRef}; bytes follow as transfer.fragment events."
+    transfer_ref: "{id: UUID, totalSize: u32, sha256: optional lowercase hex SHA-256}"
+    fragment: "{transferId: UUID, offset: u32, bytes: binary}"
+    ordering: "Send ascending offsets with no gaps on the chosen lane. Reject overlaps, gaps, out-of-order fragments, and bytes beyond totalSize. Discard on transfer.abandon."
+    abandon: "{transferId: UUID, reason: string}"
+    ack: "transfer.ack also exists in both gateway directions; use its typed payload rather than treating it as request correlation."
+  payload_types:
+    AssetPreload: "{ids: string[]; only first 64 used}"
+    SetVolume: "{level: number}"
+    SetMute: "{muted: boolean}"
+    Tts: "{id: string, text: string, voice: optional string}"
+    TtsCancel: "{id: string}"
+    Earcon: "{name: string}"
+    ConnectBluetooth: "{mac: string}"
+    SetBluetoothAlias: "{name: string}"
+    GeoUnwatch: "{token: string}"
+    DisplaySetMode: "{mode: BrightnessMode; use manual before DisplaySetLevel}"
+    DisplaySetLevel: "{level: number, 0.0 dimmest through 1.0 brightest}"
+    FavoritesToggle: "{item: ItemRef}"
+    FavoritesSet: "{item: ItemRef, liked: boolean}"
+    FavoritesSetMany: "{entries: FavoritesSet[]}"
+    NetWsClose: "{connectionId: string, code: optional number, reason: optional string}"
+    NetWsSend: "{connectionId: string, frame: WsFrame}"
+    NetStreamOpen: "{streamId: string, request: NetFetchRequest}"
+    NetStreamCancel: "{streamId: string}"
+    NotificationInvoke: "{id: string}"
+    PhoneCallAction: "{callId: string}"
+    PhoneAcceptAction: "{callId: string, action: AcceptCallAction}"
+    PhoneEndAction: "{callId: string, action: EndCallAction}"
+    PhoneInitiateAction: "{kind: InitiateCallType, destinationId: optional string, service: optional PhoneCallService, addressBookId: optional string}"
+    PhoneMuteAction: "{mute: boolean}"
+    PhoneDtmfAction: "{callId: optional string, tone: DtmfTone}"
+    PlayUri: "{uri: string, context: optional PlayContext}"
+    QueueUri: "{uri: string, position: QueuePosition}"
+    SkipPrev: "{allowSeeking: boolean; restart current track after threshold when true}"
+    SkipToIndex: "{index: number}"
+    SeekTo: "{positionMs: number}"
+    SetShuffle: "{on: boolean}"
+    SetRepeat: "{mode: RepeatMode}"
+    SetSpeed: "{speed: number; positive finite playback multiplier}"
+    SetCrossfade: "{durationMs: optional number}"
+    TransferTo: "{targetId: string}"
+    LogsUnsubscribe: "{token: string}"
+    LauncherGestureSet: "{gesture: LauncherGesture}"
+    CompanionLaunchSet: "{enabled: boolean}"
+    MicMute: "{preserve: boolean; preserve an active capture when true}"
+    MicUnmute: "{preserve: boolean}"
+    ChromeNavigate: "{url: string}"
+    SpotifyWakeRequest: "{allowPlayTap: boolean}"
+    OtaAbandon: "{updateId: string}"
+    OtaActivate: "{expected: string[]}"
+    LogsSetVerbosity: "{token: string, verbosity: optional LogLevel}"
+    VoiceMicOpen: "{reason: VoiceCaptureReason}"
+    VoiceDispatch: "{streamId: UUID, resolved: NluResolvedIntent, stage: optional NluStage, asrConfidence: optional f32}"
+    ForwardMessage: "Tagged by encoding: {encoding: text, data: string}, {encoding: json, data: any JSON value}, or {encoding: binary, data: bytes}."
+    ForwardRouted: "{webapp: UUID, message: ForwardMessage}"
+  typed_command_catalogue:
+    semantics: "Every row is a meta.kind=command variant. data.type is surface, data.data.event is event, and payload is the named type in payload_types; null means a unit variant with no inner data. Commands are not plain JSON RPC methods."
+    rows:
+      - {direction: "gateway_to_bridge", surface: "chrome", event: "navigate", payload: "ChromeNavigate"}
+      - {direction: "gateway_to_bridge", surface: "player", event: "requestSpotifyWake", payload: "SpotifyWakeRequest"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "otaAbandon", payload: "OtaAbandon", advanced: true}
+      - {direction: "gateway_to_bridge", surface: "system", event: "otaActivate", payload: "OtaActivate", advanced: true}
+      - {direction: "gateway_to_bridge", surface: "system", event: "cancelUpdate", payload: null, advanced: true}
+      - {direction: "gateway_to_bridge", surface: "system", event: "launcherGestureSet", payload: "LauncherGestureSet"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "companionLaunchSet", payload: "CompanionLaunchSet"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "logsUnsubscribe", payload: "LogsUnsubscribe"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "logsSetVerbosity", payload: "LogsSetVerbosity"}
+      - {direction: "gateway_to_bridge", surface: "voice", event: "micOpen", payload: "VoiceMicOpen"}
+      - {direction: "gateway_to_bridge", surface: "voice", event: "micClose", payload: null}
+      - {direction: "gateway_to_bridge", surface: "voice", event: "dispatch", payload: "VoiceDispatch"}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "volumeUp", payload: null}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "volumeDown", payload: null}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "setVolume", payload: "SetVolume"}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "muteToggle", payload: null}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "setMute", payload: "SetMute"}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "tts", payload: "Tts"}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "ttsCancel", payload: "TtsCancel"}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "ttsCancelAll", payload: null}
+      - {direction: "bridge_to_gateway", surface: "audio", event: "earcon", payload: "Earcon"}
+      - {direction: "bridge_to_gateway", surface: "geo", event: "watch", payload: "GeoWatch"}
+      - {direction: "bridge_to_gateway", surface: "geo", event: "unwatch", payload: null}
+      - {direction: "bridge_to_gateway", surface: "library", event: "favoritesToggle", payload: "FavoritesToggle"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "favoritesSet", payload: "FavoritesSet"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "favoritesSetMany", payload: "FavoritesSetMany"}
+      - {direction: "bridge_to_gateway", surface: "net", event: "wsClose", payload: "NetWsClose"}
+      - {direction: "bridge_to_gateway", surface: "net", event: "wsSend", payload: "NetWsSend"}
+      - {direction: "bridge_to_gateway", surface: "net", event: "streamOpen", payload: "NetStreamOpen"}
+      - {direction: "bridge_to_gateway", surface: "net", event: "streamCancel", payload: "NetStreamCancel"}
+      - {direction: "bridge_to_gateway", surface: "notifications", event: "invokePositive", payload: "NotificationInvoke"}
+      - {direction: "bridge_to_gateway", surface: "notifications", event: "invokeNegative", payload: "NotificationInvoke"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "answer", payload: "PhoneCallAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "accept", payload: "PhoneAcceptAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "decline", payload: "PhoneCallAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "end", payload: "PhoneCallAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "endTyped", payload: "PhoneEndAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "hold", payload: "PhoneCallAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "unhold", payload: "PhoneCallAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "initiate", payload: "PhoneInitiateAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "swap", payload: null}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "merge", payload: null}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "mute", payload: "PhoneMuteAction"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "dtmf", payload: "PhoneDtmfAction"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "play", payload: "PlayUri"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "queue", payload: "QueueUri"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "pause", payload: null}
+      - {direction: "bridge_to_gateway", surface: "player", event: "resume", payload: null}
+      - {direction: "bridge_to_gateway", surface: "player", event: "skipNext", payload: null}
+      - {direction: "bridge_to_gateway", surface: "player", event: "skipPrev", payload: null}
+      - {direction: "bridge_to_gateway", surface: "player", event: "skipToIndex", payload: "SkipToIndex"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "seekTo", payload: "SeekTo"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "setShuffle", payload: "SetShuffle"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "setRepeat", payload: "SetRepeat"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "setSpeed", payload: "SetSpeed"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "setCrossfade", payload: "SetCrossfade"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "transferTo", payload: "TransferTo"}
+      - {direction: "bridge_to_gateway", surface: "system", event: "otaAssetRangeAbandon", payload: "OtaAssetRangeAbandon", advanced: true}
+      - {direction: "bridge_to_gateway", surface: "tunnel", event: "data", payload: "TunnelData"}
+      - {direction: "bridge_to_gateway", surface: "tunnel", event: "ack", payload: "TunnelAck"}
+      - {direction: "bridge_to_gateway", surface: "tunnel", event: "close", payload: "TunnelClosed"}
+      - {direction: "client_to_bridge", surface: "asset", event: "preload", payload: "AssetPreload"}
+      - {direction: "client_to_bridge", surface: "audio", event: "volumeUp", payload: null}
+      - {direction: "client_to_bridge", surface: "audio", event: "volumeDown", payload: null}
+      - {direction: "client_to_bridge", surface: "audio", event: "setVolume", payload: "SetVolume"}
+      - {direction: "client_to_bridge", surface: "audio", event: "muteToggle", payload: null}
+      - {direction: "client_to_bridge", surface: "audio", event: "setMute", payload: "SetMute"}
+      - {direction: "client_to_bridge", surface: "audio", event: "tts", payload: "Tts"}
+      - {direction: "client_to_bridge", surface: "audio", event: "ttsCancel", payload: "TtsCancel"}
+      - {direction: "client_to_bridge", surface: "audio", event: "ttsCancelAll", payload: null}
+      - {direction: "client_to_bridge", surface: "audio", event: "earcon", payload: "Earcon"}
+      - {direction: "client_to_bridge", surface: "bluetooth", event: "connect", payload: "ConnectBluetooth"}
+      - {direction: "client_to_bridge", surface: "bluetooth", event: "enableDiscoverable", payload: null}
+      - {direction: "client_to_bridge", surface: "bluetooth", event: "disableDiscoverable", payload: null}
+      - {direction: "client_to_bridge", surface: "bluetooth", event: "setAlias", payload: "SetBluetoothAlias"}
+      - {direction: "client_to_bridge", surface: "geo", event: "unwatch", payload: "GeoUnwatch"}
+      - {direction: "client_to_bridge", surface: "hardware", event: "displaySetMode", payload: "DisplaySetMode"}
+      - {direction: "client_to_bridge", surface: "hardware", event: "displaySetLevel", payload: "DisplaySetLevel"}
+      - {direction: "client_to_bridge", surface: "library", event: "favoritesToggle", payload: "FavoritesToggle"}
+      - {direction: "client_to_bridge", surface: "library", event: "favoritesSet", payload: "FavoritesSet"}
+      - {direction: "client_to_bridge", surface: "library", event: "favoritesSetMany", payload: "FavoritesSetMany"}
+      - {direction: "client_to_bridge", surface: "net", event: "wsClose", payload: "NetWsClose"}
+      - {direction: "client_to_bridge", surface: "net", event: "wsSend", payload: "NetWsSend"}
+      - {direction: "client_to_bridge", surface: "net", event: "streamOpen", payload: "NetStreamOpen"}
+      - {direction: "client_to_bridge", surface: "net", event: "streamCancel", payload: "NetStreamCancel"}
+      - {direction: "client_to_bridge", surface: "notifications", event: "invokePositive", payload: "NotificationInvoke"}
+      - {direction: "client_to_bridge", surface: "notifications", event: "invokeNegative", payload: "NotificationInvoke"}
+      - {direction: "client_to_bridge", surface: "phone", event: "answer", payload: "PhoneCallAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "accept", payload: "PhoneAcceptAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "decline", payload: "PhoneCallAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "end", payload: "PhoneCallAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "endTyped", payload: "PhoneEndAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "hold", payload: "PhoneCallAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "unhold", payload: "PhoneCallAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "initiate", payload: "PhoneInitiateAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "swap", payload: null}
+      - {direction: "client_to_bridge", surface: "phone", event: "merge", payload: null}
+      - {direction: "client_to_bridge", surface: "phone", event: "mute", payload: "PhoneMuteAction"}
+      - {direction: "client_to_bridge", surface: "phone", event: "dtmf", payload: "PhoneDtmfAction"}
+      - {direction: "client_to_bridge", surface: "player", event: "play", payload: "PlayUri"}
+      - {direction: "client_to_bridge", surface: "player", event: "queue", payload: "QueueUri"}
+      - {direction: "client_to_bridge", surface: "player", event: "pause", payload: null}
+      - {direction: "client_to_bridge", surface: "player", event: "resume", payload: null}
+      - {direction: "client_to_bridge", surface: "player", event: "skipNext", payload: null}
+      - {direction: "client_to_bridge", surface: "player", event: "skipPrev", payload: "SkipPrev"}
+      - {direction: "client_to_bridge", surface: "player", event: "skipToIndex", payload: "SkipToIndex"}
+      - {direction: "client_to_bridge", surface: "player", event: "seekTo", payload: "SeekTo"}
+      - {direction: "client_to_bridge", surface: "player", event: "setShuffle", payload: "SetShuffle"}
+      - {direction: "client_to_bridge", surface: "player", event: "setRepeat", payload: "SetRepeat"}
+      - {direction: "client_to_bridge", surface: "player", event: "setSpeed", payload: "SetSpeed"}
+      - {direction: "client_to_bridge", surface: "player", event: "setCrossfade", payload: "SetCrossfade"}
+      - {direction: "client_to_bridge", surface: "player", event: "transferTo", payload: "TransferTo"}
+      - {direction: "client_to_bridge", surface: "system", event: "logsUnsubscribe", payload: "LogsUnsubscribe"}
+      - {direction: "client_to_bridge", surface: "system", event: "reboot", payload: null, advanced: true}
+      - {direction: "client_to_bridge", surface: "system", event: "powerOff", payload: null, advanced: true}
+      - {direction: "client_to_bridge", surface: "system", event: "launcherGestureSet", payload: "LauncherGestureSet"}
+      - {direction: "client_to_bridge", surface: "system", event: "companionLaunchSet", payload: "CompanionLaunchSet"}
+      - {direction: "client_to_bridge", surface: "voice", event: "cancel", payload: null}
+      - {direction: "client_to_bridge", surface: "voice", event: "pushToTalk", payload: null}
+      - {direction: "client_to_bridge", surface: "voice", event: "release", payload: null}
+      - {direction: "client_to_bridge", surface: "voice", event: "muteMic", payload: "MicMute"}
+      - {direction: "client_to_bridge", surface: "voice", event: "unmuteMic", payload: "MicUnmute"}
+  typed_request_catalogue:
+    semantics: "Requests use a fresh id and meta.kind=request. The response variant travels in the opposite direction with meta.kind=response and meta.data.requestId. Payload/response type names are retained so generic JSON must not be invented."
+    rows:
+      - {direction: "client_to_bridge", surface: "asset", event: "get", request: "AssetGet", response: "AssetGot", domain_error: "AssetNotFound"}
+      - {direction: "client_to_bridge", surface: "blob", event: "list", request: null, response: "BlobListReply"}
+      - {direction: "client_to_bridge", surface: "bluetooth", event: "list", request: null, response: "PairedDevicesMap"}
+      - {direction: "client_to_bridge", surface: "bluetooth", event: "forget", request: "ForgetBluetooth", response: "PairedDevicesMap"}
+      - {direction: "client_to_bridge", surface: "capabilities", event: "get", request: null, response: "CapabilitiesSnapshot"}
+      - {direction: "client_to_bridge", surface: "config", event: "get", request: "ConfigGet", response: "ConfigGetReply"}
+      - {direction: "client_to_bridge", surface: "config", event: "list", request: null, response: "ConfigListReply"}
+      - {direction: "client_to_bridge", surface: "doc", event: "get", request: "DocGet", response: "DocGetReply"}
+      - {direction: "client_to_bridge", surface: "doc", event: "list", request: null, response: "DocListReply"}
+      - {direction: "client_to_bridge", surface: "doc", event: "set", request: "DocSet", response: "DocAck", domain_error: "WebappError"}
+      - {direction: "client_to_bridge", surface: "doc", event: "delete", request: "DocDelete", response: "DocAck"}
+      - {direction: "client_to_bridge", surface: "geo", event: "watch", request: "GeoWatch", response: "GeoWatchReply", domain_error: "GeoErrorReply"}
+      - {direction: "client_to_bridge", surface: "geo", event: "getOnce", request: "GeoGetOnce", response: "GeoGetOnceReply", domain_error: "GeoErrorReply"}
+      - {direction: "client_to_bridge", surface: "hardware", event: "stateGet", request: null, response: "HardwareStateReply"}
+      - {direction: "client_to_bridge", surface: "library", event: "browse", request: "LibraryBrowse", response: "LibraryBrowseReply", domain_error: "LibraryErrorReply"}
+      - {direction: "client_to_bridge", surface: "library", event: "search", request: "LibrarySearch", response: "LibrarySearchReply", domain_error: "LibraryErrorReply"}
+      - {direction: "client_to_bridge", surface: "library", event: "recommendations", request: "LibraryRecommendations", response: "LibraryRecommendationsReply", domain_error: "LibraryErrorReply"}
+      - {direction: "client_to_bridge", surface: "library", event: "resolveContext", request: "LibraryResolveContext", response: "LibraryResolveContextReply", domain_error: "LibraryErrorReply"}
+      - {direction: "client_to_bridge", surface: "library", event: "favoritesList", request: "LibraryFavoritesList", response: "LibraryFavoritesListReply", domain_error: "LibraryErrorReply"}
+      - {direction: "client_to_bridge", surface: "library", event: "favoritesContains", request: "LibraryFavoritesContains", response: "LibraryFavoritesContainsReply", domain_error: "LibraryErrorReply"}
+      - {direction: "client_to_bridge", surface: "lyrics", event: "get", request: null, response: "LyricsReply", domain_error: "LyricsErrorReply"}
+      - {direction: "client_to_bridge", surface: "net", event: "fetch", request: "NetFetch", response: "NetFetchReply", domain_error: "NetFetchErrorReply"}
+      - {direction: "client_to_bridge", surface: "net", event: "wsOpen", request: "NetWsOpen", response: "NetWsOpenReply", domain_error: "NetWsErrorReply"}
+      - {direction: "client_to_bridge", surface: "phone", event: "stateGet", request: null, response: "PhoneStateReply"}
+      - {direction: "client_to_bridge", surface: "player", event: "stateGet", request: null, response: "PlayerStateReply"}
+      - {direction: "client_to_bridge", surface: "player", event: "queueGet", request: null, response: "PlayerQueueReply"}
+      - {direction: "client_to_bridge", surface: "player", event: "targetsGet", request: null, response: "PlayerTargetsReply"}
+      - {direction: "client_to_bridge", surface: "store", event: "get", request: "KVGet", response: "StorageResponse"}
+      - {direction: "client_to_bridge", surface: "store", event: "put", request: "KVPut", response: "StorageResponse"}
+      - {direction: "client_to_bridge", surface: "store", event: "delete", request: "KVDelete", response: "StorageResponse"}
+      - {direction: "client_to_bridge", surface: "system", event: "versionRequest", request: null, response: "BridgeThingMeta"}
+      - {direction: "client_to_bridge", surface: "system", event: "diagnosticsGet", request: null, response: "DiagnosticsReply"}
+      - {direction: "client_to_bridge", surface: "system", event: "logsTail", request: "LogsTail", response: "LogsTailReply"}
+      - {direction: "client_to_bridge", surface: "system", event: "logsSubscribe", request: "LogsSubscribe", response: "LogsSubscribeReply"}
+      - {direction: "client_to_bridge", surface: "system", event: "factoryReset", request: null, response: "FactoryResetStarted", domain_error: "FactoryResetRefused", advanced: true}
+      - {direction: "client_to_bridge", surface: "system", event: "deviceGetNickname", request: null, response: "DeviceNicknameReply"}
+      - {direction: "client_to_bridge", surface: "system", event: "launcherGestureGet", request: null, response: "LauncherGestureReply"}
+      - {direction: "client_to_bridge", surface: "system", event: "companionLaunchGet", request: null, response: "CompanionLaunchReply"}
+      - {direction: "client_to_bridge", surface: "time", event: "get", request: null, response: "TimeSnapshot"}
+      - {direction: "client_to_bridge", surface: "voice", event: "stateGet", request: null, response: "VoiceStateReply"}
+      - {direction: "client_to_bridge", surface: "webapp", event: "list", request: null, response: "WebappListReply"}
+      - {direction: "client_to_bridge", surface: "webapp", event: "current", request: null, response: "WebappCurrentReply"}
+      - {direction: "client_to_bridge", surface: "webapp", event: "activate", request: "WebappActivate", response: "WebappActiveReply", domain_error: "WebappError"}
+      - {direction: "client_to_bridge", surface: "webapp", event: "icon", request: "WebappIcon", response: "WebappIconReply", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "otaBegin", request: "OtaBegin", response: "OtaBeginAck", domain_error: "OtaBeginRejected", advanced: true}
+      - {direction: "gateway_to_bridge", surface: "system", event: "deviceGetNickname", request: null, response: "DeviceNicknameReply"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "deviceSetNickname", request: "DeviceSetNickname", response: "DeviceNicknameReply", domain_error: "DeviceNicknameRejected"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "launcherGestureGet", request: null, response: "LauncherGestureReply"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "companionLaunchGet", request: null, response: "CompanionLaunchReply"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "logsTail", request: "LogsTail", response: "LogsTailReply"}
+      - {direction: "gateway_to_bridge", surface: "system", event: "logsSubscribe", request: "LogsSubscribe", response: "LogsSubscribeReply"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "list", request: null, response: "WebappList"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "getActive", request: null, response: "WebappActive"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "switchTo", request: "WebappSwitchTo", response: "WebappActive", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "uninstall", request: "WebappUninstall", response: "WebappActive", domain_error: "WebappError", advanced: true}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "resource", request: "WebappResource", response: "WebappResourceReply", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "getSlots", request: null, response: "WebappSlots"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "setSlot", request: "WebappSetSlot", response: "WebappSlots", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "configGet", request: "WebappConfigGet", response: "WebappConfigGetReply", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "configList", request: "WebappConfigList", response: "WebappConfigListReply", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "configSet", request: "WebappConfigSet", response: "WebappConfigAck", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "configDelete", request: "WebappConfigDelete", response: "WebappConfigAck", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "docGet", request: "WebappDocGet", response: "WebappDocGetReply", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "docList", request: "WebappDocList", response: "WebappDocListReply", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "docSet", request: "WebappDocSet", response: "WebappDocAck", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "docDelete", request: "WebappDocDelete", response: "WebappDocAck", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "blobPut", request: "WebappBlobPut", response: "WebappBlobPutAck", domain_error: "WebappError"}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "blobDelete", request: "WebappBlobDelete", response: "WebappBlobDeleteAck", domain_error: "WebappError", advanced: true}
+      - {direction: "gateway_to_bridge", surface: "webapp", event: "blobList", request: "WebappBlobList", response: "WebappBlobListReply", domain_error: "WebappError"}
+      - {direction: "bridge_to_gateway", surface: "asset", event: "request", request: "AssetRequest", response: "asset.got or asset.notFound"}
+      - {direction: "bridge_to_gateway", surface: "geo", event: "getOnce", request: "GeoGetOnce", response: "geo.getOnceReply or geo.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "browse", request: "LibraryBrowseRequest", response: "library.browseReply or library.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "resolveContext", request: "LibraryResolveContextRequest", response: "library.contextResolveReply or library.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "search", request: "LibrarySearchRequest", response: "library.searchReply or library.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "recommendations", request: "LibraryRecommendationsRequest", response: "library.recommendationsReply or library.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "favoritesList", request: "LibraryFavoritesListRequest", response: "library.favoritesListReply or library.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "library", event: "favoritesContains", request: "LibraryFavoritesContainsRequest", response: "library.favoritesContainsReply or library.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "lyrics", event: "get", request: "LyricsRequest", response: "lyrics.lyricsReply or lyrics.lyricsErrorReply"}
+      - {direction: "bridge_to_gateway", surface: "net", event: "fetch", request: "NetFetchRequestMsg", response: "net.fetchReply or net.fetchErrorReply"}
+      - {direction: "bridge_to_gateway", surface: "net", event: "wsOpen", request: "NetWsOpen", response: "net.wsOpenReply or net.wsErrorReply"}
+      - {direction: "bridge_to_gateway", surface: "phone", event: "stateGet", request: null, response: "phone.stateReply"}
+      - {direction: "bridge_to_gateway", surface: "player", event: "snapshotRequest", request: "PlayerSnapshotRequest", response: "player.snapshotAck or player.errorReply"}
+      - {direction: "bridge_to_gateway", surface: "system", event: "otaAssetRange", request: "OtaAssetRange", response: "system.otaAssetRangeReply or system.otaAssetRangeRejected", advanced: true}
+      - {direction: "bridge_to_gateway", surface: "system", event: "keepalive", request: "KeepalivePing", response: "system.keepaliveAck"}
+      - {direction: "bridge_to_gateway", surface: "tunnel", event: "open", request: "TunnelOpen", response: "tunnel.openReply or tunnel.errorReply"}
+  legacy_stock_escape_hatch:
+    direction: "client_to_bridge"
+    outer_type: "legacyStock"
+    tagging: "{action: <camelCase action>, args: <action-specific object>}; distinct from the port-8890 untyped stock protocol."
+    actions: ["getImage", "getThumbnailImage", "getNextTracks", "spotifyGetChildren", "spotifyGetPodcast", "spotifyGetSaved", "spotifyPlayPodcastTrailer", "spotifyQueueUri", "spotifySetPodcastPlaybackSpeed", "spotifySetSaved", "spotifyPlayUri", "spotifyGetPermissions", "spotifyGetPlayerState", "spotifyGetSessionState", "spotifySummonDj", "spotifyGetHome", "spotifyGetPresets", "spotifySetPreset", "spotifyGetTips", "spotifyGraphql", "superbirdPhoneCallImage"]
+  test_vector_source: "Bridgething crates/lib/fixtures/golden.json at 3f313b655ebd0aea74d194c1349a56a1c13490be; synthetic MACs/UUIDs are upstream documentation fixtures."
+  test_vectors:
+    - name: "bridge_to_gateway/ack-response"
+      direction: "bridge_to_gateway"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000001"
+        meta: {kind: "response", data: {requestId: "0192f2a0-bbb0-7c00-a000-000000000099"}}
+        data: {type: "ack"}
+      framed_hex: "dead020000000000000000000000005b83a26964c4100192f2a0bbb07c00a000000000000001a46d65746182a46b696e64a8726573706f6e7365a46461746181a9726571756573744964c4100192f2a0bbb07c00a000000000000099a46461746181a474797065a361636b"
+    - name: "bridge_to_gateway/done-response"
+      direction: "bridge_to_gateway"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000001"
+        meta: {kind: "response", data: {requestId: "0192f2a0-bbb0-7c00-a000-000000000099"}}
+        data: {type: "done"}
+      framed_hex: "dead020000000000000000000000005c83a26964c4100192f2a0bbb07c00a000000000000001a46d65746182a46b696e64a8726573706f6e7365a46461746181a9726571756573744964c4100192f2a0bbb07c00a000000000000099a46461746181a474797065a4646f6e65"
+    - name: "gateway_to_bridge/asset-got-stream-response"
+      direction: "gateway_to_bridge"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000001"
+        meta: {kind: "response", data: {requestId: "0192f2a0-bbb0-7c00-a000-000000000099"}}
+        data:
+          type: "asset"
+          data:
+            event: "got"
+            data:
+              id: "spotify/img/248/cover"
+              mime: "image/jpeg"
+              body: {type: "stream", data: {id: "0192f2a0-bbb0-7c00-a000-000000000099", totalSize: 81920}}
+      framed_hex: "dead02000000000000000000000000d883a26964c4100192f2a0bbb07c00a000000000000001a46d65746182a46b696e64a8726573706f6e7365a46461746181a9726571756573744964c4100192f2a0bbb07c00a000000000000099a46461746182a474797065a56173736574a46461746182a56576656e74a3676f74a46461746183a26964b573706f746966792f696d672f3234382f636f766572a46d696d65aa696d6167652f6a706567a4626f647982a474797065a673747265616da46461746182a26964c4100192f2a0bbb07c00a000000000000099a9746f74616c53697a65ce00014000"
+    - name: "gateway_to_bridge/transfer-fragment-event"
+      direction: "gateway_to_bridge"
+      priority: "bulk"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000001"
+        meta: {kind: "event"}
+        data:
+          type: "transfer"
+          data:
+            event: "fragment"
+            data:
+              transferId: "0192f2a0-bbb0-7c00-a000-000000000099"
+              offset: 4096
+              bytes: [137, 80, 78, 71, 13, 10, 26, 10]
+      framed_hex: "dead020000010000000000000000008d83a26964c4100192f2a0bbb07c00a000000000000001a46d65746181a46b696e64a56576656e74a46461746182a474797065a87472616e73666572a46461746182a56576656e74a8667261676d656e74a46461746183aa7472616e736665724964c4100192f2a0bbb07c00a000000000000099a66f6666736574cd1000a56279746573c40889504e470d0a1a0a"
+    - name: "gateway_to_bridge/transfer-fragment-background-event"
+      direction: "gateway_to_bridge"
+      priority: "background"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000001"
+        meta: {kind: "event"}
+        data:
+          type: "transfer"
+          data:
+            event: "fragment"
+            data:
+              transferId: "0192f2a0-bbb0-7c00-a000-000000000099"
+              offset: 0
+              bytes: [137, 80, 78, 71, 13, 10, 26, 10]
+      framed_hex: "dead020000020000000000000000008b83a26964c4100192f2a0bbb07c00a000000000000001a46d65746181a46b696e64a56576656e74a46461746182a474797065a87472616e73666572a46461746182a56576656e74a8667261676d656e74a46461746183aa7472616e736665724964c4100192f2a0bbb07c00a000000000000099a66f666673657400a56279746573c40889504e470d0a1a0a"
+    - name: "bridge_to_gateway/error-unsupported"
+      direction: "bridge_to_gateway"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000001"
+        meta: {kind: "response", data: {requestId: "0192f2a0-bbb0-7c00-a000-000000000099"}}
+        data: {type: "error", data: {type: "unsupported"}}
+      framed_hex: "dead020000000000000000000000007483a26964c4100192f2a0bbb07c00a000000000000001a46d65746182a46b696e64a8726573706f6e7365a46461746181a9726571756573744964c4100192f2a0bbb07c00a000000000000099a46461746182a474797065a56572726f72a46461746181a474797065ab756e737570706f72746564"
+
+local_access:
+  status: "firmware_replacement"
+  summary: >
+    Local typed gateway/webapp control exists only after installing Bridgething.
+    RFCOMM and iAP2 carry DEAD v2 streams; port 8892 is the same gateway over a
+    LAN WebSocket; port 8891 is a different local-webapp API; port 8890 is only
+    stock-webapp translation.
+  covers:
+    - "Typed playback, library, asset, phone, audio, network, system, and webapp gateway messages"
+    - "Local webapp messages over port 8891"
+    - "Stock Spotify webapp compatibility through the custom daemon on port 8890"
+  not_covered:
+    - "Any stock Spotify firmware control protocol"
+    - "Firmware installation, bootloader access, and image format"
+    - "Network listener authentication/access control, which is unknown"
+
+entities:
+  - platform: "sensor"
+    name: "Bridgething Daemon"
+    notes: >
+      Presence/identity marker only. This is not a generic control binding:
+      the useful surface consists of directional, UUID-correlated typed
+      msgpack/JSON envelopes in protocol_details, which the schema's plain JSON
+      WebSocket and RFCOMM command arms cannot faithfully represent.
+
+remaining_unknowns:
+  - "Physical installation and factory-reset procedures, their erase scope, and whether bonds survive them."
+  - "Daemon discoverability/pairing UI, bond limits, and whether BR/EDR and BLE addresses are shared."
+  - "Network ports 8890-8892 bind addresses and access control: no authentication, TLS, origin check, or safe exposure default is established."
+  - "Payload enums and deeply nested media/notification/OTA structures beyond the named types and command field signatures transcribed here; use the version-pinned generated bindings before adding those operations."
+  - "All protocol facts and upstream golden fixtures are reported and untested against hardware by this project."
+
+evidence:
+  documentation_review: >
+    Read the replacement project's wire protocol, stock-webapp contract,
+    typed Rust surface declarations, generated surface catalogue, and golden
+    fixtures at commit 3f313b655ebd0aea74d194c1349a56a1c13490be. Command rows
+    preserve direction, outer surface, inner event, meta.kind, and payload type.
+  open_questions: >
+    The docs define wire behavior but not network access control or physical
+    lifecycle operations. No claim is made that source fixtures establish live
+    interoperability or that custom firmware exists on an arbitrary Car Thing.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "JoeyEamigh/bridgething 3f313b655ebd0aea74d194c1349a56a1c13490be"
+      url: "https://github.com/JoeyEamigh/bridgething/tree/3f313b655ebd0aea74d194c1349a56a1c13490be"
+      obtained_via: "Public source repository"
+      description: "Authoritative replacement-daemon wire types, protocol docs, and golden MessagePack frames."
+
+helpful_urls:
+  - title: "Bridgething custom firmware/daemon"
+    url: "https://github.com/JoeyEamigh/bridgething"
+    description: "Replacement project and installation entry point; required before anything in this spec exists on a Car Thing."
+  - title: "Bridgething wire protocol"
+    url: "https://github.com/JoeyEamigh/bridgething/blob/3f313b655ebd0aea74d194c1349a56a1c13490be/docs/protocol.md"
+    description: "Authoritative DEAD v2 framing, envelopes, transports, limits, and error behavior."
+  - title: "Bridgething golden protocol fixtures"
+    url: "https://github.com/JoeyEamigh/bridgething/blob/3f313b655ebd0aea74d194c1349a56a1c13490be/crates/lib/fixtures/golden.json"
+    description: "Source of the standard-library test vectors in this spec."
+  - title: "Stock webapp gateway contract"
+    url: "https://github.com/JoeyEamigh/bridgething/blob/3f313b655ebd0aea74d194c1349a56a1c13490be/docs/stock-webapp-gateway-contract.md"
+    description: "Explains the port-8890 translation boundary and required modern gateway operations."
