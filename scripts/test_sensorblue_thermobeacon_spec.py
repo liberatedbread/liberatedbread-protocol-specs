@@ -151,3 +151,9 @@ def test_numeric_ids_have_no_retail_model_mapping():
     for row in SPEC["protocol_details"]["numeric_device_ids"]:
         assert row["retail_model_mapping"] == "unresolved"
     assert SPEC["device"]["testing"]["status"] == "untested"
+
+
+def test_shared_service_is_not_an_identity_matcher():
+    assert "service_uuids" not in SPEC["device"]["identification"]
+    for method in SPEC["device"]["discovery"]["methods"]:
+        assert "service_uuids" not in method.get("ble", {})
