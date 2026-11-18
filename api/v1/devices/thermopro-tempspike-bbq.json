@@ -42,12 +42,12 @@
         "P925",
         "SmartBBQ"
       ],
-      "notes": "Exact advertised names from the vendor app's thermoproNames, tempSpike, tp940, tempWifi and infrared scan groups, plus legacy SmartBBQ. \"TempPro\" and \"iBBQ\" are not advertised names for this spec.\n"
+      "notes": "Exact advertised names from the vendor app's general, TempSpike, TP940, Wi-Fi and infrared scan groups, plus legacy SmartBBQ. \"TempPro\" and \"iBBQ\" are not advertised names for this spec.\n"
     },
     "manufacturer": "ThermoPro (Adsmart)",
     "manufacturer_status": "active",
     "name": "ThermoPro TempSpike / TP9xx BBQ Thermometer",
-    "notes": "Extracted by static analysis of the official ThermoPro companion app.\nIts BLE stack is the OEM's (Adsmart, the OEM behind ThermoPro's\nconnected devices), not ThermoPro-specific code.\n\nTRANSPORT IS PLAIN BLE GATT — NOT BLE MESH. The app contains no mesh stack\n(no/nordicsemi/android/ holds only ble/ + support/; no Mesh Proxy 0x1828,\nno PB-GATT, no provisioning anywhere in the sources). Two independent RE\nefforts agree: daniel-corbett/thermopro-cli calls it \"a simple BLE\nnotification-based protocol\", and Bluetooth-Devices/thermopro-ble decodes\nTempSpike probes passively from advertisements with no connection at all.\nAn earlier revision of this spec describing BLE Mesh provisioning was\nfabricated.\n\nTHERE IS NO SINGLE UNIVERSAL UUID SET. The app picks one of FIVE\nper-family BLE configs at connect time — its BLE manager picks one of\nfive per-family config classes (16-bit codes expand to\n0000XXXX-0000-1000-8000-00805F9B34FB):\n- TP9012 family (deviceType 7/8, its own per-family BLE config in the app): service\n  0b863e05-ba64-4f7a-922d-007fd52dcaa9 — NOT 1086FFF0 — write FFF1,\n  notify FFF2.\n- TP922 (deviceType 22, its own per-family BLE config in the app): service\n  baaafff0-0001-4e6e-886a-57d347c919fe, write BAAAFFF1-…, notify\n  BAAAFFF2-….\n- TP940 (deviceType 24) and TempSpike TP960 (deviceTypes 30/31):\n  service 93bb7cab-eb14-c5a9-2354-a24f4df9330f with roles REVERSED —\n  write = FF02, notify = FF01 — plus a read characteristic FF03.\n- TP426 infrared (deviceType 50): service\n  0f86fff0-63e8-4762-9dfb-7b6fe113376a, write FFF1, notify FFF2.\n- Default (all other deviceTypes, incl. TP920/TP25W and TP980,\n  the app's default BLE config): service 1086fff0-3343-4817-8bb2-b32206336ce8, write\n  FFF1, notify FFF2.\nClients must identify the family (advertised name, per the app's scan\nconfig)\nbefore choosing a service; 1086FFF0 is the fallback, not the universal\ncase.\n\nWRITE FRAMING IS PER-FAMILY. Only the TP9012 family wraps commands as\n0xAA | payload | checksum | 0xFF, where checksum = sum of the payload\nbytes EXCLUDING the opcode byte, & 0xFF (the app's TP9012 checksum helper);\nits notifications mirror this with 0xAA at offset 0 and the opcode at\noffset 1. TP920/TP25W-family frames have NO 0xAA/0xFF wrapper and a\ntrailing checksum that INCLUDES the opcode byte\n(the app's TP920 checksum helper); this family additionally expects a\nfixed init handshake write (starting 01 09 8a 7a ...) plus a\ntimestamp-sync command 0x28 after connect (thermopro-cli\ncreate_handshake_command). TP940, TP960 (TempSpike) and TP980 send raw\nopcode-prefixed frames with NO wrapper and NO checksum at all\n(the app's TP940, TP960 and TP980 command builders emit the opcode\nbytes as-is).\n\nEight device parser families are dispatched in the app (by its BLE\nmanager's notification callback): TP9012, TP920, TP940, TP960,\nTP962, TP968, TP980 and TP426 (infrared). The TempSpike line\n(TP960/962/968 and TP970-973) is the current retail focus.\n\nTEMPSPIKE PASSIVE MODE: TP96x/TP97x probes broadcast probe index,\ntemperatures and battery voltage in BLE advertisement manufacturer data\n(company id prepended LE by the parser) — fully decodable without\nconnecting (Bluetooth-Devices/thermopro-ble parser.py, actively\nmaintained). This is the cheapest integration path for those models and\nobviates most of the setup below. TWO DIFFERENT LAYOUTS EXIST — an\nearlier revision of this spec claimed \"°F + 54 offset\" for all of them,\nwhich is wrong for TP96x:\n- TP96x / TP970 (7-byte payload; a 13-byte variant appends 6 bytes —\n  observed to be the reversed base-station MAC — which are ignored):\n  \"<BHHH\" = probe_index u8, internal_temp u16, battery_voltage u16,\n  ambient_temp u16. Temperatures are INTEGER values with a -30 offset\n  (raw - 30), NOT °F (parser.py:184-206).\n- TP97x (23-byte payload): \"<BHHfffHHH\" = probe_index u8, ambient_temp\n  u16, battery_voltage u16, then three float32 internal temperatures\n  (tip/center/end), three u16 ignored. Only THIS family encodes temps\n  as float32 °F with a +54 offset: celsius = (raw - 54 - 32) * 5/9 —\n  the same fahrenheit_to_celsius(x - 54) the connected TP980 path uses\n  (parser.py:155-182).\nBattery from advertisements uses a fitted tanh curve (mV → %):\n52.317286 * tanh(v/273.624277936 - 8.76485439394) + 51.06925, clamped\n0-100 (tp96_battery).\n\nFIRMWARE/DFU: the app picks its updater by the app-internal deviceType\nit assigned the unit, and only two deviceTypes are ever offered a BLE\nupdate. deviceType 40 (the TP980R scan name, i.e. the TP980 variant)\ngets the Silicon Labs Gecko OTA path (OTA service\n1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0, control\nf7bf3564-fb6d-4e53-88a4-5e37e0326063, data\n984227f3-34fc-4045-a5d0-2c581f81a153) with a bundled GBL image,\nversion 1.17. deviceType 22 (the TP920-family Wi-Fi units that report\ntype byte 0x62, scan names TP922/TP923/TP924, which are not a variant\nof this spec) gets the ASR560X path (service\n0917fe11-5d37-816d-8000-00805f9b34fb, write 09170001-…, notify\n09170002-…) with a bundled ASR560X image, version 2.5, string\napp-2.5.0-20251011.1000. TempSpike (TP960/TP962/TP968), TP940 and\nTP9012 units are never offered an update, so the ASR560X image says\nnothing about TempSpike silicon. The app also declares a 0x1850\nservice (0x2C00/0x2C01) in a DFU config that no GATT lookup ever\nreads. Details are in the firmware_update feature.\n\nThermoPro is rebranding to \"TempPro\" (announced ~April 2026; temppro.com);\nthe app already references both buythermopro.com and temppro.com.\n",
+    "notes": "Extracted by static analysis of the official ThermoPro companion app.\nIts BLE stack is the OEM's (Adsmart, the OEM behind ThermoPro's\nconnected devices), not ThermoPro-specific code.\n\nTRANSPORT IS PLAIN BLE GATT — NOT BLE MESH. The app contains no mesh stack\n(no/nordicsemi/android/ holds only ble/ + support/; no Mesh Proxy 0x1828,\nno PB-GATT, no provisioning anywhere in the sources). Two independent RE\nefforts agree: daniel-corbett/thermopro-cli calls it \"a simple BLE\nnotification-based protocol\", and Bluetooth-Devices/thermopro-ble decodes\nTempSpike probes passively from advertisements with no connection at all.\nAn earlier revision of this spec describing BLE Mesh provisioning was\nfabricated.\n\nTHERE IS NO SINGLE UNIVERSAL UUID SET. The app picks one of FIVE\nper-family BLE configs at connect time — its BLE manager picks one of\nfive per-family config classes (16-bit codes expand to\n0000XXXX-0000-1000-8000-00805F9B34FB):\n- TP9012 family (deviceType 7/8, its own per-family BLE config in the app): service\n  0b863e05-ba64-4f7a-922d-007fd52dcaa9 — NOT 1086FFF0 — write FFF1,\n  notify FFF2.\n- TP922 (deviceType 22, its own per-family BLE config in the app): service\n  baaafff0-0001-4e6e-886a-57d347c919fe, write BAAAFFF1-…, notify\n  BAAAFFF2-….\n- TP940 (deviceType 24) and TempSpike TP960 (deviceTypes 30/31):\n  service 93bb7cab-eb14-c5a9-2354-a24f4df9330f with roles REVERSED —\n  write = FF02, notify = FF01 — plus a read characteristic FF03.\n- TP426 infrared (deviceType 50): service\n  0f86fff0-63e8-4762-9dfb-7b6fe113376a, write FFF1, notify FFF2.\n- Default (all other deviceTypes, incl. TP920/TP25W and TP980,\n  the app's default BLE config): service 1086fff0-3343-4817-8bb2-b32206336ce8, write\n  FFF1, notify FFF2.\nClients must identify the family (advertised name, per the app's scan\nconfig)\nbefore choosing a service; 1086FFF0 is the fallback, not the universal\ncase.\n\nWRITE FRAMING IS PER-FAMILY. Only the TP9012 family wraps commands as\n0xAA | payload | checksum | 0xFF, where checksum = sum of the payload\nbytes EXCLUDING the opcode byte, & 0xFF (the app's TP9012 checksum helper);\nits notifications mirror this with 0xAA at offset 0 and the opcode at\noffset 1. TP920/TP25W-family frames have NO 0xAA/0xFF wrapper and a\ntrailing checksum that INCLUDES the opcode byte\n(the app's TP920 checksum helper); this family additionally expects a\nfixed init handshake write (starting 01 09 8a 7a ...) plus a\ntimestamp-sync command 0x28 after connect (thermopro-cli\ncreate_handshake_command). TP940, TP960 (TempSpike) and TP980 send raw\nopcode-prefixed frames with NO wrapper and NO checksum at all\n(the app's TP940, TP960 and TP980 command builders emit the opcode\nbytes as-is).\n\nEight device parser families are dispatched in the app (by its BLE\nmanager's notification callback): TP9012, TP920, TP940, TP960,\nTP962, TP968, TP980 and TP426 (infrared). The TempSpike line\n(TP960/962/968 and TP970-973) is the current retail focus.\n\nTEMPSPIKE PASSIVE MODE: TP96x/TP97x probes broadcast probe index,\ntemperatures and battery voltage in BLE advertisement manufacturer data\n(company id prepended LE by the parser) — fully decodable without\nconnecting (Bluetooth-Devices/thermopro-ble parser.py, actively\nmaintained). This is the cheapest integration path for those models and\nobviates most of the setup below. TWO DIFFERENT LAYOUTS EXIST; exact\nmachine-readable contracts are in payload_formats:\n- TP96x (7-byte payload, or 13 bytes with a reversed base-station MAC at\n  7-12 to ignore): probe_index u8 @0, internal u16 LE @1, battery mV\n  u16 LE @3, ambient u16 LE @5. Both temperatures are integer °C with a\n  -30 offset (raw - 30), NOT °F.\n- TP97x (23-byte payload): probe_index u8 @0, ambient u16 LE @1,\n  battery mV u16 LE @3, three float32 LE internal temperatures\n  (tip/center/end) @5/@9/@13, and three ignored u16 fields @17/@19/@21.\n  The internal floats are °F + 54: celsius = (raw - 54 - 32) * 5/9.\n  Ambient is instead an INTEGER u16 °F + 54 value, converted with the\n  same formula, rounded to one decimal place, then truncated toward zero\n  (int(round(celsius,1))); it is not a float or nearest-integer rounding.\nBattery from advertisements uses a fitted tanh curve (mV → %):\n52.317286 * tanh(v/273.624277936 - 8.76485439394) + 51.06925, clamped\n0-100 (tp96_battery).\n\nFIRMWARE/DFU: the app picks its updater by the app-internal deviceType\nit assigned the unit, and only two deviceTypes are ever offered a BLE\nupdate. deviceType 40 (the TP980R scan name, i.e. the TP980 variant)\ngets the Silicon Labs Gecko OTA path (OTA service\n1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0, control\nf7bf3564-fb6d-4e53-88a4-5e37e0326063, data\n984227f3-34fc-4045-a5d0-2c581f81a153) with a bundled GBL image,\nversion 1.17. deviceType 22 (the TP920-family Wi-Fi units that report\ntype byte 0x62, scan names TP922/TP923/TP924, which are not a variant\nof this spec) gets the ASR560X path (service\n0917fe11-5d37-816d-8000-00805f9b34fb, write 09170001-…, notify\n09170002-…) with a bundled ASR560X image, version 2.5, string\napp-2.5.0-20251011.1000. TempSpike (TP960/TP962/TP968), TP940 and\nTP9012 units are never offered an update, so the ASR560X image says\nnothing about TempSpike silicon. The app also declares a 0x1850\nservice (0x2C00/0x2C01) in a DFU config that no GATT lookup ever\nreads. Details are in the firmware_update feature.\n\nThermoPro is rebranding to \"TempPro\" (announced ~April 2026; temppro.com);\nthe app already references both buythermopro.com and temppro.com.\n",
     "pairing": {
       "bonding": "none",
       "confidence": "medium",
@@ -214,7 +214,7 @@
         ],
         "model": "TP960 (TempSpike)",
         "probe_count": 1,
-        "protocol_notes": "CONNECTED-MODE opcodes (spec previously had no TP96x GATT block despite\nbeing named \"tempspike\"). Service 93bb7cab-…, write FF02 / notify FF01,\nraw frames with NO checksum. Notifications (opcode at offset 0,\nper the app's TP960 parser): 0x01 current temp, 0x02 history upload\nfirst frame, 0x05 low battery upload, 0x06 box battery upload, 0x10\nauto temp return, 0x11 low battery (alt), 0x12 probe connect upload,\n0x13 temp alarm close, 0x14 ambient temp alarm close. Writes\n(the app's TP960 command builder): 0x01 read temp, 0x02 read temp history, 0x03 auto-\nnotification on/off, 0x04 set probe temp alarm (°C and °F variants),\n0x05 read battery state, 0x06 read battery (TP962), 0x15 set ambient\ntemperature alarm, 0x19 set temp unit, 0x1A read probe color. Battery:\nu16 LE millivolt bands <2311 → 0%, 2311-2450 → 33%, 2451-2600 → 66%,\n≥2601 → 100% (the app's TP960 battery decoder); passive ads use the\nfitted tanh curve instead (see device.notes).\n",
+        "protocol_notes": "CONNECTED-MODE opcodes. Service 93bb7cab-…, write FF02 / notify FF01,\nraw frames with NO checksum. Notifications (opcode at offset 0):\n0x01 current temp, 0x02 history upload first frame, 0x05 low battery\nupload, 0x06 box battery upload, 0x10 auto temp return, 0x11 low\nbattery (alt), 0x12 probe connect upload, 0x13 temp alarm close,\n0x14 ambient temp alarm close. Writes: 0x01 read temp, 0x02 read temp\nhistory, 0x03 auto-notification on/off, 0x04 set probe temp alarm,\n0x05 read battery state, 0x06 read battery (TP962), 0x15 set ambient\ntemperature alarm, 0x19 set temp unit, 0x1A read probe color.\nTHREE BATTERY PATHS MUST NOT BE MERGED. Probe battery retains u16 LE\nmillivolt bands <2311 → 0%, 2311-2450 → 33%, 2451-2600 → 66%,\n≥2601 → 100%. Base-station/box battery is byte 1 × 33 percent (clamp\nto 100). The TP960 low-battery value is Boolean: byte 1 > 0 → 0%,\notherwise → 100%. Passive advertisements use the fitted tanh curve\n(see device.notes), not either connected-mode conversion.\n",
         "temperature_encoding": "u16le_minus_30",
         "temperature_encoding_detail": "Connected mode: u16 LE minus 30 °C (temp = raw - 30) — the SAME encoding as the TP96x passive-advertisement layout, NOT the TP940 BCD scheme. Sentinels: 0xFF,0xFF → -999.9, and raw - 30 ≤ -30 → -999.9. Passive mode layout per TEMPSPIKE PASSIVE MODE in device.notes.\n"
       },
@@ -226,7 +226,7 @@
         ],
         "model": "TP962 / TP968 (TempSpike variants)",
         "probe_count": 2,
-        "protocol_notes": "Same service/framing as TP960 but a WIDER notification dispatch\n(per the app's TP962/TP968 parsers) adding a\nsequential setTemp-probing state machine: 0x81 readNextProTemp,\n0x04/0x84 setTempReturn, 0x06/0x16 box battery, 0x09/0x89 setUnitReturn,\nplus 0x10 auto temp, 0x12 probe connect, 0x13/0x14 alarm close, 0x17\ncharge state change, 0x18 device close, 0x19 temp unit change, 0x1A\nprobe color check.\n",
+        "protocol_notes": "Same service/framing as TP960 but a WIDER notification dispatch\nadding a sequential target-temperature probing state machine:\n0x81 read-next-probe, 0x04/0x84 target-temperature return, 0x06/0x16\nbox battery, 0x09/0x89 unit-setting return, plus 0x10 auto temp,\n0x12 probe connect,\n0x13/0x14 alarm close, 0x17 charge state change, 0x18 device close,\n0x19 temp unit change, 0x1A probe color check. Base-station/box\nbattery uses byte 1 × 33 percent as on TP960; probe millivolt bands\nremain separate.\n",
         "temperature_encoding": "u16le_minus_30",
         "temperature_encoding_detail": "Same u16 LE − 30 °C encoding as TP960 (per the app's TP962/TP968 parsers); sentinel 0xFF,0xFF → -999.9."
       },
@@ -241,9 +241,9 @@
         ],
         "model": "TP980",
         "probe_count": 4,
-        "protocol_notes": "History upload: multi-chunk transfer with a first frame (opcode 0x02)\nand continuation frames, 6 bytes/record. Probe reading uses the\nsequential per-probe target-temp / read-next-probe state machine\n(the app's TP980 parser — an earlier revision of this spec\nmisattributed it to TP940). Notification opcodes: 0x11 temp\nreturn, 0x12 probe connect, 0x13 temp alarm close, 0x14 ambient temp\nalarm close, 0x17 charge state change, 0x18 device close, 0x19 temp\nunit change, 0x1A probe color check, 0x20 temp auto-return, and\ndecimal 80-84 = 0x50-0x54 for WiFi scan/connect/check plus cloud\nbinding (did, bound-user). Battery: u16 LE millivolt bands <2311 → 0%,\n2311-2450 → 33%, 2451-2600 → 66%, ≥2601 → 100%\n(per the app's TP980 battery decoder).\n",
-        "temperature_encoding": "ieee754_float32",
-        "temperature_encoding_detail": "IEEE 754 float32 read LITTLE-ENDIAN (Nordic Data.FORMAT_UINT32) at offsets 5/9/13 (in the TP980 temperature-return path). The wire value is °F with a +54 offset: convert as °C = (raw - 54 - 32) * 5/9 — the same fahrenheit_to_celsius(x - 54) the thermopro-ble parser applies for TP97x.\n"
+        "protocol_notes": "History upload: multi-chunk transfer with a first frame (opcode 0x02)\nand continuation frames, 6 bytes/record. Probe reading uses the\nsequential per-probe target-temp / read-next-probe state machine.\nNotification opcodes: 0x11 temp return, 0x12 probe connect, 0x13 temp\nalarm close, 0x14 ambient temp alarm close, 0x17 charge state change,\n0x18 device close, 0x19 temp unit change, 0x1A probe color check,\n0x20 temp auto-return, and decimal 80-84 = 0x50-0x54 for WiFi\nscan/connect/check plus cloud binding (did, bound-user). Probe\nbattery retains the u16 LE millivolt bands (<2311 → 0%, 2311-2450 →\n33%, 2451-2600 → 66%, ≥2601 → 100%). Base-station battery instead\nuses byte 1 × 33 percent, clamped to 100; do not apply the probe\nmillivolt bands to the base station.\n",
+        "temperature_encoding": "float32le_and_u16le_fahrenheit_plus_54",
+        "temperature_encoding_detail": "TP980 carries THREE float32 LE internal temperatures plus a separate scalar u16 LE Fahrenheit+54 value; it is not a float-only payload. Opcode 0x11 uses scalar @1-2 and floats @5/@9/@13; opcode 0x20 uses scalar @2-3 and floats @6/@10/@14. Convert each as °C = (raw - 54 - 32) * 5/9. Exact fields and unavailable sentinels are in payload_formats.TP980_TempReturn and TP980_TempAutoReturn.\n"
       }
     ]
   },
@@ -314,6 +314,322 @@
       "url": "https://www.manualslib.com/products/Thermopro-Tp960-13097163.html"
     }
   ],
+  "payload_formats": {
+    "TP960_LowBattery": {
+      "description": "TP960 low-battery response is a Boolean alarm, not a voltage or percentage (reported).",
+      "fields": [
+        {
+          "description": "Greater than zero means low battery.",
+          "length": 1,
+          "name": "low_battery",
+          "offset": 1,
+          "type": "uint8"
+        }
+      ],
+      "parse_rules": [
+        "battery_percent = 0 if byte_1 > 0 else 100."
+      ]
+    },
+    "TP96x_Advertisement": {
+      "description": "Seven-byte TP96x manufacturer-data payload; a 13-byte variant appends the reversed base-station MAC at bytes 7-12. All multibyte values are little-endian. Layout from the open parser and app review (reported).\n",
+      "fields": [
+        {
+          "length": 1,
+          "name": "probe_index",
+          "offset": 0,
+          "type": "uint8"
+        },
+        {
+          "description": "Integer wire value minus 30 °C.",
+          "endianness": "little",
+          "length": 2,
+          "name": "internal_temperature",
+          "offset": 1,
+          "type": "uint16",
+          "unit": "C",
+          "value_offset": -30
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "battery_voltage",
+          "offset": 3,
+          "type": "uint16",
+          "unit": "mV"
+        },
+        {
+          "description": "Integer wire value minus 30 °C, not Fahrenheit+54.",
+          "endianness": "little",
+          "length": 2,
+          "name": "ambient_temperature",
+          "offset": 5,
+          "type": "uint16",
+          "unit": "C",
+          "value_offset": -30
+        },
+        {
+          "description": "Present only in the 13-byte form; ignore for measurements.",
+          "length": 6,
+          "name": "reversed_base_station_address",
+          "offset": 7,
+          "type": "bytes"
+        }
+      ],
+      "parse_rules": [
+        "Accept exactly 7 or 13 bytes. In the 13-byte form ignore bytes 7-12 when decoding measurements.",
+        "battery_percent = clamp(52.317286 * tanh(battery_voltage / 273.624277936 - 8.76485439394) + 51.06925, 0, 100)."
+      ]
+    },
+    "TP97x_Advertisement": {
+      "description": "Twenty-three-byte TP97x manufacturer-data payload. The three internal temperatures are float32 LE Fahrenheit+54; ambient is a separate integer u16 LE Fahrenheit+54 value, NOT a float. All multibyte integers are LE. The reference converts ambient to °C, rounds to one decimal place, then truncates toward zero; it does not round to the nearest integer.\n",
+      "fields": [
+        {
+          "length": 1,
+          "name": "probe_index",
+          "offset": 0,
+          "type": "uint8"
+        },
+        {
+          "description": "Integer Fahrenheit+54 on wire; reference output is int(round(°C,1)), truncating toward zero.",
+          "endianness": "little",
+          "length": 2,
+          "name": "ambient_temperature",
+          "offset": 1,
+          "scale": 0.5555555555555556,
+          "type": "uint16",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "battery_voltage",
+          "offset": 3,
+          "type": "uint16",
+          "unit": "mV"
+        },
+        {
+          "description": "IEEE754 Fahrenheit+54; °C = (raw - 86) * 5/9.",
+          "endianness": "little",
+          "length": 4,
+          "name": "tip_temperature",
+          "offset": 5,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "description": "IEEE754 Fahrenheit+54; °C = (raw - 86) * 5/9.",
+          "endianness": "little",
+          "length": 4,
+          "name": "center_temperature",
+          "offset": 9,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "description": "IEEE754 Fahrenheit+54; °C = (raw - 86) * 5/9.",
+          "endianness": "little",
+          "length": 4,
+          "name": "end_temperature",
+          "offset": 13,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "ignored_u16_0",
+          "offset": 17,
+          "type": "uint16"
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "ignored_u16_1",
+          "offset": 19,
+          "type": "uint16"
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "ignored_u16_2",
+          "offset": 21,
+          "type": "uint16"
+        }
+      ],
+      "parse_rules": [
+        "Require exactly 23 bytes. Ambient = int(round((u16le @1 - 54 - 32) * 5/9, 1)); int truncates toward zero, including negative values. Do not read ambient as float32 or round to nearest integer.",
+        "Examples: raw 141 -> int(round(30.555...,1)) = 30; raw 31 -> int(round(-30.555...,1)) = -30.",
+        "battery_percent = clamp(52.317286 * tanh(battery_voltage / 273.624277936 - 8.76485439394) + 51.06925, 0, 100)."
+      ]
+    },
+    "TP980_TempAutoReturn": {
+      "description": "Opcode 0x20 notification, at least 18 bytes; scalar and float offsets differ from 0x11 and must not be shared (reported).",
+      "fields": [
+        {
+          "length": 1,
+          "name": "opcode",
+          "offset": 0,
+          "type": "uint8",
+          "values": {
+            "32": "temperature auto-return"
+          }
+        },
+        {
+          "description": "Probe index reported by auto-return; numbering base is not asserted.",
+          "length": 1,
+          "name": "probe_index",
+          "offset": 1,
+          "type": "uint8"
+        },
+        {
+          "description": "0xFFFF = unavailable; otherwise °C = (raw - 86) * 5/9.",
+          "endianness": "little",
+          "length": 2,
+          "name": "scalar_temperature",
+          "offset": 2,
+          "scale": 0.5555555555555556,
+          "type": "uint16",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "description": "Probe millivolts; convert with the existing <2311/2311-2450/2451-2600/>=2601 bands.",
+          "endianness": "little",
+          "length": 2,
+          "name": "probe_battery_voltage",
+          "offset": 4,
+          "type": "uint16",
+          "unit": "mV"
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "temperature_1",
+          "offset": 6,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "temperature_2",
+          "offset": 10,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "temperature_3",
+          "offset": 14,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        }
+      ],
+      "parse_rules": [
+        "Require at least 18 bytes and opcode 0x20. Probe index is @1; probe battery is u16le @4-5 in mV with the same <2311/2311-2450/2451-2600/>=2601 percent bands.",
+        "Scalar 0xFFFF is unavailable. Any scalar or float whose converted value is <= -30 °C is unavailable, not a measurement."
+      ]
+    },
+    "TP980_TempReturn": {
+      "description": "Opcode 0x11 notification, at least 17 bytes: scalar u16 Fahrenheit+54 plus three float32 LE Fahrenheit+54 temperatures and probe battery (reported).",
+      "fields": [
+        {
+          "length": 1,
+          "name": "opcode",
+          "offset": 0,
+          "type": "uint8",
+          "values": {
+            "17": "temperature return"
+          }
+        },
+        {
+          "description": "0xFFFF = unavailable; otherwise °C = (raw - 86) * 5/9.",
+          "endianness": "little",
+          "length": 2,
+          "name": "scalar_temperature",
+          "offset": 1,
+          "scale": 0.5555555555555556,
+          "type": "uint16",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "description": "Probe millivolts; convert with the existing <2311/2311-2450/2451-2600/>=2601 bands.",
+          "endianness": "little",
+          "length": 2,
+          "name": "probe_battery_voltage",
+          "offset": 3,
+          "type": "uint16",
+          "unit": "mV"
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "temperature_1",
+          "offset": 5,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "temperature_2",
+          "offset": 9,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        },
+        {
+          "endianness": "little",
+          "length": 4,
+          "name": "temperature_3",
+          "offset": 13,
+          "scale": 0.5555555555555556,
+          "type": "float32",
+          "unit": "C",
+          "value_offset": -47.77777777777778
+        }
+      ],
+      "parse_rules": [
+        "Require at least 17 bytes and opcode 0x11. Probe battery is u16le @3-4 in mV: <2311 -> 0%, 2311-2450 -> 33%, 2451-2600 -> 66%, >=2601 -> 100%.",
+        "Scalar 0xFFFF is unavailable. Any scalar or float whose converted value is <= -30 °C is unavailable, not a measurement."
+      ]
+    },
+    "TP9xx_BaseStationBattery": {
+      "description": "Connected TP960/TP980 base-station battery response; separate from the probe's u16 millivolt bands (reported).",
+      "fields": [
+        {
+          "description": "Byte 1 × 33, clamped to 100 percent.",
+          "length": 1,
+          "name": "battery_percent_raw",
+          "offset": 1,
+          "scale": 33,
+          "type": "uint8",
+          "unit": "%"
+        }
+      ],
+      "parse_rules": [
+        "battery_percent = min(100, byte_1 * 33). Do not read this byte as part of the probe's u16 millivolt field."
+      ]
+    }
+  },
   "services": [
     {
       "characteristics": [

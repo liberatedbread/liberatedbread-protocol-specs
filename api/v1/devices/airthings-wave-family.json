@@ -32,16 +32,17 @@
     },
     "griffin_get_current_date": {
       "characteristic": "b42e50d8-ade7-11e4-89d3-123b93f75cba",
-      "description": "Read device clock. Response is exactly 10 bytes: [0x74, status, reserved (4B), unix_time u32le].\n",
+      "description": "Read device clock. Response is exactly 10 bytes: [0x74, status, reserved (4B), time u32le]. Before the first 0x73 initializes the RTC, time is seconds since boot; public pre-RTC values 403, 425 and 427 tracked self-check uptime. After 0x73, the same field is Unix seconds; a public post-RTC value 1686888679 matched capture wall time. Clients must track whether 0x73 has initialized the RTC rather than always interpreting the field as Unix time.\n",
       "value": [
         116
       ]
     },
     "griffin_get_dataset_info": {
       "characteristic": "b42e50d8-ade7-11e4-89d3-123b93f75cba",
-      "description": "Dataset (history buffer) info. Request carries a dataset offset byte. Response after the 2-byte header: base_time u32le (unix seconds; all-0xFF = none), dataset_number u8, slot_count u8, session_id u16le, then TWO u16le both equal to the record count (23,23 later 24,24 in the long capture; possibly record_count plus last-record sequence). Long-capture behaviour: slot_count is the number of completed 5-minute slots in the pending hour — it read 3, then 8 after ~26 more minutes, then 11, tracking wall clock at one per 300 s and wrapping each hour as record_count increments (records are hourly rollups). base_time stayed fixed at the device's boot/reset time. NOTE: opcode 0x02 collides with the legacy \"delete measurements\" opcode — on Griffin firmware 0x02 means dataset info.\n",
+      "description": "Dataset (history buffer) info. Request carries a zero-based dataset offset byte. Response after the 2-byte header: base_time u32le (all-0xFF = none), dataset_number u8, slot_count u8, session_id u16le, then TWO u16le both equal to the record count (23,23 later 24,24 in the local capture; possibly record_count plus last-record sequence). slot_count is the number of completed 5-minute slots in the pending hour; 0xFF means there is no pending slot data, not slot 255. A public response with slot_count 0xFF also carried zero records. After 0x73 initializes the RTC, base_time is Unix seconds; its clock domain before the first 0x73 remains unproven. NOTE: opcode 0x02 collides with the legacy \"delete measurements\" opcode — on Griffin firmware 0x02 means dataset info.\n",
       "parameters": {
         "dataset_offset": {
+          "description": "Zero-based dataset offset, not the dataset_number returned in the response.",
           "type": "uint8"
         }
       },
@@ -52,23 +53,16 @@
     },
     "griffin_read_external_flash_image_version": {
       "characteristic": "b42e50d8-ade7-11e4-89d3-123b93f75cba",
-      "description": "Read external flash firmware image version. Response is 6 bytes: [0x72, status, major, minor, patch, build]; version string is \"major.minor.patch\" (0xFF = invalid). Requires G-BLE >= 1.2.1. Capture: firmware reported external image 2.3.1 alongside BLE firmware G-BLE-2.2.3.\n",
+      "description": "Read external flash firmware image version. The request is exactly TWO bytes, [0x72,image_type], with no zero padding. Response is 6 bytes: [0x72, status, major, minor, patch, build]; version string is \"major.minor.patch\" (0xFF = invalid). Requires G-BLE >= 1.2.1. Public vector: request [0x72,0x01], response [0x72,0x00,0x02,0x00,0x11,0x00].\n",
       "parameters": {
         "image_type": {
-          "description": "Firmware image selector; 0x01 in capture.",
+          "description": "Firmware image selector; 0x01 in captures.",
           "type": "uint8"
         }
       },
       "template": [
         114,
-        "{image_type}",
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        "{image_type}"
       ]
     },
     "griffin_region": {
@@ -80,35 +74,57 @@
     },
     "griffin_report_measurements": {
       "characteristic": "b42e50d8-ade7-11e4-89d3-123b93f75cba",
-      "description": "Fetch the pending-hour history block (capture-verified on G-BLE-2.2.3). Same 9-byte shape as the legacy report-measurements command, but sent as ATT Write Command (write without response) and, on Griffin firmware, byte 1 selects the DATASET rather than a legacy operator: the vendor app sent 0x02 immediately after dataset info reported dataset_number 2. All remaining bytes zero. The device answers with a single 230-byte notification on the ASR characteristic (b42e538a — format documented there; needs ATT MTU >= 233), followed by an ASRACP indication [0x01, 0x00, 0x01, 0x00, 0x00, 0x00] (opcode echo, status, likely-block-count u16le, trailing u16 zero). Enable ASR notifications and ASRACP indications first.\n",
+      "description": "Fetch one or more 230-byte hourly history blocks. Send this 9-byte request as ATT Write Command (write without response). Byte 1 is the range operator, byte 2 is flags, byte 3 is the sensor index, byte 4 is the ZERO-BASED DATASET OFFSET, bytes 5-6 are min_seq u16le, and bytes 7-8 are max_seq u16le. Public vector [0x01,0x02,0x00,0x00,0x00,0x02,0x00,0x00,0x00] uses operator 2, flags/sensor/dataset offset 0, min_seq 2 and max_seq 0. The device answers with one or more ASR notifications (b42e538a; ATT MTU >= 233), then an ASRACP indication [0x01,status,block_count u16le,trailing u16]. The public request returned blocks with record indexes 2 and 3 and a completion count of 2. Enable ASR notifications and ASRACP indications first.\n",
       "parameters": {
-        "dataset_number": {
-          "description": "Dataset to read; use dataset_number from griffin_get_dataset_info (0x02 in capture).",
+        "dataset_offset": {
+          "description": "Zero-based dataset offset; do not substitute dataset_number.",
+          "type": "uint8"
+        },
+        "flags": {
+          "max": 15,
+          "min": 0,
+          "type": "uint8"
+        },
+        "max_seq": {
+          "endianness": "little",
+          "type": "uint16"
+        },
+        "min_seq": {
+          "endianness": "little",
+          "type": "uint16"
+        },
+        "operator": {
+          "description": "Range operator; public capture used 2 (all records below threshold).",
+          "max": 6,
+          "min": 1,
+          "type": "uint8"
+        },
+        "sensor_index": {
+          "max": 13,
+          "min": 0,
           "type": "uint8"
         }
       },
       "template": [
         1,
-        "{dataset_number}",
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        "{operator}",
+        "{flags}",
+        "{sensor_index}",
+        "{dataset_offset}",
+        "{min_seq}",
+        "{max_seq}"
       ]
     },
     "griffin_self_check": {
       "characteristic": "b42e50d8-ade7-11e4-89d3-123b93f75cba",
-      "description": "Self check / device info. Response (30 bytes max): [0x6D, status, uptime_u32le, device_type, reserved, msp_version (2B), ...]. device_type: 0=unknown, 1=Wave 2, 2=Wave Plus, 3=Wave Mini. Capture: response byte 6 was 0x01 (WAVE2), uptime ~14 h. Long-capture observations on the undocumented tail (all MEDIUM): bytes 24-25 u16le incremented across app sessions (45, 46, 47, 49 — a connection counter?); bytes 26-27 u16le held 0x0A4F = 2639, the same value the ASR history block carries where 0.01-scaled radon (26.39 Bq/m³) fits; bytes 28-29 u16le held 0x0009, equal to the advertisement flags word.\n",
+      "description": "Self check / device info. Response (30 bytes max): [0x6D, status, uptime_u32le, device_type, reserved, msp_version (2B), ...]. device_type: 0=unknown, 1=Wave 2, 2=Wave Plus, 3=Wave Mini. Capture: response byte 6 was 0x01 (WAVE2), uptime ~14 h. Bytes 24-25 are an unknown u16le diagnostic value. Bytes 26-27 are input voltage u16le in mV: public captures contain 2793 mV here and in the adjacent history block's bytes 224-225. Bytes 28-29 are the advertisement flags word (u16le).\n",
       "value": [
         109
       ]
     },
     "griffin_set_current_date": {
       "characteristic": "b42e50d8-ade7-11e4-89d3-123b93f75cba",
-      "description": "Set device clock to unix time (seconds, little-endian).",
+      "description": "Initialize the device RTC to Unix time (u32le); subsequent 0x74 responses use the Unix clock domain.",
       "parameters": {
         "time_u32le_b0": {
           "type": "uint8"
@@ -308,7 +324,7 @@
     "manufacturer": "Airthings ASA",
     "manufacturer_status": "active",
     "name": "Airthings Wave Family",
-    "notes": "Family of BLE air quality monitors: Wave (radon), Wave Plus (radon + CO₂ + VOC + pressure), Wave Mini (temp/humidity/mold risk), Wave Gen 2, View Plus (particulate + display), and Hub (gateway). All devices share a common GATT profile architecture (AtGattProfile) with per-model service UUIDs, manufacturer ID 820 (0x0334) in advertisement data, and a standardized ASR/ASRACP protocol for reading sensor data and controlling the device.\nDISCOVERY: Scan for service UUIDs in advertisement. Manufacturer data (company ID 820) carries 4-byte serial number followed by 2-byte flags. Device type identified by which service UUID is present in the advertisement itself (ADV_IND incomplete 128-bit service UUID list) — the HCI capture shows the scan response is empty on Wave Gen 2.\nCOMMUNICATION: Connect to the air sensor service UUID. Sensor data read via two paths: 1. Standard BLE GATT characteristics (temperature 2A6E, humidity 2A6F,\n   pressure 2A6D, dew point 2A7B) — read directly or via notify.\n2. ASR (Air Sensor Read) characteristic — notifications carry packed\n   multi-sensor data records. ASRACP (Access Control Point) used to\n   request historical data dumps, configure device settings, set time, etc.\n   On newer firmware the ASRACP characteristic multiplexes two command\n   sets: the legacy ASRACP opcodes (0x01-0x04, 0xF8/0xF9) and the newer\n   \"Griffin\" direct opcodes (0x02 dataset info, 0x66 UI settings, 0x6D\n   self check, 0x72-0x74 clock/flash, 0x76-0x79 region), the latter\n   confirmed by HCI capture on Wave Gen 2 firmware G-BLE-2.2.3.\n\nCONFIDENCE: Service/characteristic UUIDs are HIGH — sourced directly from the app's own per-model UUID tables; Wave Gen 2 ASR/ASRACP/combined UUIDs additionally exercised in capture. Advertisement serial/flags layout is HIGH — capture-verified (serial 2950016244 matches the LE decode; flag bits match the app's scan-result decoder and its legacy device bit tables). Combined sensor-data packet format is HIGH on Wave Gen 2 — 20-byte record captured and decoded against the app's current-values parser. ASRACP opcode protocol is HIGH — full opcode/format tables extracted and the Griffin subset observed live. Note opcode 0x02 is overloaded: legacy \"delete measurements\" vs Griffin \"dataset info\"; the captured firmware answered 0x02 with dataset info. ASR notification framing on Griffin firmware is HIGH for Wave Gen 2 — the long capture contains a full history readout: a report-measurements write on ASRACP answered by ONE 230-byte ASR notification carrying the pending hour as twelve 5-minute slots (format on the Wave 2 ASR characteristic below), cross-validated slot-by-slot against the combined-characteristic reads in the same session. The legacy multi-record ASR framing described in the app (flags byte + optional fields per record) was NOT what the Griffin firmware sent and remains MEDIUM, app-derived only. Security is MEDIUM — ATCommandSetFrame suggests optional PIN/challenge auth but flow not fully decoded; the captured session ran entirely without pairing, bonding, or encryption (no SMP traffic).\n",
+    "notes": "Family of BLE air quality monitors: Wave (radon), Wave Plus (radon + CO₂ + VOC + pressure), Wave Mini (temp/humidity/mold risk), Wave Gen 2, View Plus (particulate + display), and Hub (gateway). All devices share a common app GATT-profile architecture with per-model service UUIDs, manufacturer ID 820 (0x0334) in advertisement data, and a standardized ASR/ASRACP protocol for reading sensor data and controlling the device.\nDISCOVERY: Scan for service UUIDs in advertisement. Manufacturer data (company ID 820) carries 4-byte serial number followed by 2-byte flags. Device type identified by which service UUID is present in the advertisement itself (ADV_IND incomplete 128-bit service UUID list) — the HCI capture shows the scan response is empty on Wave Gen 2.\nCOMMUNICATION: Connect to the air sensor service UUID. Sensor data read via two paths: 1. Standard BLE GATT characteristics (temperature 2A6E, humidity 2A6F,\n   pressure 2A6D, dew point 2A7B) — read directly or via notify.\n2. ASR (Air Sensor Read) characteristic — notifications carry packed\n   multi-sensor data records. ASRACP (Access Control Point) used to\n   request historical data dumps, configure device settings, set time, etc.\n   On newer firmware the ASRACP characteristic multiplexes two command\n   sets: the legacy ASRACP opcodes (0x01-0x04, 0xF8/0xF9) and the newer\n   \"Griffin\" direct opcodes (0x02 dataset info, 0x66 UI settings, 0x6D\n   self check, 0x72-0x74 clock/flash, 0x76-0x79 region), the latter\n   confirmed by HCI capture on Wave Gen 2 firmware G-BLE-2.2.3.\n\nCONFIDENCE: Service/characteristic UUIDs are HIGH — sourced directly from the app's own per-model UUID tables; Wave Gen 2 ASR/ASRACP/combined UUIDs additionally exercised in capture. Advertisement serial/flags layout is HIGH — capture-verified against the app's scan-result decoder and its legacy device bit tables. Combined sensor-data packet format is HIGH on Wave Gen 2 — 20-byte record captured and decoded against the app's current-values parser. ASRACP opcode protocol is HIGH — full opcode/format tables extracted and the Griffin subset observed live. Note opcode 0x02 is overloaded: legacy \"delete measurements\" vs Griffin \"dataset info\"; the captured firmware answered 0x02 with dataset info. ASR notification framing on Griffin firmware is HIGH for Wave Gen 2. Local and public captures contain report-measurements writes answered by one or more 230-byte ASR notifications, including consecutive public blocks with indexes 2 and 3 and a completion count of 2. The local pending-hour block was cross-validated slot-by-slot against combined- characteristic reads in the same session. The legacy multi-record ASR framing described in the app (flags byte + optional fields per record) was NOT what Griffin firmware sent and remains MEDIUM, app-derived only. Security is MEDIUM — the app's command-set frame parser suggests optional PIN/challenge auth but the flow is not fully decoded; captured sessions ran entirely without pairing, bonding, or encryption (no SMP traffic).\n",
     "pairing": {
       "bonding": "optional",
       "confidence": "high",
@@ -362,7 +378,7 @@
           "verified": true
         }
       ],
-      "notes": "No provisioning required. BLE connection only. Device scan filters per-model service UUID. No pairing or PIN required for sensor reads or for the ASRACP writes observed in the HCI capture (no SMP traffic). An optional password/PIN path may still exist for other operations (ATCommandSetFrame parsing suggests a challenge-response auth path, not exercised in the capture).\n",
+      "notes": "No provisioning required. BLE connection only. Device scan filters per-model service UUID. No pairing or PIN required for sensor reads or for the ASRACP writes observed in the HCI capture (no SMP traffic). An optional password/PIN path may still exist for other operations (command-set frame parsing suggests a challenge-response auth path, not exercised in the capture).\n",
       "rejoin": {
         "in_place_supported": true,
         "notes": "Unpair from OS Bluetooth settings if bonded, then reconnect.",
@@ -372,7 +388,7 @@
     },
     "testing": {
       "detail": "capture-verified",
-      "notes": "Nobody on this project has driven an Airthings unit from this document. What exists is two local Nordic-sniffer HCI captures of the VENDOR app talking to a Wave Gen 2 on firmware G-BLE-2.2.3 -- the second 44 minutes of steady state across four app sessions -- held in the research store and not committed. Those captures are what \"capture-verified\" means everywhere it appears below: the advertisement layout, the combined packet, the ASRACP Griffin command set, the 230-byte pending-hour history block and the \"new 5-minute data\" flag pulse were each read off real traffic.\nThat is stronger than static analysis and weaker than driving the device, and the gap matters here: a capture shows the vendor app's happy path only. The other five models in the family were never on the wire, the ASR history RECORD format was not exercised inside the capture window, and no write this spec documents has been sent by anything but the vendor's own app.\n",
+      "notes": "Nobody on this project has driven an Airthings unit from this document. Evidence includes two local Nordic-sniffer HCI captures of the vendor app talking to a Wave Gen 2 on firmware G-BLE-2.2.3 and public Home Assistant issue captures of G-BLE-2.1.0. The local captures establish the advertisement layout, combined packet, Griffin command set, a 230-byte pending-hour block and the \"new 5-minute data\" flag pulse. Public captures establish multi-block history transfer, tail voltage/index fields, the pre/post-RTC 0x74 clock domains, the 0xFF empty-slot sentinel and the two-byte 0x72 request.\nThat is stronger than static analysis and weaker than driving the device, and the gap matters here: a capture shows the vendor app's happy path only. The other five models in the family were never on the wire, and no write this spec documents has been sent by anything but the vendor's own app.\n",
       "status": "untested"
     },
     "variants": [
@@ -397,7 +413,7 @@
           ]
         },
         "model": "Wave (Gen 2)",
-        "notes": "Updated Wave with Gen 2 hardware. Different service UUID and ASR/ASRACP characteristic UUIDs. Same sensor suite as Gen 1. ASR: b42e538a, ASRACP: b42e50d8, Combined: b42e4dcc. Serial number prefix 2950 (the app's Wave 2 serial prefix); BLE firmware is named \"G-BLE-x.y.z\" (capture: G-BLE-2.2.3-master+0). Capture-verified (airthings_2950_wave_capture.pcapng): b42e4a8e is advertised in ADV_IND, the combined characteristic returns the 20-byte packet documented below, and the ASRACP characteristic accepts the Griffin command set (self check, dataset info, clock, UI settings, external flash version) over write/indicate with no pairing. Self-check response byte 6 = device type 0x01 (WAVE2). The long capture additionally verified the history readout: ASRACP report-measurements → single 230-byte pending-hour block on the ASR characteristic (twelve 5-minute slots; format on b42e538a), and the advertisement's ~20 s \"new 5-minute data\" flag pulse every 300 s.\n",
+        "notes": "Updated Wave with Gen 2 hardware. Different service UUID and ASR/ASRACP characteristic UUIDs. Same sensor suite as Gen 1. ASR: b42e538a, ASRACP: b42e50d8, Combined: b42e4dcc. Serial number prefix 2950 (the app's Wave 2 serial prefix); BLE firmware is named \"G-BLE-x.y.z\" (capture: G-BLE-2.2.3-master+0). Capture-verified (airthings_2950_wave_capture.pcapng): b42e4a8e is advertised in ADV_IND, the combined characteristic returns the 20-byte packet documented below, and the ASRACP characteristic accepts the Griffin command set (self check, dataset info, clock, UI settings, external flash version) over write/indicate with no pairing. Self-check response byte 6 = device type 0x01 (WAVE2). The local capture additionally verified a pending-hour history block (twelve 5-minute slots; format on b42e538a), and the advertisement's ~20 s \"new 5-minute data\" flag pulse every 300 s. Public G-BLE-2.1.0 captures add multi-block history transfers and the corrected tail, request, clock-domain and sentinel semantics documented below.\n",
         "sensors": [
           "radon",
           "temperature",
@@ -1067,7 +1083,7 @@
       "authentication": "unknown",
       "bonding": "optional",
       "encryption": "optional",
-      "notes": "Standard BLE GATT connection — no mandatory bonding or pairing for reading sensor data. HCI capture of a full vendor-app session (airthings_2950_wave_capture.pcapng) shows no SMP traffic at all: combined-data reads, DIS reads, and every ASRACP write (Griffin command set, including clock set and UI settings) ran unauthenticated over an unencrypted link. The 44-minute long capture (four app sessions, including the full history readout) likewise contains zero SMP traffic. Whether the legacy ATCommandSetFrame challenge-response path (AT+CHALLENGE, AT+CMD) gates any additional operations remains unconfirmed — it was not exercised in the capture.\n",
+      "notes": "Standard BLE GATT connection — no mandatory bonding or pairing for reading sensor data. HCI capture of a full vendor-app session (airthings_2950_wave_capture.pcapng) shows no SMP traffic at all: combined-data reads, DIS reads, and every ASRACP write (Griffin command set, including clock set and UI settings) ran unauthenticated over an unencrypted link. The 44-minute long capture (four app sessions, including the full history readout) likewise contains zero SMP traffic. Whether the legacy command-set frame challenge-response path (AT+CHALLENGE, AT+CMD) gates any additional operations remains unconfirmed — it was not exercised in the capture.\n",
       "pairing": "optional"
     },
     "timing": {
@@ -1346,24 +1362,83 @@
         {
           "format": [
             {
-              "length": 16,
-              "name": "reserved",
-              "notes": "All zeros in capture; meaning unknown.",
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_0",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
               "offset": 0,
-              "type": "bytes"
+              "type": "uint16"
             },
             {
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_1",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
+              "offset": 2,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_2",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
+              "offset": 4,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_3",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
+              "offset": 6,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_4",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
+              "offset": 8,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_5",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
+              "offset": 10,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_6",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
+              "offset": 12,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "diagnostic_counter_7",
+              "notes": "Raw diagnostic counter; its individual meaning is unknown.",
+              "offset": 14,
+              "type": "uint16"
+            },
+            {
+              "endianness": "little",
               "length": 2,
               "name": "radon_24h_avg",
-              "notes": "Snapshot, equals the combined-characteristic value.",
+              "notes": "Snapshot, equals the combined-characteristic value. If any of the eight diagnostic counters or either radon average is 0xFFFF, the app's parser marks the radon summary unavailable; do not display the remaining words as a valid summary.\n",
               "offset": 16,
               "type": "uint16",
               "unit": "Bq/m³"
             },
             {
+              "endianness": "little",
               "length": 2,
               "name": "radon_longterm_avg",
-              "notes": "Snapshot, equals the combined-characteristic value.",
+              "notes": "Snapshot; 0xFFFF in any of the first ten u16 fields makes the radon summary unavailable.",
               "offset": 18,
               "type": "uint16",
               "unit": "Bq/m³"
@@ -1399,59 +1474,66 @@
             {
               "length": 6,
               "name": "unknown",
-              "notes": "00 00 00 20 00 00 in capture; meaning unknown.",
+              "notes": "00 00 00 20 00 00 in the local capture; meaning unknown.",
               "offset": 212,
               "type": "bytes"
             },
             {
+              "endianness": "little",
               "length": 4,
               "name": "base_time",
-              "notes": "Unix seconds, little-endian. Matches dataset-info base_time (device epoch — capture value was ~23 h old, agreeing with the self-check uptime, i.e. time of boot/reset).\n",
+              "notes": "Matches dataset-info base_time. After 0x73 initializes the RTC this is Unix seconds; its clock domain before RTC initialization is unproven and must not be assumed to be Unix time.\n",
               "offset": 218,
               "type": "uint32"
             },
             {
               "length": 1,
-              "name": "unknown2",
-              "notes": "0x00 in capture.",
+              "name": "invalid_flag",
+              "notes": "History validity flag consumed by the app's parser; 0x00 denotes a valid block, nonzero marks it invalid.",
               "offset": 222,
               "type": "uint8"
             },
             {
               "length": 1,
               "name": "dataset_number",
-              "notes": "Echoes the requested dataset (0x02 in capture, matching dataset info).",
+              "notes": "Dataset number reported by dataset info; this is not the request's zero-based dataset offset.",
               "offset": 223,
               "type": "uint8"
             },
             {
+              "endianness": "little",
               "length": 2,
-              "name": "radon_24h_centi",
-              "notes": "MEDIUM confidence. Capture value 2639 = 26.39, consistent with the 26 Bq/m³ 24 h average as a 0.01-scaled value; the same u16 appears at bytes 26-27 of the self-check response.\n",
+              "name": "input_voltage",
+              "notes": "Input voltage, not a scaled radon average. Public captures show 2770 and 2793 mV in consecutive blocks; the 2793 mV value also appears at bytes 26-27 of the adjacent self-check response.\n",
               "offset": 224,
-              "scale": 0.01,
               "type": "uint16",
-              "unit": "Bq/m³"
+              "unit": "mV"
             },
             {
-              "length": 2,
-              "name": "radon_pending_hour_centi",
-              "notes": "MEDIUM confidence. Capture value 3055 = 30.55, read as the in-progress hour's radon at 0.01 Bq/m³ — plausible but uncorroborated by a second source.\n",
+              "length": 1,
+              "name": "orientation_wave_count",
+              "notes": "Upper nibble = orientation, lower nibble = wave (gesture) count, as in the combined packet.",
               "offset": 226,
-              "scale": 0.01,
-              "type": "uint16",
-              "unit": "Bq/m³"
+              "type": "uint8"
             },
             {
+              "length": 1,
+              "name": "last_populated_slot",
+              "notes": "Zero-based index of the last populated 5-minute slot; 11 means all twelve slots are populated.",
+              "offset": 227,
+              "type": "uint8"
+            },
+            {
+              "endianness": "little",
               "length": 2,
-              "name": "record_count",
-              "notes": "Little-endian. Capture: 23, one less than the dataset-info record_count (24) read seconds earlier — likely counts completed hourly records excluding the pending one.\n",
+              "name": "hourly_record_index",
+              "notes": "Zero-based hourly record index. Consecutive public blocks carry 2 and 3, not record counts.",
               "offset": 228,
               "type": "uint16"
             }
           ],
           "name": "ASR (Air Sensor Read)",
-          "notes": "On Griffin firmware (capture: G-BLE-2.2.3) a report-measurements write on ASRACP (see griffin_report_measurements) is answered by a SINGLE 230-byte notification on this characteristic carrying the pending hour as twelve 5-minute slots per sensor, oldest first (slot 11 matched the combined-characteristic reading taken seconds later). Requires a large ATT MTU — the vendor app negotiated 247; behaviour at the default MTU 23 is unobserved. Slot arrays for sensors the model lacks are all-0xFF (Wave 2: the 144-byte region at offset 56, sized for six more 12-slot u16 arrays — presumably pressure/CO₂/VOC and friends on Wave Plus, unobserved). Layout below decoded from the long capture and cross-checked against the same session's combined-data reads (radon 26/18 Bq/m³, 22.6 °C, 53.5 %RH, light 16 all agree). This does NOT follow the legacy per-record ASR framing documented on the Wave Gen 1 ASR characteristic; that framing remains unobserved on this firmware.\n",
+          "notes": "On Griffin firmware a report-measurements write on ASRACP (see griffin_report_measurements) is answered by ONE OR MORE 230-byte notifications on this characteristic, one per selected hourly history record, followed by an ASRACP completion indication carrying the block count. Public G-BLE-2.1.0 captures contain consecutive blocks with record indexes 2 and 3 and a completion count of 2; the local G-BLE-2.2.3 capture contains the pending hour as twelve 5-minute slots per sensor, oldest first (slot 11 matched the combined-characteristic reading taken seconds later). Requires a large ATT MTU — the vendor app negotiated 247; behaviour at the default MTU 23 is unobserved. Slot arrays for sensors the model lacks are all-0xFF (Wave 2: the 144-byte region at offset 56, sized for six more 12-slot u16 arrays — presumably pressure/CO₂/VOC and friends on Wave Plus, unobserved). Layout below was decoded from captures and the app's history parser, and cross-checked against same-session self-check and combined-data responses. This does NOT follow the legacy per-record ASR framing documented on the Wave Gen 1 ASR characteristic; that framing remains unobserved on this firmware.\n",
           "properties": [
             "notify"
           ],
@@ -1459,9 +1541,10 @@
         },
         {
           "name": "ASRACP (Air Sensor Read Access Control Point)",
-          "notes": "Same ASRACP protocol as Wave Gen 1, multiplexed with the newer \"Griffin\" direct command set on firmware G-BLE >= 1.2.1 (commands below; older firmware wraps the same operations in the 0x71 passthrough envelope). Capture-verified on G-BLE-2.2.3: writes of 0x6D/0x74/0x02/0x66/0x72 each answered by an indication echoing the opcode with a status byte (0x00 = OK). History readout (long capture): a 9-byte 0x01 report-measurements request sent as ATT Write Command (0x52, no response) triggers one 230-byte block on the ASR characteristic, then an indication here: [0x01, 0x00, 0x01, 0x00, 0x00, 0x00] — opcode echo, status 0x00, then likely a u16le count of blocks sent (0x0001) and a trailing u16 0x0000. See griffin_report_measurements.\n",
+          "notes": "Public GATT declaration property byte 0x2C = write, write-without-response and indicate. Same ASRACP protocol as Wave Gen 1, multiplexed with the newer \"Griffin\" direct command set on firmware G-BLE >= 1.2.1 (commands below; older firmware wraps the same operations in the 0x71 passthrough envelope). Capture-verified on G-BLE-2.2.3: writes of 0x6D/0x74/0x02/0x66/0x72 each answered by an indication echoing the opcode with a status byte (0x00 = OK). A 9-byte 0x01 report-measurements request sent as ATT Write Command (0x52, no response) triggers one or more 230-byte blocks on the ASR characteristic, then a six-byte indication here: [0x01, status, block_count u16le, trailing u16]. Public evidence: [0x01, 0x00, 0x02, 0x00, 0x00, 0x00] completed a two-block transfer. See griffin_report_measurements.\n",
           "properties": [
             "write",
+            "write_without_response",
             "indicate"
           ],
           "uuid": "b42e50d8-ade7-11e4-89d3-123b93f75cba"

@@ -1709,6 +1709,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#firmware-update-reported-not-hardware-tested" class="md-nav__link">
+    <span class="md-ellipsis">
+      Firmware update (reported, not hardware-tested)
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -7224,6 +7233,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#firmware-update-reported-not-hardware-tested" class="md-nav__link">
+    <span class="md-ellipsis">
+      Firmware update (reported, not hardware-tested)
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -7398,12 +7416,14 @@ looks like a new manufacturer-data entry. Match on name + service UUID +
 <tr>
 <td>8</td>
 <td>1</td>
-<td>Flags (0x06/0x08 observed), unknown</td>
+<td>Onboarding route: <code>0x06</code> connects for one live <code>fff2</code> read; other values, including <code>0x08</code>, stay advertisement-only</td>
 </tr>
 </tbody>
 </table>
-<p>Example frame <code>fc 07 c7 12 00 c8 3d 56 06</code> → 20.44 °C, 48.07 %, 86 %.
-Decoded humidity above 100 % marks a corrupt packet — drop it whole.</p>
+<p>Byte 8 is a client-routing flag, not evidence of a hardware revision. Example
+frame <code>fc 07 c7 12 00 c8 3d 56 06</code> → 20.44 °C, 48.07 %, 86 %, with the
+connected-onboarding route. Decoded humidity above 100 % marks a corrupt
+packet — drop it whole.</p>
 <h3 id="ble-services">BLE Services<a class="headerlink" href="#ble-services" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -7415,41 +7435,58 @@ Decoded humidity above 100 % marks a corrupt packet — drop it whole.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>0000fff0-...-00805f9b34fb</code></td>
+<td><code>0000fff0-0000-1000-8000-00805f9b34fb</code></td>
 <td>Inkbird Sensor Service</td>
 <td>Shared with the iBBQ family — not sufficient for identification</td>
 </tr>
 <tr>
-<td><code>0000fff2-...-00805f9b34fb</code></td>
+<td><code>0000fff2-0000-1000-8000-00805f9b34fb</code></td>
 <td>Sensor data (read)</td>
 <td>Optional poll: temp s16 LE /100 @ bytes 0-1, humidity @ bytes 2-3, probe indicator @ byte 4; no battery byte</td>
 </tr>
 <tr>
-<td><code>0000fff1-...-00805f9b34fb</code></td>
+<td><code>0000fff1-0000-1000-8000-00805f9b34fb</code></td>
 <td>Config (read/write)</td>
 <td>16-byte block: calibration offsets (x0.01) @ 1-2/3-4/5-6, logging interval u32 LE seconds @ 7-10, firmware version chars @ 11/13, CRC16-Modbus of bytes 0-13 @ 14-15 on writes</td>
 </tr>
 <tr>
-<td><code>0000fff6-...-00805f9b34fb</code></td>
+<td><code>0000fff6-0000-1000-8000-00805f9b34fb</code></td>
 <td>History data (notify)</td>
-<td>Streams the on-device log; 10 samples compressed to two s16 LE endpoints + linear interpolation, CRC16 trailer</td>
+<td>Compressed endpoints plus raw remainder, 20-byte notification padding, CRC16 trailer</td>
 </tr>
 <tr>
-<td><code>0000fff8-...-00805f9b34fb</code></td>
+<td><code>0000fff8-0000-1000-8000-00805f9b34fb</code></td>
 <td>History command (write)</td>
 <td>2/1/7 = temp header/content/CRC; 4/3/8 = humidity header/content/CRC</td>
 </tr>
 <tr>
-<td><code>0000fff9-...-00805f9b34fb</code></td>
+<td><code>0000fff9-0000-1000-8000-00805f9b34fb</code></td>
 <td>Control (write)</td>
 <td><code>0x01</code> clear logged history, <code>0x06</code> graceful disconnect</td>
 </tr>
 </tbody>
 </table>
-<p>The app also does PhyPlus BLE OTA updates: the device reboots to an
-OTA-mode name <code>PPlusOTA</code> (SLB service <code>0000feb3</code>, write <code>0000fed5</code>/<code>0000fed7</code>,
-notify <code>0000fed8</code>); firmware URLs come from
-<code>POST https://api-inkbird.com/api/bleDevice/firmware</code>.</p>
+<p>For <code>count</code> history samples, each complete group of ten becomes two signed
+little-endian endpoints. Thus <code>compressed_len = ((count - count % 10) / 10) *
+4</code>. The compressed bytes are zero-padded to 20-byte notification boundaries;
+the raw signed-LE remainder (<code>count % 10</code> samples) starts at
+<code>ceil(compressed_len / 20) * 20</code>, not at <code>compressed_len</code>. Reassemble the
+meaningful compressed bytes followed immediately by the meaningful remainder
+and CRC16-Modbus only those bytes—never the notification padding. The separate
+six-byte header is <code>count u32le</code> plus CRC16 of its first four bytes.</p>
+<h3 id="firmware-update-reported-not-hardware-tested">Firmware update (reported, not hardware-tested)<a class="headerlink" href="#firmware-update-reported-not-hardware-tested" title="Permanent link">&para;</a></h3>
+<p>SHB accepts Intel HEX (<code>.hex</code>/<code>.hex16</code>). On the normal device, an acknowledged
+write of <code>01 02</code> to <code>5833ff02-9b8b-5191-6142-22a4536ef123</code> requests OTA entry
+for those images (<code>01 03</code> selects resource images). The app then disconnects
+and rescans for <code>PPlusOTA</code> at the normal address with its last octet
+incremented modulo 256: <code>(last + 1) &amp; 0xff</code> (<code>ff</code> → <code>00</code>). SHB
+uses service <code>5833ff01-9b8b-5191-6142-22a4536ef123</code>, command <code>…ff02…</code>, notify
+<code>5833ff03-…</code>, and no-response bulk data <code>5833ff04-…</code>. SLB accepts raw binary
+and uses service <code>0000feb3-0000-1000-8000-00805f9b34fb</code>, acknowledged command
+<code>0000fed5-…</code>, no-response data <code>0000fed7-…</code>, and notify <code>0000fed8-…</code>.</p>
+<p>Firmware URLs come from <code>POST https://api-inkbird.com/api/bleDevice/firmware</code>.
+Do not infer that OTA UUIDs are advertised or that images are unsigned:
+advertisement contents and signature enforcement remain unknown.</p>
 <p>Note the fff0 service is shared with the iBBQ BBQ thermometers
 (spec <code>device-specs/devices/ibbq-meat-thermo.yaml</code>), and the
 IBT/IBBQ-4BW line uses a completely different <code>0000ff00</code> ASCII-hex protocol
