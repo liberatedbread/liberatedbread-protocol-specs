@@ -1,0 +1,346 @@
+# RENPHO R-Q002 N read-only FTMS/CSC profile
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: QZ renphobike at afd4f90db35ed7ee29c76a6c19b84de4cf558922 and
+# public HCI capture attached to cagnulein/qdomyos-zwift issue 2401.
+
+device:
+  name: "RENPHO R-Q002 N exercise bike (read-only)"
+  manufacturer: "RENPHO / Joicom corporation"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    detail: "capture-verified"
+    notes: >
+      No hardware was driven by this project. The public issue-2401 HCI capture
+      confirms FTMS Indoor Bike Data flags 0x0064 and the Cycling Power Service
+      on this model. CSC 0x1816 is source-reported by the open driver but is not
+      present in that capture; it remains conditional on actual enumeration.
+      Workout identifiers and addresses were not retained.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "fitness"
+  type: "exercise-bike"
+  aliases: ["RENPHO R-Q002N", "RENPHO AI-powered exercise bike R-Q002 N"]
+  notes: >
+    Phone-direct standard BLE telemetry, with no proprietary UART requirement,
+    account, cloud ride session or provisioning exchange. The main stream is
+    standard FTMS Indoor Bike Data with a model-specific resistance profile:
+    raw resistance is read as uint16 and divided by two. Instantaneous and
+    average power remain SIGNED int16 values in watts, even though the reviewed
+    open driver reads instantaneous power unsigned.
+
+    FTMS fields are flag-driven and little-endian. Instantaneous speed is
+    present when More Data (flag bit 0) is clear. The expended-energy group is
+    FIVE bytes: total energy u16, energy/hour u16, energy/minute u8. Advancing
+    only two bytes would shift heart rate and every following field.
+
+    CAPTURE BOUNDARY: the public capture contains FTMS 0x1826 and Cycling Power
+    Service 0x1818. The open driver also subscribes to CSC 0x1816, so CSC is
+    documented as a conditional standard read-only endpoint, not as something
+    proven by that capture. Other RENPHO bikes, RENPHO scales and the separate
+    health apps are outside this spec.
+
+    READ ONLY: the FTMS Control Point and Cycling Power Control Point are listed
+    only so a client can avoid them. No request-control, resistance, ERG, start,
+    stop, calibration, firmware or session write is declared.
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/"
+        title: "Bluetooth SIG Fitness Machine Service 1.0"
+        covers: "Standard FTMS transport and Indoor Bike Data field ordering."
+    notes: >
+      Standard Bluetooth services are open. The R-Q002 resistance scale and
+      capture quirks are interoperability evidence from the public QZ driver,
+      not a vendor-published profile. The shared ftms-fitness-machine-service
+      reference spec is not modified.
+  identification:
+    notes: >
+      No safe automatic identity signal is documented. FTMS is a shared service,
+      not unique RENPHO identification, and is deliberately absent from matching.
+      After an owner selects an R-Q002 N, corroborate the Indoor Bike Data
+      dialect and never apply this resistance scale to other FTMS bikes.
+  discovery:
+    none: >
+      Manual selection only. No reliable advertised local name was established,
+      and generic FTMS must not claim every treadmill or bike in range. After
+      the owner selects an R-Q002 N, enumerate GATT and validate the captured
+      Indoor Bike Data dialect before exposing the RENPHO resistance profile.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned. Connect and subscribe to supported standard
+      telemetry characteristics. The public capture and open driver provide
+      medium confidence; no exact setup or pairing flow was run here.
+    methods:
+      - type: "ble_direct"
+        name: "Direct standard FTMS/CSC telemetry"
+        role: "primary"
+        verified: false
+        description: "Connect without a vendor account and subscribe only to standard telemetry."
+        ble:
+          pairing_required: false
+          service_uuid: "00001826-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "00002ad2-0000-1000-8000-00805f9b34fb"
+        steps:
+          - action: "Select an R-Q002 N candidate and close other fitness apps that may hold its BLE link."
+            actor: "user"
+          - action: "Connect and enumerate FTMS, Cycling Power and, if actually present, CSC endpoints."
+            actor: "client"
+            expect: "FTMS Indoor Bike Data is present; Cycling Power is capture-backed; CSC is optional and source-reported."
+          - action: "Enable notifications on 00002ad2-0000-1000-8000-00805f9b34fb and on supported 00002a63-0000-1000-8000-00805f9b34fb / 00002a5b-0000-1000-8000-00805f9b34fb endpoints."
+            actor: "client"
+            expect: "Flag-driven telemetry arrives without any Control Point write."
+          - action: "Parse Indoor Bike Data using protocol_details.indoor_bike_data and require exact consumption of all declared fields."
+            actor: "client"
+            expect: "The public vector decodes to 3.60 km/h, 53 rpm, raw resistance 131 / normalized 65.5 and 73 W."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: "No factory-reset sequence or cleared-state list was established for the R-Q002 N."
+      description: "Do not treat stopping a ride, deleting an OS bond or power-cycling the console as a factory reset. No exact manual was acquired."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "BLE only: there is no bike network membership or account binding in this read-only path. Disconnect the old central and reconnect."
+      steps:
+        - action: "Disconnect the previous client and any vendor/fitness app."
+          actor: "user"
+        - action: "Reconnect and re-enumerate the standard services; do not send a Control Point operation."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No API key, ride credential or application authentication is needed for the telemetry documented here."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Close competing fitness apps, then reconnect; no pairing record is needed by this profile."
+    enter_pairing_mode:
+      required: false
+      notes: "The reviewed local driver uses ordinary GATT without a proprietary enrolment or pairing exchange."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "No bond is created by this read-only client path."
+
+services:
+  - uuid: "00001826-0000-1000-8000-00805f9b34fb"
+    name: "Fitness Machine Service"
+    notes: "Standard FTMS. Indoor Bike Data is the capture-backed primary telemetry stream."
+    characteristics:
+      - uuid: "00002acc-0000-1000-8000-00805f9b34fb"
+        name: "Fitness Machine Feature"
+        properties: ["read"]
+        notes: "Read-only feature bits; do not infer that a feature is safe to control from its presence."
+      - uuid: "00002ad2-0000-1000-8000-00805f9b34fb"
+        name: "Indoor Bike Data"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Dynamic flag-driven payload; decode with protocol_details.indoor_bike_data,
+          not a fixed offset table. Public capture uses flags 0x0064: speed,
+          instantaneous cadence, resistance and instantaneous power.
+      - uuid: "00002ad3-0000-1000-8000-00805f9b34fb"
+        name: "Training Status"
+        properties: ["read", "notify"]
+        notes: "Standard status endpoint; no device-specific status opcode is asserted."
+      - uuid: "00002ad9-0000-1000-8000-00805f9b34fb"
+        name: "Fitness Machine Control Point (do not use)"
+        properties: ["write", "indicate"]
+        notes: "Discovered by the public driver but deliberately not exercised by this read-only spec. No commands are declared."
+  - uuid: "00001818-0000-1000-8000-00805f9b34fb"
+    name: "Cycling Power Service (capture-confirmed)"
+    notes: "Present in the R-Q002 public capture. This is not CSC 0x1816."
+    characteristics:
+      - uuid: "00002a63-0000-1000-8000-00805f9b34fb"
+        name: "Cycling Power Measurement"
+        properties: ["notify"]
+        role: "notify"
+        notes: "Instantaneous power is always a signed int16 little-endian at offset 2; later optional fields depend on flags at offset 0."
+        format:
+          - offset: 0
+            length: 2
+            name: "cps_flags"
+            type: "uint16"
+            endianness: "little"
+            notes: "Bit 4 wheel-revolution data; bit 5 crank-revolution data. Other bits follow the standard."
+          - offset: 2
+            length: 2
+            name: "cps_instantaneous_power"
+            type: "int16"
+            endianness: "little"
+            unit: "W"
+            device_class: "power"
+      - uuid: "00002a65-0000-1000-8000-00805f9b34fb"
+        name: "Cycling Power Control Point (do not use)"
+        properties: ["write", "indicate"]
+        notes: "Present in the capture's GATT enumeration; no operation is declared or tested."
+      - uuid: "00002a5d-0000-1000-8000-00805f9b34fb"
+        name: "Sensor Location"
+        properties: ["read"]
+        notes: "Standard read-only sensor location byte."
+  - uuid: "00001816-0000-1000-8000-00805f9b34fb"
+    name: "Cycling Speed and Cadence Service (conditional)"
+    notes: >
+      Source-reported by the open driver, which subscribes to CSC when present.
+      The R-Q002 issue-2401 capture does NOT contain this service. Enumerate
+      before use and do not describe it as capture-confirmed.
+    characteristics:
+      - uuid: "00002a5b-0000-1000-8000-00805f9b34fb"
+        name: "CSC Measurement"
+        properties: ["notify"]
+        role: "notify"
+        notes: "Standard flags: bit 0 adds wheel revolutions u32 + event time u16; bit 1 adds crank revolutions u16 + event time u16, all little-endian. Event times are 1/1024 s."
+      - uuid: "00002a5c-0000-1000-8000-00805f9b34fb"
+        name: "CSC Feature"
+        properties: ["read"]
+        notes: "Standard feature bits, read only."
+      - uuid: "00002a5d-0000-1000-8000-00805f9b34fb"
+        name: "Sensor Location"
+        properties: ["read"]
+        notes: "Standard read-only sensor location byte."
+
+protocol_handler: "renpho_rq002n_ftms"
+
+protocol_details:
+  indoor_bike_data:
+    description: >
+      Flags are uint16 little-endian. Consume fields in the order below when
+      each flag is present, except instantaneous speed which is present when
+      bit 0 is CLEAR. Reject truncation. Unknown/reserved flag bits and trailing
+      bytes must stop publication rather than be silently reinterpreted.
+    fields:
+      - {flag_bit: 0, present_when: "clear", name: "instantaneous_speed", type: "uint16", endianness: "little", scale: 0.01, unit: "km/h"}
+      - {flag_bit: 1, present_when: "set", name: "average_speed", type: "uint16", endianness: "little", scale: 0.01, unit: "km/h"}
+      - {flag_bit: 2, present_when: "set", name: "instantaneous_cadence", type: "uint16", endianness: "little", scale: 0.5, unit: "rpm"}
+      - {flag_bit: 3, present_when: "set", name: "average_cadence", type: "uint16", endianness: "little", scale: 0.5, unit: "rpm"}
+      - {flag_bit: 4, present_when: "set", name: "total_distance", type: "uint24", endianness: "little", scale: 1, unit: "m"}
+      - {flag_bit: 5, present_when: "set", name: "resistance_raw", type: "uint16", endianness: "little", scale: 0.5, unit: "RENPHO resistance level"}
+      - {flag_bit: 6, present_when: "set", name: "instantaneous_power", type: "int16", endianness: "little", scale: 1, unit: "W"}
+      - {flag_bit: 7, present_when: "set", name: "average_power", type: "int16", endianness: "little", scale: 1, unit: "W"}
+      - {flag_bit: 8, present_when: "set", name: "expended_energy_group", type: "bytes", length: 5, fields: "total_energy u16 LE kcal; energy_per_hour u16 LE kcal/h; energy_per_minute u8 kcal/min"}
+      - {flag_bit: 9, present_when: "set", name: "heart_rate", type: "uint8", scale: 1, unit: "bpm"}
+      - {flag_bit: 10, present_when: "set", name: "metabolic_equivalent", type: "uint8", scale: 0.1, unit: "MET"}
+      - {flag_bit: 11, present_when: "set", name: "elapsed_time", type: "uint16", endianness: "little", scale: 1, unit: "s"}
+      - {flag_bit: 12, present_when: "set", name: "remaining_time", type: "uint16", endianness: "little", scale: 1, unit: "s"}
+    resistance_profile: >
+      resistance_raw is retained as an integer and the R-Q002 normalized value
+      is raw / 2. Do not apply the optional user-interface doubling in the open
+      driver, and do not reconcile physical knob changes into automatic writes.
+    missing_distance: >
+      Accept device distance only when flag bit 4 is present. A host may
+      integrate speed locally when absent, but must label that value as host-
+      estimated rather than device-reported distance.
+    public_capture_vector:
+      hex: "64 00 68 01 6a 00 83 00 49 00"
+      flags: "0x0064"
+      decoded: {speed_kmh: 3.60, cadence_rpm: 53.0, resistance_raw: 131, resistance_normalized: 65.5, instantaneous_power_w: 73}
+      provenance: "One Indoor Bike Data notification from public QZ issue 2401; no address or workout identifier included."
+    synthetic_full_vector:
+      hex: "fe 1f d2 04 58 02 6e 00 64 00 40 0d 03 83 00 fe ff 49 00 c8 00 f4 01 05 53 35 20 00 0a 00"
+      decoded: {speed_kmh: 12.34, average_speed_kmh: 6.0, cadence_rpm: 55.0, average_cadence_rpm: 50.0, distance_m: 200000, resistance_raw: 131, resistance_normalized: 65.5, instantaneous_power_w: -2, average_power_w: 73, total_energy_kcal: 200, energy_per_hour_kcal_h: 500, energy_per_minute_kcal_min: 5, heart_rate_bpm: 83, metabolic_equivalent: 5.3, elapsed_s: 32, remaining_s: 10}
+      provenance: "Computed to prove signed power, the five-byte energy group and every optional-field offset; not represented as a capture."
+  csc_measurement:
+    description: >
+      Conditional standard CSC decode. Flags u16 LE; bit 0 adds cumulative
+      wheel revolutions u32 LE and last wheel event time u16 LE; bit 1 adds
+      cumulative crank revolutions u16 LE and last crank event time u16 LE.
+      Event-time scale is 1/1024 second. Reject a payload truncated in either group.
+
+entities:
+  - platform: "sensor"
+    name: "FTMS Speed"
+    device_class: "speed"
+    unit: "km/h"
+    notes: "Decoded from Indoor Bike Data by protocol_details.indoor_bike_data."
+  - platform: "sensor"
+    name: "FTMS Cadence"
+    unit: "rpm"
+    notes: "Instantaneous cadence, raw uint16 / 2."
+  - platform: "sensor"
+    name: "RENPHO Resistance"
+    notes: "Dimensionless R-Q002 profile value: raw uint16 / 2; raw value is retained beside it."
+  - platform: "sensor"
+    name: "FTMS Power"
+    device_class: "power"
+    unit: "W"
+    notes: "Signed int16 instantaneous power from Indoor Bike Data."
+  - platform: "sensor"
+    name: "Cycling Power"
+    device_class: "power"
+    unit: "W"
+    state_characteristic: "00002a63-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "cps_instantaneous_power"}
+    notes: "Separate capture-confirmed Cycling Power Service stream, not a duplicate CSC claim."
+  - platform: "sensor"
+    name: "FTMS Distance"
+    device_class: "distance"
+    unit: "m"
+    notes: "Device-reported only when total-distance flag is present."
+  - platform: "sensor"
+    name: "Total Energy"
+    device_class: "energy"
+    unit: "kcal"
+    notes: "First two bytes of the five-byte expended-energy group."
+  - platform: "sensor"
+    name: "Heart Rate"
+    unit: "bpm"
+    notes: "Byte immediately after all five energy bytes when both flags are present."
+
+evidence:
+  public_capture: >
+    cagnulein/qdomyos-zwift issue 2401, 2024-06-22, contains an R-Q002 N HCI
+    capture. Offline review found 1,883 Indoor Bike Data notifications, all
+    flags 0x0064 and length 10. The included sample was derived without owner
+    identifiers. The capture also enumerates Cycling Power Service 0x1818 and
+    does not contain CSC 0x1816.
+  public_implementation: >
+    QZ renphobike at afd4f90db35ed7ee29c76a6c19b84de4cf558922 supplied the
+    model-specific resistance /2, flag order, five-byte energy group and CSC
+    subscription behavior. Its unsigned instantaneous-power simplification is
+    deliberately corrected to the signed standard type.
+  open_questions: >
+    Validate CSC behavior and the one captured Cycling Power Measurement's
+    trailing byte, then confirm all power values against a second meter. No
+    exact R-Q002 N manual was acquired.
+  artifacts:
+    - type: "public_capture"
+      artifact: "qdomyos-zwift issue 2401 btsnoop_hci.log, 1,114,681 bytes"
+      obtained_via: "Public GitHub issue attachment, reviewed offline"
+      description: "FTMS Indoor Bike Data and Cycling Power Service evidence; sanitized derived vector only."
+
+remaining_unknowns:
+  - "CSC 0x1816 is source-reported but absent from the public R-Q002 capture; whether another firmware provides it is unknown."
+  - "The single captured Cycling Power Measurement has 15 bytes with flags 0x30 and all zero fields; one trailing byte is unexplained and not decoded."
+  - "Negative power was not observed in the public stream; the signed type is standards-based and covered by a synthetic vector."
+  - "Exact advertised local name, factory reset, bonding behavior and manual-specific setup instructions."
+  - "Control Point behavior, resistance ranges, calibration, firmware update and all writes remain unimplemented."
+
+helpful_urls:
+  - title: "QZ issue 2401: RENPHO R-Q002 N public capture"
+    url: "https://github.com/cagnulein/qdomyos-zwift/issues/2401"
+    kind: "other"
+    description: "Public HCI capture establishing this model's FTMS dialect and Cycling Power Service."
+  - title: "QZ renphobike implementation (pinned)"
+    url: "https://github.com/cagnulein/qdomyos-zwift/tree/afd4f90db35ed7ee29c76a6c19b84de4cf558922/src/devices/renphobike"
+    kind: "implementation"
+    description: "Source of the R-Q002 resistance /2 profile, field order and conditional CSC handling."
+  - title: "Bluetooth SIG Fitness Machine Service 1.0"
+    url: "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/"
+    kind: "protocol_writeup"
+    description: "Published standard underlying the read-only FTMS fields; the shared FTMS reference spec is unchanged."

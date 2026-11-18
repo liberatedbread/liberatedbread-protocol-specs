@@ -1,0 +1,401 @@
+# Ozobot Evo current native RPC and legacy endpoint boundary
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: official ozobot/python-libraries at
+# 9c09f5e8137bdffb6a93068b26d5a71420e67984 and legacy independent client
+# raphaelbink/raspberry-pi-ozobot-evo at
+# 5de09556efa06565c7941bcec285840e76a391a1. No hardware or motion commands.
+
+device:
+  name: "Ozobot Evo (current native RPC, read-only memory/watchers)"
+  manufacturer: "Ozobot / Ozo Edu Inc."
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No Evo, advertisement capture or on-device replay was used. Current
+      native RPC facts come from the official Python driver and generated
+      protocol at the pinned commit. Legacy endpoints are separate historical
+      evidence. All packet vectors are synthetic encodings tested with stdlib;
+      no motion, calibration or firmware packet is included.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "robot"
+  type: "educational-coding-robot"
+  notes: >
+    Current Evo uses one bidirectional native RPC characteristic for direct
+    read-only virtual-memory access and sensor watchers. No Ozobot account or
+    cloud path is needed. Current native transport forces MTU 23 (20-byte ATT
+    payload), writes without response, and dispatches incoming packets by a
+    little-endian uint16 message id. Scalars are little-endian except the
+    logical 24-bit counter portion of request IDs (see request_ids).
+
+    CURRENT VERSUS LEGACY IS A NEGOTIATED BOUNDARY. Native service ...6801 and
+    characteristic ...6802 are not interchangeable with legacy ...6701 /
+    control ...6703 / drive ...6702. Select only endpoints actually enumerated
+    and corroborated by firmware evidence. Never send native RPC to legacy
+    characteristics or legacy command bytes to native ones. The legacy service
+    is listed without commands to preserve that boundary, not to claim a client.
+
+    The official native open sequence issues stop-execution with request ID 0
+    before starting watchers. That is a stop/recovery operation, not a memory
+    read and not a factory reset; it is declared advanced. No move, rotate,
+    velocity, tone, LED, file execution, calibration, rename or firmware
+    operation is declared. Long RPC uses memory-staging writes at 0x6000 for
+    transport, then length + CRC32 execution/readback; those writes are not
+    motor commands and must stay within the staging region.
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://github.com/ozobot/python-libraries/tree/9c09f5e8137bdffb6a93068b26d5a71420e67984"
+    upstream_docs:
+      - url: "https://docs.ozobot.com/python/linefollower/index.html"
+        title: "Official Ari & Evo Python SDK documentation"
+        covers: "Direct native driver, virtual-memory reads and sensor watcher API."
+    notes: >
+      Current native protocol is restated from the vendor's official public
+      Python implementation. The independent legacy client is separately
+      acknowledged as reverse-engineered historical evidence.
+  identification:
+    local_name_prefixes: ["OzoEvo"]
+    service_uuids: ["8903136c-5f13-4548-a885-c58779136801"]
+    manufacturer_data:
+      company_id: 1003
+      company_id_hex: "0x03EB"
+      description: >
+        Current advertisement payload after company ID: byte 0 packet id 0;
+        bytes 1-16 device ID; bytes 17-21 reserved/unparsed; byte 22 product
+        (0 or 4 Evo, 5 Ari); byte 23 major with high bit masked; byte 24 minor;
+        optional bytes 25-26 patch uint16 little-endian. Require at least 25
+        bytes for product/major/minor, 27 for the full version.
+    notes: >
+      Prefer manufacturer product fields or current native service over the
+      legacy OzoEvo name. Legacy addresses may change, so the 16-byte
+      manufacturer device ID is the stable identity when available. Ari is
+      excluded even though the same official library supports it.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["OzoEvo"]
+          service_uuids: ["8903136c-5f13-4548-a885-c58779136801"]
+          manufacturer_data:
+            company_id: 1003
+            description: "Parse packet id/product/version with protocol_details.advertisement; accept only product 0 or 4 and packet id 0."
+        notes: >
+          A name-only hit may be a legacy unit. After connecting, enumerate
+          native ...6801/...6802 versus legacy ...6701/...6702/...6703 before
+          choosing a protocol; product 5 is Ari and must be rejected.
+    identity:
+      stable_keys: ["manufacturer_device_id", "address"]
+      display: "local_name"
+      notes: "manufacturer_device_id is bytes 1-16 of the company-0x03eb payload. Address is fallback only, especially on legacy units."
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: "No provisioning, account or bond. The protocol generation is selected by GATT evidence rather than name alone."
+    methods:
+      - type: "ble_direct"
+        name: "Current native ...6802 RPC and read-only watchers"
+        role: "variant"
+        verified: false
+        description: "For units with current native service ...6801 and characteristic ...6802. Subscribe, apply the official stop-on-open boundary, read memory and manage watchers."
+        ble:
+          pairing_required: false
+          service_uuid: "8903136c-5f13-4548-a885-c58779136801"
+          write_characteristic: "8903136c-5f13-4548-a885-c58779136802"
+          read_characteristic: "8903136c-5f13-4548-a885-c58779136802"
+        steps:
+          - action: "Confirm packet id 0 and Evo product 0/4 in the advertisement when available, then enumerate the native endpoints."
+            actor: "client"
+          - action: "Force/retain MTU 23, enable native notifications, and do not coalesce or split an RPC packet except through long-RPC staging."
+            actor: "client"
+          - action: "For parity with the official driver, issue only stop-execution request ID 0 and require response 121 with request ID 0 before watchers."
+            actor: "client"
+            expect: "Current execution stops. This is the advanced stop_all_execution command, not a reset and not part of memory decoding."
+          - action: "Read watchersInfo at 0x10073 for two bytes, then allocate watcher/region IDs without exceeding 17 data bytes per watcher at MTU 23."
+            actor: "client"
+          - action: "Use MemRead for the read-only memory map, configure watcher regions/setup, and disable every watcher and region on exit."
+            actor: "client"
+            expect: "Validated response/event IDs and exact lengths; no persistent watcher is left active."
+      - type: "ble_direct"
+        name: "Legacy ...6701 / ...6702 / ...6703 boundary only"
+        role: "variant"
+        verified: false
+        description: "For older units that enumerate the legacy service and separate control/drive characteristics. Negotiate only; no legacy motion or command sequence is published."
+        ble:
+          pairing_required: false
+          service_uuid: "8903136c-5f13-4548-a885-c58779136701"
+        steps:
+          - action: "Identify a legacy GATT table, using OzoEvo name only as a hint because its address can change."
+            actor: "client"
+          - action: "Do not send native RPC or the legacy stop-file/motion sequence. Stop at endpoint negotiation until a separately captured legacy read-only profile exists."
+            actor: "client"
+            expect: "No cross-generation bytes are emitted."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: "No owner factory-reset procedure or cleared-state list was established. Stop-execution, disabling a watcher and disconnecting are not factory resets."
+      description: "Do not infer reset behavior from power cycling or the legacy stop-file sequence. No model-matched manual or reset procedure was acquired."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "BLE only: disconnect the previous central, disable any watchers first, then rediscover and negotiate the generation again."
+      steps:
+        - action: "Disable all watcher setups/regions and disconnect the old client."
+          actor: "client"
+        - action: "Reconnect by manufacturer device ID where available, enumerate the generation and re-create only required watchers."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["16-byte manufacturer device ID and optional owner-chosen device name (identifiers, not credentials)"]
+      issued_to_client: []
+      notes: "No account token, bond secret or Wi-Fi passphrase is used by native read-only memory access."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Close the other client, reconnect and renegotiate; no bond deletion is needed."
+    enter_pairing_mode:
+      required: false
+      notes: "The official native driver uses direct GATT without an account or pairing enrolment."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "No bond is created; watcher teardown plus disconnect ends the client session."
+
+initialization:
+  - characteristic: "8903136c-5f13-4548-a885-c58779136802"
+    subscribe: true
+    when: "connect"
+    notes: "Enable native RPC notifications before any request. MTU 23 gives a 20-byte maximum packet."
+
+services:
+  - uuid: "8903136c-5f13-4548-a885-c58779136801"
+    name: "Current native Evo RPC service"
+    notes: "One characteristic for requests, responses and watcher events. Message layouts and long-RPC are in protocol_details.native_rpc."
+    characteristics:
+      - uuid: "8903136c-5f13-4548-a885-c58779136802"
+        name: "Native bidirectional RPC"
+        properties: ["notify", "write_without_response"]
+        role: "notify"
+        notes: >
+          Maximum 20 bytes per direct packet. Incoming message id is uint16 LE.
+          Correlate response type and request ID where present; do not assume a
+          response merely because it arrived next.
+        commands:
+          read_memory:
+            description: "MemRead message 1: uint32 LE virtual address + uint16 LE length. Response 2 carries result, uint16 LE length and data; success result is 0."
+            verification: "reported"
+            template: [0x01, 0x00, "{address}", "{length}"]
+            parameters:
+              address: {type: "uint32", endianness: "little", description: "Virtual-memory address from protocol_details.memory_map; use read-only entries only."}
+              length: {type: "uint16", endianness: "little", min: 1, max: 15, description: "Direct read length; 15 bytes fits response message 2 in the 20-byte ATT payload. Larger responses use long RPC."}
+          watcher_setup:
+            description: "WatcherSetup message 122. Flags 0 disables; 3 = Enabled|DisableWhenDisconnected; add 4 for SendInitialValue. Periods are uint16 LE milliseconds."
+            verification: "reported"
+            template: [0x7A, 0x00, "{watcher_id}", "{flags}", "{minimum_ms}", "{maximum_ms}"]
+            parameters:
+              watcher_id: {type: "uint8", min: 0, max: 255}
+              flags: {type: "uint8", allowed: [0, 3, 7], labels: ["disable", "enable with disconnect cleanup", "enable with initial value and disconnect cleanup"]}
+              minimum_ms: {type: "uint16", endianness: "little", unit: "ms", default: 40, description: "Minimum notification period; 0 disables throttling."}
+              maximum_ms: {type: "uint16", endianness: "little", unit: "ms", default: 0, description: "Maximum resend period; 0 disables periodic resend."}
+          watcher_region_setup:
+            description: "WatcherRegionSetup message 124. Configure region before enabling; on teardown send address/size 0 with flags 3."
+            verification: "reported"
+            template: [0x7C, 0x00, "{watcher_id}", "{region_id}", "{address}", "{size}", "{flags}"]
+            parameters:
+              watcher_id: {type: "uint8", min: 0, max: 255}
+              region_id: {type: "uint8", min: 0, max: 255}
+              address: {type: "uint16", endianness: "little", min: 0, max: 16383, description: "Watchers observe only the first 16 KiB; use 0 when tearing down."}
+              size: {type: "uint8", min: 0, max: 255, description: "Region bytes; all regions in one watcher must total <=17 bytes at MTU 23. Use 0 when tearing down."}
+              flags: {type: "uint8", min: 0, max: 3, labels: ["normal", "DoNotSetDirty", "DoNotSendInNotify", "teardown/disable both"]}
+          long_rpc_execute:
+            description: "LongRPCExtensionExecute message 126 after staging the complete serialized RPC at 0x6000. CRC is standard CRC32 over the staged bytes."
+            verification: "reported"
+            template: [0x7E, 0x00, "{data_length}", "{data_crc32}"]
+            parameters:
+              data_length: {type: "uint16", endianness: "little", min: 21, description: "Serialized RPC length; direct packets longer than 20 bytes use this path."}
+              data_crc32: {type: "uint32", endianness: "little", description: "CRC32 (binascii/zlib compatible) of the complete staged request, computed by the encoder; not a UI parameter."}
+          stop_all_execution:
+            description: "StopExecution message 120 with request ID 0, used by the official driver before watchers. Response 121 echoes request ID 0."
+            verification: "reported"
+            value: [0x78, 0x00, 0x00, 0x00, 0x00, 0x00]
+            advanced: true
+            advanced_reason: "Stops any current robot program, motion or audio. It changes runtime behavior and must be a deliberate recovery action, never a hidden telemetry poll."
+  - uuid: "8903136c-5f13-4548-a885-c58779136701"
+    name: "Legacy Evo service (negotiation boundary only)"
+    notes: >
+      Older independent client and vendor bridge evidence. This generation is
+      not native RPC. Do not mix its command model with current memory/watchers.
+    characteristics:
+      - uuid: "8903136c-5f13-4548-a885-c58779136703"
+        name: "Legacy control characteristic (no commands declared)"
+        properties: ["write", "notify"]
+        notes: "Legacy control endpoint. The older initialization/command sequence is intentionally not reproduced."
+      - uuid: "8903136c-5f13-4548-a885-c58779136702"
+        name: "Legacy drive characteristic (no commands declared)"
+        properties: ["write"]
+        notes: "Separate legacy drive endpoint; no motor activation is documented or tested."
+
+protocol_handler: "ozobot_evo_native_rpc"
+
+protocol_details:
+  advertisement:
+    description: "Company ID 0x03eb manufacturer payload, after the two company-ID bytes."
+    fields:
+      - {offset: 0, length: 1, name: "packet_id", type: "uint8", values: {0: "current identity packet"}}
+      - {offset: 1, length: 16, name: "device_id", type: "bytes", notes: "Stable per-unit identifier; sanitize in logs."}
+      - {offset: 17, length: 5, name: "unparsed", type: "bytes"}
+      - {offset: 22, length: 1, name: "product", type: "uint8", values: {0: "Evo", 4: "Evo (jot15b)", 5: "Ari (out of scope)"}}
+      - {offset: 23, length: 1, name: "version_major", type: "uint8", mask: 0x7F}
+      - {offset: 24, length: 1, name: "version_minor", type: "uint8"}
+      - {offset: 25, length: 2, name: "version_patch", type: "uint16", endianness: "little", notes: "Present in the full 27-byte form; treat missing patch as 0 only for display."}
+    validation: "Reject lengths below 25, nonzero packet id, product values other than 0/4 and trailing lengths 26 when a full patch is required."
+    synthetic_vector:
+      hex: "00 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 00 00 00 00 00 04 83 02 01 00"
+      decoded: {packet_id: 0, device_id: "000102030405060708090a0b0c0d0e0f", product: 4, version: "3.2.1"}
+  native_rpc:
+    transport:
+      mtu: 23
+      att_payload_bytes: 20
+      write: "without response"
+      message_id: "uint16 little-endian at offset 0 of every request/response/event"
+      scalar_endianness: "little unless a field says otherwise"
+      framing: "One complete direct RPC packet per write/notification. Packets larger than 20 bytes use long RPC, not ATT-fragment concatenation."
+      rpc_serialization: "Serialize once. The larger of request and expected-response length decides direct versus long RPC. One RPC lock/in-flight request per client."
+    request_ids:
+      description: >
+        RequestID is a uint32 LE scalar whose logical integer has source 2 (BLE)
+        in its high byte and a three-byte BIG-endian counter in the low bytes.
+        For counter 1 the integer is 0x02000001 and wire bytes are 01 00 00 02.
+        Increment the 24-bit counter for movement/cancellation-style requests;
+        request ID 0 is the special stop-all value used on open.
+      vectors:
+        - {counter: 1, integer: "0x02000001", wire_hex: "01 00 00 02"}
+        - {counter: 2, integer: "0x02000002", wire_hex: "02 00 00 02"}
+    packet_layouts:
+      mem_read_request: {message_id: 1, length: 8, fields: "0 u16le id; 2 u32le address; 6 u16le length"}
+      mem_read_response: {message_id: 2, length: "5+N", fields: "0 u16le id; 2 u8 IOResult; 3 u16le length N; 5 data[N]; require exactly 5+N and result 0"}
+      mem_write_request: {message_id: 3, length: "8+N", fields: "0 u16le id; 2 u32le address; 6 u16le length N; 8 data[N]; long-RPC staging only"}
+      mem_write_response: {message_id: 4, length: 3, fields: "0 u16le id; 2 u8 IOResult; success 0"}
+      stop_execution: {request_id: 120, response_id: 121, length: 6, fields: "0 u16le id; 2 RequestID (four bytes)"}
+      watcher_setup: {request_id: 122, response_id: 123, request_length: 8, response_length: 3, response_fields: "u8 CallStatus; success 0"}
+      watcher_region_setup: {request_id: 124, response_id: 125, request_length: 8, response_length: 3, response_fields: "u8 CallStatus; success 0"}
+      long_rpc_execute: {request_id: 126, response_id: 127, request_length: 8, response_length: 9, response_fields: "u8 CallStatus; u16le dataLength; u32le dataCRC; success 0"}
+      watcher_dirty: {event_id: 260, length: "3+N", fields: "0 u16le id; 2 u8 watcherID; 3 concatenated region data ordered by regionID"}
+      io_result: {0: "Success", 1: "ErrorUnknown", 2: "ErrorReadOnly", 3: "ErrorPermissionDenied", 4: "ErrorOutOfRange", 5: "ErrorRangeToLarge", 6: "ErrorMisaligned", 7: "ErrorPartialWrite", 8: "ErrorInvalidData"}
+      call_status: {0: "CallSuccess", 1: "InvalidParameters", 2: "CallError", 3: "Unsupported"}
+    long_rpc:
+      staging_address: 24576
+      staging_address_hex: "0x6000"
+      crc: "Standard CRC32 as exposed by Python binascii.crc32/zlib.crc32 over the complete serialized request or response; uint32 little-endian in message 126/127."
+      request_steps:
+        - "Serialize the complete request once. Stage it at 0x6000 in chunks of at most packet_size-8 = 12 bytes using MemWrite message 3; each response 4 must be Success."
+        - "Send message 126 with total length and CRC32. Response 127 must be CallSuccess and carries returned dataLength/dataCRC."
+        - "Read returned data from 0x6000 in chunks of at most packet_size-5 = 15 bytes using MemRead message 1; each response 2 must be Success and exact length."
+        - "Reassemble to exactly dataLength and require CRC32(reassembled) == dataCRC before deserializing the response. Reject overflow, short reads and mismatches."
+      synthetic_vector:
+        payload_hex: "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18"
+        length: 25
+        crc32_hex: "d880d40c"
+        execute_hex: "7e 00 19 00 0c d4 80 d8"
+        note: "Arbitrary synthetic bytes exercise chunking and CRC only; they are not an RPC command and are never sent to hardware."
+    watcher_lifecycle:
+      flags: {0: "disable", 1: "Enabled", 2: "DisableWhenDisconnected", 4: "SendInitialValue"}
+      region_flags: {0: "normal", 1: "DoNotSetDirty", 2: "DoNotSendInNotify", 3: "disable both / teardown"}
+      steps:
+        - "MemRead watchersInfo (0x10073, 2 bytes): watcherCount u8, watcherRegionCount u8."
+        - "Reserve an update-counter region at 0x0400 + watcherID, one byte, region flag DoNotSetDirty. Place it in regionID order with watched regions."
+        - "Configure each region with message 124; total watched+counter bytes in a watcher must fit the 17-byte WatcherDirty data budget at MTU 23."
+        - "Enable with message 122 flags 3, minimum 40 ms and maximum 0. Event 260 concatenates region bytes in ascending regionID."
+        - "Track the one-byte update counter and validate event length before slicing; use each region's memory type to decode."
+        - "On every exit, send message 124 address 0, size 0, flags 3 for each region, then message 122 flags 0, periods 0. Do not leave watchers running after a client crash; DisableWhenDisconnected is a backstop, not teardown."
+  memory_map:
+    description: "Read-only entries used by the official native driver. Addresses are uint32 LE in MemRead; all multibyte struct scalars are little-endian. Do not issue MemWrite to these entries."
+    entries:
+      - {name: "watchersInfo", address: 65651, address_hex: "0x10073", size: 2, layout: "watcherCount u8; watcherRegionCount u8"}
+      - {name: "fwVersion", address: 65580, address_hex: "0x1002c", size: 4, layout: "major u8 (mask 0x7f); minor u8; patch u16le"}
+      - {name: "lineColor", address: 86, address_hex: "0x56", size: 6, layout: "color u8 (0 black, 1 red, 2 green, 3 blue, 255 unknown); lightSource u8 (0 off, 1 on); timestamp u32le ms"}
+      - {name: "surfaceColor", address: 100, address_hex: "0x64", size: 8, layout: "color u8 (0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white, 8 unknown); lightSource u8; counter u16le; timestamp u32le ms"}
+      - {name: "irProximity", address: 118, address_hex: "0x76", size: 8, layout: "leftRear u8; leftFront u8; rightRear u8; rightFront u8 (raw strength, no calibrated distance unit); timestamp u32le ms"}
+      - {name: "chargerState", address: 183, address_hex: "0xb7", size: 5, layout: "state u8 (0 disconnected, 1 connected, 2 low power); timestamp u32le ms"}
+      - {name: "batteryState", address: 188, address_hex: "0xbc", size: 8, layout: "voltageRaw u16le (unit unresolved); remainingPower u8 percent as named by official API; fields u8 bit0 charging; timestamp u32le ms"}
+      - {name: "button", address: 196, address_hex: "0xc4", size: 5, layout: "press u8 (0 short, 1 long, 2 double, 3 max, 4 release); timestamp u32le ms"}
+      - {name: "watcherUpdateCounters", address: 1024, address_hex: "0x400", size: "one byte per watcher", layout: "u8 update counter at base + watcherID"}
+    synthetic_memory_vector:
+      memread_battery_request: "01 00 bc 00 00 00 08 00"
+      memread_battery_response: "02 00 00 08 00 00 00 50 01 20 4e 00 00"
+      decoded: {io_result: 0, length: 8, voltage_raw: 0, remaining_power_percent: 80, charging: true, timestamp_ms: 20000}
+      note: "Voltage raw zero avoids inventing a voltage scale; remaining percent and timestamp are computed fixture values."
+    synthetic_watcher_vectors:
+      battery_region: "7c 00 00 00 bc 00 08 00"
+      enable: "7a 00 00 03 28 00 00 00"
+      disable: "7a 00 00 00 00 00 00 00"
+      stop_all: "78 00 00 00 00 00 00"
+
+entities:
+  - platform: "sensor"
+    name: "Battery Remaining"
+    device_class: "battery"
+    unit: "%"
+    notes: "batteryState.remainingPower at 0xbc, decoded through MemRead/watchers; voltageRaw has no entity until its unit is known."
+  - platform: "binary_sensor"
+    name: "Charging"
+    device_class: "battery_charging"
+    notes: "batteryState fields bit 0. ChargerState separately distinguishes disconnected, connected and low power."
+  - platform: "sensor"
+    name: "Button Press"
+    notes: "Read-only press enum and timestamp at 0xc4; not a command."
+  - platform: "sensor"
+    name: "Line Color"
+    notes: "Read-only color/lightSource/timestamp at 0x56."
+  - platform: "sensor"
+    name: "Surface Color"
+    notes: "Read-only color/lightSource/counter/timestamp at 0x64."
+  - platform: "sensor"
+    name: "IR Proximity"
+    notes: "Four raw uint8 strengths plus timestamp at 0x76; no calibrated distance unit is asserted."
+
+evidence:
+  public_implementation: >
+    Official ozobot/python-libraries at 9c09f5e8137bdffb6a93068b26d5a71420e67984
+    supplied current advertisement parsing, native endpoints, generated packet
+    layouts, memory types, watcher lifecycle, request IDs and long-RPC CRC32.
+  legacy_implementation: >
+    raphaelbink/raspberry-pi-ozobot-evo at
+    5de09556efa06565c7941bcec285840e76a391a1 supplied the separate legacy
+    control/drive characteristics and changing-address warning. No legacy
+    motion sequence is reproduced.
+  open_questions: >
+    Capture one current native advertisement/GATT/read-only charger sample and
+    one legacy comparison. Establish generation negotiation, battery voltage
+    units, actual connection limits and reset behavior without motion or OTA.
+
+remaining_unknowns:
+  - "Current/legacy firmware auto-negotiation and exact legacy read-only protocol; the legacy service is deliberately negotiation-only."
+  - "Battery voltageRaw unit and valid remainingPower range on hardware; no voltage entity is published."
+  - "Factory reset, simultaneous central behavior, watcher behavior after abrupt host loss and current notification error cases."
+  - "Firmware update, Ari, calibration, motion, file execution and all other native write APIs are out of scope."
+
+helpful_urls:
+  - title: "Official ozobot/python-libraries (pinned)"
+    url: "https://github.com/ozobot/python-libraries/tree/9c09f5e8137bdffb6a93068b26d5a71420e67984"
+    kind: "implementation"
+    description: "Current official native Evo driver, generated RPC, advertisements, memory map, watchers and long-RPC implementation."
+  - title: "Official Ari & Evo Python SDK documentation"
+    url: "https://docs.ozobot.com/python/linefollower/index.html"
+    kind: "protocol_writeup"
+    description: "Public SDK documentation for direct native memory access and sensor watchers."
+  - title: "raphaelbink/raspberry-pi-ozobot-evo (legacy, pinned)"
+    url: "https://github.com/raphaelbink/raspberry-pi-ozobot-evo/tree/5de09556efa06565c7941bcec285840e76a391a1"
+    kind: "implementation"
+    description: "Independent legacy endpoint and changing-address evidence only; no commands are inherited from it."

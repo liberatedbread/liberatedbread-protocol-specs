@@ -1,0 +1,409 @@
+# ALLPOWERS R600 hardware 0.3 read-only BLE telemetry
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: dedalodaelus/home-assistant-allpowers-ble at
+# 2fc2570630c8f6d7229c533060bdd3afef7a33da (protocol and stream tests),
+# cross-checked against two independent public clients. Source-derived only;
+# this project has not connected to a power station.
+
+device:
+  name: "ALLPOWERS R600 (hardware 0.3, read-only)"
+  manufacturer: "ALLPOWERS"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No hardware or new radio capture was used. The R600 hardware-0.3 profile,
+      framing and vectors come from the pinned public integration and its
+      offline tests. Physical qualification of that profile is still pending;
+      nothing in this spec enables output, settings or firmware writes.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "energy"
+  type: "portable-power-station"
+  pictogram: "power-station"
+  aliases: ["AP-SS-005-Pro"]
+  notes: >
+    Read-only phone-direct BLE telemetry for the R600 profile whose current-
+    session settings report raw hardware revision 0x03 (displayed 0.3). A
+    client subscribes to FFF1, sends the fixed status request on FFF2, and
+    validates status, settings and optional name notifications. No cloud,
+    account, Wi-Fi module or application-layer credential is needed.
+
+    SCOPE IS DELIBERATELY NARROW. R1500 LITE moves fields, R2500 V2 uses a
+    different packet interpretation and output masks, and VOLIX/P1800 identity
+    has separate qualification requirements. None of those models inherits
+    this document. A shared FFF0 service or a broad AP R-series name is not
+    proof of compatibility. Do not emit output-control, settings-write,
+    keepalive, bootloader or firmware operations from this spec.
+
+    Notification responses use A5 65 framing with a payload-length byte at
+    offset 5, command at 6, payload at 7 and a final XOR byte. The whole-frame
+    XOR is zero. The 12-byte status request is a fixed observed request and
+    must not be forced into the response-length rule. Notification callbacks
+    are a byte stream: implement fragmentation, coalescing and resynchronizing
+    rather than assuming one callback equals one frame.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/dedalodaelus/home-assistant-allpowers-ble/tree/2fc2570630c8f6d7229c533060bdd3afef7a33da"
+    notes: >
+      Protocol recovered and implemented by public community clients. The
+      vendor application was reviewed only for transport and model boundaries;
+      no vendor implementation symbols are reproduced here.
+  identification:
+    local_name_prefixes: ["R600", "AP R600", "ALLPOWERS R600"]
+    notes: >
+      Name is only a candidate filter, not revision proof. FFF0 is deliberately
+      absent from automatic matching because it is shared by unrelated
+      protocols. Confirm the exact R600 identity and read raw hardware byte
+      0x03 from a current-session settings notification before presenting this
+      profile. Do not match R1500, R2500, P1800 or a bare AP R prefix here.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["R600", "AP R600", "ALLPOWERS R600"]
+        notes: >
+          Retain only an exact R600-family candidate. Verify FFF0/FFF1/FFF2
+          only after connecting, then check the current-session revision.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned and no OS pairing or bond is used. The only write
+      in this read-only profile is the fixed status request. Confidence is
+      medium because public clients implement this flow but this project did
+      not replay it.
+    methods:
+      - type: "ble_direct"
+        name: "Direct BLE telemetry with current-session revision check"
+        role: "primary"
+        verified: false
+        description: >
+          Connect without bonding, verify all three GATT endpoints, subscribe,
+          request status and require hardware revision 0x03 in settings.
+        ble:
+          pairing_required: false
+          service_uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+        steps:
+          - action: "Close the vendor app or any other BLE central, then scan for an R600 candidate."
+            actor: "user"
+          - action: "Connect and verify service 0000fff0-0000-1000-8000-00805f9b34fb with FFF1 notifications and FFF2 writes."
+            actor: "client"
+            expect: "All three endpoints exist; FFE1/FFE2 alternatives belong to other profiles and are not accepted here."
+          - action: "Enable FFF1 notifications and send only the 12-byte status request A5 65 B1 00 01 06 01 00 00 00 00 00 on FFF2."
+            actor: "client"
+            expect: "A checksum-valid command-0x01 status frame arrives, possibly fragmented or coalesced with another frame."
+          - action: "Decode command-0x03 settings from this same GATT session and require payload byte 4 to equal 0x03."
+            actor: "client"
+            expect: "Hardware is 0.3. Keep the profile read-only even if another revision answers."
+        troubleshooting:
+          - symptom: "The station has a similar name or FFF0 but no valid telemetry."
+            causes:
+              - "It is another model or protocol generation; do not try R1500/R2500 layouts or alternate characteristics."
+              - "Another central is holding the link; disconnect it and power-cycle only the BLE client connection."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No R600 factory-reset operation or cleared-state list was established.
+        Disconnecting BLE does not reset the station, its outputs or its battery.
+      description: >
+        The acquired R600 manual identifies the model but this research did not
+        establish a reset sequence. Do not invent a button hold or treat an
+        output power cycle as a factory reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE only: no network membership or bond exists. Disconnect the previous
+        central and repeat the identity and current-session revision checks.
+      steps:
+        - action: "Disconnect the old client and close the vendor app."
+          actor: "user"
+        - action: "Reconnect and repeat the FFF1 subscription, status request and hardware-0x03 check."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        This BLE profile has no client credential or application encryption.
+        Radio proximity is not an authentication boundary; that is one reason
+        no output or settings writes are declared.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Close the vendor app or other central and reconnect; no OS bond needs to be deleted."
+    enter_pairing_mode:
+      required: false
+      notes: "Ordinary GATT connection without a pairing-mode button, PIN or bonding exchange."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "There is no bond to remove; disconnecting is sufficient."
+
+initialization:
+  - characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    when: "connect"
+    notes: "Enable notifications before the status request."
+  - characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+    write: [0xA5, 0x65, 0xB1, 0x00, 0x01, 0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00]
+    when: "connect"
+    notes: "The fixed observed status request; repeat only as a read poll, never as an output or settings write."
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "ALLPOWERS R600 BLE service"
+    notes: >
+      FFF1 carries the notification stream and FFF2 carries the read poll.
+      Response frames are parsed using protocol_details.r600_stream. This
+      service UUID is shared by unrelated protocols and is never sufficient
+      identification by itself.
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "R600 notification stream"
+        properties: ["notify"]
+        role: "notify"
+        format_match:
+          offset: 6
+          value: 0x01
+          notes: "The fields below are for command 0x01 with its eight-byte status payload; settings and name frames use protocol_details."
+        format:
+          - offset: 0
+            length: 2
+            name: "header"
+            type: "bytes"
+            notes: "Must be A5 65."
+          - offset: 2
+            length: 3
+            name: "vendor_envelope"
+            type: "bytes"
+            notes: "Vendor envelope bytes; preserve, do not reinterpret."
+          - offset: 5
+            length: 1
+            name: "payload_length"
+            type: "uint8"
+            notes: "N; complete response length is 8+N, N <= 128."
+          - offset: 6
+            length: 1
+            name: "command"
+            type: "uint8"
+            values: {0x01: "status"}
+          - offset: 7
+            length: 1
+            name: "status_flags"
+            type: "uint8"
+            notes: "Known masks only: DC 0x01, AC 0x02, light 0x10. Preserve all bits."
+          - offset: 7
+            length: 1
+            name: "dc_enabled"
+            type: "uint8"
+            mask: 0x01
+            notes: "1 when DC output is enabled."
+          - offset: 7
+            length: 1
+            name: "ac_enabled"
+            type: "uint8"
+            mask: 0x02
+            notes: "1 when AC output is enabled."
+          - offset: 7
+            length: 1
+            name: "light_enabled"
+            type: "uint8"
+            mask: 0x10
+            notes: "1 when the light is enabled; this is a STATUS mask, not the different output-write mask."
+          - offset: 8
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "Reject values above 100 rather than clamping them."
+          - offset: 9
+            length: 2
+            name: "input_power_w"
+            type: "uint16"
+            endianness: "big"
+            unit: "W"
+            device_class: "power"
+          - offset: 11
+            length: 2
+            name: "output_power_w"
+            type: "uint16"
+            endianness: "big"
+            unit: "W"
+            device_class: "power"
+          - offset: 13
+            length: 2
+            name: "remaining_minutes"
+            type: "uint16"
+            endianness: "big"
+            unit: "min"
+            device_class: "duration"
+          - offset: 15
+            length: 1
+            name: "xor_checksum"
+            type: "uint8"
+            notes: "XOR of every byte in the complete 16-byte status frame, including this byte, is zero."
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: "R600 read-request write"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          Only the status request is declared. The command-0x02 settings write,
+          combined output command and settings keepalive are intentionally
+          absent, including their different light mask 0x20.
+        commands:
+          request_status:
+            description: "Request a command-0x01 status notification. Fixed 12-byte request; no parameters and no actuation."
+            verification: "reported"
+            value: [0xA5, 0x65, 0xB1, 0x00, 0x01, 0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+protocol_details:
+  r600_stream:
+    description: >
+      Response envelope: A5 65, three vendor bytes, payload length N at offset
+      5, command at 6, N payload bytes at 7, then one XOR byte. Total length is
+      8+N. Reject N above 128 and every length/checksum mismatch before decoding.
+    algorithm:
+      - "Scan for A5 65, retaining a trailing single A5 between callbacks."
+      - "Once at least seven bytes are buffered, read N at offset 5 and wait until 8+N bytes are present."
+      - "Reject a candidate if its XOR over all bytes is nonzero; discard it and resume scanning at the next A5 65."
+      - "Process callbacks in chunks of at most 1024 bytes and cap retained data at 4096 bytes, dropping oldest noise while preserving a partial header."
+      - "A callback may contain several frames, a frame fragment, noise, or a bad candidate followed by a valid frame."
+    command_types:
+      0x01: "status; requires at least eight payload bytes"
+      0x03: "settings; requires at least six payload bytes"
+      0x35: "optional UTF-8 device name; remove NUL padding and controls, trim, cap at 64 characters"
+  r600_settings:
+    description: >
+      Command-0x03 payload. Offsets below are relative to the payload, not the
+      complete frame. Version bytes render as high.low only when both nibbles
+      are decimal; otherwise render raw hexadecimal.
+    fields:
+      - {offset: 0, length: 1, name: "settings_flags", type: "uint8", notes: "ECO 0x01; work mode 0x06 shifted right one; car charger 0x10; preserve unknown bits."}
+      - {offset: 1, length: 1, name: "eco_timeout_hours", type: "uint8", unit: "h"}
+      - {offset: 2, length: 2, name: "reserved", type: "bytes"}
+      - {offset: 4, length: 1, name: "raw_hardware_version", type: "uint8", values: {0x03: "R600 hardware 0.3"}}
+      - {offset: 5, length: 1, name: "raw_firmware_version", type: "uint8"}
+    work_modes: {0: "mute", 1: "standard", 2: "fast", 3: "reserved/unknown"}
+    revision_gate: >
+      This spec requires raw_hardware_version 0x03 in the current session.
+      Cached settings cannot establish the profile. Revision checks are for
+      identity only; they do not authorize any write in this read-only spec.
+  vectors:
+    status_request: "a5 65 b1 00 01 06 01 00 00 00 00 00"
+    status_frame: "a5 65 00 00 00 08 01 13 49 01 2c 00 96 00 78 50"
+    status_decoded: {dc: true, ac: true, light: true, battery_percent: 73, input_w: 300, output_w: 150, remaining_min: 120}
+    settings_frame: "a5 65 00 00 00 06 03 b5 04 aa 55 03 af 27"
+    settings_decoded: {flags: "0xb5", eco_hours: 4, reserved: "aa55", hardware: "0x03", firmware: "0xaf"}
+    provenance: "The two notification vectors are public integration fixtures; the status request is the published observed request. scripts/test_allpowers_r600_spec.py independently validates and reassembles them."
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "battery_percent"}
+  - platform: "sensor"
+    name: "Input Power"
+    device_class: "power"
+    unit: "W"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "input_power_w"}
+  - platform: "sensor"
+    name: "Output Power"
+    device_class: "power"
+    unit: "W"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "output_power_w"}
+  - platform: "sensor"
+    name: "Remaining Time"
+    device_class: "duration"
+    unit: "min"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "remaining_minutes"}
+  - platform: "binary_sensor"
+    name: "DC Output Enabled"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "dc_enabled"}
+    notes: "Read-only state; no switch is declared."
+  - platform: "binary_sensor"
+    name: "AC Output Enabled"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "ac_enabled"}
+    notes: "Read-only state; no switch is declared."
+  - platform: "binary_sensor"
+    name: "Light Enabled"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "light_enabled"}
+    notes: "Read-only state; no switch is declared."
+
+evidence:
+  public_implementation: >
+    dedalodaelus/home-assistant-allpowers-ble at
+    2fc2570630c8f6d7229c533060bdd3afef7a33da supplied the R600 framing,
+    revision gate, status request, defensive stream behavior and test fixtures.
+    mattgorle/allpowers-ble at a63cd36e568757bae5dcee30efb10edad8cf22ac and
+    R0b0To/allpowers-companion at c19ba2c692cfdae8590fa14fd0b77ec90005f5da
+    were used only to establish that R1500 LITE and R2500 V2 differ.
+  app_static_analysis: >
+    Public vendor-app material corroborated phone-direct BLE and separate
+    Wi-Fi/cloud paths. It did not establish a hardware qualification or any
+    write in this document.
+  open_questions: >
+    Exact advertisement variants and settings frames need an owner-labelled
+    R600 hardware-0.3 capture. Physical qualification remains open even though
+    offline public codec tests exist.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "dedalodaelus/home-assistant-allpowers-ble@2fc2570630c8f6d7229c533060bdd3afef7a33da"
+      obtained_via: "Public source review, 2026-11"
+      description: "R600 profile and independent codec/stream tests; no physical HIL claim."
+    - type: "vendor_documentation"
+      artifact: "ALLPOWERS AP-R600 user manual, 2023-01-10"
+      obtained_via: "Vendor CDN; HTTP 200 application/pdf verified 2026-11-17"
+      description: "Model AP-SS-005-Pro and owner documentation, not wire-protocol evidence."
+
+remaining_unknowns:
+  - "Current-session advertisement, status and settings captures from an owner-labelled R600 hardware-0.3 unit."
+  - "Which R600 retail revisions report a hardware byte other than 0x03 and how they differ."
+  - "Notification cadence, maximum simultaneous centrals and behavior when the vendor app is connected."
+  - "R1500 LITE, R2500 V2 and VOLIX/P1800 protocols are intentionally unresolved here and must not be inferred."
+  - "Factory reset and any persistent settings cleared by it."
+
+helpful_urls:
+  - title: "dedalodaelus/home-assistant-allpowers-ble"
+    url: "https://github.com/dedalodaelus/home-assistant-allpowers-ble/tree/2fc2570630c8f6d7229c533060bdd3afef7a33da"
+    kind: "implementation"
+    description: "Pinned R600 protocol, revision checks and stream/codec tests used for this read-only profile."
+  - title: "R0b0To/allpowers-companion"
+    url: "https://github.com/R0b0To/allpowers-companion/tree/c19ba2c692cfdae8590fa14fd0b77ec90005f5da"
+    kind: "implementation"
+    description: "Independent R2500 V2 client cited only as a compatibility boundary, not as R600 evidence."
+  - title: "mattgorle/allpowers-ble"
+    url: "https://github.com/mattgorle/allpowers-ble/tree/a63cd36e568757bae5dcee30efb10edad8cf22ac"
+    kind: "implementation"
+    description: "Independent R600/R1500 LITE bridge; demonstrates that R1500 LITE fields differ."
+  - title: "ALLPOWERS R600 / AP-SS-005-Pro user manual (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0443/1223/2089/files/AP-R600-User_Manuals-2023-01-10_compressed.pdf?v=1678773110"
+    kind: "manual"
+    description: "Vendor-hosted manual for the R600 / AP-SS-005-Pro; verified as a complete PDF response on 2026-11-17."

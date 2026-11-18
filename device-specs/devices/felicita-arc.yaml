@@ -1,0 +1,261 @@
+# Felicita Arc BLE coffee scale
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Source: tadelv/reaprime at b4acf861051607464976c6c237add448604bb681,
+# including the defensive opt-in Arc plugin. No hardware writes or captures.
+
+device:
+  name: "Felicita Arc"
+  manufacturer: "Felicita Coffee"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No scale, radio capture or command was used by this project. All bytes
+      are reported from the public Reaprime driver and its defensive plugin;
+      synthetic vectors in scripts/test_felicita_arc_spec.py check the stated
+      parser, including malformed lengths/digits and battery endpoints.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "scale"
+  category_hierarchy: ["measurement", "other"]
+  type: "coffee-scale"
+  notes: >
+    Phone-direct BLE weight and battery telemetry plus tare and timer commands.
+    No account, cloud brew history or Wi-Fi path is required. Scope is Arc only:
+    Parallel, non-S Pearl and other Felicita models are not claimed compatible,
+    and Acaia's different protocol is not reused.
+
+    Notifications on FFE1 are exactly 18 bytes. Byte 2 is ASCII '-' (0x2d) for
+    a negative weight; any other value leaves the magnitude positive. Bytes 3-8
+    must all be ASCII digits and form an integer in hundredths of a gram. Other
+    bytes are reserved/unknown and are preserved, not assigned a checksum.
+
+    Battery byte 15 has a bounded encoding: raw 129 maps to 0% and raw 158 to
+    100%, with round((raw-129)*100/29) between. Values outside that interval
+    are UNKNOWN, not 0% or 100%; retain the last valid battery reading or null
+    initially. Reject short/long notifications and non-digit weight fields.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/tadelv/reaprime/tree/b4acf861051607464976c6c237add448604bb681"
+    notes: "Protocol recovered in a public open client and checked against public app behavior; no vendor wire specification was found."
+  identification:
+    local_name_prefixes: ["FELICITA", "Felicita", "felicita"]
+    service_uuids: ["0000ffe0-0000-1000-8000-00805f9b34fb"]
+    notes: >
+      Match a case-insensitive Felicita name prefix, then require FFE0 after
+      connection. FFE0 is widely reused and is not unique discovery proof.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["FELICITA", "Felicita", "felicita"]
+          service_uuids: ["0000ffe0-0000-1000-8000-00805f9b34fb"]
+        notes: "Vendor exact-name auto-connect can miss Arc name variants accepted by the open prefix matcher."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: "No provisioning, account, bond or application key. Connect, verify FFE0, subscribe and wait for one valid frame before exposing readings."
+    methods:
+      - type: "ble_direct"
+        name: "Direct BLE with service and first-frame validation"
+        role: "primary"
+        verified: false
+        description: "Connect without pairing, verify FFE0/FFE1 and wait for a valid 18-byte notification."
+        ble:
+          pairing_required: false
+          service_uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        steps:
+          - action: "Wake the scale and close any other app connected to it."
+            actor: "user"
+          - action: "Connect and enumerate services; continue only if 0000ffe0-0000-1000-8000-00805f9b34fb and FFE1 exist."
+            actor: "client"
+          - action: "Subscribe to FFE1 notifications and discard malformed packets until one valid 18-byte frame arrives."
+            actor: "client"
+            expect: "A weight and a valid or explicitly unknown battery state; readiness must not depend on clamping an invalid battery byte."
+          - action: "Use write-with-response for any user-invoked tare or timer command."
+            actor: "client"
+            expect: "The one-byte command is acknowledged at GATT level. No timer response payload is assumed."
+        troubleshooting:
+          - symptom: "Weight never becomes ready or repeatedly disconnects."
+            causes:
+              - "Another central holds the scale; close it and reconnect."
+              - "Frames are malformed or the wrong model is connected; verify exact length, digits and FFE0/FFE1."
+              - "The plugin's two-second silence watchdog is provisional host policy, not a measured device timeout; do not hard-code it as protocol fact."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: "No factory-reset procedure or cleared-state list was established. Display sleep/disconnect is not a reset."
+      description: "No manual-backed reset was acquired. Do not treat tare, timer reset, disconnecting or power-cycling as a factory reset."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "BLE only: disconnect the previous central and reconnect; no scale-to-phone bond or Wi-Fi network exists."
+      steps:
+        - action: "Disconnect the old client and wake/reconnect the scale."
+          actor: "user"
+        - action: "Verify FFE0/FFE1 and wait for a new valid frame before issuing another command."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credential is used by the documented weight, tare or timer path."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Close the other app, disconnect, then wake and reconnect the scale; GATT 133 recovery timing remains host policy."
+    enter_pairing_mode:
+      required: false
+      notes: "No pairing button or bonding exchange is used by the open client."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "There is no bond to revoke; disconnect only."
+
+initialization:
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    when: "connect"
+    notes: "Subscribe before tare/timer commands and wait for one valid frame before marking the scale ready."
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Felicita Arc data service"
+    notes: "The service must be verified after connection because this 16-bit UUID is shared by many unrelated devices."
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Weight/battery notifications and tare/timer writes"
+        properties: ["notify", "write"]
+        role: "notify"
+        notes: >
+          One characteristic serves both directions. The format below exposes
+          raw fields; use protocol_details.arc_frame for exact-length, ASCII,
+          sign, scaling and last-valid-battery behavior. Use write-with-response
+          for commands; on-air write-property confirmation is still needed.
+        format:
+          - offset: 2
+            length: 1
+            name: "weight_sign"
+            type: "uint8"
+            values: {0x2d: "negative; any other value leaves magnitude positive"}
+          - offset: 3
+            length: 6
+            name: "weight_digits"
+            type: "bytes"
+            notes: "Exactly six ASCII digits; integer hundredths of a gram (value = integer / 100 g)."
+          - offset: 15
+            length: 1
+            name: "battery_raw"
+            type: "uint8"
+            notes: "129..158 only; decode round((raw-129)*100/29) percent. Outside the interval is unknown, never clamped."
+        commands:
+          tare:
+            description: "Tare/zero the scale (ASCII T, one byte)."
+            verification: "reported"
+            value: [0x54]
+          timer_start:
+            description: "Start the scale timer (ASCII R, one byte)."
+            verification: "reported"
+            value: [0x52]
+          timer_stop:
+            description: "Stop the scale timer (ASCII S, one byte)."
+            verification: "reported"
+            value: [0x53]
+          timer_reset:
+            description: "Reset the scale timer (ASCII C, one byte)."
+            verification: "reported"
+            value: [0x43]
+
+protocol_handler: "felicita_arc_v1"
+
+protocol_details:
+  arc_frame:
+    description: >
+      Exactly 18 bytes. Bytes 0-1 and 9-14, 16-17 have no established meaning;
+      preserve them and do not invent a checksum. A notification with any other
+      length is ignored. All six bytes at offsets 3-8 must be 0x30..0x39.
+    algorithm:
+      - "Require len(frame) == 18 and every frame[3:9] byte to be an ASCII digit."
+      - "magnitude = ASCII frame[3:9] parsed as a base-10 integer; weight_g = magnitude / 100."
+      - "If frame[2] == 0x2d (ASCII '-'), negate weight_g. Other sign-byte values leave it positive, matching both public parsers."
+      - "If 129 <= frame[15] <= 158, battery_percent = round((frame[15]-129)*100/29). Otherwise retain the last valid value, or null if none exists."
+      - "Publish a weight only from a valid frame. Battery out of range does not invalidate that weight, but it must not create a fake endpoint percentage."
+    units:
+      weight: {wire: "integer hundredths of a gram", scale: 0.01, decoded_unit: "g", ascii_digits: 6}
+      battery: {raw_min: 129, raw_max: 158, decoded_unit: "%", formula: "round((raw-129)*100/29)"}
+    vectors:
+      - hex: "aa 55 2b 30 31 32 33 34 35 00 00 00 00 00 00 81 00 00"
+        decoded: {weight_g: 123.45, battery_percent: 0}
+        provenance: "Synthetic valid frame with reserved bytes chosen for the fixture."
+      - hex: "aa 55 2d 30 31 32 33 34 35 00 00 00 00 00 00 9e 00 00"
+        decoded: {weight_g: -123.45, battery_percent: 100}
+        provenance: "Synthetic negative-weight and battery-upper-endpoint frame."
+
+entities:
+  - platform: "sensor"
+    name: "Weight"
+    device_class: "weight"
+    unit: "g"
+    notes: "Decoded by protocol_details.arc_frame from exact 18-byte notifications."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "Only raw 129..158 produces a value; invalid raw values retain the last valid state or remain unknown."
+  - platform: "button"
+    name: "Tare"
+    command_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands: {press: "tare"}
+  - platform: "button"
+    name: "Start Timer"
+    command_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands: {press: "timer_start"}
+  - platform: "button"
+    name: "Stop Timer"
+    command_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands: {press: "timer_stop"}
+  - platform: "button"
+    name: "Reset Timer"
+    command_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands: {press: "timer_reset"}
+
+evidence:
+  public_implementation: >
+    Reaprime at b4acf861051607464976c6c237add448604bb681 supplied the Arc GATT
+    map, 18-byte layout and one-byte commands. Its opt-in plugin supplied the
+    stricter length/digit validation and last-valid battery behavior used here.
+  app_static_analysis: >
+    Public vendor-app review corroborated the FFE0/FFE1 roles and exact-name
+    scanning. Standard Battery Service declarations in the app do not establish
+    that an Arc exposes 0x180f/0x2a19, so neither is declared.
+  open_questions: >
+    Capture actual notifications, write properties and reconnect behavior.
+    Parallel and non-S Pearl require independent evidence.
+
+remaining_unknowns:
+  - "Meanings of all reserved bytes and whether any standard Battery Service exists beside frame byte 15."
+  - "Actual notification cadence, the plugin's provisional two-second silence timeout and GATT write properties."
+  - "Zero/negative-weight edge cases, battery endpoints and reconnect after display sleep on hardware."
+  - "Factory reset, firmware update, a low-power command and support for Parallel or non-S Pearl."
+
+helpful_urls:
+  - title: "tadelv/reaprime (pinned Felicita Arc implementation)"
+    url: "https://github.com/tadelv/reaprime/tree/b4acf861051607464976c6c237add448604bb681"
+    kind: "implementation"
+    description: "Open Arc driver, defensive plugin, 18-byte parser and tare/timer commands used by this spec."

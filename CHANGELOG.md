@@ -123,6 +123,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   cover state/order/plan races, explicit refusals, URL rejection, version
   negotiation, units and sanitized fixtures. No hardware operations or Socket
   writes are claimed.
+- **November mobility, kitchen and local-control discovery: seven new protocol
+  specs.** ALLPOWERS R600 hardware 0.3 gains read-only XOR-framed telemetry;
+  RENPHO R-Q002 N gains standard FTMS/CSC parsing with a capture-backed Cycling
+  Power distinction, signed power, resistance `/2` and five-byte energy group;
+  Sportstech F15/F31 gains strict full/short-frame telemetry with unresolved
+  incline/energy units omitted. Felicita Arc and ThermoWorks BlueDOT gain
+  defensive kitchen-scale/thermometer decoders, while Ozobot Evo gains current
+  native memory/watchers, long-RPC CRC32 and a separate legacy boundary.
+  Remootio 2/3 gains the official local WebSocket API v3 with mDNS, encrypted
+  AES-CBC/HMAC sessions and synthetic QUERY-only vectors. Every entry includes
+  setup, pairing, reset/rejoin and credential boundaries plus independent
+  standard-library tests. No output, belt, robot-motion, garage actuation or
+  firmware operation was run; unsupported models and writes stay excluded.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an
