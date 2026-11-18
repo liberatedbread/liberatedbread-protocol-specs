@@ -564,3 +564,144 @@ def test_update_reset_and_camera_safety_are_explicit(july):
     assert "seconds=120" in gate["still_polling"]
     assert "every 100 s" in gate["still_polling"]
     assert "stock capture service owns the camera" in gate["ownership"]
+
+
+DAMM = (
+    (0, 3, 1, 7, 5, 9, 8, 6, 4, 2),
+    (7, 0, 9, 2, 1, 5, 4, 8, 6, 3),
+    (4, 2, 0, 6, 8, 7, 1, 3, 5, 9),
+    (1, 7, 5, 0, 9, 8, 3, 4, 2, 6),
+    (6, 1, 2, 3, 0, 4, 5, 9, 7, 8),
+    (3, 6, 7, 4, 2, 0, 9, 5, 8, 1),
+    (5, 8, 6, 9, 7, 2, 0, 1, 3, 4),
+    (8, 9, 4, 5, 3, 6, 2, 0, 1, 7),
+    (9, 4, 3, 8, 6, 1, 7, 2, 0, 5),
+    (2, 5, 8, 1, 4, 3, 6, 7, 9, 0),
+)
+
+
+def damm(digits):
+    interim = 0
+    for character in digits:
+        interim = DAMM[interim][int(character)]
+    return interim
+
+
+def build_shown_code(server_code, two_digits):
+    if len(server_code) != 5 or not server_code.isdigit():
+        raise ValueError("server code must be five digits")
+    if len(two_digits) != 2 or not two_digits.isdigit():
+        raise ValueError("two random digits required")
+    seven = server_code + two_digits
+    return seven + str(damm(seven))
+
+
+def test_pairing_pin_is_five_plus_two_plus_damm(july):
+    pairing = july["protocol_details"]["pairing"]
+    assert pairing["server_code_digits"] == 5
+    assert build_shown_code("12345", "67") == "12345671"
+    assert damm(build_shown_code("12345", "67")) == 0
+    with pytest.raises(ValueError):
+        build_shown_code("12345678", "67")
+
+
+def test_pairing_sequence_has_authenticated_socket_and_srp_frames_in_order(july):
+    sequence = july["protocol_details"]["pairing"]["sequence"]
+    assert [step["step"] for step in sequence] == [
+        "register",
+        "open_authenticated_companion_socket",
+        "request_server_code",
+        "await_oven_public_a",
+        "post_companion_key_info",
+        "await_oven_info",
+        "resolve_association",
+    ]
+    assert sequence[0]["auth"] == "No bearer header"
+    assert "token.access_token" in sequence[0]["response"]
+    assert "Authorization: Bearer <access_token>" in sequence[1]["auth"]
+    assert "before requesting a code" in sequence[1]["auth"]
+    assert "five digits" in sequence[2]["response"]
+    assert "two random digits + Damm" in sequence[2]["response"]
+    assert "data.key_info.A" in sequence[3]["response"]
+    assert "do not post companion material before A" in sequence[3]["response"]
+    assert "{key_info:{salt,B,companion_info}}" in sequence[4]["request"]
+    assert "never top-level" in sequence[4]["response"]
+    assert "data.key_info.oven_info" in sequence[5]["response"]
+    assert "Authorization: Bearer <access_token>" in sequence[6]["request"]
+    assert "devices[]" in sequence[6]["response"]
+    assert july["protocol_details"]["pairing"]["companion_info_fields"] == [
+        "companion_id", "companion_name", "public_signing_key",
+        "public_encryption_key", "timezone", "platform",
+    ]
+
+
+def test_pairing_http_request_response_schemas(july):
+    endpoints = {endpoint["name"]: endpoint for endpoint in july["http_endpoints"]}
+    register = endpoints["Register Local Companion"]
+    request_names = [field["name"] for field in register["request_body"]["fields"]]
+    assert request_names == [
+        "password", "device_id", "client_id", "client_secret", "device_type",
+        "device_name", "platform", "version", "platform_version",
+    ]
+    registered = json.loads(register["response_body"]["example"])
+    assert registered["token"]["access_token"] == "example-access-token"
+    assert "device_id" in registered
+
+    pairing = endpoints["Create Local Pairing Session"]
+    pin_response = json.loads(pairing["response_body"]["example"])
+    assert len(pin_response["pin"]["code"]) == 5
+    assert isinstance(pin_response["pin"]["expires"], int)
+    assert "eight-digit" not in pin_response["pin"]["code"]
+
+    companion = endpoints["Submit Companion SRP"]
+    companion_body = json.loads(companion["request_body"]["example"])
+    assert set(companion_body) == {"key_info"}
+    assert set(companion_body["key_info"]) == {"salt", "B", "companion_info"}
+    assert "salt" not in companion_body
+    assert "nested under key_info" in companion["description"]
+    assert "second 10026" in companion["description"]
+
+    associated = endpoints["Resolve Associated Oven"]
+    associated_body = json.loads(associated["response_body"]["example"])
+    assert associated_body["devices"][0]["oven_id"] == "oven-example"
+
+
+def test_ca_bootstrap_requires_independent_trust(july):
+    tls = july["protocol_details"]["endpoint_normalization"]["tls"]
+    assert "not server authentication" in tls["status_fingerprint"]
+    assert "installer USB" in tls["connect_by_ip"]["trust_requirement"]
+    assert "independently obtained installer material" in tls["connect_by_ip"]["trust_requirement"]
+    assert tls["connect_by_name"]["ca_sha256_fingerprint"] == (
+        "B6:65:DB:2E:74:F4:F8:62:95:14:08:DA:0B:AE:1D:F4:"
+        "F7:76:AE:77:6F:12:9E:95:73:54:2F:17:A8:AA:A1:B2"
+    )
+    assert "Pre-pin" in tls["connect_by_name"]["trust_requirement"]
+    assert "cannot bootstrap trust by itself" in tls["ca_crt_endpoint"]
+    assert "lower-security unauthenticated TOFU" in tls["unauthenticated_tofu"]
+    assert "never as verified server identity" in tls["unauthenticated_tofu"]
+    gate = july["protocol_details"]["discovery"]["status_gate"]
+    assert "does not authenticate the host" in gate["authentication"]
+    ca_endpoint = next(e for e in july["http_endpoints"] if e["path"] == "/local/ca.crt")
+    assert "not authentication" in ca_endpoint["description"]
+
+
+def test_july_is_identify_only_with_signed_cook_backlog(july):
+    assert july["device"]["integration"] == "identify_only"
+    assert "commands" not in july
+    assert "entities" not in july
+    assert "websocket" not in july
+    implementation = july["protocol_details"]["implementation_status"]
+    assert implementation["generic_integration"] == "identify_only"
+    assert implementation["signed_cook_controls"]["status"] == "backlog"
+    assert "No generic command" in implementation["signed_cook_controls"]["reason"]
+    assert any("explicit backlog" in item for item in july["local_access"]["not_covered"])
+    assert any("bespoke clients" in item for item in july["local_access"]["covers"])
+
+
+def test_stock_11002_does_not_copy_july_plan_index(july, stock):
+    stock_preheat = stock["protocol_details"]["messaging"]["outgoing_codes"][11002]
+    july_preheat = july["protocol_details"]["messaging"]["outgoing_codes"][11002]
+    assert "plan_index" not in stock_preheat
+    assert "optional plan_index" in july_preheat
+    stock_doc = (ROOT / "docs" / "devices" / "june-oven.md").read_text(encoding="utf-8")
+    assert "plan_index" not in stock_doc

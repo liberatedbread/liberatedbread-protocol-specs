@@ -434,13 +434,32 @@ def test_socket_state_fields_and_entities_preserve_get_only_boundary(socket):
     assert "PUT" not in socket["protocol_details"]["read_only_boundary"]["included"]
 
 
-def test_socket_skt21_entities_are_variant_scoped(socket):
-    for name, unit in (("Reactive Power", "var"), ("Apparent Power", "VA"), ("Power Factor", None)):
-        entity = next(item for item in socket["entities"] if item["name"] == name)
-        assert entity["variants"] == ["HWE-SKT-21"]
+def test_socket_skt21_payload_is_runtime_discovered_not_a_duplicate_identity(socket):
+    variants = socket["device"]["variants"]
+    assert len(variants) == 1
+    assert variants[0]["model"] == "HWE-SKT"
+    assert variants[0]["identification"]["model_prefix"] == "HWE-SKT"
+    assert "runtime-discovered" in variants[0]["notes"]
+    payload = json.loads(endpoint(socket, "Socket Measurement")["response_body"]["example"])
+    for field_name, entity_name, unit in (
+        ("active_reactive_power_var", "Reactive Power", "var"),
+        ("active_apparent_power_va", "Apparent Power", "VA"),
+        ("active_power_factor", "Power Factor", None),
+    ):
+        assert field_name in payload
+        entity = next(item for item in socket["entities"] if item["name"] == entity_name)
+        assert "variants" not in entity
         assert entity.get("unit") == unit
-    variants = {item["model"]: item for item in socket["device"]["variants"]}
-    assert variants["HWE-SKT-21"]["identification"]["model_prefix"] == "HWE-SKT"
+        assert entity["state_mapping"]["value"] == field_name
+    # An older HWE-SKT simply omits these optional measurements; its identity
+    # does not change and the extra entities remain unoffered by a runtime mapper.
+    older = {key: value for key, value in payload.items() if key not in {
+        "active_reactive_power_var", "active_apparent_power_va", "active_power_factor",
+    }}
+    assert "total_power_import_kwh" in older
+    assert not {
+        "active_reactive_power_var", "active_apparent_power_va", "active_power_factor",
+    } & set(older)
 
 
 def test_socket_has_no_v2_discovery_or_write_routes(socket):
@@ -496,3 +515,28 @@ def test_examples_are_sanitized_and_poll_limits_present(p1, socket):
     assert p1["protocol_details"]["polling"]["older_dsmr"] == {"power_update_seconds": 10, "gas_update_seconds": 3600}
     token_example = json.loads(endpoint(p1, "create_local_user")["response_body"]["example"])
     assert token_example == {"name": "local/example-client", "token": "0123456789ABCDEF0123456789ABCDEF"}
+
+
+def test_external_meter_timestamp_formats_are_split_by_api_version(p1):
+    v1_format = p1["payload_formats"]["ExternalMeterV1"]
+    v2_format = p1["payload_formats"]["ExternalMeterV2"]
+    v1_timestamp = next(field for field in v1_format["fields"] if field["name"] == "timestamp")
+    v2_timestamp = next(field for field in v2_format["fields"] if field["name"] == "timestamp")
+    assert v1_timestamp["type"] == "integer"
+    assert v2_timestamp["type"] == "string"
+
+    v1_example = json.loads(v1_format["example"])
+    v2_example = json.loads(v2_format["example"])
+    assert v1_example["timestamp"] == 210606140015
+    assert isinstance(v1_example["timestamp"], int)
+    assert v2_example["timestamp"] == "2024-06-28T14:05:00"
+    assert isinstance(v2_example["timestamp"], str)
+
+    actual_v1 = json.loads(endpoint(p1, "v1 P1 Measurement")["response_body"]["example"])
+    assert [entry["timestamp"] for entry in actual_v1["external"]] == [
+        210606140010, 210606140015,
+    ]
+    assert all(isinstance(entry["timestamp"], int) for entry in actual_v1["external"])
+    actual_v2 = json.loads(endpoint(p1, "v2 P1 Measurement")["response_body"]["example"])
+    assert all(isinstance(entry["timestamp"], str) for entry in actual_v2["external"])
+    assert all("T" in entry["timestamp"] for entry in actual_v2["external"])

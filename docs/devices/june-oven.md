@@ -132,7 +132,7 @@ milli-degrees Celsius (350 °F = `176667`); durations are milliseconds.
 
 | Dir | Code | Meaning |
 |-----|------|---------|
-| → | 11002 | Preheat / start cook (`primitive_type`, `temperature_cavity` in milli-°C, optional `plan_index`); air fry is `airfry` |
+| → | 11002 | Preheat / start cook (`primitive_type`, `temperature_cavity` in milli-°C); air fry is `airfry` |
 | → | 11004 | Cancel cooking with the **actual reported** `plan_id`, not a hard-coded zero |
 | → | 11005 | Set cavity target in place first, with the actual `plan_id`; only an explicit refusal can authorize the restricted restart path |
 | → | 11006 | Set timer (ms) with the actual `plan_id` |

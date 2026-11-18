@@ -15,7 +15,9 @@ The pinned official compatibility table marks Socket v2 planned/in development.
 **Do not discover `_homewizard`, infer v2 from a newer app, or try v2 paths.**
 The certificate product type `energysocket` is not evidence of v2 support. Both
 hardware variants use `product_type=HWE-SKT`; HWE-SKT-21 adds three measurement
-fields rather than a new API identity.
+fields rather than a new API identity. There is deliberately only one hardware
+matcher. Expose the SKT-21 measurements only when their optional fields appear
+in the response, not from a duplicate model-prefix match.
 
 This is deliberately a **GET-only first implementation**. No relay, switch
 lock, brightness, cloud, reboot or firmware write is declared or tested.

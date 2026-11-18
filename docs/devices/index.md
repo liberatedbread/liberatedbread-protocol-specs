@@ -132,7 +132,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Yeelight Cube Lamp](yeelight-cube-lamp.md) | WiFi (LAN TCP 55443) + Matter | Spec Available | App / Matter commissioning (medium) | Yeelight (Yeelink) |
 | [Tuya Wi-Fi Gas Sensor (rqbj family)](tuya-wifi-gas-sensor.md) | WiFi (Tuya LAN TCP 6668) | Spec Available | Tuya pairing + local-key extraction (medium) | Tuya OEM |
 | [June Oven (stock firmware)](june-oven.md) | WiFi (stock: cloud-only) | Research | Cloud account — shutdown 2026-09-22 (low) | June Life / Weber |
-| [June Oven — Project July (second gen)](june-oven-project-july.md) | WiFi (local HTTPS/HTTP + signed WebSocket) | Spec Available (untested) | July 0.9.1 USB/APX installer + local PIN (medium) | June Life / Project July |
+| [June Oven — Project July (second gen)](june-oven-project-july.md) | WiFi (documented local HTTPS/HTTP + signed WebSocket) | Identify only (untested; signed cook backlog) | July 0.9.1 USB/APX installer + local PIN (medium) | June Life / Project July |
 | [Brava Oven](brava-oven.md) | WiFi (cloud-only, no local surface) | Research | Cloud account — vendor defunct, cloud zombie (low) | Brava / Middleby |
 | [iPixel Color LED Panels](ipixel-color-led-panel.md) | BLE | Spec Available | None needed | TIRO / Heaton (JTPD-03-011, HCZ-001/002 SKUs) |
 | [Triones / HappyLighting LED Strips](qh-happylighting-led-strips.md) | BLE | Spec Available | None needed | Qianghe (QHM) |

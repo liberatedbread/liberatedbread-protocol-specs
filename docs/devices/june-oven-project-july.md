@@ -1,6 +1,6 @@
 # June Intelligent Oven — Project July (second generation)
 
-> **Status**: Spec Available; source-derived and untested here
+> **Status**: Identify only for generic clients; bespoke protocol reference, untested here
 > **Protocol**: Local HTTPS/HTTP REST + signed WebSocket + MJPEG
 > **Manufacturer**: June Life; replacement firmware by Project July
 > **Manufacturer Status**: June cloud shut down 2026-09-22
@@ -8,10 +8,17 @@
 ## Overview
 
 Project July replaces the software path on a **second-generation June Oven**
-(NVIDIA Tegra K1/APX) with the on-oven `june-local` server. It provides local
-companion pairing, preheat and cook control, timers, live status, presets when
-installed, and a viewer-gated camera. Normal operation does not need June's
-cloud.
+(NVIDIA Tegra K1/APX) with the on-oven `june-local` server. The native firmware
+provides local companion pairing, preheat and cook control, timers, live status,
+presets when installed, and a viewer-gated camera for bespoke clients. Normal
+operation does not need June's cloud.
+
+This repository's generic integration is **identify_only**: signed cook controls
+are an explicit backlog because the schema cannot safely bind credential-
+carrying signed frames, ACK/order correlation and actual-plan sequencing. No
+placeholder command or entity bindings are offered. The protocol below remains
+an implementation contract for bespoke clients; read-only status and camera
+documentation do not imply generic heat-control support.
 
 This page applies only to an oven converted with **installer 0.9.1**. Gen 1 is
 still being evaluated by Project July. Gen 3 (JCH03/meerkat, MediaTek) is
@@ -60,7 +67,7 @@ separate physical route.
 
 | Property | Value |
 |----------|-------|
-| Setup required | Yes: verify server, trust CA, pair companion |
+| Setup required | Yes: protocol check, independent CA trust, then exact pairing sequence |
 | Method | `button_pairing` after network join |
 | Passphrase protection | `not_applicable` for Wi-Fi entry; bearer material and an Ed25519 seed protect local control |
 | Confidence | medium (public source and offline tests; not run here) |
@@ -68,29 +75,61 @@ separate physical route.
 1. Browse `_http._tcp.local.` for `June Local`, enter `june.local`, or use the
    oven's IP. On multicast-filtered networks use a local DNS record or IP.
 2. **Require** `GET /local/status` to return JSON containing
-   `"server":"june-local"` before pairing. A web page, a June-looking hostname
-   or any other JSON response is not enough.
+   `"server":"june-local"` before selecting the protocol. This is only a
+   fingerprint: unauthenticated HTTP status and `ca.crt` do not authenticate the
+   host or establish a trusted server.
 3. Enter only a hostname/IP with an optional scheme and port. HTTPS is the
    default on 443; explicit HTTP uses 80. Reject credentials, non-root paths,
    queries, fragments and malformed ports instead of concatenating them into
    request URLs.
-4. Download the public CA from `http://<oven>/local/ca.crt` on port 80. Pin it
-   for this oven and keep chain and hostname/IP verification enabled.
-   Connect-by-IP creates a per-home CA and IP SAN; Connect-by-name uses the
-   project CA and the configured mDNS name. Do not disable verification.
-5. Register with `POST /2/devices/register`, then request
-   `POST /2/devices/pairing` and display the eight-digit Damm-checked PIN.
-6. Open the oven's Connect screen and enter the PIN. Pairing lasts about five
-   minutes. The companion acts as the **SRP-6a server**, with the oven as client:
-   RFC 5054 8192-bit group, generator 19, SHA-1, identity `user`, password equal
-   to the complete PIN. `companion_info` is sealed with NaCl secretbox under
-   `K = BLAKE2b-256(S)`.
-7. Do not delete the session early. Wait for the **second** `10026` carrying
-   `oven_info`, then resolve `oven_id` with
-   `GET /2/devices/{device_id}/associated`.
-8. Store the companion ID, bearer material and Ed25519 seed in platform key
-   storage. Open `wss://<oven>/1/messaging/websocket/companion` and verify a
-   status read before offering any heat control.
+4. Establish CA trust independently:
+   - **Connect-by-IP:** obtain the per-home CA from the installer USB, or
+     explicitly compare the downloaded CA's SHA-256 fingerprint against
+     independently obtained installer material before pinning it. Do not use
+     only material from the same unauthenticated endpoint.
+   - **Connect-by-name:** pre-pin the known July CA/fingerprint before sending
+     credentials. The public CA embedded in the pinned maintained client has
+     SHA-256 fingerprint
+     `B6:65:DB:2E:74:F4:F8:62:95:14:08:DA:0B:AE:1D:F4:F7:76:AE:77:6F:12:9E:95:73:54:2F:17:A8:AA:A1:B2`.
+   `GET /local/ca.crt` is only a convenience copy. Deliberate unauthenticated
+   TOFU is a separate lower-security choice with an interception warning, never
+   server verification. Keep chain and hostname/IP verification enabled.
+5. Register with `POST /2/devices/register`. The body contains fresh random
+   32-hex `device_id` and `password`, the published companion constants,
+   `device_type=companion`, `device_name`, `platform=android`, `version`, and
+   `platform_version`. Registration has no bearer header. The response contains
+   `device_id` and `token.access_token` plus refresh material; store them and
+   the new Ed25519/encryption key pairs securely.
+6. **Before requesting a code**, open
+   `wss://<oven>/1/messaging/websocket/companion` with
+   `Authorization: Bearer <access_token>` and listen for `10026`/`10027`.
+   Use `ws://` only as a separately acknowledged plaintext choice.
+7. Send `POST /2/devices/pairing` with the bearer header. The response is
+   `{pin:{code,expires,request_id}}`; **`pin.code` is five digits**, and
+   `expires` is Unix epoch seconds. Construct the user PIN as
+   `five-digit server code + two random decimal digits + one Damm digit`.
+   The resulting eight-digit shown PIN, including the Damm digit, initializes
+   SRP-6a. The companion acts as the **SRP server**, with the oven as client:
+   RFC 5054 8192-bit group, generator 19, SHA-1, identity `user`.
+8. Enter the eight-digit shown PIN on the oven's Connect screen. The five-digit
+   server code remains the value used in the companion route.
+9. Wait for the **first** `10026`, carrying the oven's SRP public `A` in
+   `data.key_info.A`. Only then derive `S` and `K = BLAKE2b-256(S)`. Seal
+   `companion_info` containing `companion_id`, `companion_name`,
+   `public_signing_key`, `public_encryption_key`, `timezone`, and `platform`
+   with a fresh 24-byte nonce.
+10. Send `POST /2/devices/pairing/{five-digit-server-code}/companion` with the
+    bearer header and exactly
+    `{key_info:{salt,B,companion_info}}`. Those three fields are nested under
+    `key_info`, not top-level fields. A success-only response does not finish
+    pairing.
+11. Wait for the **second** `10026`, carrying sealed `oven_info` in
+    `data.key_info.oven_info`, and open it under `K`. Then send
+    `GET /2/devices/{device_id}/associated` with the bearer header and select
+    the `devices[]` entry containing the real `oven_id`.
+12. Persist `oven_id`, companion ID, bearer material and Ed25519 seed. Only now
+    may the pairing mailbox be deleted; deleting it earlier can trigger `10027`.
+    Completing pairing does not create generic cook controls in this spec.
 
 ### Convert a stock second-gen oven
 
@@ -128,7 +167,7 @@ pairing is per oven, not per router.
 | Pairing required | Yes, locally after July installation |
 | Security mode | `app_layer` (SRP-6a plus signed frames) |
 | Bonding | Persistent per-companion trust |
-| PIN source | Client-displayed eight-digit Damm-checked PIN, entered on oven |
+| PIN source | Five-digit server code + two random digits + Damm digit = eight-digit shown PIN, entered on oven |
 | One client at a time | No |
 | One bond at a time | No; phones and Home Assistant pair independently |
 | Confidence | medium; not replayed here |
@@ -160,13 +199,13 @@ the embedded host.
 
 | Method | Route | Purpose |
 |--------|-------|---------|
-| GET | `/local/status` | Required `server=june-local` fingerprint plus install/network/certificate/cook/update diagnostics |
-| GET | `/local/ca.crt` | Public CA bootstrap over HTTP 80 |
+| GET | `/local/status` | Required `server=june-local` protocol fingerprint, not server authentication, plus diagnostics |
+| GET | `/local/ca.crt` | Unauthenticated public CA copy over HTTP 80; independently obtained trust material is still required |
 | GET | `/local/cook` | Compact JSON; `/local/cook.json` is explicit JSON, `/local/cook.html` or HTML `Accept` is a live page |
 | GET | `/1/messaging/device/{oven_id}/status` | Full cloud/July status aliases |
-| POST | `/2/devices/register` | Local companion registration |
-| POST | `/2/devices/pairing` | Create local pairing session/PIN |
-| POST | `/2/devices/pairing/{code}/companion` | Submit SRP server values and sealed companion info |
+| POST | `/2/devices/register` | Local companion registration, then authenticated companion WSS |
+| POST | `/2/devices/pairing` | Create session and return FIVE-digit server code, not the eight-digit shown PIN |
+| POST | `/2/devices/pairing/{code}/companion` | Submit nested `key_info` {salt, B, sealed companion_info} after first 10026 public A |
 | GET | `/2/devices/{device_id}/associated` | Resolve the real `oven_id` |
 | WSS/WS | `/1/messaging/websocket/companion` | Original signed command and telemetry channel |
 | GET | `/media/stream.mjpg` | Viewer-gated MJPEG live view |
