@@ -214,17 +214,39 @@ def is_uuid_string(value: str) -> bool:
     return True
 
 
-def encode_golden_envelope(decoded: dict) -> bytes:
-    """Apply the documented JSON/raw-UUID mapping before MessagePack encoding."""
+TRANSFER_REF_ID_PATH = ("data", "data", "data", "body", "data", "id")
+ENVELOPE_ID_PATH = ("id",)
 
-    def convert(value: object, key: str | None = None) -> object:
+
+def is_opaque_asset_id(surface: str, key: str, path: tuple[str, ...]) -> bool:
+    """Asset ids are String even when UUID-shaped; TransferRef.id is Uuid."""
+    return (
+        surface == "asset"
+        and key == "id"
+        and path not in {ENVELOPE_ID_PATH, TRANSFER_REF_ID_PATH}
+    )
+
+
+def encode_golden_envelope(decoded: dict) -> bytes:
+    """Apply the documented payload-type-aware UUID mapping."""
+    surface = decoded["data"]["type"]
+
+    def convert(value: object, key: str | None = None, path: tuple[str, ...] = ()) -> object:
         if isinstance(value, dict):
-            return {name: convert(part, name) for name, part in value.items()}
+            return {
+                name: convert(part, name, (*path, name))
+                for name, part in value.items()
+            }
         if isinstance(value, list):
             if key == "bytes" and all(isinstance(part, int) for part in value):
                 return bytes(value)
-            return [convert(part) for part in value]
-        if isinstance(value, str) and key in UUID_KEYS and is_uuid_string(value):
+            return [convert(part, key, path) for part in value]
+        if (
+            isinstance(value, str)
+            and key in UUID_KEYS
+            and is_uuid_string(value)
+            and not is_opaque_asset_id(surface, key, path)
+        ):
             return uuid_bytes(value)
         return value
 
@@ -538,33 +560,50 @@ def test_nested_uuid_vectors_cover_every_upstream_field(details, vectors, uuid_v
         "bridge_to_gateway/tunnel-data-uuid",
         "bridge_to_gateway/webapp-slots-uuid",
         "bridge_to_gateway/forward-webapp-uuid",
+        "gateway_to_bridge/asset-got-stream-uuid-shaped-asset-id",
     }
 
     seen = set()
 
-    def check_binary(value, key=None):
+    def check_binary(value, surface, path=()):
         if isinstance(value, dict):
             for name, part in value.items():
+                current_path = (*path, name)
                 if name in UUID_KEYS and part is not None:
-                    if isinstance(part, bytes):
+                    if is_opaque_asset_id(surface, name, current_path):
+                        assert isinstance(part, str), "asset id must stay MessagePack str"
+                    elif isinstance(part, bytes):
                         assert len(part) == 16
                         seen.add(name)
                     elif name != "id" or not isinstance(part, str) or is_uuid_string(part):
                         raise AssertionError(f"{name} must be MessagePack bin when it is a UUID")
-                check_binary(part, name)
+                check_binary(part, surface, current_path)
         elif isinstance(value, list):
             for part in value:
-                check_binary(part, key)
+                check_binary(part, surface, path)
 
     for vector in [*vectors.values(), *uuid_vectors.values()]:
         decoded = decode_vector(vector)
-        check_binary(decoded["message"])
+        check_binary(decoded["message"], decoded["message"]["data"]["type"])
         assert normalize_decoded(decoded["message"]) == vector["decoded_json"]
         assert json.loads(json.dumps(vector["decoded_json"])) == vector["decoded_json"]
         payload = encode_golden_envelope(vector["decoded_json"])
         priority = {name: code for code, name in PRIORITIES.items()}[vector["priority"]]
         assert frame(payload, priority=priority).hex() == vector["framed_hex"]
 
+    asset_vector = uuid_vectors["gateway_to_bridge/asset-got-stream-uuid-shaped-asset-id"]
+    asset_message = decode_vector(asset_vector)["message"]
+    asset_payload = asset_message["data"]["data"]["data"]
+    assert asset_payload["id"] == asset_vector["decoded_json"]["data"]["data"]["data"]["id"]
+    assert isinstance(asset_payload["id"], str)
+    assert isinstance(asset_message["meta"]["data"]["requestId"], bytes)
+    assert isinstance(asset_payload["body"]["data"]["id"], bytes)
+    assert len(asset_payload["body"]["data"]["id"]) == 16
+    asset_rule = declared["asset_id_rule"]
+    assert "stays MessagePack str even when" in asset_rule
+    assert "TransferRef.id fields are uuid::Uuid" in asset_rule
+    for payload_type in ("AssetGet", "AssetRequest", "AssetGotReply", "AssetNotFoundReply"):
+        assert "even when UUID-shaped" in details["payload_types"][payload_type]
     assert seen == UUID_KEYS
     for payload_type in ("Tts", "TtsCancel", "NetWsClose", "NetWsSend", "NetStreamOpen", "NetStreamCancel"):
         assert "UUID" in details["payload_types"][payload_type]

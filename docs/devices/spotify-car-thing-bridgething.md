@@ -129,9 +129,11 @@ MessagePack uses named maps. Every upstream UUID-typed field serializes as 16
 raw binary bytes, never as a UTF-8 string; JSON uses a lowercase hyphenated UUID
 string. This applies recursively to `id`, `requestId`, `transferId`, `webapp`,
 `connectionId`, `streamId`, `tunnelId`, `launcher`, and `overlay`, including TTS,
-WebSocket, stream, tunnel, and webapp-slot payloads. Opaque asset identifiers
-such as `spotify/img/248/cover` are not UUIDs and remain strings. The containing
-payload type decides which representation applies.
+WebSocket, stream, tunnel, and webapp-slot payloads. Asset `id` fields are the
+exception: they are `String` and remain MessagePack strings even when their value
+is a canonical UUID. Sibling `requestId` and `TransferRef.id` fields remain
+16-byte binary. The containing payload type and field path decide which
+representation applies.
 
 The outer `type` selects a surface and the inner `event` selects its variant;
 `meta.kind` must be legal for that variant. These are typed envelopes, not
