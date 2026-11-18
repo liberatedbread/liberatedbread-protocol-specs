@@ -705,3 +705,46 @@ def test_stock_11002_does_not_copy_july_plan_index(july, stock):
     assert "optional plan_index" in july_preheat
     stock_doc = (ROOT / "docs" / "devices" / "june-oven.md").read_text(encoding="utf-8")
     assert "plan_index" not in stock_doc
+
+
+def test_full_status_authentication_and_credential_mappings(july):
+    authentication = july["protocol_details"]["status"]["authentication"]
+    assert authentication["header"] == "Authorization: Bearer {access_token}"
+    assert authentication["credentials"]["oven_id"]["source"] == "credential:oven_id"
+    assert authentication["credentials"]["access_token"]["source"] == (
+        "credential:access_token"
+    )
+    assert "devices[].oven_id" in authentication["credentials"]["oven_id"]["issued_by"]
+    assert "token.access_token" in authentication["credentials"]["access_token"]["issued_by"]
+    endpoint = next(e for e in july["http_endpoints"] if e["name"] == "Full Oven Status")
+    assert "Authorization: Bearer" in endpoint["description"]
+    assert "protocol_details.status.authentication" in endpoint["description"]
+    assert "commands" not in july
+    assert "entities" not in july
+
+
+def test_registration_uses_pinned_public_interoperability_constants(july):
+    constants = july["protocol_details"]["pairing"]["interoperability_constants"]
+    assert constants["required"] is True
+    assert constants["client_id"] == "dcxqbcv2dY-G12elqDoAhCP8E12V0zC8XWThT-4U"
+    assert constants["client_secret"] == (
+        "tmoSUwt3OOZCcfMaIadAGD7-x-qPht85HkCgdvuhTKk1yFtfMcfJEyd"
+    )
+    assert "not per-user secrets" in constants["source"]
+    register = next(e for e in july["http_endpoints"] if e["name"] == "Register Local Companion")
+    example = json.loads(register["request_body"]["example"])
+    assert example["client_id"] == constants["client_id"]
+    assert example["client_secret"] == constants["client_secret"]
+    assert "<published-client-id>" not in register["request_body"]["example"]
+    assert "<published-client-secret>" not in register["request_body"]["example"]
+
+
+def test_admin_url_is_real_local_page_with_explicit_plaintext_fallback(july):
+    assert july["device"]["admin_url"] == "https://{address}/local"
+    admin = july["protocol_details"]["discovery"]["admin_page"]
+    assert admin["url"] == july["device"]["admin_url"]
+    assert "not a placeholder cook-control surface" in admin["purpose"]
+    assert "http://{address}/local" in admin["trust"]
+    assert "installer-backed CA trust" in admin["trust"]
+    assert "authenticates neither" in admin["trust"]
+    assert admin["verification"] == "reported"

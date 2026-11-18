@@ -95,11 +95,15 @@ separate physical route.
    TOFU is a separate lower-security choice with an interception warning, never
    server verification. Keep chain and hostname/IP verification enabled.
 5. Register with `POST /2/devices/register`. The body contains fresh random
-   32-hex `device_id` and `password`, the published companion constants,
-   `device_type=companion`, `device_name`, `platform=android`, `version`, and
-   `platform_version`. Registration has no bearer header. The response contains
-   `device_id` and `token.access_token` plus refresh material; store them and
-   the new Ed25519/encryption key pairs securely.
+   32-hex `device_id` and `password`, `device_type=companion`, `device_name`,
+   `platform=android`, `version`, and `platform_version`, plus the published
+   companion interoperability constants from the pinned open-source client:
+   `client_id=dcxqbcv2dY-G12elqDoAhCP8E12V0zC8XWThT-4U` and
+   `client_secret=tmoSUwt3OOZCcfMaIadAGD7-x-qPht85HkCgdvuhTKk1yFtfMcfJEyd`.
+   These are protocol identifiers, not per-user secrets. Registration has no
+   bearer header. The response contains `device_id` and `token.access_token`
+   plus refresh material; store them and the new Ed25519/encryption key pairs
+   securely.
 6. **Before requesting a code**, open
    `wss://<oven>/1/messaging/websocket/companion` with
    `Authorization: Bearer <access_token>` and listen for `10026`/`10027`.
@@ -199,10 +203,11 @@ the embedded host.
 
 | Method | Route | Purpose |
 |--------|-------|---------|
+| GET | `/local` | Real June Local admin/status page. Use `https://{address}/local` after independent CA trust is established; `http://{address}/local` is an explicit unauthenticated plaintext diagnostics fallback, not server verification |
 | GET | `/local/status` | Required `server=june-local` protocol fingerprint, not server authentication, plus diagnostics |
 | GET | `/local/ca.crt` | Unauthenticated public CA copy over HTTP 80; independently obtained trust material is still required |
 | GET | `/local/cook` | Compact JSON; `/local/cook.json` is explicit JSON, `/local/cook.html` or HTML `Accept` is a live page |
-| GET | `/1/messaging/device/{oven_id}/status` | Full cloud/July status aliases |
+| GET | `/1/messaging/device/{oven_id}/status` | Full cloud/July status aliases with `Authorization: Bearer {access_token}` and the associated `credential:oven_id` |
 | POST | `/2/devices/register` | Local companion registration, then authenticated companion WSS |
 | POST | `/2/devices/pairing` | Create session and return FIVE-digit server code, not the eight-digit shown PIN |
 | POST | `/2/devices/pairing/{code}/companion` | Submit nested `key_info` {salt, B, sealed companion_info} after first 10026 public A |
