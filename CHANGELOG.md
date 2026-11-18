@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reread duplicates per user/time/type. Regression vectors cover unlock
   transition/timeout behavior and Bob 90 kg + guest 55 kg + Alice 65 kg at one
   timestamp, all surviving with attribution.
+- **November 17 lock/valve independent-review hardening.** Danalock now states
+  the exact 13-byte TLS GCM AAD and carries independently recomputed encrypted
+  Finished/application-data vectors. LeakSmart recovery advances a fault epoch
+  on every failure and rejects stale or pre-clear in-flight reads. FC unlock
+  confirms only result 0; 0xF1 remains handshake-only and never triggers replay.
 - **Sensor, energy, mobility and diagnostic protocol correctness.** Aranet
   Radiation, SensorPush generations, Ruuvi DF3/DF5, b-parasite/BTHome,
   Mopeka and pvvx layouts now use their actual widths, offsets, signedness and

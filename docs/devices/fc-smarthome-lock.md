@@ -219,9 +219,11 @@ physical locking action.
 
 Only after identity and read-only checks, while the lock is awake and someone is
 attending the door, may a dedicated client send one intentional unlock and check
-its result/event. No generic entity, unattended automation or timed-out replay
-is allowed. **The stale target form `SYSTEM/0x02`, command `0x0E`, data `0x01`
-must not be sent.**
+its result/event. **Only result `0` confirms unlock.** Result `0xF1` is accepted
+solely for VERIFY_IDENTITY, not for unlock; every other unlock result is
+unconfirmed/failure and must not be replayed. No generic entity, unattended
+automation or timed-out replay is allowed. **The stale target form
+`SYSTEM/0x02`, command `0x0E`, data `0x01` must not be sent.**
 
 ## Other channels and firmware
 

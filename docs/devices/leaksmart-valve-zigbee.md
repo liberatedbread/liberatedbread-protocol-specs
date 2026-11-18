@@ -168,10 +168,15 @@ suppression on `0x82` or `0x83`, reporting a maintenance warning or success.
 On `0x81`, leave suppression, latch an obstruction and emit a safety fault — not
 a normal cycle completion.
 
-A zero alert alone does not clear a latched obstruction: require a subsequent
-successful On/Off read as well. Unknown event IDs stay raw and must not be
-interpreted as success. Some units may use a cadence other than monthly; the
-event semantics do not depend on the wall-clock interval.
+A zero alert alone does not clear a latched obstruction. Keep a `fault_epoch`,
+incremented by **every** non-zero alert and every `0x81`, which invalidates all
+pending recovery and in-flight reads. Each zero alert starts a new recovery
+generation and records the current epoch. Only a successful response to a read
+**requested after that latest clear**, with no intervening failure, may clear
+the obstruction. A clear arriving while a read is already in flight therefore
+requires a new read; the old response is stale. Unknown event IDs stay raw and
+must not be interpreted as success. Some units may use a cadence other than
+monthly; the event semantics do not depend on the wall-clock interval.
 
 ### Why CLOSED is not enough
 

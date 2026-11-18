@@ -366,10 +366,38 @@ protocol_details:
     records:
       types: {handshake: "0x16", change_cipher_spec: "0x14", application_data: "0x17"}
       version_hex: "03 03"
-      protection: "AES-256-GCM; 8-byte explicit nonce equal to the per-direction record counter starting at 1 for application data; AAD is the 5-byte TLS record header"
+      protection: "AES-256-GCM; 8-byte explicit nonce equal to the per-direction record counter starting at 1 for application data. The 96-bit nonce is the direction's 4-byte fixed IV followed by those 8 explicit bytes."
+      additional_authenticated_data:
+        length_bytes: 13
+        formula: "sequence_uint64_be || record_type_uint8 || version_uint16_be || plaintext_length_uint16_be"
+        length_semantics: "The last two bytes are the PLAINTEXT length, excluding the 8-byte explicit nonce and 16-byte GCM tag. This is not the 5-byte TLS record header and not the encrypted body length."
+        finished_example_hex: "00 00 00 00 00 00 00 00 16 03 03 00 10"
+        application_data_example_hex: "00 00 00 00 00 00 00 01 17 03 03 00 03"
       client_finished: "Handshake type 0x16 record, explicit nonce 0, plaintext 14 00 00 0c plus 12-byte verify_data"
       lock_finished: "Accept the lock Finished in an application-data 0x17 record with nonce 0; do not require record type 0x16"
-      malformed: "Reject unexpected cipher/group, missing EMS, invalid ECDSA proof, wrong certificate, bad GCM tag or unexpected handshake order."
+      malformed: "Reject unexpected cipher/group, missing EMS, invalid ECDSA proof, wrong certificate, bad GCM tag or unexpected handshake order. Never authenticate with the bare 5-byte record header or with the encrypted body length in AAD."
+    encrypted_record_test_vectors:
+      provenance: "Newly generated with an invented AES-256 key, fixed IV and plaintext. No session secret, owner data or live capture. scripts/test_danalock_v3_ble.py independently recomputes ciphertext, tag and full record using only the Python standard library."
+      aes_256_key_hex: "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f"
+      fixed_iv_hex: "a0 a1 a2 a3"
+      finished:
+        sequence: 0
+        record_type: "0x16"
+        nonce_hex: "a0 a1 a2 a3 00 00 00 00 00 00 00 00"
+        aad_hex: "00 00 00 00 00 00 00 00 16 03 03 00 10"
+        plaintext_hex: "14 00 00 0c 00 01 02 03 04 05 06 07 08 09 0a 0b"
+        ciphertext_hex: "08 b9 5c 3a 23 65 b7 bf bd 3e bd 34 59 d3 6f d0"
+        tag_hex: "4d bc 74 a0 7c 87 ed 6a d8 92 62 df 73 9f e8 2a"
+        record_hex: "16 03 03 00 28 00 00 00 00 00 00 00 00 08 b9 5c 3a 23 65 b7 bf bd 3e bd 34 59 d3 6f d0 4d bc 74 a0 7c 87 ed 6a d8 92 62 df 73 9f e8 2a"
+      application_data:
+        sequence: 1
+        record_type: "0x17"
+        nonce_hex: "a0 a1 a2 a3 00 00 00 00 00 00 00 01"
+        aad_hex: "00 00 00 00 00 00 00 01 17 03 03 00 03"
+        plaintext_hex: "01 04 05"
+        ciphertext_hex: "b1 ab bd"
+        tag_hex: "8b 28 66 f6 25 48 89 e5 d9 ce f6 35 9f a5 3d 4c"
+        record_hex: "17 03 03 00 1b 00 00 00 00 00 00 00 01 b1 ab bd 8b 28 66 f6 25 48 89 e5 d9 ce f6 35 9f a5 3d 4c"
     certificate_validation:
       insecure_mode: "forbidden; never disable certificate-chain or serial-equivalent identity checks"
       trust_anchor: "Caller-supplied public DMI intermediate; this is not a public-web-CA hostname validation problem"

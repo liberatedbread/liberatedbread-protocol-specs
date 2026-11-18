@@ -181,7 +181,20 @@ The phone is TLS client and the lock is server. The compatible profile selects:
 - extended master secret, computed from the complete ClientHello through
   ClientKeyExchange transcript, including handshake headers;
 - AES-256-GCM records with eight-byte explicit per-direction counters starting
-  at 1 for application data and the five-byte record header as AAD.
+  at 1 for application data. The 96-bit nonce is the direction's four-byte fixed
+  IV followed by that explicit counter.
+
+AAD is exactly **13 bytes**:
+
+```text
+sequence_uint64_be || record_type_uint8 || version_uint16_be || plaintext_length_uint16_be
+```
+
+The final length is the **plaintext** length, excluding the eight-byte explicit
+nonce and 16-byte GCM tag. It is not the five-byte TLS header and not the
+encrypted body length. The spec carries independent encrypted Finished and
+application-data known-answer vectors with ciphertext, tag and full record,
+plus negative tests for the old five-byte-AAD mistake and sequence mismatches.
 
 The client Finished uses a handshake record with nonce 0 and plaintext
 `14 00 00 0c` plus 12 verify bytes. Accept the lock Finished in an

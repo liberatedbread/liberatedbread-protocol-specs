@@ -380,7 +380,10 @@ protocol_details:
         success: "Event 0x83 sets cycle_active=false and emits a maintenance success, not a valve actuation event."
         not_performed: "Event 0x82 sets cycle_active=false and emits a maintenance warning."
         failure: "Event 0x81 sets cycle_active=false, sets obstruction=true and emits a safety fault. Do not treat it as an ordinary completed cycle."
-        clear_obstruction: "Only a zero alert on command 0x00/0x01 followed by a successful fresh On/Off read may clear obstruction. Preserve the last safety-fault state until both happen."
+        fault_epoch: "Start at 0. Every non-zero alert on command 0x00/0x01 and every event 0x81 increments fault_epoch, sets obstruction and invalidates every pending recovery and in-flight read. A later success from any invalidated read is stale and must not clear the fault."
+        recovery_generation: "Every zero alert starts a new recovery_generation and records the current fault_epoch. The clear alert alone never clears obstruction. A read carries the recovery_generation and fault_epoch in force when it is REQUESTED."
+        response_validation: "A read response clears obstruction only when its request_recovery_generation equals the latest recovery_generation AND its request_fault_epoch equals the current fault_epoch. Any intervening failure increments fault_epoch and makes that response stale. A zero alert received after a read was already in flight starts a new generation, so that in-flight response cannot clear; issue a new read after the latest clear."
+        clear_obstruction: "Require both a latest-generation zero alert and a successful response to a read requested after that clear, with no intervening non-zero alert or event 0x81. Preserve the last safety-fault state until those exact conditions hold; never auto-retry the motor."
         unknown_event: "Reject unknown event IDs for state-machine purposes and log raw payload; never guess that one means cycle completion."
       trace_vector:
         steps:
@@ -391,7 +394,27 @@ protocol_details:
           - {input: "event 0x81", cycle_active: false, obstruction: true, emitted: "safety_fault"}
           - {input: "OnOff=0", cycle_active: false, obstruction: true, emitted: "obstructed_readback"}
           - {input: "alert 0", cycle_active: false, obstruction: true, emitted: "readback_required"}
-          - {input: "OnOff=0 read success", cycle_active: false, obstruction: false, emitted: "recovered_closed"}
+          - {input: "read_request after latest clear", cycle_active: false, obstruction: true, emitted: "read_requested"}
+          - {input: "OnOff=0 read success with matching recovery generation and fault epoch", cycle_active: false, obstruction: false, emitted: "recovered_closed"}
+      recovery_race_vectors:
+        intervening_failure:
+          inputs: ["alert 1", "alert 0", "event 0x81", "OnOff=0 read success"]
+          expected_emissions: ["safety_fault", "readback_required", "safety_fault", "stale_readback"]
+          expected_obstruction: true
+          expected_fault_epoch: 2
+          forbidden_emission: "recovered_closed"
+        failure_after_read_request:
+          inputs: ["alert 1", "alert 0", "read_request", "event 0x81", "OnOff=0 read success"]
+          expected_emissions: ["safety_fault", "readback_required", "read_requested", "safety_fault", "stale_readback"]
+          expected_obstruction: true
+          expected_fault_epoch: 2
+          forbidden_emission: "recovered_closed"
+        read_already_in_flight_at_clear:
+          inputs: ["alert 1", "read_request", "alert 0", "OnOff=0 read success", "read_request", "OnOff=0 read success"]
+          expected_emissions: ["safety_fault", "read_requested", "readback_required", "stale_readback", "read_requested", "recovered_closed"]
+          expected_obstruction: false
+          expected_fault_epoch: 1
+          note: "The response to the pre-clear read is stale. Only the second read, requested after the latest clear, may recover."
     power:
       battery_voltage: "BatteryVoltage raw unsigned uint8 * 0.1 V; 0xFF is invalid. Typical backup pack is 4xAA nominal 6.0 V. Arcus uses 4.1 V as its empty threshold when the device threshold is unavailable; do not present a vendor-certified percentage curve."
       reporting:

@@ -262,6 +262,168 @@ def _prf_sha384(secret, label, seed, length):
     return output[:length]
 
 
+def _gf_mul(left, right):
+    result = 0
+    for _ in range(8):
+        if right & 1:
+            result ^= left
+        left = ((left << 1) ^ 0x11B) & 0xFF if left & 0x80 else (left << 1) & 0xFF
+        right >>= 1
+    return result
+
+
+def _gf_pow(value, exponent):
+    result = 1
+    while exponent:
+        if exponent & 1:
+            result = _gf_mul(result, value)
+        value = _gf_mul(value, value)
+        exponent >>= 1
+    return result
+
+
+def _rotate_byte(value, count):
+    return ((value << count) | (value >> (8 - count))) & 0xFF
+
+
+AES_SBOX = []
+for _value in range(256):
+    _inverse = _gf_pow(_value, 254) if _value else 0
+    AES_SBOX.append(
+        _inverse
+        ^ _rotate_byte(_inverse, 1)
+        ^ _rotate_byte(_inverse, 2)
+        ^ _rotate_byte(_inverse, 3)
+        ^ _rotate_byte(_inverse, 4)
+        ^ 0x63
+    )
+
+
+def _aes_round_keys(key):
+    if len(key) != 32:
+        raise ValueError("AES-256 requires 32 bytes")
+    words = [list(key[index : index + 4]) for index in range(0, 32, 4)]
+    rcon = 1
+    for index in range(8, 60):
+        temp = words[index - 1][:]
+        if index % 8 == 0:
+            temp = [AES_SBOX[value] for value in temp[1:] + temp[:1]]
+            temp[0] ^= rcon
+            rcon = _gf_mul(rcon, 2)
+        elif index % 8 == 4:
+            temp = [AES_SBOX[value] for value in temp]
+        words.append([a ^ b for a, b in zip(words[index - 8], temp, strict=True)])
+    return words
+
+
+def _aes_add_round_key(state, words, round_number):
+    for column in range(4):
+        for row in range(4):
+            state[4 * column + row] ^= words[4 * round_number + column][row]
+
+
+def _aes_mix_columns(state):
+    for column in range(4):
+        a = state[4 * column : 4 * column + 4]
+        state[4 * column : 4 * column + 4] = [
+            _gf_mul(a[0], 2) ^ _gf_mul(a[1], 3) ^ a[2] ^ a[3],
+            a[0] ^ _gf_mul(a[1], 2) ^ _gf_mul(a[2], 3) ^ a[3],
+            a[0] ^ a[1] ^ _gf_mul(a[2], 2) ^ _gf_mul(a[3], 3),
+            _gf_mul(a[0], 3) ^ a[1] ^ a[2] ^ _gf_mul(a[3], 2),
+        ]
+
+
+def _aes_encrypt_block(key, block):
+    if len(block) != 16:
+        raise ValueError("AES block must be 16 bytes")
+    words = _aes_round_keys(key)
+    state = list(block)
+    _aes_add_round_key(state, words, 0)
+    for round_number in range(1, 15):
+        state = [AES_SBOX[value] for value in state]
+        shifted = [0] * 16
+        for column in range(4):
+            for row in range(4):
+                shifted[4 * column + row] = state[4 * ((column + row) % 4) + row]
+        state = shifted
+        if round_number != 14:
+            _aes_mix_columns(state)
+        _aes_add_round_key(state, words, round_number)
+    return bytes(state)
+
+
+def _galois_multiply(left, right):
+    result = 0
+    value = right
+    reduction = 0xE1000000000000000000000000000000
+    for bit in range(128):
+        if left & (1 << (127 - bit)):
+            result ^= value
+        value = value >> 1 if not value & 1 else (value >> 1) ^ reduction
+    return result
+
+
+def _ghash(key, data):
+    if len(data) % 16:
+        raise ValueError("GHASH input must be block aligned")
+    h = int.from_bytes(_aes_encrypt_block(key, bytes(16)), "big")
+    result = 0
+    for offset in range(0, len(data), 16):
+        result = _galois_multiply(
+            result ^ int.from_bytes(data[offset : offset + 16], "big"), h
+        )
+    return result.to_bytes(16, "big")
+
+
+def _pad16(data):
+    return data + bytes((-len(data)) % 16)
+
+
+def _gcm_tag(key, j0, aad, ciphertext):
+    lengths = (len(aad) * 8).to_bytes(8, "big") + (len(ciphertext) * 8).to_bytes(8, "big")
+    digest = _ghash(key, _pad16(aad) + _pad16(ciphertext) + lengths)
+    return bytes(
+        left ^ right
+        for left, right in zip(_aes_encrypt_block(key, j0), digest, strict=True)
+    )
+
+
+def _gcm_seal(key, nonce, plaintext, aad):
+    if len(nonce) != 12:
+        raise ValueError("GCM nonce must be 12 bytes")
+    j0 = nonce + b"\x00\x00\x00\x01"
+    ciphertext = bytearray()
+    for index, offset in enumerate(range(0, len(plaintext), 16), start=1):
+        counter_value = (int.from_bytes(j0[12:], "big") + index) & 0xFFFFFFFF
+        counter = j0[:12] + counter_value.to_bytes(4, "big")
+        stream = _aes_encrypt_block(key, counter)
+        block = plaintext[offset : offset + 16]
+        ciphertext.extend(a ^ b for a, b in zip(block, stream, strict=False))
+    ciphertext = bytes(ciphertext)
+    return ciphertext, _gcm_tag(key, j0, aad, ciphertext)
+
+
+def _gcm_open(key, nonce, encrypted, aad):
+    if len(encrypted) < 16:
+        raise ValueError("GCM record is shorter than its tag")
+    ciphertext, supplied_tag = encrypted[:-16], encrypted[-16:]
+    plaintext, _ = _gcm_seal(key, nonce, ciphertext, aad)
+    j0 = nonce + b"\x00\x00\x00\x01"
+    expected_tag = _gcm_tag(key, j0, aad, ciphertext)
+    if not hmac.compare_digest(supplied_tag, expected_tag):
+        raise ValueError("GCM authentication failed")
+    return plaintext
+
+
+def _build_gcm_record(key, fixed_iv, sequence, record_type, plaintext):
+    explicit = sequence.to_bytes(8, "big")
+    aad = explicit + bytes([record_type]) + bytes.fromhex("03 03") + len(plaintext).to_bytes(2, "big")
+    ciphertext, tag = _gcm_seal(key, fixed_iv + explicit, plaintext, aad)
+    body = explicit + ciphertext + tag
+    record = bytes([record_type]) + bytes.fromhex("03 03") + len(body).to_bytes(2, "big") + body
+    return ciphertext, tag, record
+
+
 def test_dmi_crc_and_canonical_escaping():
     assert _crc16_ccitt_false(b"123456789") == 0x29B1
     assert _escape(bytes([0xC0, 0xC1, 0xC2])) == bytes.fromhex("c2 40 c2 41 c2 42")
@@ -414,6 +576,53 @@ def test_tls_prf_and_empty_client_certificate_semantics():
     validation = DETAILS["tls_12"]["certificate_validation"]
     assert validation["insecure_mode"].startswith("forbidden")
     assert len(validation["required_checks"]) == 5
+
+
+def test_tls_gcm_finished_and_application_data_known_answers():
+    vectors = DETAILS["tls_12"]["encrypted_record_test_vectors"]
+    key = _hex(vectors["aes_256_key_hex"])
+    fixed_iv = _hex(vectors["fixed_iv_hex"])
+    for name in ("finished", "application_data"):
+        vector = vectors[name]
+        plaintext = _hex(vector["plaintext_hex"])
+        ciphertext, tag, record = _build_gcm_record(
+            key,
+            fixed_iv,
+            vector["sequence"],
+            int(vector["record_type"], 0),
+            plaintext,
+        )
+        assert ciphertext == _hex(vector["ciphertext_hex"])
+        assert tag == _hex(vector["tag_hex"])
+        assert record == _hex(vector["record_hex"])
+        aad = _hex(vector["aad_hex"])
+        assert len(aad) == 13
+        assert int.from_bytes(aad[-2:], "big") == len(plaintext)
+        assert _gcm_open(key, _hex(vector["nonce_hex"]), ciphertext + tag, aad) == plaintext
+        assert int.from_bytes(record[3:5], "big") == len(plaintext) + 24
+
+        with pytest.raises(ValueError, match="authentication"):
+            _gcm_open(key, _hex(vector["nonce_hex"]), ciphertext + tag, record[:5])
+
+        wrong_body_length = bytearray(aad)
+        wrong_body_length[-2:] = (len(record) - 5).to_bytes(2, "big")
+        with pytest.raises(ValueError, match="authentication"):
+            _gcm_open(
+                key,
+                _hex(vector["nonce_hex"]),
+                ciphertext + tag,
+                bytes(wrong_body_length),
+            )
+
+        wrong_sequence = bytearray(aad)
+        wrong_sequence[:8] = (vector["sequence"] + 1).to_bytes(8, "big")
+        with pytest.raises(ValueError, match="authentication"):
+            _gcm_open(
+                key,
+                _hex(vector["nonce_hex"]),
+                ciphertext + tag,
+                bytes(wrong_sequence),
+            )
 
 
 def test_identify_only_no_plaintext_commands_and_btze_evidence_boundary():

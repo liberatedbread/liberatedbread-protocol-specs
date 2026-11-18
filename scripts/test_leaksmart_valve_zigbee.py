@@ -120,8 +120,24 @@ def _parse_alert_event(command, payload):
 def _cycle_trace(inputs):
     active = False
     obstructed = False
-    readback_required = False
+    fault_epoch = 0
+    clear_fault_epoch = None
+    recovery_generation = None
+    read_fault_epoch = None
+    read_recovery_generation = None
     emitted = []
+
+    def fail():
+        nonlocal fault_epoch, clear_fault_epoch, recovery_generation
+        nonlocal read_fault_epoch, read_recovery_generation, obstructed
+        fault_epoch += 1
+        obstructed = True
+        clear_fault_epoch = None
+        recovery_generation = None
+        read_fault_epoch = None
+        read_recovery_generation = None
+        emitted.append("safety_fault")
+
     for kind, value in inputs:
         if kind == "event":
             event = _parse_alert_event(2, bytes([1, value]))
@@ -136,16 +152,19 @@ def _cycle_trace(inputs):
                 emitted.append("maintenance_warning")
             else:
                 active = False
-                obstructed = True
-                emitted.append("safety_fault")
+                fail()
         elif kind == "alert":
             alert = _parse_alert_event(1, bytes([1, value]))
             if alert == "operation_failure":
-                obstructed = True
-                emitted.append("safety_fault")
+                fail()
             else:
-                readback_required = obstructed
+                recovery_generation = 0 if recovery_generation is None else recovery_generation + 1
+                clear_fault_epoch = fault_epoch
                 emitted.append("readback_required" if obstructed else "clear")
+        elif kind == "read_request":
+            read_fault_epoch = fault_epoch
+            read_recovery_generation = recovery_generation
+            emitted.append("read_requested")
         elif kind == "onoff":
             if active:
                 emitted.append("suppressed")
@@ -154,15 +173,28 @@ def _cycle_trace(inputs):
             else:
                 emitted.append("open" if value else "closed")
         elif kind == "read_success":
-            if readback_required:
+            if (
+                obstructed
+                and recovery_generation is not None
+                and clear_fault_epoch == fault_epoch
+                and read_fault_epoch == fault_epoch
+                and read_recovery_generation == recovery_generation
+            ):
                 obstructed = False
-                readback_required = False
+                clear_fault_epoch = None
+                recovery_generation = None
+                read_fault_epoch = None
+                read_recovery_generation = None
                 emitted.append("recovered_closed" if value == 0 else "recovered_open")
-            elif not active:
+            elif active:
+                emitted.append("suppressed")
+            elif obstructed:
+                emitted.append("stale_readback")
+            else:
                 emitted.append("open" if value else "closed")
         else:
             raise AssertionError(kind)
-    return active, obstructed, emitted
+    return active, obstructed, emitted, fault_epoch
 
 
 def test_zcl_request_frames_rebuild_from_declared_rules():
@@ -234,9 +266,10 @@ def test_monthly_cycle_trace_suppresses_onoff_and_latches_obstruction():
         ("event", 0x81),
         ("onoff", 0),
         ("alert", 0),
+        ("read_request", None),
         ("read_success", 0),
     ]
-    active, obstructed, emitted = _cycle_trace(inputs)
+    active, obstructed, emitted, fault_epoch = _cycle_trace(inputs)
     expected = [
         step["emitted"]
         for step in SPEC["protocol_details"]["zigbee"]["alert_events"]["trace_vector"][
@@ -246,16 +279,40 @@ def test_monthly_cycle_trace_suppresses_onoff_and_latches_obstruction():
     assert emitted == expected
     assert active is False
     assert obstructed is False
+    assert fault_epoch == 1
     assert emitted.count("suppressed") == 2
     assert "safety_fault" in emitted
     assert emitted[-1] == "recovered_closed"
 
 
 def test_failure_during_cycle_is_not_a_normal_completion():
-    _, obstructed, emitted = _cycle_trace([("event", 0x80), ("event", 0x81), ("onoff", 0)])
+    _, obstructed, emitted, _ = _cycle_trace(
+        [("event", 0x80), ("event", 0x81), ("onoff", 0)]
+    )
     assert obstructed is True
     assert emitted == ["maintenance_started", "safety_fault", "obstructed_readback"]
     assert "maintenance_succeeded" not in emitted
+
+
+def test_recovery_races_never_accept_stale_reads():
+    vectors = SPEC["protocol_details"]["zigbee"]["alert_events"][
+        "recovery_race_vectors"
+    ]
+    kinds = {
+        "alert 1": ("alert", 1),
+        "alert 0": ("alert", 0),
+        "event 0x81": ("event", 0x81),
+        "read_request": ("read_request", None),
+        "OnOff=0 read success": ("read_success", 0),
+    }
+    for vector in vectors.values():
+        _, obstructed, emitted, fault_epoch = _cycle_trace(
+            [kinds[item] for item in vector["inputs"]]
+        )
+        assert emitted == vector["expected_emissions"]
+        assert obstructed is vector["expected_obstruction"]
+        assert fault_epoch == vector["expected_fault_epoch"]
+        assert vector["forbidden_emission"] not in emitted if "forbidden_emission" in vector else True
 
 
 def test_no_generic_motor_or_cloud_control_surface():

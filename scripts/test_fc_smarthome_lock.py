@@ -353,6 +353,26 @@ def test_response_sequence_and_pagination_rules():
     assert sequence["failed_handshake"].startswith("Reconnect")
 
 
+def _evaluate_unlock_result(data):
+    if not data:
+        return {"confirmed": False, "replay": False}
+    return {"confirmed": data[0] == 0, "replay": False}
+
+
+def test_unlock_accepts_only_result_zero_and_f1_is_not_success():
+    unlock = DETAILS["advanced_unlock_documentary"]
+    assert unlock["success_result_codes"] == [0]
+    assert DETAILS["verify_identity"]["response"]["accepted_result_codes"] == [0, 241]
+    assert _evaluate_unlock_result(b"\x00") == {"confirmed": True, "replay": False}
+    for result in (b"\xf1", b"\x01", b""):
+        outcome = _evaluate_unlock_result(result)
+        assert outcome == {"confirmed": False, "replay": False}
+    assert unlock["negative_result_vector"] == {
+        "result": 241,
+        "expected": "unconfirmed_failure_no_replay",
+    }
+
+
 def test_documentary_unlock_vector_and_stale_opcode_rejection():
     unlock = DETAILS["advanced_unlock_documentary"]
     key = _hex(DETAILS["frame_test_vectors"]["initial_key_hex"])
