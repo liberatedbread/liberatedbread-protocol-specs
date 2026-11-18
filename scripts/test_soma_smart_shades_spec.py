@@ -236,17 +236,27 @@ def test_v3_calibrated_open_and_close_use_position_frames():
         assert name not in v3_cover["commands"].values()
 
 
-def test_tilt2_open_uses_position_50_on_the_v2_target_characteristic():
-    tilt_cover = cover_for_variant("Tilt 2 (V2)")
-    shade_cover = cover_for_variant("Smart Shades 2 (V2)")
-    assert tilt_cover is not shade_cover
-    assert tilt_cover["commands"]["open_cover"] == "tilt2_open"
-    assert shade_cover["commands"]["open_cover"] == "v2_open"
+def v2_entity_bindings():
+    v2_models = {"Smart Shades 2 (V2)", "Tilt 2 (V2)"}
+    return [
+        entity
+        for entity in SPEC["entities"]
+        if v2_models.intersection(entity.get("variants", []))
+    ]
 
+
+def consumer_entities_for_variant(model):
+    if SPEC["device"].get("integration") == "identify_only":
+        return []
+    return [entity for entity in SPEC["entities"] if model in entity.get("variants", [])]
+
+
+def test_tilt2_open_command_stays_position_50_without_a_generic_v2_binding():
     characteristic, command = command_definition("tilt2_open")
     assert characteristic["uuid"] == "00001526-b87f-490c-92cb-11ba5ea5167c"
     assert command["value"] == [0x32]
     assert command_definition("v2_open")[0]["uuid"] != characteristic["uuid"]
+    assert all("tilt2_open" not in entity.get("commands", {}).values() for entity in SPEC["entities"])
 
 
 def test_v2_name_is_exact_and_tilt_is_discriminated_by_payload():
@@ -261,3 +271,20 @@ def test_v2_name_is_exact_and_tilt_is_discriminated_by_payload():
     assert selected_variant == "Tilt 2 (V2)"
     with pytest.raises(ValueError, match="complete V2"):
         select_generation({COMPANY_ID: payload("v2_tilt_advertisement")}, "S2")
+
+
+@pytest.mark.parametrize(
+    ("tilt_byte", "expected_variant"),
+    [(0x00, "Smart Shades 2 (V2)"), (0x80, "Tilt 2 (V2)")],
+)
+def test_generic_consumer_renders_no_v2_entities_for_either_valid_variant(tilt_byte, expected_variant):
+    advertisement = bytearray(payload("v2_tilt_advertisement"))
+    advertisement[1] = tilt_byte
+    generation, decoded = select_generation({COMPANY_ID: bytes(advertisement)}, "S")
+    assert generation == "V2"
+    selected_variant = "Tilt 2 (V2)" if decoded["tilt"] else "Smart Shades 2 (V2)"
+    assert selected_variant == expected_variant
+
+    assert SPEC["device"]["integration"] == "identify_only"
+    assert v2_entity_bindings() == []
+    assert consumer_entities_for_variant(selected_variant) == []

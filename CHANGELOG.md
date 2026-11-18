@@ -155,14 +155,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the passive 20-byte ThermoBeacon record and numeric IDs without retail-model
   guesses, with manual fff0+numeric-key+length verification instead of automatic
   partial-signal matching. SOMA gains mandatory exact-name V2/V3 selection,
-  calibrated V3 position-based open/close and a separate position-50 Tilt 2 open,
+  calibrated V3 position-based open/close and a position-50 Tilt 2 open command,
   with the V3-read-versus-V2-factory-reset collision called out. Flic 2/Duo gains
   Public advertising, fragmentation, per-app full/quick pairing, Chaskey-LTS
   sessions, reliable multi-item event-counter reconciliation and Duo gestures/
   accelerometer/push-twist. Independent standard-library tests use public
   sanitized or synthetic vectors, including malformed, fragment and replay cases.
-  BlueMaestro, SensorBlue, Flic and Oclean are identify_only pending real handlers;
-  Oclean exposes no generic model-routed writes. Connected logger/history/settings,
+  BlueMaestro, SensorBlue, Flic, Oclean and SOMA are identify_only pending real
+  handlers; Oclean exposes no generic model-routed writes, and SOMA withholds V2
+  entities because generic variant selection cannot evaluate the Tilt bit.
+  Connected logger/history/settings,
   calibration, schedules, destructive discovery writes and Flic 1/Twist/hub
   transports are excluded; every new spec is honestly marked untested.
 

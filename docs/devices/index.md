@@ -304,7 +304,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Oclean BLE Smart Toothbrushes](oclean-toothbrushes.md) | BLE | Identify-only (untested) | Dedicated DIS-first model-routed handler required | Oclean |
 | [BlueMaestro Tempo Disc Environmental Sensors](bluemaestro-tempo-disc.md) | BLE (passive) | Identify-only (untested) | Dedicated measurement handler required | Blue Maestro |
 | [SensorBlue ThermoBeacon Hygrometers](sensorblue-thermobeacon.md) | BLE (passive) | Identify-only (untested) | Manual compound verification + dedicated measurement handler | SensorBlue / SEVEN-LIKE |
-| [SOMA Smart Shades 2 / Tilt 2 / Smart Shades 3](soma-smart-shades.md) | BLE | Spec Available (untested) | Mandatory V2/V3 selection (medium) | Wazombi Labs |
+| [SOMA Smart Shades 2 / Tilt 2 / Smart Shades 3](soma-smart-shades.md) | BLE | Identify-only (untested) | Dedicated V2 generation + byte-1 Tilt-bit selection handler required | Wazombi Labs |
 | [Flic 2 and Flic Duo](flic-2-duo.md) | BLE | Identify-only (untested) | Dedicated signed-session/reliable-event handler required | Shortcut Labs |
 
 ## Not everything here was liberated

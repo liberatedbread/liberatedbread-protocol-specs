@@ -1,6 +1,6 @@
 # SOMA Smart Shades 2 / Tilt 2 / Smart Shades 3
 
-> **Status**: Spec Available (untested)
+> **Status**: Identify only (untested; dedicated V2 variant-selection handler required)
 > **Protocol**: BLE GATT, two incompatible generations
 > **Manufacturer**: Wazombi Labs OÜ
 > **Manufacturer Status**: Active
@@ -21,6 +21,12 @@ opcode, and never fall back to the other protocol after a failure.
 Persist the selected generation. A missing payload or expected service means stop,
 not try the other command map.
 
+Exact `S` and the V2 version guard do not distinguish Smart Shades 2 from Tilt 2.
+A dedicated handler must also inspect V2 advertisement byte 1 bit `0x80`: clear
+selects Smart Shades 2, set selects Tilt 2. The generic mobile BLE variant selector
+has no manufacturer-bit axis, so this spec is identify_only and declares no V2
+entities rather than showing both models' different Open endpoints.
+
 ## Initial Setup
 
 | Property | Value |
@@ -38,8 +44,9 @@ that every unit accepts unauthenticated writes.
 **Factory reset**: No procedure is offered. The V2 bare-`0x51` warning above is
 to prevent an accidental reset, not to authorize one.
 
-**Rebinding**: Disconnect the old central and repeat passive generation selection
-on the new one. No Wi-Fi rejoin or factory reset is needed.
+**Rebinding**: Disconnect the old central and, in the future dedicated handler,
+repeat passive generation selection plus V2 byte-1 model selection on the new one.
+No Wi-Fi rejoin or factory reset is needed.
 
 ## Core Protocol
 
@@ -57,13 +64,14 @@ for closed downwards.
 | `00001531-b87f-490c-92cb-11ba5ea5167c` | Identify/beep: write `01` |
 | `0000ba71-b87f-490c-92cb-11ba5ea5167c` | Little-endian uint16 voltage, raw × 10 mV |
 
-Tilt 2 has a separate cover mapping: ordinary open writes target position `0x32`
-(50) to `00001526-b87f-490c-92cb-11ba5ea5167c`, rather than issuing motor-up and
-ending closed upwards at position 0. Ordinary close remains closed downwards at
-100; position 0 is available as an explicit target for closed upwards.
+The dedicated Tilt 2 open command remains `tilt2_open = 0x32` (target position
+50) on `00001526-b87f-490c-92cb-11ba5ea5167c`, rather than motor-up ending closed
+upwards at position 0. It is intentionally not bound to a generic V2 entity while
+the model cannot be selected. Close-down and explicit position targets likewise
+remain protocol facts for the future handler.
 
-V2 advertisement byte 1 supplies only the Tilt bit `0x80` here. It is not emitted
-as battery percentage. The standard battery characteristic also has unresolved
+V2 advertisement byte 1 supplies the Tilt bit `0x80` for model selection, not a
+battery percentage. The standard battery characteristic also has unresolved
 semantics and is not used. The voltage-to-percent conversion in the YAML is an
 estimate, not a transmitted percentage.
 
@@ -82,9 +90,9 @@ followed by stop `03 00`. Get closed percent uses `0a 00`, battery percent uses
 verify both opcode and declared length so a stale response is not accepted as
 success.
 
-`scripts/test_soma_smart_shades_spec.py` checks generation selection, V2/V3
-vectors, entity-to-command mappings, malformed frames and the reset-collision
-guard.
+`scripts/test_soma_smart_shades_spec.py` checks generation and byte-1 model
+selection, the absence of generic V2 entities for both valid variants, preserved
+V2/V3 commands, malformed frames and the reset-collision guard.
 
 ## Out of Scope
 

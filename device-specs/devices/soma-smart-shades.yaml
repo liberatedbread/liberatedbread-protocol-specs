@@ -17,6 +17,7 @@ device:
   transport: "ble-gatt"
   category: "motor"
   type: "shade-motor"
+  integration: "identify_only"
   openness:
     status: "undocumented"
     reverse_engineered: true
@@ -57,6 +58,13 @@ device:
     at a UI that uses percent open. Tilt 2 uses 0 = closed upwards, 50 = open,
     100 = closed downwards. V2 accepts one BLE central at a time according to the
     community client; close the vendor app or any bridge before connecting.
+
+    Exact S plus the version guard selects V2, not its model. A dedicated handler
+    must then select Smart Shades 2 when V2Advertisement byte 1 bit 0x80 is clear
+    and Tilt 2 when it is set. The generic BLE variant selector cannot evaluate
+    that bit, so integration is identify_only and every V2 entity binding is
+    withheld rather than exposing both Open endpoints. The V2 commands and decoder
+    remain documented for that handler, including Tilt 2 open at position 50.
   identification:
     local_names: ["S"]
     manufacturer_data:
@@ -81,7 +89,7 @@ device:
     identity:
       stable_keys: ["address"]
       display: "local_name"
-      notes: "Persist the selected generation with the device record; do not infer it later from a failed command."
+      notes: "Persist the selected generation and, for V2, the byte-1-selected model; never infer either later from a failed command."
     static_ip_required: false
   setup:
     required: false
@@ -90,21 +98,22 @@ device:
       No network provisioning or cloud account is needed for direct BLE. The shade
       must already have safe physical travel limits configured; this spec does not
       teach calibration. Setup confidence covers the public client flows, not an
-      ATT-permission dump or a motor replay here.
+      ATT-permission dump or a motor replay here. The V2 method is documentary
+      while integration is identify_only and requires a dedicated variant handler.
     methods:
       - type: "ble_direct"
         name: "V2 Smart Shades 2 / Tilt 2"
         role: "variant"
         verified: false
-        description: "Only after company 0x0370 yields version <0x10 and exact V2 name S. Uses one-byte characteristic values, never V3 type-length frames."
+        description: "Only after company 0x0370 yields version <0x10, exact V2 name S and byte-1 model selection. Uses one-byte characteristic values, never V3 type-length frames."
         steps:
-          - action: "Confirm manufacturer company 0x0370, version below 0x10 and exact local name S; stop on any mismatch."
+          - action: "Confirm manufacturer company 0x0370, version below 0x10 and exact local name S, then select Smart Shades 2 when advertisement byte 1 bit 0x80 is clear or Tilt 2 when set; stop on any mismatch."
             actor: "client"
           - action: "Close the vendor app and any bridge holding the V2 shade's single BLE connection."
             actor: "user"
-          - action: "Read current and target closed percentages before any movement; use only the V2 characteristic commands."
+          - action: "Read current and target closed percentages before any movement; use only the selected model's V2 characteristic commands."
             actor: "client"
-            expect: "V2 position reads return 0-100 percent closed; no V3 frame is emitted."
+            expect: "V2 position reads return 0-100 percent closed; no V3 frame or the other V2 model's Open command is emitted."
       - type: "ble_direct"
         name: "V3 Smart Shades 3"
         role: "variant"
@@ -132,13 +141,13 @@ device:
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
-      notes: "There is no Wi-Fi network to rejoin. Preserve the generation when moving to another controller."
+      notes: "There is no Wi-Fi network to rejoin. Preserve the generation and V2 model when moving to another controller."
       steps:
         - action: "Disconnect the existing central or bridge; for V2 this is required before another central can connect."
           actor: "user"
-        - action: "Repeat passive generation selection on the new controller, then use only that generation's command map."
+        - action: "Repeat passive generation selection and, for V2, byte-1 model selection in the dedicated handler, then use only the selected generation/model command map."
           actor: "client"
-          expect: "Direct BLE control resumes without a factory reset or cloud account."
+          expect: "Once a dedicated handler exists, direct BLE control resumes without a factory reset, cloud account or ambiguous V2 Open endpoint."
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device:
@@ -394,30 +403,6 @@ protocol_details:
 
 entities:
   - platform: "cover"
-    name: "V2 Shade"
-    device_class: "shade"
-    variants: ["Smart Shades 2 (V2)"]
-    state_characteristic: "00001525-b87f-490c-92cb-11ba5ea5167c"
-    state_mapping: { value: "position_closed" }
-    commands:
-      open_cover: "v2_open"
-      close_cover: "v2_close"
-      stop_cover: "v2_stop"
-      set_cover_position: "v2_set_position"
-    notes: "Percent closed on the wire: 0 open and 100 closed."
-  - platform: "cover"
-    name: "Tilt 2"
-    device_class: "shade"
-    variants: ["Tilt 2 (V2)"]
-    state_characteristic: "00001525-b87f-490c-92cb-11ba5ea5167c"
-    state_mapping: { value: "position_closed" }
-    commands:
-      open_cover: "tilt2_open"
-      close_cover: "v2_close"
-      stop_cover: "v2_stop"
-      set_cover_position: "v2_set_position"
-    notes: "Open writes target position 50, not motor-up position 0. Close is closed downwards at 100; position 0 remains available through set_cover_position for closed upwards."
-  - platform: "cover"
     name: "V3 Shade"
     device_class: "shade"
     variants: ["Smart Shades 3 (V3)"]
@@ -428,21 +413,9 @@ entities:
       set_cover_position: "v3_set_position"
     notes: "Open and close use calibrated set-position frames. Poll v3_get_position and parse V3PositionReply after moves; percent closed."
   - platform: "button"
-    name: "V2 Identify"
-    variants: ["Smart Shades 2 (V2)", "Tilt 2 (V2)"]
-    commands: { press: "v2_identify" }
-  - platform: "button"
     name: "V3 Identify"
     variants: ["Smart Shades 3 (V3)"]
     commands: { press: "v3_identify" }
-  - platform: "sensor"
-    name: "V2 Battery Voltage"
-    device_class: "voltage"
-    unit: "mV"
-    variants: ["Smart Shades 2 (V2)", "Tilt 2 (V2)"]
-    state_characteristic: "0000ba71-b87f-490c-92cb-11ba5ea5167c"
-    state_mapping: { value: "battery_voltage_raw" }
-    notes: "Direct voltage; the percentage conversion is an estimate."
   - platform: "sensor"
     name: "V3 Battery"
     device_class: "battery"
