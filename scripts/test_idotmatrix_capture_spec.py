@@ -1,8 +1,25 @@
+import base64
+from pathlib import Path
 import struct
 import zlib
 
 
 HEADER = struct.Struct("<HBBBIIHB")
+PUBLIC_PAYLOADS = (
+    (
+        bytes.fromhex(
+            "01 00 00 01 00 00 01 ff 1e 1e 00 00 00 00 02 ff ff ff "
+            "00 00 00 00 00 00 00 1c 22 30 2c 22 32 6c 00 00"
+        ),
+        0x10907EC7,
+    ),
+    (
+        base64.b64decode(
+            "AwAAAQAAAf///wAAAAAF////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP////8AAAX///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/////wAABf///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/////AAA="
+        ),
+        0xE72B5848,
+    ),
+)
 
 
 def draw_pixel(mode, red, green, blue, x, y):
@@ -48,18 +65,31 @@ def test_public_draw_pixel_vector():
     )
 
 
-def test_public_capture_lengths_and_crc_fields():
-    for frame_length, payload_length, expected_crc in (
-        (50, 34, 0x10907EC7),
-        (234, 218, 0xE72B5848),
-    ):
+def test_sanitized_public_payload_crcs_and_lengths():
+    assert [len(payload) for payload, _ in PUBLIC_PAYLOADS] == [34, 218]
+    for payload, expected_crc in PUBLIC_PAYLOADS:
+        assert zlib.crc32(payload) == expected_crc
+        frame_length = 16 + len(payload)
         header = HEADER.pack(
-            frame_length, 2, 0, 0, payload_length, expected_crc, 0, 12
+            frame_length, 2, 0, 0, len(payload), expected_crc, 0, 12
         )
         decoded = HEADER.unpack(header)
-        assert decoded[0] == frame_length == 16 + payload_length
-        assert decoded[4] == payload_length
+        assert decoded[0] == frame_length
+        assert decoded[4] == len(payload)
         assert decoded[5] == expected_crc
+
+
+def test_discovery_declares_idm_name_but_no_advertised_service():
+    spec = (
+        Path(__file__).parents[1] / "device-specs/devices/idotmatrix.yaml"
+    ).read_text()
+    identity = spec.split("  identification:", 1)[1].split("  discovery:", 1)[0]
+    discovery = spec.split("  discovery:", 1)[1].split("  setup:", 1)[0]
+    assert "service_uuids" not in identity
+    assert "service_uuids" not in discovery
+    assert 'local_name_prefix: "IDM-"' in identity
+    assert 'value: "IDM-"' in discovery
+    assert 'uuid: "000000fa-0000-1000-8000-00805f9b34fb"' in spec
 
 
 def test_independent_payload_only_crc_and_little_endian_lengths():

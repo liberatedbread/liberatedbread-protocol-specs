@@ -27,7 +27,9 @@ Only one connection is supported at a time.
 ### PPoGATT transports
 
 These UUIDs use the Pebble base `xxxxxxxx-328e-0fbb-c642-1aa6699bdada`, not
-the Bluetooth SIG base.
+the Bluetooth SIG base. Only the V1/V2 watch-hosted entries below are watch
+GATT services. Forward `10000000-…` is hosted by the phone and is therefore
+documented as a host-aware transport, not as a service on the watch.
 
 | Transport | Service and characteristics | Direction |
 |-----------|-----------------------------|-----------|

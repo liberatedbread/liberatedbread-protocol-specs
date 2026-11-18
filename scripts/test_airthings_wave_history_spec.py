@@ -1,3 +1,4 @@
+from pathlib import Path
 import struct
 
 
@@ -89,3 +90,16 @@ def test_empty_slot_sentinel_and_two_byte_external_version_request():
     assert len(request) == 2
     response = bytes.fromhex("72 00 02 00 11 00")
     assert (response[2], response[3], response[4]) == (2, 0, 17)
+
+
+def test_asracp_declaration_matches_public_0x2c_properties():
+    spec = (
+        Path(__file__).parents[1]
+        / "device-specs/devices/airthings-wave-family.yaml"
+    ).read_text()
+    block = spec.split('uuid: "b42e50d8-ade7-11e4-89d3-123b93f75cba"', 1)[1]
+    declaration = block.split("properties:", 1)[1].splitlines()[0].strip()
+    assert declaration == '["write", "write_without_response", "indicate"]'
+    assert 0x2C & 0x08
+    assert 0x2C & 0x04
+    assert 0x2C & 0x20

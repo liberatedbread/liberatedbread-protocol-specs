@@ -1,7 +1,8 @@
+from pathlib import Path
 import struct
 
 
-SERVICES = {
+TRANSPORTS = {
     "forward": {
         "service": "10000000-328e-0fbb-c642-1aa6699bdada",
         "data": "10000001-328e-0fbb-c642-1aa6699bdada",
@@ -9,6 +10,8 @@ SERVICES = {
         "host": "phone",
         "first_reset": "watch",
     },
+}
+WATCH_SERVICES = {
     "watch_v1": {
         "service": "30000003-328e-0fbb-c642-1aa6699bdada",
         "notify": "30000004-328e-0fbb-c642-1aa6699bdada",
@@ -64,17 +67,32 @@ def test_ppogatt_packet_header_and_service_directions():
     assert ppogatt_header(1, 31) == bytes([0xF9])
     assert ppogatt_header(2) == bytes([0x02])
     assert ppogatt_header(3) == bytes([0x03])
-    assert SERVICES["forward"]["host"] == "phone"
-    assert SERVICES["forward"]["first_reset"] == "watch"
-    assert SERVICES["watch_v1"]["notify"] != SERVICES["watch_v1"]["write"]
-    assert SERVICES["reversed_v2"]["host"] == "watch"
-    assert SERVICES["reversed_v2"]["first_reset"] == "phone"
-    assert "meta" not in SERVICES["reversed_v2"]
+    assert TRANSPORTS["forward"]["host"] == "phone"
+    assert TRANSPORTS["forward"]["first_reset"] == "watch"
+    assert WATCH_SERVICES["watch_v1"]["notify"] != WATCH_SERVICES["watch_v1"]["write"]
+    assert WATCH_SERVICES["reversed_v2"]["host"] == "watch"
+    assert WATCH_SERVICES["reversed_v2"]["first_reset"] == "phone"
+    assert "meta" not in WATCH_SERVICES["reversed_v2"]
+
+
+def test_only_watch_hosted_ppogatt_is_in_top_level_services():
+    spec = (
+        Path(__file__).parents[1] / "device-specs/devices/pebble-smartwatch.yaml"
+    ).read_text()
+    services = spec.split("\nservices:\n", 1)[1].split("\nprotocol_details:", 1)[0]
+    assert "10000000-328e-0fbb-c642-1aa6699bdada" not in services
+    assert "30000003-328e-0fbb-c642-1aa6699bdada" in services
+    assert "40000000-328e-0fbb-c642-1aa6699bdada" in services
+    forward = spec.split("      ppogatt_forward:", 1)[1].split(
+        "      ppogatt_watch_v1:", 1
+    )[0]
+    assert "10000000-328e-0fbb-c642-1aa6699bdada" in forward
+    assert 'first_reset: "watch"' in forward
 
 
 def test_serial_rate_and_pebble_base_uuid():
     assert 115200 == 115200
-    for service in SERVICES.values():
+    for service in (*TRANSPORTS.values(), *WATCH_SERVICES.values()):
         for value in service.values():
             if "-" in value:
                 assert value.endswith("-328e-0fbb-c642-1aa6699bdada")

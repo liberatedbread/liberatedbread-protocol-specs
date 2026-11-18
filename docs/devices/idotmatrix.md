@@ -22,7 +22,7 @@ Small RGB pixel displays in 16x16 or 32x32 sizes. Supports static images, GIF an
 
 ### BLE Service and Characteristics
 
-Public captures list primary service
+Post-connect public GATT captures list primary service
 `000000fa-0000-1000-8000-00805f9b34fb`, containing:
 
 | UUID | Name | Properties |
@@ -30,10 +30,11 @@ Public captures list primary service
 | `0000fa02-0000-1000-8000-00805f9b34fb` | Write Data | Write, write without response |
 | `0000fa03-0000-1000-8000-00805f9b34fb` | Notify/Ack Data | Notify only |
 
-Device advertised name prefix: `"IDM-"`. Scan for primary service `0x00FA`, not
-the characteristic UUID `0xFA02`. The `0xFEE9` service and its library-default
-characteristics are negative evidence from unused app configuration, not an
-alternative transport observed on this hardware.
+Advertisements contain flags and the local name prefix `"IDM-"`; they do not
+advertise `0x00FA`. Scan by IDM name, then discover the primary service after
+connecting. The `0xFEE9` service and its library-default characteristics are
+negative evidence from unused app configuration, not an alternative transport
+observed on this hardware.
 
 ### Commands
 

@@ -92,7 +92,8 @@ six-byte header is `count u32le` plus CRC16 of its first four bytes.
 SHB accepts Intel HEX (`.hex`/`.hex16`). On the normal device, an acknowledged
 write of `01 02` to `5833ff02-9b8b-5191-6142-22a4536ef123` requests OTA entry
 for those images (`01 03` selects resource images). The app then disconnects
-and rescans for `PPlusOTA` at the normal address with its last octet +1. SHB
+and rescans for `PPlusOTA` at the normal address with its last octet
+incremented modulo 256: `(last + 1) & 0xff` (`ff` → `00`). SHB
 uses service `5833ff01-9b8b-5191-6142-22a4536ef123`, command `…ff02…`, notify
 `5833ff03-…`, and no-response bulk data `5833ff04-…`. SLB accepts raw binary
 and uses service `0000feb3-0000-1000-8000-00805f9b34fb`, acknowledged command

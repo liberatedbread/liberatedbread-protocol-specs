@@ -30,6 +30,31 @@ def decode_tp980(frame):
     return scalar, floats
 
 
+def decode_tp97x_ambient(raw):
+    return int(round(fahrenheit_plus_54_to_celsius(raw), 1))
+
+
+def probe_battery_percent(millivolts):
+    if millivolts < 2311:
+        return 0
+    if millivolts <= 2450:
+        return 33
+    if millivolts <= 2600:
+        return 66
+    return 100
+
+
+def decode_tp980_metadata(frame):
+    opcode = frame[0]
+    if opcode == 0x11:
+        battery_mv = struct.unpack_from("<H", frame, 3)[0]
+        return None, battery_mv, probe_battery_percent(battery_mv)
+    if opcode == 0x20:
+        battery_mv = struct.unpack_from("<H", frame, 4)[0]
+        return frame[1], battery_mv, probe_battery_percent(battery_mv)
+    raise ValueError("unknown TP980 opcode")
+
+
 def passive_battery_percent(millivolts):
     percent = 52.317286 * math.tanh(
         millivolts / 273.624277936 - 8.76485439394
@@ -42,6 +67,11 @@ def make_tp980(opcode, scalar, temperatures):
     frame[0] = opcode
     scalar_offset, float_offsets = (2, (6, 10, 14)) if opcode == 0x20 else (1, (5, 9, 13))
     struct.pack_into("<H", frame, scalar_offset, scalar)
+    if opcode == 0x20:
+        frame[1] = 3
+        struct.pack_into("<H", frame, 4, 2500)
+    else:
+        struct.pack_into("<H", frame, 3, 2500)
     for offset, value in zip(float_offsets, temperatures, strict=True):
         struct.pack_into("<f", frame, offset, value)
     return bytes(frame)
@@ -60,6 +90,16 @@ def test_tp980_scalar_and_float_offsets_per_opcode():
     assert floats[0] is None
 
 
+def test_tp980_probe_index_and_battery_offsets():
+    poll = make_tp980(0x11, 140, (140.0, 140.0, 140.0))
+    automatic = make_tp980(0x20, 140, (140.0, 140.0, 140.0))
+    assert struct.unpack_from("<H", poll, 3)[0] == 2500
+    assert automatic[1] == 3
+    assert struct.unpack_from("<H", automatic, 4)[0] == 2500
+    assert decode_tp980_metadata(poll) == (None, 2500, 66)
+    assert decode_tp980_metadata(automatic) == (3, 2500, 66)
+
+
 def test_tp96x_seven_and_thirteen_byte_layouts():
     payload = struct.pack("<BHHH", 2, 55, 2800, 50)
     assert len(payload) == 7
@@ -72,16 +112,23 @@ def test_tp96x_seven_and_thirteen_byte_layouts():
 
 def test_tp97x_integer_ambient_and_float_internal_layout():
     payload = struct.pack(
-        "<BHHfffHHH", 1, 140, 2750, 122.0, 131.0, 140.0, 0, 0, 0
+        "<BHHfffHHH", 1, 141, 2750, 122.0, 131.0, 140.0, 0, 0, 0
     )
     assert len(payload) == 23
     decoded = struct.unpack("<BHHfffHHH", payload)
     assert decoded[0] == 1
-    assert round(fahrenheit_plus_54_to_celsius(decoded[1])) == 30
+    assert decode_tp97x_ambient(decoded[1]) == 30
     assert decoded[2] == 2750
     for value, wanted in zip(decoded[3:6], (20.0, 25.0, 30.0), strict=True):
         assert math.isclose(fahrenheit_plus_54_to_celsius(value), wanted, abs_tol=1e-5)
     assert decoded[6:] == (0, 0, 0)
+
+
+def test_tp97x_reference_round_once_then_truncate_including_negative():
+    assert decode_tp97x_ambient(141) == 30
+    assert decode_tp97x_ambient(31) == -30
+    assert round(fahrenheit_plus_54_to_celsius(141)) == 31
+    assert round(fahrenheit_plus_54_to_celsius(31)) == -31
 
 
 def test_battery_paths_stay_separate():
@@ -93,12 +140,4 @@ def test_battery_paths_stay_separate():
     for low_battery, expected in ((0, 100), (1, 0), (255, 0)):
         assert (0 if low_battery > 0 else 100) == expected
     for millivolts, expected in ((2300, 0), (2311, 33), (2451, 66), (2601, 100)):
-        if millivolts < 2311:
-            actual = 0
-        elif millivolts <= 2450:
-            actual = 33
-        elif millivolts <= 2600:
-            actual = 66
-        else:
-            actual = 100
-        assert actual == expected
+        assert probe_battery_percent(millivolts) == expected

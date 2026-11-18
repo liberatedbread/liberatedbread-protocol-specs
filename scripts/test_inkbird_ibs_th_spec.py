@@ -51,7 +51,7 @@ def decode_advertisement(frame):
 
 def ota_address(normal_address):
     octets = [int(part, 16) for part in normal_address.split(":")]
-    octets[-1] += 1
+    octets[-1] = (octets[-1] + 1) & 0xFF
     return ":".join(f"{part:02x}" for part in octets)
 
 
@@ -94,5 +94,6 @@ def test_header_crc_and_modbus_check_vector():
 
 def test_invented_ota_address_and_entry_vectors():
     assert ota_address("02:00:00:00:00:20") == "02:00:00:00:00:21"
+    assert ota_address("02:00:00:00:00:ff") == "02:00:00:00:00:00"
     assert bytes([0x01, 0x02]) == bytes.fromhex("01 02")
     assert bytes([0x01, 0x03]) == bytes.fromhex("01 03")
