@@ -8,28 +8,16 @@
           "address"
         ]
       },
-      "methods": [
-        {
-          "ble": {
-            "service_uuids": [
-              "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-            ]
-          },
-          "notes": "Advertises the Nordic UART service. The advertised-name convention was not captured from a cited source, so match on the NUS service plus a valid 5A A5 reply.\n",
-          "type": "ble_scan"
-        }
-      ],
+      "none": "Manual selection of the exact scooter is required before any GATT write. A Ninebot Z has the same NUS trio and 5A A5/L+9 outer frame; a bare NUS fingerprint or 5A A5 header must never activate this scooter spec. After manual selection, confirm the scooter's role addresses and register reply layout before any setting write. Do not infer identity from the shared outer length/checksum framing.\n",
       "static_ip_required": false
     },
     "identification": {
-      "service_uuids": [
-        "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-      ]
+      "notes": "No advertised-name matcher is established. Nordic UART is shared with the Ninebot Z EUC, InMotion V2 and unrelated peripherals, so it is a post-connect transport detail only and is deliberately not a scan axis.\n"
     },
     "manufacturer": "Ninebot-Segway",
     "manufacturer_status": "active",
     "name": "Ninebot / Segway E-Scooter (BLE)",
-    "notes": "Ninebot / Segway ES and MAX (G30) e-scooters (and Ninebot-built EUCs) use the same Nordic-UART serial-over-BLE bridge as the Xiaomi M365 — see xiaomi-m365-ble.yaml for the register read/write model and the ESC/BMS register map, which are shared. Only the outer frame differs.\nGATT: Nordic UART service 6e400001-b5a3-f393-e0a9-e50e24dcca9e; write/RX 6e400002-...; notify/TX 6e400003-... (same as the M365).\nFRAME: header 5A A5 (vs the Xiaomi 55 AA), then length, source addr, destination addr, command, argument, payload, and a 2-byte little-endian checksum. The read/write register model and the ESC-vs-battery address scheme match the Xiaomi variant.\nCRYPTO: the reference library's Ninebot transport is checksum-only (no AES/CCM/nonce/ECDH). Newer G30 firmware is widely reported to add AES session encryption; that is not confirmed from a source used here and should be verified before relying on plaintext access on current units.\nSAFETY: on plaintext/older units the same \"commands unauthenticated over BLE\" class of issue as the M365 applies (shared bus + app-only password).\n",
+    "notes": "Ninebot / Segway ES and MAX (G30) e-scooters use the same Nordic-UART serial-over-BLE bridge as the Xiaomi M365 — see xiaomi-m365-ble.yaml for the register read/write model and the ESC/BMS register map, which are shared. Only the outer frame differs.\nThe Ninebot Z electric unicycle is NOT this protocol. It shares this spec's NUS trio and its 5A A5 header, clear payload length, L+9 accounting and little-endian checksum envelope. The distinction is the Z's repeating-XOR transform, role addresses and telemetry payloads versus this scooter's register layouts, not the outer length semantics. See euc-wheellog-ble.yaml (its ninebot_z frame-format block); neither NUS nor the shared outer frame may activate scooter writes.\nGATT: Nordic UART service 6e400001-b5a3-f393-e0a9-e50e24dcca9e; write/RX 6e400002-...; notify/TX 6e400003-... (same as the M365).\nFRAME: header 5A A5 (vs the Xiaomi 55 AA), then length, source addr, destination addr, command, argument, payload, and a 2-byte little-endian checksum. The read/write register model and the ESC-vs-battery address scheme match the Xiaomi variant.\nCRYPTO: the reference library's Ninebot transport is checksum-only (no AES/CCM/nonce/ECDH). Newer G30 firmware is widely reported to add AES session encryption; that is not confirmed from a source used here and should be verified before relying on plaintext access on current units.\nSAFETY: on plaintext/older units the same \"commands unauthenticated over BLE\" class of issue as the M365 applies (shared bus + app-only password).\n",
     "openness": {
       "notes": "No vendor documentation; the plaintext framing is reverse-engineered. Newer-firmware session crypto is not covered by the fetched sources.\n",
       "reverse_engineered": true,
@@ -122,22 +110,27 @@
           "ble": {
             "pairing_required": false
           },
-          "description": "Connect to the NUS device, subscribe to 6e400003, and write 5A A5-framed register reads/writes to 6e400002 (register map per xiaomi-m365-ble).\n",
+          "description": "Manual model selection is the first gate. After connecting to that manually selected scooter, use a read-only register request as the post-connect protocol check. Never use NUS or a bare 5A A5 header to choose this spec, and stop if the reply has the Ninebot Z role addresses or repeating-XOR payload transform.\n",
           "steps": [
             {
-              "action": "Connect and subscribe to the TX characteristic (6e400003).",
+              "action": "Manually select the exact Ninebot/Segway scooter model; do not rely on NUS or the outer frame for identity.",
+              "actor": "user"
+            },
+            {
+              "action": "Connect and subscribe to the TX characteristic (6e400003-b5a3-f393-e0a9-e50e24dcca9e), without writing yet.",
               "actor": "client"
             },
             {
-              "action": "Write a 5A A5-framed register read; parse the checksummed reply.",
-              "actor": "client"
+              "action": "After manual model confirmation, send only a read-only 5A A5 register request and validate the scooter role addresses and register reply before any setting write.",
+              "actor": "client",
+              "expect": "A plaintext scooter register reply with the expected ESC/BMS role address and register layout; otherwise stop and do not issue further writes."
             }
           ],
           "type": "ble_direct",
           "verified": false
         }
       ],
-      "notes": "Connect over BLE, subscribe to the TX characteristic, and write 5A A5-framed register commands to RX (register model shared with the M365). On newer firmware a session-crypto handshake may be required — verify per unit.\n",
+      "notes": "NUS is not identity. A person must manually select the exact scooter before any GATT write. Only then connect, subscribe and issue a read-only register request; validate the scooter's role addresses and register reply before any setting write. On newer firmware a session-crypto handshake may be required — verify per unit.\n",
       "rejoin": {
         "in_place_supported": true,
         "notes": "No network membership; a new BLE client connects independently.",
@@ -188,7 +181,7 @@
       "characteristics": [
         {
           "name": "RX (write)",
-          "notes": "5A A5-framed register read/write commands.",
+          "notes": "5A A5-framed register read/write commands only after manual model selection and read-only protocol confirmation.",
           "properties": [
             "write_without_response"
           ],
@@ -196,7 +189,7 @@
         },
         {
           "name": "TX (notify)",
-          "notes": "5A A5-framed replies (ESC / battery).",
+          "notes": "5A A5-framed replies (ESC / battery); shared outer framing is not sufficient confirmation.",
           "properties": [
             "notify"
           ],
@@ -204,7 +197,7 @@
         }
       ],
       "name": "Nordic UART serial bridge",
-      "notes": "Tunnels the 5A A5 register protocol. Write to 6e400002, read notifications on 6e400003. Register model shared with xiaomi-m365-ble.yaml.\n",
+      "notes": "Tunnels the 5A A5 register protocol. Write to 6e400002-b5a3-f393-e0a9-e50e24dcca9e and read notifications on 6e400003-b5a3-f393-e0a9-e50e24dcca9e. The register model is shared with xiaomi-m365-ble.yaml. The Ninebot Z uses the same trio, so this is not identity: manual selection and the setup block's read-only protocol check are required before using the write path.\n",
       "uuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     }
   ]
