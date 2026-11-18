@@ -1,0 +1,1041 @@
+{
+  "device": {
+    "category": "switch",
+    "companion_apps": [
+      {
+        "name": "Flic",
+        "notes": "The consumer app's first pairing requires an account and Internet. A third-party client using this published protocol does not.",
+        "package": "io.flic.app",
+        "platform": "cross_platform",
+        "role": "primary"
+      }
+    ],
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "notes": "Verify the Full Verify address and type; on stacks without an address, use the verified response/advertising identity.",
+        "stable_keys": [
+          "address",
+          "pairing_identifier"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "regex",
+              "value": "^F2[0-9]{2}[A-Za-z0-9_-]{4}$"
+            },
+            "manufacturer_data": {
+              "company_id": 783,
+              "description": "Public-mode scan response; decode address/flags with protocol_details.public_advertising",
+              "match": "prefix",
+              "pattern": "02"
+            },
+            "service_uuids": [
+              "00420000-8f59-4420-870d-84f3b617e493"
+            ]
+          },
+          "notes": "Public pairing/discovery only. Private mode requires an existing per-app pairing record.",
+          "type": "ble_scan",
+          "verification": "reported"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "local_name_prefixes": [
+        "F2"
+      ],
+      "manufacturer_data": {
+        "company_id": 783,
+        "company_id_hex": "0x030f",
+        "description": "Public-mode scan response: payload 02 | address-top-24-bit little-endian | flags. Require the full public grammar, not F2 alone."
+      },
+      "notes": "Public name grammar is exactly F2 + two firmware decimal digits + four URL-safe-base64 characters encoding the low 24 address bits in big-endian order. Private mode advertises only flags and cannot be identified as a new Flic 2/Duo without a stored address/pairing record.\n",
+      "service_uuids": [
+        "00420000-8f59-4420-870d-84f3b617e493"
+      ]
+    },
+    "integration": "identify_only",
+    "manufacturer": "Shortcut Labs AB",
+    "manufacturer_status": "active",
+    "name": "Flic 2 and Flic Duo",
+    "notes": "SCOPE: direct Flic 2 and Flic Duo BLE only. Flic 1 has a different unproven profile, Flic Twist requires a hub, and every Flic Hub transport/API is out of scope. Do not apply this service, pairing or event state machine to them.\nA button has one active BLE central, but multiple apps on that central use logical connection IDs and independent per-app pairings. This is not a simple one-write GATT protocol: fragmentation, per-direction counters, five-byte Chaskey-LTS signatures, reliable event initialization/acknowledgement and persistent pairing/event records are all required for interoperability.\nSignatures authenticate; they do not encrypt opcode/data. Standard BLE Just Works bonding is encouraged as an additional encrypted-link layer, not a substitute for the Flic application pairing and session keys.\nIntegration is identify_only until a dedicated handler implements pairing, signed sessions and reliable events. A standard battery reading alone is not a working Flic integration.\n",
+    "openness": {
+      "notes": "The vendor publishes the actual third-party protocol and an official SDK. Consumer-app onboarding has a separate account/Internet requirement and is not the offline guarantee made here.\n",
+      "reverse_engineered": false,
+      "source_code": "https://github.com/50ButtonsEach/flic2lib-android",
+      "status": "open_by_design",
+      "upstream_docs": [
+        {
+          "covers": "Advertising, GATT, framing, full/quick verify, Chaskey-LTS signatures, reliable events, battery and firmware update",
+          "title": "Official Flic 2 Protocol Specification",
+          "url": "https://github.com/50ButtonsEach/flic2-documentation/wiki/Flic-2-Protocol-Specification"
+        },
+        {
+          "covers": "Duo discriminators, dual-button events, gestures, accelerometer, push-twist and Duo firmware endpoint",
+          "title": "Official Flic Duo Protocol Specification",
+          "url": "https://github.com/50ButtonsEach/flic2-documentation/wiki/Flic-Duo-Protocol-Specification"
+        }
+      ]
+    },
+    "pairing": {
+      "bonding": "optional",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "advertised_name": "F2",
+        "advertised_name_match": "prefix",
+        "indicator": "Public F2 firmware/name suffix, control service and company-0x030f scan response; Private mode is insufficient for initial pairing.",
+        "notes": "Private mode advertises only flags; existing clients can still reconnect by address.",
+        "procedures": [
+          {
+            "basis": "The official protocol requires Public mode but the reviewed source gives no model-neutral button hold/press sequence.",
+            "indicator": "The complete public advertisement described in protocol_details.public_advertising.",
+            "name": "Enable Public advertising mode (physical sequence not established)",
+            "power_state": "on",
+            "steps": [
+              {
+                "action": "Enable Public mode using the model-specific vendor instructions, then verify the public advertisement rather than relying on an unverified press count.",
+                "actor": "user",
+                "expect": "Public F2 name, control service and manufacturer scan response are present."
+              }
+            ],
+            "verified": false
+          }
+        ],
+        "required": true
+      },
+      "exclusivity": {
+        "notes": "Multiple apps can hold independent pairings and logical sessions on one central; this is not multiple simultaneous centrals.",
+        "recovery": "Close the other central. On the same host, filter notifications by the assigned logical connection ID instead of treating another app's traffic as an error.",
+        "single_bond": false,
+        "single_connection": true
+      },
+      "required": true,
+      "security_mode": "app_layer",
+      "unpair": {
+        "clears": "The host can always delete its own pairing record. A device-side per-app revocation procedure is not established.",
+        "notes": "Test If Really Unpaired authenticates whether a pairing is already absent; it does not revoke it. Never delete a stored pairing on negative Quick Verify response 6 alone.",
+        "requires_factory_reset": false,
+        "supported": "unknown"
+      }
+    },
+    "protocol": "ble",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [
+          "32-bit pairing identifier and 128-bit pairing key from Full Verify",
+          "Per-session logical connection ID, Chaskey session key, packet counters, boot_id and reliable event counters"
+        ],
+        "notes": "No Wi-Fi passphrase or cloud key is used. Session keys never leave the session; pairing keys are persistent secrets and must not be logged.",
+        "stored_on_device": [
+          "Per-app pairing records and advertising settings; capacity/eviction details beyond the documented full-slot response are not established",
+          "Optional BLE bond information, user name, boot/event counters and firmware state"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "Do not send firmware, disconnect or advertising commands as a reset attempt. Test If Really Unpaired verifies removal; it does not perform removal.",
+        "effect": "No physical or GATT factory-reset procedure is established. A reset may remove pairings, but the reviewed protocol only provides an authenticated way to test whether a pairing is already gone, not a revocation command.\n"
+      },
+      "methods": [
+        {
+          "ble": {
+            "advertised_name": "F2",
+            "advertised_name_match": "prefix",
+            "pairing_required": false,
+            "read_characteristic": "00420002-8f59-4420-870d-84f3b617e493",
+            "service_uuid": "00420000-8f59-4420-870d-84f3b617e493",
+            "write_characteristic": "00420001-8f59-4420-870d-84f3b617e493"
+          },
+          "description": "For a new app or a removed pairing. Verifies the button's Ed25519 identity, derives fresh session material with X25519 and creates this app's persistent pairing record.",
+          "issues_credentials": {
+            "pairing_identifier": {
+              "notes": "Persist per app and per button; never share across apps.",
+              "reply_path": "derived:first 4 bytes of fullVerifyHmac('PK'), little-endian uint32"
+            },
+            "pairing_key": {
+              "notes": "Persist secretly with the identifier and button identity; needed for every Quick Verify.",
+              "reply_path": "derived:next 16 bytes of fullVerifyHmac('PK')"
+            }
+          },
+          "name": "Full Verify in Public mode",
+          "role": "primary",
+          "steps": [
+            {
+              "action": "Enable Public mode and confirm the F2 public name, control service and company-0x030f scan response.",
+              "actor": "user",
+              "expect": "A public advertisement matching protocol_details.public_advertising; Private mode is not initial-pairing capable."
+            },
+            {
+              "action": "Connect, enable notifications, then send Full Verify Request 1 with connId 0, opcode 0 and a fresh random uint32le tmp_id, without a signature.",
+              "actor": "client"
+            },
+            {
+              "action": "Validate response 1's tmp_id, assigned logical ID, address/type and Ed25519 signature over address || address_type || button X25519 public key, trying all four recovered sigBits values.",
+              "actor": "client",
+              "expect": "Exactly one sigBits value in 0-3 verifies with the vendor public key in protocol_details.full_verify."
+            },
+            {
+              "action": "Generate a fresh X25519 secret/public key and 8 client random bytes; derive fullVerifySecret, then HMAC-SHA-256 AT verifier and SK session key with the model's variant byte.",
+              "actor": "client"
+            },
+            {
+              "action": "Send unsigned Full Verify Request 2 on the assigned logical ID, with the Duo support bit only for a Duo-capable client; reject failure response 3 or a mismatched response signature.",
+              "actor": "client"
+            },
+            {
+              "action": "Validate signed response 2, require app_credentials_match, derive PK, and store the pairing identifier/key before initializing reliable events.",
+              "actor": "client",
+              "expect": "A per-app pairing record and established session; is_duo selects base or Duo event initialization."
+            }
+          ],
+          "type": "ble_provisioning",
+          "verified": false
+        },
+        {
+          "ble": {
+            "advertised_name": "F2",
+            "advertised_name_match": "prefix",
+            "pairing_required": false,
+            "read_characteristic": "00420002-8f59-4420-870d-84f3b617e493",
+            "service_uuid": "00420000-8f59-4420-870d-84f3b617e493",
+            "write_characteristic": "00420001-8f59-4420-870d-84f3b617e493"
+          },
+          "description": "For a controller that already holds this app's pairing identifier/key. Uses fresh randoms and the stored key, not the consumer cloud.",
+          "name": "Quick Verify with a stored per-app pairing",
+          "role": "alternative",
+          "steps": [
+            {
+              "action": "Retrieve the pairing identifier/key for this app and button; never reuse another app's record.",
+              "actor": "client"
+            },
+            {
+              "action": "Send unsigned Quick Verify Request on connId 0 with fresh 7-byte client random, a new tmp_id, the pairing ID and discriminator 0x00 for base or 0x40 for Duo.",
+              "actor": "client"
+            },
+            {
+              "action": "Derive sessionKey = Chaskey-LTS(pairing_key, client_random || discriminator || button_random), then verify Quick Verify Response at from-button counter zero before accepting the assigned logical ID.",
+              "actor": "client"
+            },
+            {
+              "action": "If response 6 rejects the pairing ID, run Test If Really Unpaired before deleting anything; a spoofed negative response alone is not proof.",
+              "actor": "client",
+              "expect": "Established signed session, or a verified removal result that deletes the local record and stops."
+            }
+          ],
+          "type": "ble_provisioning",
+          "verified": false
+        }
+      ],
+      "notes": "A new app must perform Full Verify in Public mode and persist its own 32-bit pairing identifier and 128-bit pairing key. Later connections use Quick Verify. Confidence is medium because the flow is vendor-published but was not run against hardware here.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "The same app reconnects with Quick Verify. Moving to another app requires a new Full Verify and a distinct pairing record.",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Disconnect the old central; the button supports one active central even though apps on that central have independent sessions.",
+            "actor": "user"
+          },
+          {
+            "action": "On the same app installation, Quick Verify with its stored identifier/key. On a different app, enable Public mode and Full Verify instead of copying another app's record.",
+            "actor": "client",
+            "expect": "A fresh session with new session keys; pairing ID is reused, session keys and packet counters are not."
+          }
+        ]
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "No button was scanned, paired, reconnected or updated by this project. The protocol is vendor-published and the shipping SDK uses the same GATT table. Independent tests use only synthetic keys, non-identifying addresses and invented event streams; no real pairing record or user event history appears.\n",
+      "status": "untested"
+    },
+    "transport": "ble-gatt",
+    "type": "wireless-button",
+    "variants": [
+      {
+        "model": "Flic 2",
+        "notes": "Base protocol, one big button. Base-only Duo operation also exposes just Duo's big button."
+      },
+      {
+        "model": "Flic Duo",
+        "notes": "Duo extension adds the small button, gestures, accelerometer and push-twist; use Duo session discriminators and event init."
+      }
+    ]
+  },
+  "entities": [
+    {
+      "device_class": "voltage",
+      "name": "Battery Voltage",
+      "notes": "Opcode-20 response or Full Verify Response 2 raw uint16le * 3.6 / 1024. No percentage is inferred.",
+      "platform": "sensor",
+      "unit": "V"
+    }
+  ],
+  "evidence": {
+    "artifacts": [
+      {
+        "artifact": "50ButtonsEach/flic2-documentation wiki @ 44001870a481a2831dce7156914e00e2463835d6",
+        "description": "Authoritative advertising, pairing, session, framing, signature, reliable-event, Duo and firmware algorithms.",
+        "type": "vendor_protocol"
+      },
+      {
+        "artifact": "50ButtonsEach/flic2lib-android 2.1.1 @ d18733ac31a8a20f217b64507836bf8c87d58169",
+        "description": "Reference for Chaskey output vectors and Duo event-counter/acknowledgement behavior; synthetic vectors only.",
+        "type": "public_implementation"
+      }
+    ],
+    "documentation_review": "Reviewed the official Flic 2/Duo protocol wiki at 44001870a481a2831dce7156914e00e2463835d6 and official flic2lib-android 2.1.1 at d18733ac31a8a20f217b64507836bf8c87d58169 on 2026-11-10. The consumer app corroborates the same control UUID table. No hardware, capture, account, firmware request or cloud call was used.\n",
+    "open_questions": "Exact physical entry into Public mode, factory reset/revocation, ATT bonding behavior across firmware, Public/Private capture, event-counter recovery under packet loss, and image signature internals remain for owner-controlled testing.\n"
+  },
+  "features": [
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "No distinct bootloader name/address is established. Update runs in the normal control session and reboot follows disconnect."
+        },
+        "enter": {
+          "how": "unknown",
+          "notes": "No separate bootloader-entry command is declared. Start is opcode 17 only inside a valid established session; see protocol_details.firmware_update."
+        },
+        "image": {
+          "algorithm": "unknown",
+          "notes": "The device rejects an invalid signature. Exact image-signature algorithm is not asserted.",
+          "signing": "signed",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "vendor_ble"
+        ],
+        "notes": "Published protocol only; no firmware request or transfer was made.",
+        "recovery": {
+          "interrupted": "unknown",
+          "notes": "The start response can supply a resume word offset; interrupted-image safety and old-image guarantees are not asserted."
+        },
+        "transport": "ble",
+        "verification": "reported"
+      },
+      "type": "firmware_update",
+      "variants": [
+        "Flic 2"
+      ]
+    },
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "No distinct bootloader name/address is established. Update runs in the normal control session and reboot follows disconnect."
+        },
+        "enter": {
+          "how": "unknown",
+          "notes": "No separate bootloader-entry command is declared. Duo start is opcode 38 only inside a valid established Duo session."
+        },
+        "image": {
+          "algorithm": "unknown",
+          "notes": "Duo has a different header/byte-count protocol and backend; the base update procedure fails on Duo.",
+          "signing": "signed",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "vendor_ble"
+        ],
+        "notes": "Published protocol only; no firmware request or transfer was made.",
+        "recovery": {
+          "interrupted": "unknown",
+          "notes": "The start response can supply a resume byte offset; interrupted-image safety and old-image guarantees are not asserted."
+        },
+        "transport": "ble",
+        "verification": "reported"
+      },
+      "type": "firmware_update",
+      "variants": [
+        "Flic Duo"
+      ]
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Vendor-published base protocol used for advertising, framing, pairing, signatures and reliable events.",
+      "kind": "protocol_writeup",
+      "title": "Official Flic 2 Protocol Specification",
+      "url": "https://github.com/50ButtonsEach/flic2-documentation/wiki/Flic-2-Protocol-Specification"
+    },
+    {
+      "description": "Vendor-published Duo extension used for dual-button events, gestures, accelerometer and push-twist.",
+      "kind": "protocol_writeup",
+      "title": "Official Flic Duo Protocol Specification",
+      "url": "https://github.com/50ButtonsEach/flic2-documentation/wiki/Flic-Duo-Protocol-Specification"
+    },
+    {
+      "description": "Official SDK used to cross-check Chaskey vectors and Duo event-counter behavior.",
+      "kind": "implementation",
+      "title": "Official flic2lib-android",
+      "url": "https://github.com/50ButtonsEach/flic2lib-android"
+    },
+    {
+      "description": "Consumer-app account/Internet requirement, one-central guidance and hub-specific limitations; not a dependency of the published third-party BLE protocol.",
+      "kind": "vendor_support",
+      "title": "Flic setup and account FAQ",
+      "url": "https://flic.io/start"
+    }
+  ],
+  "initialization": [
+    {
+      "characteristic": "00420002-8f59-4420-870d-84f3b617e493",
+      "notes": "Enable notifications before Full/Quick Verify; filter every packet by logical connection ID and reassemble fragments before dispatch.",
+      "subscribe": true
+    },
+    {
+      "description": "Negotiate ATT MTU 140 when the host supports it; otherwise fragment every logical packet to fit the negotiated ATT value. Session establishment is protocol_details.full_verify or quick_verify, not a fixed-byte handshake."
+    }
+  ],
+  "payload_formats": {
+    "BatteryLevelResponse": {
+      "description": "Established-session response opcode 20 followed by uint16le raw battery level; signature follows the data and is removed before parsing.",
+      "example": "14 00 04",
+      "fields": [
+        {
+          "index": 0,
+          "name": "opcode",
+          "type": "uint8",
+          "values": {
+            "20": "battery response"
+          }
+        },
+        {
+          "description": "raw * 3.6 / 1024 volts; not a state-of-charge percentage",
+          "device_class": "voltage",
+          "endianness": "little",
+          "index": 1,
+          "name": "battery_raw",
+          "scale": 0.003515625,
+          "type": "uint16",
+          "unit": "V"
+        }
+      ],
+      "parse_rules": [
+        "Require opcode 20 and at least 3 data bytes before the five-byte signature, then verify signature/counter before using the value."
+      ]
+    },
+    "ButtonEventItem": {
+      "description": "Eight-byte little-endian bitfield inside opcode-12 ButtonEventNotification after event_count_u32le.",
+      "fields": [
+        {
+          "description": "Least-significant 48 bits; boot-relative ticks at 1/32768 second",
+          "index": 0,
+          "name": "timestamp"
+        },
+        {
+          "description": "Next 4 bits; low two select base type, bit 3 selects enriched up semantics",
+          "index": 48,
+          "name": "event_encoded"
+        },
+        {
+          "description": "One bit",
+          "index": 52,
+          "name": "was_queued"
+        },
+        {
+          "description": "One bit",
+          "index": 53,
+          "name": "was_queued_last"
+        },
+        {
+          "description": "Two reserved bits",
+          "index": 54,
+          "name": "rfu"
+        }
+      ],
+      "parse_rules": [
+        "Start type = event_encoded & 3 (0 up, 1 down, 2 single-click timeout, 3 hold).",
+        "If bit 3 is set: type = 0; wasHold = bit 2; singleClick = bit 1 && !bit 0; doubleClick = bit 1 && bit 0. Otherwise if event_encoded == 7, nextUpWillBeDoubleClick = true.",
+        "Acknowledge once per notification when (type == 0 && (singleClick || doubleClick)) || type == 2, using opcode 16 and the packet's event_count after all items are processed."
+      ]
+    },
+    "DuoPushTwistNotification": {
+      "description": "Established Duo session opcode 33: flags byte followed by signed int32le angle difference.",
+      "fields": [
+        {
+          "index": 0,
+          "name": "opcode",
+          "type": "uint8",
+          "values": {
+            "33": "push-twist data"
+          }
+        },
+        {
+          "description": "bits 0-1 pressed, 2-3 first event, 4-5 held at least half a second; remaining bits RFU",
+          "index": 1,
+          "name": "button_flags",
+          "type": "uint8"
+        },
+        {
+          "description": "Signed delta; 65536 raw units per 360 degrees, positive right",
+          "endianness": "little",
+          "index": 2,
+          "name": "angle_diff_raw",
+          "scale": 0.0054931640625,
+          "type": "int32",
+          "unit": "deg"
+        }
+      ],
+      "parse_rules": [
+        "Accumulate only while the corresponding button is pressed. Reset angle state when both buttons are released and a new press starts; this is not an absolute angle."
+      ]
+    }
+  },
+  "protocol_details": {
+    "duo_events": {
+      "accelerometer": "Read signed int8 x,y,z after every event; each raw value / 64.036875 gives acceleration in g.",
+      "event_counter": {
+        "first_update_per_button": "delta = extract_bits(1). If delta == 1 and extract_bits(1) == 1, delta = extract_bits({2,4,8,32}[extract_bits(2)]). delta += 1, then event_count[button] += delta.",
+        "later_update_same_button": "event_count[button] += 1"
+      },
+      "event_mapping": {
+        "acknowledgement": "Once per packet if any event has single_click || double_click || type == 6; send signed opcode 36 | event_count[0] u32le | event_count[1] u32le after persisting both counts.",
+        "double_click": "type == 3 || type == 4",
+        "single_click": "type == 1 || type == 2",
+        "was_hold": "type == 2 || (type == 4 && double_click_was_also_hold)"
+      },
+      "gesture": "For up types 0-4 and timeout 6: read withGesture bit; if 1, read recognized bit; if recognized, read 2 bits for 0 left, 1 right, 2 up, 3 down. Type 5/7 have no gesture bits.",
+      "get_color": "Established Duo opcode 40; response opcode 34 followed by a null-terminated color string in a 16-byte field.",
+      "init_light_request": "Opcode 35 | event_count[2] u32le each | boot_id u32le | same packed five-byte queue/auto-disconnect fields as base",
+      "init_response": "Opcode 30 has no boot_id; opcode 31 includes it. uint64le has_queued_events:1 | timestamp_ms:47 | event_count[2] | optional boot_id. Duo timestamps are milliseconds, not 1/32768 s.",
+      "notification": "Opcode 32 | events_data bitstream, least-significant bit first. Maintain last_timestamp=0, event_count[2] from init, and end_of_queue_marker (true initially only when no events are queued).",
+      "parity_rule": "For type <=5, if event_count[button] is even after the delta and before emitting, increment it once more; the resulting count is the event's acknowledged count.",
+      "provenance": "Hand-laid synthetic bits from the published grammar, independently decoded in scripts/test_flic_2_duo_spec.py; not captured user activity",
+      "queue_flags": "While end_of_queue_marker is false: extract_bits(1)==0 means queued, continue. Otherwise set end_of_queue_marker=true; the next bit 0 means this is the last queued event, 1 means queued data was discarded and this is the first live event.",
+      "selection": "Use only when is_duo is set. Base-only support emits just the big button. Big button index 0, small button index 1.",
+      "synthetic_vectors": [
+        {
+          "events_data_hex": "80ac4000c0",
+          "expected": {
+            "acceleration_raw": [
+              64,
+              0,
+              -64
+            ],
+            "acknowledge": false,
+            "button": 0,
+            "event_count": [
+              1,
+              0
+            ],
+            "timestamp_ms": 100,
+            "type": 5
+          },
+          "initial": {
+            "end_of_queue_marker": true,
+            "event_count": [
+              0,
+              0
+            ],
+            "last_timestamp_ms": 0
+          },
+          "name": "duo_down_big_button"
+        },
+        {
+          "events_data_hex": "824c00010003",
+          "expected": {
+            "acceleration_raw": [
+              64,
+              0,
+              -64
+            ],
+            "acknowledge": true,
+            "button": 0,
+            "event_count": [
+              3,
+              0
+            ],
+            "single_click": true,
+            "timestamp_ms": 150,
+            "type": 1
+          },
+          "initial": {
+            "end_of_queue_marker": true,
+            "event_count": [
+              1,
+              0
+            ],
+            "last_timestamp_ms": 100
+          },
+          "name": "duo_single_click_big_button"
+        }
+      ],
+      "timestamp": "width = {8,10,13,16,24,32,40,48}[extract_bits(3)]; last_timestamp += extract_bits(width), in milliseconds, shared across buttons.",
+      "type_table": {
+        "0": "up <0.5 s; cannot yet distinguish single/double",
+        "1": "up 0.5-1 s; single click",
+        "2": "up >=1 s; was_hold and single click",
+        "3": "up <0.5 s; second click of double click",
+        "4": "up >=0.5 s; second click of double click, with one extra bit for double-click-was-also-hold",
+        "5": "down",
+        "6": "single click timeout",
+        "7": "hold, with one extra next_up_will_be_double_click bit"
+      },
+      "update_loop": "Decode concatenated updates; a single final byte cannot hold an update, so stop when fewer than two unread bytes remain. Ignore trailing padding bits and never emit a partial update."
+    },
+    "duo_push_twist": {
+      "angle": "Signed int32le delta, 65536 units per turn. It is relative to the previous event, not an absolute position. Positive is right, negative left.",
+      "enable": "Established Duo opcode 37 | button mask (bit 0 big, bit 1 small); use only when is_duo is set",
+      "scope_limit": "Raw direct-BLE events are described; vendor hub-specific real-time dimming behavior is not claimed.",
+      "updates": "Approximately once per connection interval; decode payload_formats.DuoPushTwistNotification"
+    },
+    "excluded_surfaces": [
+      "Flic 1 and its legacy UUID/pairing table",
+      "Flic Twist and all Flic Hub, Hub LR and Hub Mini transports/APIs",
+      "Consumer-app account onboarding as a prerequisite for this third-party protocol",
+      "Firmware operations without a fresh established session and model-specific image flow"
+    ],
+    "firmware_update": {
+      "boundary": "Out of the ordinary event client. Start only with the model's signed-session algorithm and backend, never by replaying a fixed frame.",
+      "completion": "Disconnect after success to reboot. An interrupted transfer can resume from the response's start_pos; image signing details and bootloader advertisement are not published here.",
+      "duo": "Start opcode 38: len u32le bytes | header[76] | status_interval u16le (2 recommended). Data opcode 39, positive chunks suggested <=110 bytes and <=550 outstanding. Status 0 means signature rejection. Backend /firmware3. Base update start on Duo fails; do not use it.",
+      "flic2": "Start opcode 17: len u16le in 32-bit words | iv u64le | status_interval u16le >=17 (60 recommended). Data opcode 18, at most 30 words per packet. Status opcode 19 gives processed words; 0 means signature rejection. Backend /firmware2."
+    },
+    "full_verify": {
+      "request_1": "connId 0, unsigned: opcode 0 | tmp_id u32le",
+      "request_2": {
+        "abort": "Opcode 3 aborts and releases the pending session. Failure response 3: reason 0 invalid verifier, 1 not Public mode.",
+        "hmac": "fullVerifyHmac = HMAC-SHA-256(key=fullVerifySecret). verifier = HMAC('AT')[0:16]; sessionKey = HMAC('SK')[0:16].",
+        "layout": "opcode 2 | client_x25519_public[32] | client_random[8] | variant/RFU byte | verifier[16], unsigned on assigned connId. Duo sets supports_duo bit 0x80; all other variant/RFU bits zero.",
+        "secret_derivation": "fullVerifySecret = SHA-256(x25519_shared_secret[32] || sigBits_u8 || button_random[8] || client_random[8] || variant_u8), variant 0x00 base or 0x80 Duo"
+      },
+      "response_1": {
+        "flags": "bit 0 link encrypted, bit 1 public mode, bit 2 bond info; newlyAssigned bit in packet byte 0 supplies logical ID",
+        "identity_verification": "Check tmp_id and address/type. Ed25519 message = address || address_type || button_x25519_public. Public key = d33f2440dd54b31b2e1dcf40132efa41d8f8a7474168df4008f5a95fb3b0d022. Initially signature[32]&3 == 0; test all four values of those two recovered bits and keep the unique sigBits 0-3 that verifies. Zero or multiple successful verifications is failure.",
+        "layout": "opcode 0 | tmp_id u32le | ed25519_signature[64] | address[6] little-endian | address_type u8 | button_x25519_public[32] | button_random[8] | flags"
+      },
+      "response_2": {
+        "battery": "battery_u16le * 3.6 / 1024 volts",
+        "flags": "bit 0 app_credentials_match (must be 1), bit 1 cares_about_app_credentials, bit 2 is_duo; unknown trailing fields are ignored",
+        "layout": "opcode 1 | flags | button_uuid[16] big-endian | name_len | name[23] | firmware_u32le | battery_u16le | serial[11] | optional Duo color[16], then five-byte signature",
+        "pairing_derivation": "pk = fullVerifyHmac('PK'). pairing_identifier = uint32le(pk[0:4]); pairing_key = pk[4:20]. Persist before reliable event initialization."
+      },
+      "test_vectors": [
+        {
+          "button_random_hex": "2021222324252627",
+          "client_random_hex": "3031323334353637",
+          "full_verify_secret_hex": "678158d71f2f3f98e9f0a4364a2ba597502702b8a31119506f541c11c73638b4",
+          "negative_result_hex": "c6c6ee1872af2a790ecf747517a2b7e5",
+          "pairing_identifier_hex": "38bc944e",
+          "pairing_key_hex": "08f756e1713d412f6f165adb5a3a1ddf",
+          "pairing_token_hex": "06aa2a99bfd17862e51f7a94eda258d6",
+          "session_key_hex": "d282303a96d785e6de1bab8299eab674",
+          "shared_secret_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+          "sig_bits": 2,
+          "variant": "Flic 2/base",
+          "verifier_hex": "0a431ab4a58fab7eb7c1ce09796f665e"
+        },
+        {
+          "button_random_hex": "2021222324252627",
+          "client_random_hex": "3031323334353637",
+          "full_verify_secret_hex": "470232cbaa2f006d79b47bc5adcda70d956e6c728d3e018dc1268de280fe0d35",
+          "negative_result_hex": "b197a0b6dcc2c49f9dcadda74aad3cde",
+          "pairing_identifier_hex": "c21b5856",
+          "pairing_key_hex": "9da8525e5a69409f2b4c5390a8259b09",
+          "pairing_token_hex": "7cbaf91f3f244b5caac3c5934cac7d23",
+          "session_key_hex": "08d569be0bc741360a93167e42eaf035",
+          "shared_secret_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+          "sig_bits": 2,
+          "variant": "Duo",
+          "verifier_hex": "30965f6bd01fecdd1465c050a31026c3"
+        }
+      ],
+      "vector_provenance": "Synthetic shared secret/randoms checked with SHA-256/HMAC-SHA-256 against the published derivation; not an X25519 or Ed25519 hardware vector"
+    },
+    "packet_framing": {
+      "byte_zero": {
+        "bit_5": "newlyAssigned from button; always 0 toward button",
+        "bit_6": "Multiple packets in one GATT value. When 1 and bit 7 is 0, insert a length byte after byte 0 containing opcode+data+signature length, excluding byte 0 and the length byte; the next packet then starts with a new byte 0",
+        "bit_7": "1 = more fragments follow, 0 = final fragment",
+        "bits_0_4": "Logical connection ID; 0 only for connectionless packets"
+      },
+      "fragmentation": "Concatenate opcode || data || signature(if present), split to fit the negotiated ATT characteristic value, prepend the same byte 0 to every fragment, set bit 7 on all but the last, and send in order.",
+      "logical_connection_filter": "After assignment, drop packets for every other connId without consuming counters or events.",
+      "malformed_rules": [
+        "Reject a new logical packet larger than 129 bytes reassembled and any fragment stream ending before a final fragment.",
+        "Do not treat continuation fragments as new opcodes. Verify only after complete reassembly.",
+        "Multiple-packet concatenation is optional; a receiver that implements it must honor the inserted length and stop exactly at packet boundaries."
+      ],
+      "mtu": {
+        "att": 140,
+        "characteristic_value_bytes": 137,
+        "maximum_reassembled_packet_bytes": 129
+      }
+    },
+    "packet_signatures": {
+      "algorithm": "Chaskey-LTS, 16-round permutation, 128-bit key, first 5 bytes of the 16-byte tag",
+      "block_processing": [
+        "Initialize state from K. For each complete non-final 16-byte message block: xor block into state and apply the 16-round permutation.",
+        "If the final message block is exactly 16 bytes (including a message already aligned with no remainder), xor final block and K1 into state, permute, then xor K1 into state again.",
+        "Otherwise zero-pad the final partial block, set the byte after the last message byte to 0x01, xor that block and K2 into state, permute, then xor K2 into state again.",
+        "The 16-byte tag is state words serialized uint32le; Flic signatures are its first five bytes. Empty messages are not used for packet signatures."
+      ],
+      "chaskey_subkeys": {
+        "words": "Read key as four uint32le words K0..K3. K1 = cyclic left shift of the 128-bit key by 1, xor 0x87 into word 0 if the old word 3 top bit was 1. K2 = the same operation on K1."
+      },
+      "counters": "Independent per direction. First signed packet is counter 0; increment only after successful processing. Require the exact expected counter and reject a replay.",
+      "failure": "A bad signature terminates the session. Wait 5 seconds before creating a fresh session; never reuse packet counters or the old session key.",
+      "message": "packet_counter_u64le || direction_u64le || opcode || data; direction 0 from button, 1 toward button",
+      "permutation": {
+        "initial": "Before each group of 16 rounds, rotate word 2 right 16 bits; after the group, rotate word 2 right 16 bits again.",
+        "rounds": "16 iterations, all additions modulo 2^32: v0 += v1; v1 = v0 XOR rotl(v1,5); v2 = v3 + rotr(v2,16); v3 = v2 XOR rotl(v3,8); v2 += v1; v0 = v3 + rotr(v0,16); v1 = v2 XOR rotl(v1,7); v3 = v0 XOR rotl(v3,13)."
+      },
+      "test_vectors": [
+        {
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "subkey1_words_le_hex": [
+            "06040200",
+            "0e0c0a08",
+            "16141210",
+            "1e1c1a18"
+          ],
+          "subkey2_words_le_hex": [
+            "0c080400",
+            "1c181410",
+            "2c282420",
+            "3c383430"
+          ]
+        },
+        {
+          "counter": 0,
+          "direction": 1,
+          "expected_signature_hex": "06fa6d60ea",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "60"
+        },
+        {
+          "counter": 0,
+          "direction": 1,
+          "expected_signature_hex": "b0fe7d9be6",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e"
+        },
+        {
+          "counter": 0,
+          "direction": 1,
+          "expected_signature_hex": "06e6d40f51",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e6f"
+        },
+        {
+          "counter": 0,
+          "direction": 1,
+          "expected_signature_hex": "11a42eccc3",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e6f70"
+        },
+        {
+          "counter": 0,
+          "direction": 1,
+          "expected_signature_hex": "d107d7a0d7",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e"
+        },
+        {
+          "counter": 0,
+          "direction": 1,
+          "expected_signature_hex": "23b3fc102a",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f"
+        },
+        {
+          "counter": 0,
+          "direction": 1,
+          "expected_signature_hex": "f4a033a664",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80"
+        },
+        {
+          "counter": 1,
+          "direction": 0,
+          "expected_signature_hex": "a31f62da36",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e6f70"
+        },
+        {
+          "counter": 2,
+          "direction": 0,
+          "expected_signature_hex": "dfe285777b",
+          "key_hex": "000102030405060708090a0b0c0d0e0f",
+          "message_data_hex": "606162636465666768696a6b6c6d6e6f70"
+        }
+      ],
+      "vector_provenance": "Synthetic inputs checked against official flic2lib-android 2.1.1 @ d18733ac31a8a20f217b64507836bf8c87d58169; no device secret"
+    },
+    "public_advertising": {
+      "address_recovery": "Join the three manufacturer bytes (reverse them to big-endian top 24) with the three name-decoded low bytes; verify again in Full Verify Response 1. When flags select static random, require the reconstructed first octet's two most-significant bits to be 11.",
+      "company_id": 783,
+      "flags": "bit 0 address type (0 public, 1 static random); bit 1 already connected (1); all others RFU",
+      "name": "F2 + firmware as two decimal digits + URL-safe-base64(low 24 address bits, big-endian), exactly 8 characters",
+      "private_mode": "Flags only and empty scan response; not identifiable as a new Flic 2/Duo and not eligible for initial Full Verify.",
+      "scan_response_payload": "02 | address_top_24_bit_little_endian[3] | flags; extra trailing bytes are RFU",
+      "service_uuid": "00420000-8f59-4420-870d-84f3b617e493",
+      "test_vector": {
+        "address": "c2:00:00:76:42:06",
+        "address_type": "static random",
+        "connected": false,
+        "evidence": "Synthetic static-random address with required top bits 11, using the vendor's public suffix example; no real unit",
+        "firmware": 7,
+        "local_name": "F207dkIG",
+        "manufacturer_payload_hex": "020000c201"
+      }
+    },
+    "quick_verify": {
+      "first_validation": "Verify response signature with from-button counter 0 before accepting the session. tmp_id mismatch or wrong connId is dropped.",
+      "negative_response": "Opcode 6 | tmp_id u32le, unsigned on connId 0. Do not delete the pairing based on this spoofable message.",
+      "really_unpaired": {
+        "pairing_token": "first 16 bytes of fullVerifyHmac('PT' || pairing_id_u32le || pairing_key)",
+        "request": "After a fresh valid Full Verify Response 1, send unsigned opcode 4 | client_x25519_public[32] | client_random[8] | pairing_id u32le | pairing_token[16] on the assigned connId.",
+        "response": "Unsigned opcode 4 | result[16]. expected = first 16 bytes of fullVerifyHmac('NE' || pairing_token).",
+        "result": "Only an exact constant-time match proves removal; delete the local record then. Every other outcome terminates and leaves it intact."
+      },
+      "request": "connId 0, unsigned: opcode 5 | random_client[7] | discriminator | tmp_id u32le | pairing_identifier u32le. discriminator 0x00 base or 0x40 Duo.",
+      "response": "newlyAssigned connId, signed: opcode 8 | random_button[8] | tmp_id u32le | flags | signature[5]. Flags bit 0 link encrypted, bit 1 bond info, bit 2 is_duo.",
+      "session_key": "Chaskey-LTS(pairing_key, random_client[7] || discriminator_u8 || random_button[8]) with one exact 16-byte block and K1, returning all 16 tag bytes.",
+      "test_vectors": {
+        "base_discriminator_hex": "00",
+        "base_session_key_hex": "10dfef482752e3f3f4322b41c0930ccb",
+        "duo_discriminator_hex": "40",
+        "duo_session_key_hex": "ffc8f0c07daf72064dbb75302c1b0017",
+        "pairing_key_hex": "000102030405060708090a0b0c0d0e0f",
+        "provenance": "Synthetic key/randoms checked against official flic2lib-android 2.1.1 Chaskey-LTS implementation",
+        "random_button_hex": "4041424344454647",
+        "random_client_hex": "20212223242526"
+      }
+    },
+    "reliable_events": {
+      "disconnect": "Opcode 9 ends a verified link. Button reason codes: 0 ping timeout, 1 invalid signature, 2 new session with same pairing ID, 3 user disconnect.",
+      "init_light_request": {
+        "initial_values": "First contact: event_count=0 and boot_id=0. Later use the persisted values. auto_disconnect 511 disables; otherwise at least 40 s is recommended. max_queued_packets 0-30 or 31 unlimited; age 0-0xffffe or 0xfffff unlimited seconds.",
+        "layout": "event_count u32le | boot_id u32le | auto_disconnect_time:9 | max_queued_packets:5 | max_queued_packets_age:20 | rfu:6, packed least-significant bit first into five bytes",
+        "opcode": 23
+      },
+      "init_response": {
+        "bitfield": "uint64le has_queued_events:1 | timestamp:47, then event_count u32le and optional boot_id u32le. Timestamp is boot-relative ticks at 1/32768 s.",
+        "storage": "Persist event_count and boot_id; has_queued_events=0 means no queued events are waiting.",
+        "with_boot_id_opcode": 10,
+        "without_boot_id_opcode": 11
+      },
+      "multi_item_test_vector": {
+        "acknowledgement_event_count": 10,
+        "acknowledgement_opcode": 16,
+        "event_count": 10,
+        "evidence": "Invented seven-item sequence exercising every reverse branch, including skipped hold/timeout; not user history",
+        "expected": {
+          "acknowledge": true,
+          "event_counts": [
+            2,
+            3,
+            5,
+            7,
+            8,
+            9,
+            10
+          ],
+          "skipped_hold_counts": [
+            6
+          ],
+          "skipped_timeout_counts": [
+            4
+          ],
+          "types": [
+            3,
+            0,
+            1,
+            0,
+            2,
+            1,
+            3
+          ]
+        },
+        "items_hex": [
+          "0080000000000300",
+          "0180000000000a00",
+          "0280000000000100",
+          "0380000000000a00",
+          "0480000000000200",
+          "0580000000000100",
+          "0680000000000300"
+        ]
+      },
+      "notification": {
+        "acknowledgement": "After every item is processed, persist event_count and send at most one signed opcode 16 | event_count u32le when the rule in payload_formats.ButtonEventItem fires. Use the packet's original final count, not the last qualifying item's reconstructed count.",
+        "event_count_modulo": "1 down, 2 hold, 3 up, 0 single-click timeout. event_count/4 approximates clicks; skipped hold/timeout values require backwards reconciliation for per-item counts.",
+        "layout": "event_count u32le | items[8 bytes each], item layout in payload_formats.ButtonEventItem",
+        "opcode": 12
+      },
+      "ping": "Button opcode 15 requires a signed opcode 14 response on the same session.",
+      "reverse_reconciliation": {
+        "algorithm": [
+          "Set ec to the packet event_count and assign it to the final item.",
+          "Visit preceding items from penultimate to first. For each, compute m4 = ec % 4 using the next item's already-assigned count, apply the matching rule below to ec, then assign the resulting ec to the current item.",
+          "After reverse reconciliation, process items forward with their individual counts. The packet acknowledgement still uses the original packet event_count."
+        ],
+        "item_type": "Start with event_encoded & 3 (0 up, 1 down, 2 single-click timeout, 3 hold). If event_encoded >> 3 is nonzero, force type 0 before applying the rules, matching the enriched-up decode.",
+        "rules": [
+          {
+            "current_item_type": "any",
+            "meaning": "The next item is single-click timeout or hold; the preceding count is adjacent.",
+            "next_count_modulo_4": [
+              0,
+              2
+            ],
+            "subtract": 1
+          },
+          {
+            "current_item_type": 2,
+            "meaning": "Single-click timeout immediately precedes down.",
+            "next_count_modulo_4": 1,
+            "subtract": 1
+          },
+          {
+            "current_item_type": "not 2 (normally 0 up)",
+            "meaning": "Up precedes down and the intermediate modulo-0 single-click timeout count was skipped.",
+            "next_count_modulo_4": 1,
+            "subtract": 2
+          },
+          {
+            "current_item_type": 3,
+            "meaning": "Hold immediately precedes up.",
+            "next_count_modulo_4": 3,
+            "subtract": 1
+          },
+          {
+            "current_item_type": "not 3 (normally 1 down)",
+            "meaning": "Down precedes up and the intermediate modulo-2 hold count was skipped.",
+            "next_count_modulo_4": 3,
+            "subtract": 2
+          }
+        ],
+        "source": "Official flic2lib-android 2.1.1 Flic2Button.java:1896-1928 @ d18733ac31a8a20f217b64507836bf8c87d58169"
+      },
+      "test_vector": {
+        "acknowledgement_event_count": 3,
+        "acknowledgement_opcode": 16,
+        "event_count": 3,
+        "evidence": "Invented event, not user history",
+        "expected": {
+          "acknowledge": true,
+          "double_click": false,
+          "single_click": true,
+          "timestamp_ticks": 32768,
+          "type": 0,
+          "was_hold": false
+        },
+        "item_hex": "0080000000000a00"
+      }
+    }
+  },
+  "remaining_unknowns": [
+    "A model-neutral Public-mode physical sequence and factory-reset procedure were not established; verify on the actual Flic 2 or Duo.",
+    "No Public/Private advertisement, Full/Quick Verify session, bonding transition or packet-loss recovery was captured by this project.",
+    "Device-side per-app revocation and pairing-capacity eviction behavior need hardware confirmation; response 6 alone is not proof of removal.",
+    "Flic 1, Twist and hub transports are intentionally not identified or implemented.",
+    "Firmware signature algorithm and distinct DFU-mode advertising are not asserted; update is outside the basic event client."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "commands": {
+            "full_verify_request_1": {
+              "description": "Unsigned connectionless Full Verify Request 1: opcode 0 + tmp_id uint32le. Prepend byte 0 = 0.",
+              "encoding": "bytes",
+              "parameters": {
+                "tmp_id": {
+                  "description": "Fresh cryptographically random temporary ID",
+                  "endianness": "little",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                0,
+                "{tmp_id}"
+              ],
+              "verification": "reported"
+            },
+            "get_battery_level": {
+              "description": "Established-session opcode 20 with no data. Add logical ID, direction-1 counter signature and fragmentation as required.",
+              "encoding": "bytes",
+              "value": [
+                20
+              ],
+              "verification": "reported"
+            },
+            "quick_verify_request": {
+              "description": "Unsigned connectionless Quick Verify: opcode 5 + random[7] + discriminator + tmp_id u32le + pairing_id u32le. Prepend byte 0 = 0.",
+              "encoding": "bytes",
+              "parameters": {
+                "duo_discriminator": {
+                  "allowed": [
+                    0,
+                    64
+                  ],
+                  "default": 0,
+                  "labels": [
+                    "Flic 2/base",
+                    "Duo extension"
+                  ],
+                  "type": "uint8"
+                },
+                "pairing_identifier": {
+                  "endianness": "little",
+                  "max": 4294967295,
+                  "min": 0,
+                  "source": "credential:pairing_identifier",
+                  "type": "uint32"
+                },
+                "random_client_bytes": {
+                  "description": "Fresh CSPRNG output",
+                  "max_length": 7,
+                  "min_length": 7,
+                  "type": "bytes"
+                },
+                "tmp_id": {
+                  "endianness": "little",
+                  "max": 4294967295,
+                  "min": 0,
+                  "type": "uint32"
+                }
+              },
+              "template": [
+                5,
+                "{random_client_bytes}",
+                "{duo_discriminator}",
+                "{tmp_id}",
+                "{pairing_identifier}"
+              ],
+              "verification": "reported"
+            }
+          },
+          "name": "Host to Button",
+          "properties": [
+            "write_without_response"
+          ],
+          "role": "command",
+          "uuid": "00420001-8f59-4420-870d-84f3b617e493"
+        },
+        {
+          "name": "Button to Host Notifications",
+          "notes": "Reassemble fragments and verify connId/signature/counter before parsing opcodes. A notification addressed to another app is dropped, not consumed.",
+          "properties": [
+            "notify"
+          ],
+          "uuid": "00420002-8f59-4420-870d-84f3b617e493"
+        }
+      ],
+      "name": "Flic 2 / Duo Control Service",
+      "notes": "All commands below are logical opcode || data structures, NOT complete GATT values. Wrap with protocol_details.packet_framing and append a signature when protocol_details.packet_signatures requires one. Never write an established- session request without its valid counter/signature.\n",
+      "uuid": "00420000-8f59-4420-870d-84f3b617e493"
+    }
+  ]
+}
