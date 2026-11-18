@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **November 15 audit follow-up: Anova Mini and Nano protocols.** Separate,
+  model-scoped specs and owner guides cover the Mini's JSON/Base64 GATT commands
+  and the Nano's distinct COBS/proto2 TX/RX transport, with independent
+  standard-library vectors for both. Heater start and setpoint writes are
+  `advanced`; stop stays immediately available. Both are source-derived and
+  untested: notification/state semantics, safe operating limits, pairing details,
+  reset behavior and firmware/bulk operations remain explicit unknowns. Static
+  app evidence corroborates only their UUIDs, including the Mini's `96e3` clock
+  mapping, not live compatibility or framing.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an
@@ -548,6 +557,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **November 15 evidence corrections for Amcrest/Dahua and Ambient Weather.**
+  Amcrest's documented CGI/RTSP profile now also records the app's separate
+  NetSDK/DVRIP TCP 37777 surface, with native framing explicitly unknown and no
+  claim that the CGI facts were wrong. Ambient Weather's awnet package is
+  corrected to `com.dtston.ambienttoolplus` 1.1.29, and its research notes record
+  the app-derived BLE onboarding service/TX/RX UUIDs and write/notify roles.
+  Provisioning payloads, credential protection, pairing and model coverage remain
+  unknown; no completed BLE provisioning client is claimed.
 - **FOREO Peach 2 replayed on hardware; Pro is app-gated only.** An
   independent BLE client drove an active PEACH2 F.REV.K from the spec: the
   GATT table matched exactly, and a direct `0AD0 06` Pro write was accepted
