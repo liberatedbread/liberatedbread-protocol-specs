@@ -91,16 +91,27 @@ device:
     methods:
       - type: "ble_scan"
         ble:
-          service_data:
-            - "0000fd3d-0000-1000-8000-00805f9b34fb"
           manufacturer_data:
             company_id: 2409
-            description: "SwitchBot company ID 0x0969 (new firmware v6.4+); older: 0x0059 (89); pySwitchbot also parses 0x02E5 (741)"
+            description: "SwitchBot company ID 0x0969 on newer firmware; older SoC-vendor IDs are not accepted as identification."
         notes: >
-          Do not require the 128-bit communication-service UUID in the
-          advertisement: the official UUID update notes say that newer
-          firmware removes the complete 128-bit UUID list from SCAN_RSP.
-          Match the 0xFD3D service-data UUID and SwitchBot company ID instead.
+          Newer firmware can omit the complete 128-bit communication-service
+          UUID list from SCAN_RSP, so this method requires only the supported
+          SwitchBot company-ID matcher. The 0xFD3D service-data UUID is not a
+          discovery key: the schema and mobile matcher have no `service_data`
+          field. Its payload still carries the battery layout in
+          protocol_details. If a unit does not advertise company 0x0969 or the
+          legacy service UUID below, select it manually rather than adding an
+          invisible service-data filter.
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
+        notes: >
+          Legacy firmware only: use this separate method when the unit actually
+          advertises the 128-bit communication-service UUID. Do not require it
+          on newer firmware, and do not treat its presence as proof of the
+          newer service-data layout.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -769,6 +780,88 @@ entities:
     name: "Press"
     commands:
       press: "bot_press"
+
+protocol_details:
+  discovery_limitations:
+    service_data_matching: false
+    notes: >
+      `service_data` is not a declared BLE discovery matcher in the schema or
+      mobile consumer. Do not move the 0xFD3D UUID back into `ble_scan` as if
+      it were executable. Newer firmware uses the company-ID method above;
+      legacy firmware uses the communication-service UUID method. Anything
+      else requires manual selection. The decoders below remain useful after
+      identification, including for clients that can read service data.
+
+  response_layouts:
+    common:
+      frame: "[status][payload...]; only status is universal"
+      status_offset: 0
+      status_values: "0x01 OK, 0x02 ERROR, 0x03 BUSY, 0x05 unsupported, 0x06 low battery"
+    get_basic_info:
+      command_hex: "57 02"
+      variants:
+        Bot:
+          response_hex: "01 64 2C 64 00 00 00 A1 00 00 00 48 00"
+          origin: "Official SwitchBot Bot BLE API, 0x02 Get Device Basic Info example"
+          fields:
+            - {offset: 0, length: 1, name: "status", type: "uint8"}
+            - {offset: 1, length: 1, name: "battery_percent", type: "uint8", unit: "%"}
+            - {offset: 2, length: 1, name: "firmware_version_raw", type: "uint8", scale: 0.1}
+            - {offset: 3, length: 1, name: "strength", type: "uint8"}
+            - {offset: 4, length: 2, name: "adc_raw", type: "uint16", endianness: "big"}
+            - {offset: 6, length: 2, name: "motor_calibration_raw", type: "uint16", endianness: "big"}
+            - {offset: 8, length: 1, name: "timer_count", type: "uint8"}
+            - {offset: 9, length: 1, name: "act_mode", type: "uint8"}
+            - {offset: 10, length: 1, name: "hold_times", type: "uint8"}
+            - {offset: 11, length: 1, name: "service_data_byte0", type: "uint8"}
+            - {offset: 12, length: 1, name: "service_data_byte1", type: "uint8"}
+        Meter:
+          response_hex: "01 50 29 54 00"
+          origin: "Synthetic full-layout vector with invented values; the official Meter document publishes the fields but no literal response example"
+          fields:
+            - {offset: 0, length: 1, name: "status", type: "uint8"}
+            - {offset: 1, length: 1, name: "battery_percent", type: "uint8", unit: "%"}
+            - {offset: 2, length: 1, name: "firmware_version_raw", type: "uint8", scale: 0.1}
+            - {offset: 3, length: 1, name: "service_data_byte0", type: "uint8"}
+            - {offset: 4, length: 1, name: "service_data_byte1", type: "uint8"}
+    meter_read_sensor:
+      command_hex: "57 0F 31"
+      response_hex: "01 05 16 3C"
+      origin: "Synthetic full-layout vector: 22.5 °C and 60% RH"
+      fields:
+        - {offset: 0, length: 1, name: "status", type: "uint8"}
+        - {offset: 1, length: 1, name: "temperature_fraction", type: "uint8", mask: 0x0F, scale: 0.1, unit: "temperature_c"}
+        - {offset: 2, length: 1, name: "temperature_integer_and_sign", type: "uint8", mask: 0x7F, unit: "temperature_c"}
+        - {offset: 3, length: 1, name: "humidity_percent", type: "uint8", mask: 0x7F, unit: "%"}
+      notes: >
+        Byte 2 bit 7 is the positive/negative flag and byte 3 bit 7 selects
+        Celsius/Fahrenheit. The masks above expose values, not unit conversion;
+        apply the sign and display-unit bits when consuming the reading.
+
+  advertisement_service_data:
+    uuid: "0000fd3d-0000-1000-8000-00805f9b34fb"
+    minimum_length: 3
+    fields:
+      - {offset: 0, length: 1, name: "device_type", type: "uint8", mask: 0x7F}
+      - {offset: 1, length: 1, name: "status", type: "uint8"}
+      - {offset: 2, length: 1, name: "battery_percent", type: "uint8", mask: 0x7F, unit: "%"}
+    entity_binding:
+      supported: false
+      reason: >
+        An advertisement is not a GATT characteristic, so no entity can bind
+        this decoder through `state_characteristic`. Do not restore the mostly
+        absent standard 0x2A19 entity merely to make battery visible; a client
+        needs an advertisement-service-data source or must report battery as
+        unavailable.
+    vectors:
+      - model: "Bot"
+        service_data_hex: "48 90 D9"
+        expected_battery_percent: 89
+        origin: "Published pySwitchbot test_bot advertisement fixture"
+      - model: "Meter"
+        service_data_hex: "54 00 E4 06 98 35"
+        expected_battery_percent: 100
+        origin: "Published pySwitchbot test_adv_parser Meter fixture; bytes 3-5 also carry readings"
 
 helpful_urls:
   - title: "Home Assistant SwitchBot integration"

@@ -13,6 +13,8 @@ SESAME locks by CANDY HOUSE are developer-friendly: the vendor publishes the ful
 
 Service 0xFD81; write commands **without response** to 16860002-…, notify on 16860003-…. 20-byte segments. Lock/unlock application requests are `[52 00]` / `[53 00]` when using an empty history tag: the second byte is the tag length, so the bare item code is incomplete. History request `[04 01]` peeks at the oldest record without deleting it; deletion is a separate explicit operation with the returned record ID. Mechanical-status target `0x8000` means unavailable, and battery raw units are 2 mV. Crypto: SECP256R1 ECDH at registration → device_secret; AES-CMAC session token; AES-CCM payloads with a ±3 s time check.
 
+These application bytes are documentation, not executable characteristic commands: the request must be encrypted with the login token, carry its four-byte CCM tag, and then be segmented. The spec deliberately has no entity bindings because the generic consumer lacks that CCM/session/segment transform. It does not invent a ciphertext vector without a complete published token/nonce/counter tuple.
+
 See `device-specs/devices/sesame-candyhouse-ble.yaml` for the full machine-readable spec.
 
 ## References

@@ -15,7 +15,7 @@ device:
     status: untested
     notes: >
       Not driven against hardware by this project. The GATT UUIDs, HAP-derived
-      framing, opcodes and AES-CBC (zero-IV) session crypto are from
+      framing, opcodes and stateful AES-CBC session crypto are from
       Yale-Libs/yalexs-ble; the offline-key requirement from the Home Assistant
       integration docs.
   protocol: "ble"
@@ -44,10 +44,12 @@ device:
     CRYPTO/AUTH: the secure-channel handshake first uses the offline key and
     keyIndex (slot), exchanges two 8-byte random halves, and combines them into
     a 16-byte session key. The two handshake exchanges use AES-ECB. Later
-    normal-session operation payloads use AES-CBC with a 16-byte all-zero IV
-    and that session key, not the offline key directly. If the key or slot is
-    wrong the lock rejects the exchange. Motor result is read at response
-    byte[15] (0x00 success; 0x1E-0x23 jam/mechanical failure).
+    normal-session operation payloads use that session key with independent,
+    persistent client-to-lock and lock-to-client CBC chains. Each chain starts
+    with a 16-byte all-zero IV only when the key is installed, continues across
+    consecutive frames, and resets on reconnect. If the key or slot is wrong
+    the lock rejects the exchange. Motor result is read at response byte[15]
+    (0x00 success; 0x1E-0x23 jam/mechanical failure).
 
   openness:
     status: "hostile"
@@ -60,9 +62,10 @@ device:
     notes: >
       No published local protocol; local control depends on an offline key the
       vendor cloud holds. The BLE stack was reverse-engineered and is mature
-      (in production in Home Assistant). The zero-IV AES-CBC session design
-      has drawn security scrutiny historically; no fresh advisory URL was
-      verified for this spec, so none is asserted here.
+      (in production in Home Assistant). The CBC design, which starts each
+      session with a zero IV and then chains frames, has drawn security
+      scrutiny historically; no fresh advisory URL was verified for this spec,
+      so none is asserted here.
 
   identification:
     service_uuids:
@@ -274,99 +277,164 @@ services:
       handshake, encrypted with AES-CBC under the derived session key. The
       secure channel (bd4ac613/bd4ac614) is for setup and shutdown, initially
       encrypted with AES-ECB under the offline key and then under the derived
-      session key. Operation results arrive at response byte[15].
+      session key. Operation results arrive at response byte[15]. The generic
+      command/entity model has no stateful CBC transform, so this service
+      deliberately exposes no executable characteristic commands or entities.
     characteristics:
       - uuid: "bd4ac611-0b45-11e3-8ffd-0800200c9a66"
         name: "Normal operation write"
         properties: ["write"]
         notes: >
-          Lock, status and other normal-operation requests. The templates below
-          are the plaintext 18-byte frames before AES-CBC encryption of bytes
-          0-15 with the derived session key and zero IV; bytes 16-17 remain
-          clear. The checksum is negated sum8 over the other 17 bytes. Its
-          auto parameter uses seed 0xFE (negative trailer byte 0x02) so the
-          checksum covers the trailer even though the checksum itself is at
-          byte 3.
-        commands:
-          unlock:
-            description: "Unlock (opcode 0x0A), operation byte 0. Full pre-encryption frame, not a one-byte write."
-            encoding: "bytes"
-            verification: "reported"
-            template: [0xEE, 0x0A, 0x00, "{checksum}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
-            fixed_length: 18
-            parameters:
-              checksum:
-                type: "uint8"
-                auto: "subtract_checksum"
-                checksum_start: 0
-                checksum_xor: 0xFE
-          lock:
-            description: "Lock (opcode 0x0B), operation byte 0. Full pre-encryption frame, not a one-byte write."
-            encoding: "bytes"
-            verification: "reported"
-            template: [0xEE, 0x0B, 0x00, "{checksum}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
-            fixed_length: 18
-            parameters:
-              checksum:
-                type: "uint8"
-                auto: "subtract_checksum"
-                checksum_start: 0
-                checksum_xor: 0xFE
-          get_lock_status:
-            description: "Read lock state (opcode 0x02, subtype 0x02). Full pre-encryption frame with checksum 0x0C."
-            encoding: "bytes"
-            verification: "reported"
-            value: [0xEE, 0x02, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
-          get_door_status:
-            description: "Read door state (opcode 0x02, subtype 0x2E). Full pre-encryption frame with checksum 0xE0."
-            encoding: "bytes"
-            verification: "reported"
-            value: [0xEE, 0x02, 0x00, 0xE0, 0x2E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
-          get_door_and_lock_status:
-            description: "Read combined door and lock state (opcode 0x02, subtype 0x2F). Full pre-encryption frame with checksum 0xDF."
-            encoding: "bytes"
-            verification: "reported"
-            value: [0xEE, 0x02, 0x00, 0xDF, 0x2F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
-          get_battery_status:
-            description: "Read battery voltage (opcode 0x02, subtype 0x0F). Full pre-encryption frame with checksum 0xFF."
-            encoding: "bytes"
-            verification: "reported"
-            value: [0xEE, 0x02, 0x00, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
-          get_unread_activity_count:
-            description: >
-              Read the unread activity count (opcode 0x02, subtype 0x09).
-              Unlike GETLOG, this does not consume activity records. Full
-              pre-encryption frame with checksum 0x05.
-            encoding: "bytes"
-            verification: "reported"
-            value: [0xEE, 0x02, 0x00, 0x05, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00]
+          Stateful AES-CBC ciphertext only. Do not write the application-layer
+          plaintext frames from protocol_details directly: bytes 0-15 must be
+          encrypted on the continuing client-to-lock chain, while bytes 16-17
+          remain clear. A fresh zero IV is used only when the session key is
+          installed, not independently for each command.
       - uuid: "bd4ac612-0b45-11e3-8ffd-0800200c9a66"
         name: "Normal operation response"
         properties: ["read", "notify"]
-        notes: "Normal-session responses and unsolicited state. Motor result is byte[15] of a 0xBB lock/unlock op-response."
+        notes: >
+          Normal-session responses and unsolicited state on an independent,
+          persistent lock-to-client CBC chain. Motor result is byte[15] of a
+          decrypted 0xBB lock/unlock op-response.
       - uuid: "bd4ac613-0b45-11e3-8ffd-0800200c9a66"
         name: "Secure handshake write"
         properties: ["write"]
         notes: >
           Setup and shutdown only, not lock/status operations. AES-ECB. Setup
           starts with the offline key and keyIndex, then switches to the
-          derived 16-byte session key. Commands have opcode at byte[0], a
-          32-bit little-endian negated-sum checksum at bytes 12-15, and trailer
-          0x0F plus keyIndex at bytes 16-17.
+          derived 16-byte session key. The exact 32-bit checksum is in
+          protocol_details.session_crypto.secure_handshake; it is not a bytewise checksum.
       - uuid: "bd4ac614-0b45-11e3-8ffd-0800200c9a66"
         name: "Secure handshake response"
         properties: ["read", "notify"]
         notes: "AES-ECB setup and shutdown responses; not the normal motor-result channel."
 
-entities:
-  - platform: "switch"
-    name: "Lock"
-    icon: "mdi:lock"
-    command_characteristic: "bd4ac611-0b45-11e3-8ffd-0800200c9a66"
-    commands:
-      turn_on: "lock"
-      turn_off: "unlock"
-    notes: "on = locked (0x0B), off = unlocked (0x0A), on the normal operation channel."
+protocol_details:
+  consumer_limitations:
+    executable_commands: false
+    entity_bindings: false
+    reason: >
+      The schema's characteristic value/template model and the generic mobile
+      client have no transform for a session key, persistent independent CBC
+      chains, or reconnect reset. Exposing the application frames below as raw
+      commands would write plaintext and fail or desynchronise the session.
+      They are documentation for a session-aware implementation, not generic
+      executable commands. Do not add entity bindings until that transform and
+      its state lifecycle are supported by the consumer.
+
+  normal_operation:
+    write_characteristic: "bd4ac611-0b45-11e3-8ffd-0800200c9a66"
+    response_characteristic: "bd4ac612-0b45-11e3-8ffd-0800200c9a66"
+    frame_length: 18
+    application_frame:
+      leader: 0xEE
+      opcode_offset: 1
+      subtype_offset: 4
+      checksum:
+        offset: 3
+        initial_value: 0
+        formula: "(-sum(frame[0:18])) & 0xFF"
+      trailer: "02 00"
+      note: >
+        These are application-layer plaintext inputs to the session wrapper,
+        not on-wire GATT values. Compute the simple checksum with byte 3 zero.
+    requests:
+      unlock:
+        description: "Unlock (opcode 0x0A), operation subtype 0."
+        application_frame_hex: "EE 0A 00 06 00 00 00 00 00 00 00 00 00 00 00 00 02 00"
+      lock:
+        description: "Lock (opcode 0x0B), operation subtype 0."
+        application_frame_hex: "EE 0B 00 05 00 00 00 00 00 00 00 00 00 00 00 00 02 00"
+      get_lock_status:
+        description: "Read lock state (opcode 0x02, subtype 0x02)."
+        application_frame_hex: "EE 02 00 0C 02 00 00 00 00 00 00 00 00 00 00 00 02 00"
+      get_door_status:
+        description: "Read door state (opcode 0x02, subtype 0x2E)."
+        application_frame_hex: "EE 02 00 E0 2E 00 00 00 00 00 00 00 00 00 00 00 02 00"
+      get_door_and_lock_status:
+        description: "Read combined door and lock state (opcode 0x02, subtype 0x2F)."
+        application_frame_hex: "EE 02 00 DF 2F 00 00 00 00 00 00 00 00 00 00 00 02 00"
+      get_battery_status:
+        description: "Read battery voltage (opcode 0x02, subtype 0x0F)."
+        application_frame_hex: "EE 02 00 FF 0F 00 00 00 00 00 00 00 00 00 00 00 02 00"
+      get_unread_activity_count:
+        description: >
+          Read unread activity count (opcode 0x02, subtype 0x09). Unlike
+          GETLOG (0x2D), this does not consume activity records.
+        application_frame_hex: "EE 02 00 05 09 00 00 00 00 00 00 00 00 00 00 00 02 00"
+
+  session_crypto:
+    normal_operation:
+      algorithm: "AES-128-CBC"
+      key: "16-byte session key derived by the secure handshake"
+      encrypted_range: "bytes 0-15 of every 18-byte frame"
+      clear_trailer: "bytes 16-17 remain unencrypted"
+      key_installation: >
+        On session-key installation, create independent client-to-lock and
+        lock-to-client CBC contexts. Each direction starts with a 16-byte
+        all-zero IV exactly once. Do not reset the IV for each command or
+        response, and do not share one context between directions.
+      chaining: >
+        Persist each direction's CBC state across every consecutive command or
+        response on that connection. The previous ciphertext block is the next
+        block's chaining input. Two consecutive frames therefore do not use
+        independent zero-IV encryptions.
+      reconnect: >
+        A reconnect tears down both contexts. Re-run session-key installation
+        and restart both chains from zero IV; never carry CBC state across
+        connections. A partial or poisoned block likewise requires a reconnect
+        and fresh context, not a zero-IV rewrite of just the next frame.
+    secure_handshake:
+      algorithm: "AES-128-ECB"
+      initial_key: "offline key plus keyIndex (slot), then the derived session key"
+      frame_length: 18
+      opcode_offset: 0
+      trailer: "0F at byte 16 and keyIndex at byte 17"
+      checksum:
+        offset: 12
+        length: 4
+        endianness: "little"
+        initial_value: 0
+        formula: >
+          (-(LE32(frame[0:4]) + LE32(frame[4:8]) + LE(frame[8:18]))) mod
+          2^32. The first two terms are 32-bit little-endian words; the third
+          is the entire 80-bit little-endian integer from bytes 8-17. Zero
+          bytes 12-15 before computing, then write the resulting uint32 LE at
+          bytes 12-15. This is not a negated sum of the frame's bytes.
+        known_answer:
+          input_hex: "01 00 00 00 01 02 03 04 05 06 07 08 00 00 00 00 0F 01"
+          val1: "0x00000001"
+          val2: "0x04030201"
+          val3: "0x010F0000000008070605"
+          sum: "0x010F000000000C0A0807"
+          checksum: "0xF3F5F7F9"
+          output_hex: "01 00 00 00 01 02 03 04 05 06 07 08 F9 F7 F5 F3 0F 01"
+          origin: "Synthetic known-answer vector computed with the reference formula, not a capture."
+
+  synthetic_cbc_vectors:
+    description: >
+      Deterministic on-wire examples derived with OpenSSL AES-128-CBC and the
+      invented session key 00 01 02 ... 0F. They are full 18-byte GATT values,
+      including each frame's clear two-byte trailer, and demonstrate two
+      consecutive frames on independent TX and RX chains. They are not captures
+      or real key data.
+    key_hex: "000102030405060708090A0B0C0D0E0F"
+    initial_iv_hex: "00000000000000000000000000000000"
+    client_to_device:
+      - name: "lock, first frame after key installation"
+        plaintext_hex: "EE 0B 00 05 00 00 00 00 00 00 00 00 00 00 00 00 02 00"
+        ciphertext_hex: "EE F4 51 97 34 9D 33 E3 D3 AB 6C B3 EE B3 E4 75 02 00"
+      - name: "unlock, second frame on the same TX chain"
+        plaintext_hex: "EE 0A 00 06 00 00 00 00 00 00 00 00 00 00 00 00 02 00"
+        ciphertext_hex: "DA 22 BD 24 64 2D D5 33 F9 C9 B5 C3 43 77 48 3C 02 00"
+    device_to_client:
+      - name: "read acknowledgement, first frame on the independent RX chain"
+        plaintext_hex: "AA 04 00 28 28 00 00 00 00 00 00 00 00 00 00 00 02 00"
+        ciphertext_hex: "92 BC 6D 65 B8 40 4B C3 35 DE BA 2C 97 D0 4D BC 02 00"
+      - name: "read answer, second frame on the same RX chain"
+        plaintext_hex: "BB 04 00 FB 28 00 00 00 08 07 08 07 00 00 00 00 00 00"
+        ciphertext_hex: "23 45 FB F1 36 34 D2 4A C0 D9 68 3A 61 1C 88 5D 00 00"
 
 helpful_urls:
   - title: "Yale-Libs/yalexs-ble"

@@ -122,7 +122,9 @@ def test_weatherflow_passive_discovery_and_observation_vectors():
     assert decoded["timestamp"] == 1588948614
     assert decoded["wind_avg"] == 0.22
     assert decoded["station_pressure"] == 1017.57
-    assert decoded["rain_previous_minute"] == 0.01
+    assert decoded["rain_previous_minute"] == 0.0
+    assert "0.000000" in obs["example"]
+    assert "0.010000" not in obs["example"]
     assert decoded["report_interval"] == 1
 
     null_message = {"obs": [[None] * 18]}
@@ -148,38 +150,24 @@ def test_weatherflow_passive_discovery_and_observation_vectors():
 def test_bambu_notify_and_msearch_discovery_and_mqtt_directions():
     spec = SPECS["bambu-lab-lan"]
     methods = spec["device"]["discovery"]["methods"]
-    by_header = {
-        method["udp_broadcast"]["response_match"][0]["source"]: method
-        for method in methods
-    }
-    assert set(by_header) == {"header:NT", "header:ST"}
-    for method in methods:
-        udp = method["udp_broadcast"]
-        assert udp["port"] == 2021
-        assert udp["response_format"] == "http"
-        assert udp["response_match"][0]["value"] == (
-            "urn:bambulab-com:device:3dprinter:1"
-        )
-        assert udp["identity_mapping"]["stable_keys"][0]["source"] == "header:USN"
-        assert udp["identity_mapping"]["display"]["source"] == (
-            "header:DevName.bambu.com"
-        )
-
-    passive = by_header["header:NT"]["udp_broadcast"]
+    assert len(methods) == 1
+    passive = methods[0]["udp_broadcast"]
+    assert methods[0]["type"] == "udp_broadcast"
+    assert passive["port"] == 2021
     assert passive["passive_ok"] is True
     assert "probe_hex" not in passive
-    notify = (
-        "NOTIFY * HTTP/1.1\r\n"
-        "NT:urn:bambulab-com:device:3dprinter:1\r\n"
-        "USN:TEST-SERIAL-000\r\n"
-        "DevName.bambu.com:Test Printer\r\n\r\n"
+    assert passive["response_format"] == "http"
+    assert passive["response_match"][0]["source"] == "header:NT"
+    assert passive["identity_mapping"]["stable_keys"][0]["source"] == "header:USN"
+    assert passive["identity_mapping"]["display"]["source"] == (
+        "header:DevName.bambu.com"
     )
-    _, headers = _headers(notify)
-    assert headers["nt"] == "urn:bambulab-com:device:3dprinter:1"
-    assert headers["usn"] == "TEST-SERIAL-000"
-    assert headers["devname.bambu.com"] == "Test Printer"
+    assert spec["protocol_details"]["discovery_limitations"][
+        "response_match_implemented"
+    ] is False
 
-    active = by_header["header:ST"]["udp_broadcast"]
+    active = spec["protocol_details"]["active_msearch"]
+    assert active["status"] == "experimental_unsupported"
     expected_probe = (
         "M-SEARCH * HTTP/1.1\r\n"
         "HOST:239.255.255.250:2021\r\n"
@@ -190,13 +178,35 @@ def test_bambu_notify_and_msearch_discovery_and_mqtt_directions():
     )
     assert bytes.fromhex(active["probe_hex"]).decode("ascii") == expected_probe
     assert active["multicast_group"] == "239.255.255.250"
+    assert active["response_match"][0]["source"] == "header:ST"
+
+    expected_type = "urn:bambulab-com:device:3dprinter:1"
+    notify = (
+        "NOTIFY * HTTP/1.1\r\n"
+        f"NT:{expected_type}\r\n"
+        "USN:TEST-SERIAL-000\r\n"
+        "DevName.bambu.com:Test Printer\r\n\r\n"
+    )
+    _, headers = _headers(notify)
+    assert headers.get("nt") == expected_type
+    assert headers["usn"] == "TEST-SERIAL-000"
+    assert headers["devname.bambu.com"] == "Test Printer"
     response = (
         "HTTP/1.1 200 OK\r\n"
-        "ST:urn:bambulab-com:device:3dprinter:1\r\n"
+        f"ST:{expected_type}\r\n"
         "USN:TEST-SERIAL-000\r\n\r\n"
     )
     _, active_headers = _headers(response)
-    assert active_headers["st"] == "urn:bambulab-com:device:3dprinter:1"
+    assert active_headers.get("st") == expected_type
+
+    _, wrong_nt = _headers(notify.replace(expected_type, "urn:other:device:1"))
+    assert wrong_nt.get("nt") != expected_type
+    _, wrong_st = _headers(response.replace(expected_type, "urn:other:device:1"))
+    assert wrong_st.get("st") != expected_type
+    _, nt_missing = _headers("NOTIFY * HTTP/1.1\r\nUSN:TEST-SERIAL-000\r\n\r\n")
+    assert nt_missing.get("nt") is None
+    _, st_missing = _headers("HTTP/1.1 200 OK\r\nUSN:TEST-SERIAL-000\r\n\r\n")
+    assert st_missing.get("st") is None
 
     topics = {entry["topic"]: entry for entry in spec["mqtt_topics"]}
     assert topics["device/{serial}/request"]["direction"] == "publish"

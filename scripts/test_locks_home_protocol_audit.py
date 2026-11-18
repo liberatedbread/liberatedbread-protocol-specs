@@ -5,8 +5,11 @@ are transcribed from the specs. PyYAML is used only to read the specification;
 no repository helper or client implementation is imported.
 """
 
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,10 +52,48 @@ def _commands(spec):
     return result
 
 
-def _yale_frame(template):
-    frame = [0 if value == "{checksum}" else value for value in template]
-    frame[3] = (-sum(frame)) & 0xFF
-    return bytes(frame)
+def _security_terms(frame):
+    assert len(frame) == 18
+    return (
+        int.from_bytes(frame[0:4], "little"),
+        int.from_bytes(frame[4:8], "little"),
+        int.from_bytes(frame[8:18], "little"),
+    )
+
+
+def _security_checksum(frame, *, zero_checksum=True):
+    frame = bytearray(frame)
+    if zero_checksum:
+        frame[12:16] = bytes(4)
+    return (-sum(_security_terms(frame))) & 0xFFFFFFFF
+
+
+def _openssl_cbc(plaintext, key_hex, iv_hex, *, decrypt=False):
+    command = [
+        shutil.which("openssl"),
+        "enc",
+        "-aes-128-cbc",
+        "-K",
+        key_hex,
+        "-iv",
+        iv_hex,
+        "-nopad",
+    ]
+    if decrypt:
+        command.append("-d")
+    return subprocess.run(command, input=plaintext, capture_output=True, check=True).stdout
+
+
+def _decode_layout(frame, fields):
+    decoded = {}
+    for field in fields:
+        offset = field["offset"]
+        raw = frame[offset : offset + field["length"]]
+        value = int.from_bytes(raw, field.get("endianness", "big"))
+        if "mask" in field:
+            value &= field["mask"]
+        decoded[field["name"]] = value
+    return decoded
 
 
 def _safetech_input(ui_hex):
@@ -74,19 +115,18 @@ def _decode_signed16(raw):
     return raw - 0x10000 if raw & 0x8000 else raw
 
 
-def test_yale_operation_frames_checksums_and_channels():
+def test_yale_application_frames_are_not_executable_bindings():
     spec = SPECS["yale-august-ble"]
     _, normal = _characteristic(spec, "bd4ac611-0b45-11e3-8ffd-0800200c9a66")
     _, response = _characteristic(spec, "bd4ac612-0b45-11e3-8ffd-0800200c9a66")
     _, setup = _characteristic(spec, "bd4ac613-0b45-11e3-8ffd-0800200c9a66")
-    commands = normal["commands"]
-
-    assert "Normal operation" in normal["name"]
-    assert "Normal operation" in response["name"]
-    assert "Setup and shutdown only" in setup["notes"]
+    assert "commands" not in normal
+    assert "commands" not in response
     assert "commands" not in setup
-    assert spec["entities"][0]["command_characteristic"] == normal["uuid"]
+    assert not spec.get("entities")
+    assert spec["protocol_details"]["consumer_limitations"]["executable_commands"] is False
 
+    requests = spec["protocol_details"]["normal_operation"]["requests"]
     expected = {
         "unlock": (0x0A, 0x00, 0x06),
         "lock": (0x0B, 0x00, 0x05),
@@ -97,12 +137,7 @@ def test_yale_operation_frames_checksums_and_channels():
         "get_unread_activity_count": (0x02, 0x09, 0x05),
     }
     for name, (opcode, subtype, checksum) in expected.items():
-        command = commands[name]
-        frame = (
-            _yale_frame(command["template"])
-            if "template" in command
-            else bytes(command["value"])
-        )
+        frame = bytes.fromhex(requests[name]["application_frame_hex"])
         assert len(frame) == 18, name
         assert frame[0] == 0xEE, name
         assert frame[1] == opcode, name
@@ -110,17 +145,66 @@ def test_yale_operation_frames_checksums_and_channels():
         assert frame[4] == subtype, name
         assert frame[16:] == b"\x02\x00", name
         assert sum(frame) % 256 == 0, name
+    assert "does not consume" in requests["get_unread_activity_count"]["description"]
+    assert "not on-wire GATT values" in spec["protocol_details"]["normal_operation"]["application_frame"]["note"]
 
-    assert "does not consume" in commands["get_unread_activity_count"]["description"]
-    assert "0x2D GETLOG" in spec["device"]["notes"]
-    assert "pops the oldest" in spec["device"]["notes"]
+    crypto = spec["protocol_details"]["session_crypto"]["normal_operation"]
+    assert "independent client-to-lock and lock-to-client" in crypto["key_installation"]
+    assert "Persist each direction's CBC state" in crypto["chaining"]
+    assert "A reconnect tears down both contexts" in crypto["reconnect"]
+    assert "zero-IV encryptions" not in crypto["key_installation"]
     assert spec["device"]["identification"]["manufacturer_data"][
         "additional_company_ids"
     ] == [302]
     scan = spec["device"]["discovery"]["methods"][0]["ble"]
     assert scan["manufacturer_data"]["additional_company_ids"] == [302]
-    assert "AES-ECB" in spec["device"]["notes"]
-    assert "that session key, not the offline key directly" in spec["device"]["notes"]
+
+
+def test_yale_secure_handshake_checksum_known_answer():
+    spec = SPECS["yale-august-ble"]
+    known = spec["protocol_details"]["session_crypto"]["secure_handshake"]["checksum"]["known_answer"]
+    source = bytes.fromhex(known["input_hex"])
+    assert _security_terms(source) == tuple(
+        int(known[name], 0) for name in ("val1", "val2", "val3")
+    )
+    assert _security_checksum(source) == int(known["checksum"], 0)
+
+    output = bytes.fromhex(known["output_hex"])
+    assert len(output) == 18
+    assert output[12:16] == int(known["checksum"], 0).to_bytes(4, "little")
+    stored = int.from_bytes(output[12:16], "little")
+    assert stored == _security_checksum(output, zero_checksum=False)
+    assert stored != ((-sum(output)) & 0xFF)
+
+
+def test_yale_cbc_chains_two_commands_and_responses():
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl binary not available")
+    vectors = SPECS["yale-august-ble"]["protocol_details"]["synthetic_cbc_vectors"]
+    key = vectors["key_hex"]
+    iv = vectors["initial_iv_hex"]
+    for direction in ("client_to_device", "device_to_client"):
+        frames = vectors[direction]
+        assert len(frames) == 2
+        plaintext = b"".join(
+            bytes.fromhex(frame["plaintext_hex"])[:16] for frame in frames
+        )
+        expected = b"".join(
+            bytes.fromhex(frame["ciphertext_hex"])[:16] for frame in frames
+        )
+        actual = _openssl_cbc(plaintext, key, iv)
+        assert actual == expected, direction
+        assert _openssl_cbc(actual, key, iv, decrypt=True) == plaintext
+        second_with_reset_iv = _openssl_cbc(plaintext[16:32], key, iv)
+        assert second_with_reset_iv != actual[16:32], direction
+        for frame in frames:
+            ciphertext = bytes.fromhex(frame["ciphertext_hex"])
+            plaintext_frame = bytes.fromhex(frame["plaintext_hex"])
+            assert len(ciphertext) == len(plaintext_frame) == 18
+            assert ciphertext[16:] == plaintext_frame[16:]
+            assert ciphertext[:16] != plaintext_frame[:16]
+            if direction == "client_to_device":
+                assert ciphertext[16:] == b"\x02\x00"
 
 
 def test_safetech_nine_byte_raw_password_vectors():
@@ -138,14 +222,39 @@ def test_safetech_nine_byte_raw_password_vectors():
     assert not any("raw hex bytes vs ASCII" in item for item in unknowns)
 
 
-def test_sesame_requests_write_property_and_status_sentinels():
+def test_sesame_application_requests_are_not_executable_bindings():
     spec = SPECS["sesame-candyhouse-ble"]
     _, tx = _characteristic(spec, "16860002-a5ae-9856-b6d3-dbb4c676993e")
     _, rx = _characteristic(spec, "16860003-a5ae-9856-b6d3-dbb4c676993e")
     assert tx["properties"] == ["write_without_response"]
-    assert tx["commands"]["lock"]["value"] == [0x52, 0x00]
-    assert tx["commands"]["unlock"]["value"] == [0x53, 0x00]
-    assert tx["commands"]["read_history_peek"]["value"] == [0x04, 0x01]
+    assert "commands" not in tx
+    assert not spec.get("entities")
+    assert spec["protocol_details"]["consumer_limitations"]["entity_bindings"] is False
+
+    requests = spec["protocol_details"]["application_layer"]["requests"]
+    assert requests["lock"]["application_frame_hex"] == "52 00"
+    assert requests["unlock"]["application_frame_hex"] == "53 00"
+    assert requests["read_history_peek"]["application_frame_hex"] == "04 01"
+    assert requests["lock"]["fields"][1] == {
+        "offset": 1,
+        "length": 1,
+        "name": "history_tag_length",
+        "value": 0,
+    }
+    assert requests["unlock"]["fields"][1] == requests["lock"]["fields"][1]
+    assert requests["read_history_peek"]["fields"][1] == {
+        "offset": 1,
+        "length": 1,
+        "name": "peek",
+        "value": 1,
+    }
+
+    layers = spec["protocol_details"]["security_and_segment_layers"]
+    assert "append its four-byte CCM tag" in layers["on_wire"]
+    assert "0x05" in layers["on_wire"]
+    assert "0x04" in layers["on_wire"]
+    assert layers["ciphertext_vectors"].startswith("Not asserted")
+    assert "do not publish a complete known-answer tuple" in layers["ciphertext_vectors"]
 
     battery_raw = 3450
     target_raw = 0x8000
@@ -157,7 +266,6 @@ def test_sesame_requests_write_property_and_status_sentinels():
     assert bool(flags & 0x20) is True  # low battery
     assert "raw*2 mV" in rx["notes"]
     assert "Target 0x8000" in rx["notes"]
-    assert "before AES-CCM" in tx["commands"]["lock"]["description"]
 
     links = [entry["url"] for entry in spec["helpful_urls"]]
     assert any("docs/en/SesameOS3/bluetooth.md" in url for url in links)
@@ -187,23 +295,69 @@ def test_eq3_zero_based_status_and_special_temperature_range():
 
 def test_switchbot_discovery_and_model_specific_layouts():
     spec = SPECS["switchbot-ble"]
-    scan = spec["device"]["discovery"]["methods"][0]["ble"]
-    assert "service_uuids" not in scan
-    assert scan["service_data"] == ["0000fd3d-0000-1000-8000-00805f9b34fb"]
-    assert scan["manufacturer_data"]["company_id"] == 0x0969
+    methods = spec["device"]["discovery"]["methods"]
+    assert len(methods) == 2
+    newer, legacy = methods
+    assert newer["ble"]["manufacturer_data"]["company_id"] == 0x0969
+    assert "service_uuids" not in newer["ble"]
+    assert legacy["ble"]["service_uuids"] == [
+        "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
+    ]
+    assert all("service_data" not in method["ble"] for method in methods)
+    assert spec["protocol_details"]["discovery_limitations"]["service_data_matching"] is False
 
     _, rx = _characteristic(spec, "cba20003-224d-11e6-9fb8-0002a5d5c51b")
     assert [field["name"] for field in rx["format"]] == ["status"]
-    bot_response = bytes([0x01, 85, 42])
-    meter_response = bytes([0x01, 80, 41, 0x54, 0x00])
-    sensor_response = bytes([0x01, 50, 22, 60])
-    assert bot_response[1] == 85  # Bot GetBasicInfo battery
-    assert bot_response[2] == 42  # Bot GetBasicInfo firmware
-    assert meter_response[1:3] == bytes([80, 41])
-    assert meter_response[3:] == bytes([0x54, 0x00])
-    assert sensor_response[1:] == bytes([50, 22, 60])
-    assert "A Meter's GetBasicInfo" in rx["notes"]
-    assert "MeterReadSensor" in rx["notes"]
+    variants = spec["protocol_details"]["response_layouts"]["get_basic_info"]["variants"]
+    bot_response = bytes.fromhex(variants["Bot"]["response_hex"])
+    bot = _decode_layout(bot_response, variants["Bot"]["fields"])
+    assert len(bot_response) == 13
+    assert bot == {
+        "status": 1,
+        "battery_percent": 100,
+        "firmware_version_raw": 44,
+        "strength": 100,
+        "adc_raw": 0,
+        "motor_calibration_raw": 0xA1,
+        "timer_count": 0,
+        "act_mode": 0,
+        "hold_times": 0,
+        "service_data_byte0": 0x48,
+        "service_data_byte1": 0,
+    }
+    assert bot["firmware_version_raw"] * 0.1 == pytest.approx(4.4)
+    assert "Official SwitchBot Bot BLE API" in variants["Bot"]["origin"]
+
+    meter_response = bytes.fromhex(variants["Meter"]["response_hex"])
+    meter = _decode_layout(meter_response, variants["Meter"]["fields"])
+    assert len(meter_response) == 5
+    assert meter == {
+        "status": 1,
+        "battery_percent": 80,
+        "firmware_version_raw": 41,
+        "service_data_byte0": 0x54,
+        "service_data_byte1": 0,
+    }
+    assert "Synthetic full-layout vector" in variants["Meter"]["origin"]
+
+    sensor_layout = spec["protocol_details"]["response_layouts"]["meter_read_sensor"]
+    sensor_response = bytes.fromhex(sensor_layout["response_hex"])
+    sensor = _decode_layout(sensor_response, sensor_layout["fields"])
+    assert sensor == {
+        "status": 1,
+        "temperature_fraction": 5,
+        "temperature_integer_and_sign": 22,
+        "humidity_percent": 60,
+    }
+
+    advertisement = spec["protocol_details"]["advertisement_service_data"]
+    assert advertisement["entity_binding"]["supported"] is False
+    for vector in advertisement["vectors"]:
+        service_data = bytes.fromhex(vector["service_data_hex"])
+        decoded = _decode_layout(service_data, advertisement["fields"])
+        assert decoded["battery_percent"] == vector["expected_battery_percent"]
+    assert advertisement["vectors"][0]["service_data_hex"] == "48 90 D9"
+    assert advertisement["vectors"][1]["service_data_hex"] == "54 00 E4 06 98 35"
 
     assert all(
         entity.get("state_characteristic") != "00002a19-0000-1000-8000-00805f9b34fb"
