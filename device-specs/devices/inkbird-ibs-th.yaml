@@ -50,9 +50,7 @@ device:
                  0x07FC = 2044 -> 20.44 °C, inkbird-ble test_sps)
       bytes 2-3: humidity, uint16 LE, /100.0 %  (0x12C7 = 4807 -> 48.07 %)
       bytes 4-6: secondary channel — byte 4 is a channel-layout selector
-                 (0-3) and bytes 5-6 a signed int16 LE /100.0 value
-                 (Engbird v2.3.9 advertisement parser,
-                 full scan-record offsets 14-21 = manufacturer data 0-7):
+                 (0-3) and bytes 5-6 a signed int16 LE /100.0 value:
                    selector 0: temp = bytes 0-1, humidity = bytes 2-3
                    selector 1: temp = bytes 5-6, humidity = bytes 2-3,
                                external probe temp = bytes 0-1
@@ -60,11 +58,13 @@ device:
                                external humidity = bytes 5-6
                    selector 3: temp = bytes 5-6, external temp = bytes 0-1,
                                external humidity = bytes 2-3
-                 "tps" (temp-only) units still expose selector 1/2 external
-                 channels. The app ignores a negative battery byte (clamps
-                 to 0) and reads the bytes 5-6 value as signed.
+                 The app clamps a negative battery byte to zero and reads
+                 bytes 5-6 as signed.
       byte 7:    battery percent 0-100  (0x56 = 86)
-      byte 8:    flags/packet variant (0x06 / 0x08 observed), unknown
+      byte 8:    onboarding transport selector: 0x06 makes the app's scanner
+                 connect and read live data once on fff2; other values,
+                 including observed 0x08, stay advertisement-only. This is a
+                 client-routing flag, NOT a hardware-revision indicator.
     IBS-TH2/P01B ("tps") uses the same 9-byte layout; humidity reads 0 on
     units without a humidity sensor and the parser only reports it when
     non-zero. Readings with humidity > 100 % are corrupt packets and
@@ -77,12 +77,10 @@ device:
     layout WITHOUT the pseudo-company-id interpretation and without the
     battery byte (battery is advertisement-only). The app reads humidity
     as a signed int16 and also consumes byte 4 as a probe/channel
-    indicator. No pairing, bonding or authentication. The advertisement
-    already carries every field, so polling is only useful as a freshness
-    fallback.
+    indicator. No pairing, bonding or authentication.
 
-    Further fff0 characteristics seen in the Engbird app (not needed for
-    read-only monitoring):
+    Further fff0 characteristics seen in the app (not needed for read-only
+    monitoring):
       fff1 (read/write, 16 bytes) — device config: bytes 1-2 internal
         temp calibration offset (s16 LE, x0.01 °C), bytes 3-4 external
         probe temp calibration, bytes 5-6 humidity calibration, bytes
@@ -95,19 +93,30 @@ device:
         4 = humidity header; 1/3 = request temperature/humidity content;
         7/8 = request temperature/humidity CRC. Header notification is
         6 bytes: u32 LE sample count + CRC16 of the first 4 bytes.
-        Content is compressed: each 10 samples are stored as two signed
-        int16 LE endpoints (4 bytes) and linearly interpolated; the
-        remainder (count % 10) is stored raw as int16. Values are x100
-        in device units; timestamps are derived from the fff1 interval
-        counted back from the request time. A trailing CRC16 covers the
-        packed payload.
+        Each complete group of 10 samples is stored as two signed int16 LE
+        endpoints (4 bytes) and linearly interpolated. Define
+        compressed_len = ((count - count % 10) / 10) * 4. Compressed
+        notifications are zero-padded to 20-byte boundaries. The raw
+        remainder starts at ceil(compressed_len / 20) * 20, NOT at
+        compressed_len, and contains count % 10 signed int16 LE values with
+        no interpolation. Values are x100 device units; timestamps derive
+        from the fff1 interval counted back from request time. The final
+        CRC16-Modbus covers the meaningful compressed bytes followed
+        immediately by the meaningful raw remainder, excluding every
+        notification-padding byte. Header CRC covers only the first four
+        count bytes.
       fff9 (write, single byte) — 0x01 = clear logged history,
         0x06 = graceful disconnect request.
 
-    OTA: the app updates firmware over BLE with the PhyPlus SLB/SHB
-    protocol (OTA-mode name "PPlusOTA"; SLB service 0000feb3, write
-    0000fed5/0000fed7, notify 0000fed8; SHB service
-    5833ff01-9b8b-5191-6142-22a4536ef123). Firmware metadata comes from
+    OTA: the app updates firmware over BLE with PhyPlus SLB/SHB. SHB takes
+    Intel HEX (.hex/.hex16), writes 01 02 with response to 5833ff02-… for
+    those images (01 03 for resource images), then disconnects and rescans
+    for PPlusOTA. SLB takes raw binary. OTA mode uses the normal address's
+    last octet +1. SHB roles are service 5833ff01-…, command 5833ff02-…,
+    notify 5833ff03-… and no-response data 5833ff04-…; SLB roles are service
+    0000feb3-…, command 0000fed5-…, no-response data 0000fed7-… and notify
+    0000fed8-…. Whether either OTA service UUID is advertised, and whether
+    signatures are enforced, remain unknown. Firmware metadata comes from
     POST https://api-inkbird.com/api/bleDevice/firmware with a JSON body
     {bleDeviceName, bleVersion}; the response carries the download URL.
 
@@ -157,10 +166,10 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          Passive scan: match local name "sps"/"tps" and the fff0 service
-          UUID, take the 9-byte manufacturer data, decode temperature,
-          humidity and battery. Optionally connect and read 0000fff2 for
-          a fresh sample.
+          Match local name "sps"/"tps" and the fff0 service UUID, take the
+          9-byte manufacturer data, decode temperature, humidity and battery.
+          Byte 8 == 0x06 selects the app's connected-onboarding route (one
+          fff2 read); other values stay advertisement-only.
         ble:
           pairing_required: false
         steps:
@@ -168,9 +177,11 @@ device:
             actor: user
           - action: "Scan for name sps/tps with service UUID 0000fff0 and a 9-byte manufacturer-data AD structure."
             actor: client
-          - action: "Decode temperature (bytes 0-1, s16 LE, /100), humidity (bytes 2-3, u16 LE, /100), battery (byte 7)."
+          - action: "Decode temperature (bytes 0-1, s16 LE, /100), humidity (bytes 2-3, u16 LE, /100), battery (byte 7), and onboarding route (byte 8)."
             actor: client
             expect: "Live readings with every advertisement; humidity above 100% marks a corrupt packet — drop it."
+          - action: "If byte 8 is 0x06, connect and read fff2 once for live data; otherwise remain advertisement-only."
+            actor: client
     factory_reset:
       applicable: false
       confidence: medium
@@ -232,14 +243,15 @@ payload_formats:
         name: "battery"
         description: "Battery percent 0-100."
       - index: 8
-        name: "flags"
-        description: "0x06 or 0x08 observed; meaning unknown."
+        name: "onboarding_route"
+        description: "0x06 = connect and read fff2 once during onboarding; other values, including 0x08, = advertisement-only. Client behavior, not a hardware revision."
     example: "fc 07 c7 12 00 c8 3d 56 06"
     parse_rules:
       - "temperature = s16le(bytes 0-1) / 100.0  -> 0x07FC = 20.44 °C"
       - "humidity = u16le(bytes 2-3) / 100.0     -> 0x12C7 = 48.07 %"
       - "battery = byte 7                        -> 0x56 = 86 %"
       - "byte 4 = channel selector 0-3; bytes 5-6 = secondary channel value s16le / 100.0 (see device.notes for the per-selector mapping)"
+      - "If byte 8 == 0x06 during onboarding, connect and read fff2 once; otherwise keep the advertisement-only route. Do not infer a hardware revision from this byte."
       - "Do not match or filter on the company-ID position; it is data."
 
 services:
@@ -291,11 +303,15 @@ services:
         name: "history_data"
         properties: ["notify"]
         notes: >
-          Streams the on-device log in response to fff8 commands:
-          6-byte header (u32 LE sample count + CRC16 of bytes 0-3),
-          then content frames (each 10 samples compressed to two s16 LE
-          endpoints, linearly interpolated; remainder raw), then a
-          trailing CRC16. Values are x100 device units.
+          Streams the on-device log in response to fff8 commands. Header:
+          u32le count + CRC16-Modbus of the four count bytes. Content:
+          compressed_len = ((count - count % 10) / 10) * 4 bytes of signed-LE
+          endpoints (two per ten samples), zero-padded to 20-byte
+          notification boundaries. Raw remainder starts at
+          ceil(compressed_len / 20) * 20 and holds count % 10 signed-LE
+          values. Final CRC16-Modbus covers meaningful compressed bytes
+          followed by meaningful raw remainder, excluding notification
+          padding. Values are x100 device units.
       - uuid: "0000fff8-0000-1000-8000-00805f9b34fb"
         name: "history_command"
         properties: ["write"]
@@ -309,6 +325,52 @@ services:
         notes: >
           Single-byte control: 0x01 = clear logged history,
           0x06 = graceful disconnect.
+
+  - uuid: "5833ff01-9b8b-5191-6142-22a4536ef123"
+    name: "PhyPlus SHB OTA Service"
+    notes: >
+      SHB update path reported by the app's update implementation. Command
+      writes use response; bulk data uses write-without-response. The stock
+      firmware image also contains these SHB UUIDs. No update was executed.
+    characteristics:
+      - uuid: "5833ff02-9b8b-5191-6142-22a4536ef123"
+        name: "SHB OTA Command"
+        properties: ["write"]
+        commands:
+          enter_ota_hex:
+            description: "Enter OTA for an Intel HEX .hex/.hex16 application image, then disconnect and rescan for PPlusOTA at address last-octet +1."
+            advanced: true
+            advanced_reason: "Reboots into firmware-update mode and interrupts normal sensor service; have the exact matching image ready."
+            verification: "reported"
+            value: [0x01, 0x02]
+          enter_ota_resources:
+            description: "Enter OTA for a resource image, then disconnect and rescan for PPlusOTA at address last-octet +1."
+            advanced: true
+            advanced_reason: "Reboots into firmware-update mode and interrupts normal sensor service; have the exact matching resource image ready."
+            verification: "reported"
+            value: [0x01, 0x03]
+      - uuid: "5833ff03-9b8b-5191-6142-22a4536ef123"
+        name: "SHB OTA Notify"
+        properties: ["notify"]
+      - uuid: "5833ff04-9b8b-5191-6142-22a4536ef123"
+        name: "SHB OTA Data"
+        properties: ["write_without_response"]
+        notes: "Bulk firmware data; no-response writes in the app's update path."
+
+  - uuid: "0000feb3-0000-1000-8000-00805f9b34fb"
+    name: "PhyPlus SLB OTA Service"
+    notes: "SLB raw-binary update path (reported); its application-mode entry trigger is not established."
+    characteristics:
+      - uuid: "0000fed5-0000-1000-8000-00805f9b34fb"
+        name: "SLB OTA Command"
+        properties: ["write"]
+        notes: "Command writes use response; no application-mode entry bytes are asserted."
+      - uuid: "0000fed7-0000-1000-8000-00805f9b34fb"
+        name: "SLB OTA Data"
+        properties: ["write_without_response"]
+      - uuid: "0000fed8-0000-1000-8000-00805f9b34fb"
+        name: "SLB OTA Notify"
+        properties: ["notify"]
 
 ble:
   connection_sequence:
@@ -335,33 +397,39 @@ features:
       image:
         signing: "unknown"
         source: "vendor_cloud"
+        format: "SHB: Intel HEX (.hex/.hex16); SLB: raw binary."
         notes: >
           The app POSTs {bleDeviceName, bleVersion} as JSON to
           https://api-inkbird.com/api/bleDevice/firmware; the response
-          carries the image's download URL. Image format and signing are not
-          established.
+          carries the image's download URL. Local SHB images are Intel HEX;
+          raw binary is the SLB input. Signature enforcement is UNKNOWN —
+          the app's unused optional AES path is not evidence of unsigned
+          images.
       enter:
-        how: "unknown"
+        how: "command"
+        command: "enter_ota_hex"
         notes: >
-          How the sensor is put into the PhyPlus OTA mode is not recorded
-          (no vendor command on 0000fff0 is known to do it).
+          For SHB .hex/.hex16, write 01 02 with response to 5833ff02-…;
+          01 03 selects resources. Then disconnect and rescan for PPlusOTA.
+          SLB uses raw binary and the fed5/fed7/fed8 roles below, but its
+          application-mode entry bytes are not established.
       dfu_mode:
         local_names: ["PPlusOTA"]
+        address_offset: 1
         notes: >
-          In OTA mode the sensor answers as "PPlusOTA" and serves the PhyPlus
-          SLB service 0000feb3-0000-1000-8000-00805f9b34fb (write 0000fed5 /
-          0000fed7, notify 0000fed8) or the SHB service
-          5833ff01-9b8b-5191-6142-22a4536ef123. Whether those UUIDs are
-          advertised, and the update-mode address, are not recorded.
-          "PPlusOTA" is the generic PhyPlus OTA name, so it says "a PhyPlus
-          part in OTA mode", not "an Inkbird sensor" — tie it to this spec
-          only in context (the user just started an update on an sps/tps
-          sensor). It does not collide with the normal "sps"/"tps" names.
-          The same 5833ff01 service is what hello-fairy's ST17H66 serves.
+          The OTA address is the normal address with its last octet +1.
+          SHB serves 5833ff01-… (command ff02, notify ff03, no-response data
+          ff04); SLB serves 0000feb3-… (command fed5, no-response data fed7,
+          notify fed8). Whether those UUIDs are advertised remains unknown.
+          "PPlusOTA" is a generic PhyPlus name: tie it to this sensor only
+          after starting an update and matching the expected address.
+      services:
+        - "5833ff01-9b8b-5191-6142-22a4536ef123"
+        - "0000feb3-0000-1000-8000-00805f9b34fb"
       recovery:
         interrupted: "unknown"
       verification: "reported"
-      notes: "App-derived (the Engbird app's update path); not run against hardware."
+      notes: "App-derived and corroborated by SHB UUIDs in stock firmware; no update or address transition was run against hardware."
 
 entities:
   - platform: "sensor"

@@ -24,60 +24,55 @@ device:
     ARCHITECTURE: phone --(BLE or WiFi/OSC)--> bridge --(nRF24 RF)--> prop
     groups. The app addresses GROUPS, never individual props: each group has
     a 16-bit radio ID shared by every prop in it. Five "public" groups use
-    fixed IDs 1-5 (community builds label them orange/green/aqua/blue/
-    purple); user-created private groups get other 16-bit IDs (the open
-    bridge firmware supports up to 100). To group props: from off, hold the
-    prop button ~10 s until the LEDs flash/turn white. To let a bridge learn
-    a group, the props must be awake on their sync page/mode (page 2 mode 1
-    on older firmware; the current app instructs page 5 mode 1) while the
-    bridge is in sync mode.
+    fixed IDs 1-5; user-created private groups get other 16-bit IDs (the open
+    bridge firmware supports up to 100). IMPORTANT SOURCE BOUNDARY: the
+    reviewed open-firmware revision has its public-group transmit loop
+    disabled, so only LEARNED groups are emitted there. Do not infer public-
+    group production behavior from that revision. To group props: from off,
+    hold the prop button ~10 s until the LEDs flash/turn white. To let a
+    bridge learn a group, the props must be awake on their sync page/mode
+    (page 2 mode 1 on older firmware; the current app instructs page 5 mode
+    1) while the bridge is in sync mode.
 
     BRIDGE BLE — TWO GENERATIONS. The published open-source bridge firmware
-    (github.com/benkuper/FlowtoysConnectBridge, written for Flowtoys) and its
-    companion Flutter app (benkuper/FlowtoysConnect) use the Nordic UART
-    Service: service 6e400001-b5a3-f393-e0a9-e50e24dcca9e, phone writes ASCII
-    command strings to 6E400002 (write / write-no-response), bridge notifies
-    on 6E400003. The bridge advertises as "FlowConnect <name>" and the app
-    requests MTU 48. The production app (com.flowtoys.app, decompiled) instead
-    targets a vendor-specific service 49550001-aad5-59bd-934c-023d807e01d5
-    with characteristics 49550002-..., 49550003-... and 49550005-... — their
-    exact roles are not recoverable from the Flutter AOT binary's string
-    table alone (the Dart command encoder is compiled, not string-visible).
-    Treat the NUS command set below as the documented baseline and the
-    4955000x service as the production equivalent pending capture.
+    (github.com/benkuper/FlowtoysConnectBridge) and companion app use Nordic
+    UART Service 6e400001-b5a3-f393-e0a9-e50e24dcca9e. The open firmware
+    declares RX 6E400002 WRITE-WITH-RESPONSE ONLY; the companion app has
+    separately been observed issuing no-response writes, which is behavior
+    rather than an extra GATT property bit. TX 6E400003 notifies. The bridge
+    advertises as "FlowConnect <name>" and the app requests MTU 48. The
+    production app instead targets 49550001-aad5-59bd-934c-023d807e01d5
+    with characteristics 49550002-..., 49550003-... and 49550005-...; their
+    roles and framing still require a production-bridge capture.
 
-    ASCII COMMAND SET (open bridge firmware, SerialManager; same parser is
-    fed by USB serial at 115200 and by BLE NUS writes; messages end at '\n'
-    or 0xFF):
+    ASCII COMMAND SET (open bridge firmware; the same parser is fed by USB
+    serial at 115200 and BLE NUS writes; messages end at '\n' or 0xFF):
       's'<timeout_s>   start RF group sync (float seconds, 0 = no timeout)
       'S'              stop sync
-      'a'              reset sync (forget all private groups)
+      'a'              reset sync (forget all learned groups)
       'n'<ssid>,<pass> set WiFi credentials
-      'g'<name>,<mode> set bridge name + radio mode (0=WiFi, 1=BLE, 2=both);
-                       bridge reboots after this
-      'w'<group> / 'W'<group>   wake up group (capital = public group ID 1-5)
-      'z'<group> / 'Z'<group>   power off group (capital = public)
+      'g'<name>,<mode> set bridge name + radio mode (0=WiFi, 1=BLE, 2=both)
+      'w'<group>       wake a learned group
+      'z'<group>       power off a learned group
       'r'              restart the bridge ESP32
       'p'<g>,<page>,<mode>,<actives>,<hue>,<sat>,<val>,<speed>,<density>,<lfo1..4>
-                       set pattern on private group g ('P' = public group).
-                       13 comma-separated decimal fields; actives is a
-                       bitmask: bit0 LFO, bit1 hue, bit2 saturation,
-                       bit3 value/brightness, bit4 speed, bit5 density;
-                       hue/sat/val/speed/density/lfo are uint8 (0-255).
-                       A solid color is page 2, mode 7, actives 0xFF with
-                       hue/sat/val from HSV.
+                       set pattern on learned group g. Actives bitmask:
+                       bit0 LFO, bit1 hue, bit2 saturation, bit3 brightness,
+                       bit4 speed, bit5 density; values are uint8. A solid
+                       color is page 2, mode 7, actives 0xFF with HSV values.
+    Uppercase public-group parser forms are not an emit path in the reviewed
+    open-firmware revision because its public-group transmit loop is disabled.
 
-    RF LINK (nRF24L01+, from the same firmware): 250 kbps, channel 2,
-    3-byte addresses, TX/RX address bytes {0x01, 0x07, 0xF1}, CRC-16, no
-    auto-ack. Props are synchronized by a fixed 20-byte packed SyncPacket
-    broadcast per group at ~30 ms cadence (5 repeats per change, plus a
-    forced resend every 1 s): uint16 group_id (byte-swapped on the wire),
-    uint32 padding/sequence counter, uint8 lfo[4], uint8 hue, sat, val,
-    speed, density, a 6-bit "active" flags byte (lfo/hue/sat/val/speed/
-    density), 2 reserved bytes, uint8 page, uint8 mode, and a flags byte
+    RF LINK (nRF24L01+): 250 kbps, channel 2, 3-byte addresses
+    {0x01, 0x07, 0xF1}, CRC-16, no auto-ack. Props are synchronized by a
+    fixed 21-BYTE packed SyncPacket broadcast per group at ~30 ms cadence
+    (5 repeats per change, forced resend every 1 s): group_id u16 @0
+    (byte-swapped on wire), padding/sequence u32 @2, lfo[4] @6-9,
+    hue/sat/val/speed/density @10-14, active flags @15, two reserved bytes
+    @16-17, page @18, mode @19, and a SEPARATE command flags byte @20
     (adjust, wakeup, poweroff, force_reload, save, delete, alternate).
-    Any nRF24 node with these parameters can therefore drive props
-    directly without the vendor bridge.
+    Any nRF24 node with these parameters can drive props directly without
+    the vendor bridge.
 
     WIFI/OSC ALTERNATE PATH: the bridge joins a configured WLAN (firmware
     defaults SSID "flowspace"/"flowarts") or falls back to AP
@@ -227,11 +222,15 @@ services:
     characteristics:
       - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
         name: "RX (command write)"
-        properties: ["write", "write_without_response"]
+        properties: ["write"]
         notes: >
-          ASCII command strings; all values are decimal, comma-separated.
-          Capital command letters target public groups 1-5, lowercase
-          target private (learned) groups. Group ID 0 means all groups.
+          Open-firmware GATT declaration: WRITE-WITH-RESPONSE ONLY. The
+          companion app's observed no-response write behavior is retained as
+          behavior evidence, not a second property bit. ASCII commands use
+          decimal comma-separated values. Only learned groups are emitted by
+          the reviewed open-firmware revision; its public-group transmit loop
+          is disabled, so uppercase public-group forms are not declared as
+          working commands here.
         commands:
           sync_groups:
             description: >
@@ -284,27 +283,21 @@ services:
             verification: "reported"
           wake_group:
             description: >
-              Wake a group from sleep: "w<groupId>" for a private group,
-              "W<groupId>" (capital) for a public group 1-5, group 0 = all.
+              Wake a LEARNED group from sleep with lowercase "w<groupId>".
+              The reviewed open firmware does not emit public-group commands.
             parameters:
               group_id:
                 type: "string"
-                description: "ASCII decimal group ID."
-              public:
-                type: "string"
-                description: "Use the capital 'W' form for public groups."
+                description: "ASCII decimal learned group ID; 0 addresses all learned groups."
             verification: "reported"
           power_off_group:
             description: >
-              Power off a group: "z<groupId>" private / "Z<groupId>"
-              public, group 0 = all.
+              Power off a LEARNED group with lowercase "z<groupId>".
+              The reviewed open firmware does not emit public-group commands.
             parameters:
               group_id:
                 type: "string"
-                description: "ASCII decimal group ID."
-              public:
-                type: "string"
-                description: "Use the capital 'Z' form for public groups."
+                description: "ASCII decimal learned group ID; 0 addresses all learned groups."
             verification: "reported"
           restart_bridge:
             description: "Restart the bridge ESP32. Single byte 'r' (0x72)."
@@ -312,15 +305,15 @@ services:
             verification: "reported"
           set_pattern:
             description: >
-              Set the pattern on a group. ASCII
-              "p<group>,<page>,<mode>,<actives>,<hue>,<sat>,<brightness>,<speed>,<density>,<lfo1>,<lfo2>,<lfo3>,<lfo4>"
-              (use capital 'P' for public groups). actives is a bitmask:
-              bit0 LFO, bit1 hue, bit2 saturation, bit3 brightness,
-              bit4 speed, bit5 density. All other fields are uint8 0-255.
-              Solid color: page 2, mode 7, actives 255, hue/sat/brightness
-              from the desired HSV color.
+              Set the pattern on a LEARNED group with lowercase ASCII
+              "p<group>,<page>,<mode>,<actives>,<hue>,<sat>,<brightness>,<speed>,<density>,<lfo1>,<lfo2>,<lfo3>,<lfo4>".
+              Actives is a bitmask: bit0 LFO, bit1 hue, bit2 saturation,
+              bit3 brightness, bit4 speed, bit5 density. All other fields
+              are uint8 0-255. Solid color: page 2, mode 7, actives 255,
+              hue/sat/brightness from the desired HSV colour. Public-group
+              emission is disabled in this open-firmware revision.
             parameters:
-              group_id: { type: "string", description: "ASCII decimal group ID; 0 = all groups." }
+              group_id: { type: "string", description: "ASCII decimal learned group ID; 0 = all learned groups." }
               page: { type: "string", description: "Mode page number." }
               mode: { type: "string", description: "Mode number within the page." }
               actives: { type: "string", description: "Bitmask of which parameter fields are applied (0-63+)." }
@@ -365,6 +358,81 @@ services:
         name: "Characteristic 5 (role unknown)"
         properties: ["write", "notify"]
         notes: "Referenced by the production app; purpose unknown."
+
+features:
+  - type: "firmware_update"
+    variants:
+      - "capsule 2.0 / 2.C light engine (podpoi, capsule poi, staffs, batons)"
+      - "vision props (vision poi/staff/club/wand, spin)"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "usb"
+      image:
+        signing: "unknown"
+        source: "public_url"
+        format: "ZIP .fwimg with exactly meta (JSON object) and data (raw firmware) entries."
+        notes: >
+          The published desktop updater validates the two entries and target
+          metadata before streaming data. Pad the data to a multiple of 60
+          bytes for transport. Do not substitute another hardware revision's
+          image.
+      enter:
+        how: "button"
+        notes: >
+          Capsule uses the vendor's manual bootloader button sequence (not
+          reproduced here). As a documented alternative for Vision/Club, the
+          ADVANCED USB HID AppReset(Bootloader) request (command 0xFF,
+          subject u32le 1) reboots app firmware into its bootloader.
+      dfu_mode:
+        notes: >
+          USB HID product string contains "bootloader". Reports are 64 bytes;
+          a leading zero report-ID byte is prepended on host writes. Update
+          and data roles are declared in protocol_details.usb_firmware_update.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The reviewed evidence does not establish the complete interrupted-
+          update recovery contract; do not promise automatic recovery.
+      verification: "reported"
+      notes: >
+        From the published desktop updater's brain/FIRMWARE-FORMAT.md and
+        brain/HID-PROTOCOL.md, not from an update executed by this project.
+
+protocol_details:
+  usb_firmware_update:
+    verification: "reported"
+    framing:
+      transport: "USB HID"
+      report_bytes: 64
+      host_report_id_prefix: 0
+      endianness: "little"
+      unused_bytes: "zero padding"
+    container:
+      archive: "ZIP"
+      required_entries: ["meta", "data"]
+      meta_format: "JSON object with usb_vid, usb_pid, fw_rev, hw_rev, fw_date, git_rev and fw_ident"
+      data_format: "raw firmware, zero-padded to a multiple of 60 bytes for transmission"
+    commands:
+      update:
+        opcode: 0x01
+        role: "Begin update with u32le totalBytesToSend, u32le crc, u16le vid, u16le pid and u16le hw_rev; the reviewed updater sends crc=0."
+        advanced: true
+      data:
+        opcode: 0x80
+        role: "Four-byte command word followed by up to 60 firmware bytes; use the device's acknowledged offset as the write cursor."
+        advanced: true
+      app_reset_bootloader:
+        opcode: 0xFF
+        subject_u32le: 1
+        role: "Reboot Vision/Club app firmware into the bootloader before Update."
+        advanced: true
+        advanced_reason: "Leaves normal app mode and begins a firmware-update session."
+      app_reset_application:
+        opcode: 0xFF
+        subject_u32le: 2
+        role: "Boot the newly written application after a completed transfer."
+        advanced: true
+    interrupted_recovery: "unknown"
 
 entities:
   - platform: "light"

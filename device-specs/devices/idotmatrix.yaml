@@ -13,66 +13,48 @@ device:
   category_hierarchy: ["display", "led_matrix"]
   notes: >
     Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers,
-    schedules). No pairing required.
+    schedules and one-pixel graffiti). No pairing required. Public captures
+    identify primary service 0x00FA, with characteristic 0xFA02 supporting
+    write and write-without-response and 0xFA03 supporting notify only.
 
     Framed upload protocol — 16-byte header per 4096-byte payload chunk:
-      [0-1]  total packet length (uint16 LE)
+      [0-1]  total frame length, header included (uint16 LE)
       [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase
       [3]    sub-type: always 0x00 in framed uploads (sub-type 0x02 exists
              only in the short MultiColor/Phrase commands below)
       [4]    chunk flag: 0=first, 2=continuation
-      [5-8]  total data length (uint32 LE)
-      [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)
+      [5-8]  total payload length, excluding all headers (uint32 LE)
+      [9-12] CRC32 of the payload only, excluding all headers (LE)
       [13-14] time/delay (uint16 LE)
       [15]   speed/type byte
       [16+]  payload
     BLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for
     GIF/image, 50 ms/chunk for text. Notify response: [?,0,cmd_type,sub_type,status]
-    with status 0=invalid, 1=next-chunk, 2=error, 3=finished.
-    On all hardware-documented units this framed CRC32 upload runs over 0xFA02
-    together with the short commands below (8none1 btsnoop captures,
-    derkalle4/python3-idotmatrix-library gif.py, Homey docs/idm.md §4.17).
-    Header bytes [0-1] are LITTLE-endian (8none1 decoding_bytes.md: "de 0c" is
-    0x0cde = 3294 total; derkalle4 to_bytes(2,'little'); Homey §4.17
-    size_lo/size_hi) — masked on full 4112-byte chunks because 0x1010 is
-    byte-palindromic, it only bites on final/short chunks.
+    with status 0=invalid, 1=next-chunk, 2=error, 3=finished. Public captures
+    independently confirm LE lengths and payload-only CRC32 on 0xFA02. The full
+    0x1010 frame length is byte-palindromic, so short frames are the useful
+    endian check.
     Display sizes (from the app's screen-size table): 1010=10x10, 1001=1x100,
     1116=16x11, 1318=18x13, 1619=19x16, 1920=20x19, 2020=20x20 (default),
-    2010=10x20, 3010=10x30, 3820=20x38. The app knows no 32x32 or 64x64
-    display code, but square 16x16 / 32x32 / 64x64
-    panels do exist and use this same IDM-/0x00FA protocol family
-    (derkalle4/python3-idotmatrix-library README, fbnlrz/homeyidotmatrix
-    hardware-verified on IDM-BC5C5F, tomglenn/idx-ai) — an app-vs-firmware gap,
-    not a limit of the hardware.
-    Upload format: every hardware-verified public client uploads an encoded PNG
-    (static) or GIF (animated) FILE, which the device decodes; the device crops
-    rather than resizes (Homey docs/idm.md §5). The app's own RGB888
-    conversion (3 bytes/pixel R,G,B, row-major w*h*3) is an app-side
-    artifact for its own DIY
-    canvas, not a raw-pixel wire format observed on any unit. Text glyph width
-    varies by device/font.
-    CONFIDENCE: framing header (incl. LE length/delay fields and sub-type=0),
-    CRC32, chunk sizes/pacing, command types 1=GIF/2=Image/3=Text and response
-    format HIGH (hardware-verified on 0xFA02; byte-for-byte confirmed in the
-    vendor app); command type 6=Phrase and image pixel layout MEDIUM
-    (app-derived); the 0xFEE9 service APP-PROVEN-UNUSED (see below).
-    Evidence: 8none1/idotmatrix decoding_bytes.md + btsnoop,
-    derkalle4/python3-idotmatrix-library (const.py, common.py, gif.py),
-    fbnlrz/homeyidotmatrix docs/idm.md (nRF-Connect-verified); and, app-side,
-    the vendor app's GIF, image and text upload paths (framing, CRC32,
-    response, 509/18-byte chunking, 20/20/50 ms pacing), its multi-colour and
-    phrase paths (short-command sub-type 0x02), its screen-size table
-    (display sizes, DIY image size), its RGB888 converter, its CRC helper
-    (java.util.zip.CRC32) and its BLE manager (00FA service + 0xFA02
-    characteristic).
+    2010=10x20, 3010=10x30, 3820=20x38. Square 16x16 / 32x32 / 64x64 panels
+    also exist and use this same IDM-/0x00FA protocol family.
+    Upload format: public clients upload encoded PNG or GIF files, which the
+    device decodes; it crops rather than resizes. Separately, public graffiti
+    vector 0a 00 05 01 00 ff 00 00 1f 1f draws one red RGB888 pixel at (31,31).
+    A full raw framebuffer remains unobserved. Text glyph width varies by
+    device/font.
+    CONFIDENCE: primary service, characteristic properties, framing header,
+    CRC coverage and the one-pixel command are capture-backed. Command type
+    6=Phrase and still-image material fields remain app-derived. Service
+    0xFEE9 is retained only as negative evidence below: it is an unused BLE
+    library default, not an alternative hardware transport.
+    Evidence: 8none1/idotmatrix public captures and decoding notes,
+    derkalle4/python3-idotmatrix-library, fbnlrz/homeyidotmatrix docs/idm.md,
+    plus the vendor app's upload and command builders.
 
-    Short command protocol — service 0xFA02: unframed length-prefixed byte
-    commands ([len, 0x00, cmd, ...]) written to characteristic 0xFA02, with
-    acks/notifications on 0xFA03. This is the protocol every public client
-    (python-idotmatrix, go-idot, Homey) speaks; name prefix "IDM-". The vendor
-    app confirms it: it configures its BLE library with service 0x00FA and
-    write characteristic 0xFA02 and routes every command through it; the full
-    short-command set lives in its protocol builder.
+    Short command protocol — primary service 0x00FA: unframed length-prefixed
+    byte commands ([len, 0x00, cmd, ...]) written to characteristic 0xFA02,
+    with acks/notifications on 0xFA03. Name prefix "IDM-".
 
     APP-PROVEN-UNUSED — service 0xFEE9 with characteristics
     d44bc439-abfd-45a2-b575-925416129600/9601: these UUIDs are merely the
@@ -86,8 +68,7 @@ device:
   identification:
     local_name_prefix: "IDM-"
     service_uuids:
-      - "0000fee9-0000-1000-8000-00805f9b34fb"
-      - "0000fa02-0000-1000-8000-00805f9b34fb"
+      - "000000fa-0000-1000-8000-00805f9b34fb"
 
   discovery:
     methods:
@@ -97,8 +78,7 @@ device:
             match: "prefix"
             value: "IDM-"
           service_uuids:
-            - "0000fee9-0000-1000-8000-00805f9b34fb"
-            - "0000fa02-0000-1000-8000-00805f9b34fb"
+            - "000000fa-0000-1000-8000-00805f9b34fb"
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -167,12 +147,10 @@ device:
 # CRC32, and drives MTU-aware chunked writes. Declarative.
 protocol_handler: "idotmatrix_image"
 
-# Chunked PNG / GIF file upload with CRC32 integrity per transfer. Every public
-# hardware-verified client (derkalle4/python3-idotmatrix-library image.py/gif.py,
-# fbnlrz/homeyidotmatrix, 8none1) uploads an encoded PNG (static) or GIF
-# (animated) FILE — the device decodes it — never a raw pixel buffer; there is no
-# public evidence for a raw RGB565/RGB888 path. (The app's bitmap-to-RGB888
-# conversion helper is an app-side artifact, not the observed wire format.)
+# Chunked PNG / GIF file upload with CRC32 integrity per transfer. Public
+# clients upload an encoded PNG (static) or GIF (animated) FILE, which the
+# device decodes. A separate capture-proven draw_pixel command writes one
+# RGB888 pixel; no complete raw framebuffer upload has been observed.
 # Panel sizes: the community documents square 16x16 / 32x32 / 64x64 panels
 # (derkalle4 README, fbnlrz README+docs/idm.md hardware-verified on IDM-BC5C5F,
 # tomglenn/idx-ai). App v2.1.4's screen-size table lists only smaller/odd
@@ -303,30 +281,28 @@ services:
         name: "OTA Notify"
         properties: ["notify"]
 
-  # Short-command + framed-upload protocol (0xFA02 / python-idotmatrix ecosystem)
-  - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
-    name: "iDotMatrix Command/Upload Service (0xFA02)"
+  # Short-command + framed-upload protocol on the primary 0x00FA service.
+  - uuid: "000000fa-0000-1000-8000-00805f9b34fb"
+    name: "iDotMatrix Command/Upload Service (0x00FA)"
     notes: >
-      The protocol every public client speaks (derkalle4/python3-idotmatrix-library,
-      nj-designs/go-idot, fbnlrz/homeyidotmatrix — hardware-verified). The short
+      Public GATT captures list 0x00FA as a primary service and place the
+      0xFA02 and 0xFA03 characteristics beneath it. The protocol every public
+      client speaks (derkalle4/python3-idotmatrix-library, nj-designs/go-idot,
+      fbnlrz/homeyidotmatrix — hardware-verified) uses this service. The short
       length-prefixed commands below and the framed CRC32 upload protocol
-      (16-byte header, length at [0-1] uint16 LE) both run on this service.
-      Additional opcodes from Homey docs/idm.md: set-time 0b 00 01 80 …,
-      clock 08 00 06 01 …, countdown 07 00 08 80 …, chronograph 05 00 09 80 …,
-      scoreboard 08 00 0a 80 …, built-in effects [len, 0, 03, 02, style, 90,
-      count, rgb…], music sync 06 00 00 02 …. Command acks arrive on 0xFA03 as
-      05 00 <cmd> <sub> 01.
-      The vendor app confirms this configuration byte-for-byte: it overrides
-      its BLE library defaults with service 0x00FA + write characteristic
-      0xFA02 and sends the full short-command set below from its protocol
-      builder (set-time, eco, reset, brightness, rotate, countdown,
-      chronograph, scoreboard, clock, screen on/off, speed, DIY, colour,
-      password set/verify, mic and joint; LOCATE comes from a separate
-      command builder).
+      (16-byte header, length at [0-1] uint16 LE) both run on characteristic
+      0xFA02. Additional opcodes from Homey docs/idm.md: set-time
+      0b 00 01 80 …, clock 08 00 06 01 …, countdown 07 00 08 80 …,
+      chronograph 05 00 09 80 …, scoreboard 08 00 0a 80 …, built-in effects
+      [len, 0, 03, 02, style, 90, count, rgb…], music sync 06 00 00 02 ….
+      Command acks arrive on 0xFA03 as 05 00 <cmd> <sub> 01.
+      The vendor app confirms this configuration: it overrides its BLE
+      library defaults with service 0x00FA + write characteristic 0xFA02 and
+      sends the full short-command set below from its protocol builder.
     characteristics:
       - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
         name: "Write Data"
-        properties: ["write"]
+        properties: ["write", "write_without_response"]
         role: "command"
         # The framed CRC32 upload runs HERE on every hardware-documented unit
         # (8none1 btsnoop, derkalle4 gif.py, Homey docs/idm.md §4.17), not on
@@ -453,6 +429,26 @@ services:
                 min_length: 1
                 max_length: 4096
                 description: "Up to 4096 bytes of the GIF file, in order."
+          draw_pixel:
+            description: >
+              Draw one RGB888 pixel at zero-based x/y in graffiti mode.
+              Capture-proven public vector: mode 0, red (255,0,0), at (31,31)
+              is exactly 0a 00 05 01 00 ff 00 00 1f 1f. This establishes the
+              short one-pixel command only; a full raw framebuffer remains
+              unobserved.
+            verification: "reported"
+            template: [0x0A, 0x00, 0x05, 0x01, "{mode}", "{red}", "{green}", "{blue}", "{x}", "{y}"]
+            parameters:
+              mode:
+                type: "uint8"
+                allowed: [0]
+                default: 0
+                description: "Graffiti mode 0, the only capture-observed value."
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+              x: { type: "uint8", min: 0, max: 255, description: "Zero-based column." }
+              y: { type: "uint8", min: 0, max: 255, description: "Zero-based row." }
           screen_on:
             description: "Turn screen on"
             value: [0x05, 0x00, 0x07, 0x01, 0x01]
@@ -577,7 +573,7 @@ services:
                 min: 0
                 max: 255
           locate:
-            description: "Locate device. This is a genuinely different frame from the short commands: not [len, 0x00, cmd, ...] but a 16-byte block whose first byte is 0x06 followed by ASCII 'LOCATE' and NUL padding (from the app's command builder). The bytes below are the PLAINTEXT — the app does not write them directly: BleProtocol.locationDevice sends getEncryptData(getLocationDevice()), which AES-encrypts the block in place via the app's bundled native AES library before the single BLE write, so the actual on-wire bytes are the 16-byte ciphertext, not this plaintext. App-derived only; no community/hardware source (CONFIRMATION.md, derkalle4, Homey, 8none1) documents a locate command, so treat as unconfirmed."
+            description: "Locate device. This is a genuinely different frame from the short commands: not [len, 0x00, cmd, ...] but a 16-byte block whose first byte is 0x06 followed by ASCII 'LOCATE' and NUL padding (from the app's command builder). The bytes below are the PLAINTEXT — the app does not write them directly: its locate path AES-encrypts the block in place before the single BLE write, so the actual on-wire bytes are the 16-byte ciphertext, not this plaintext. App-derived only; no community/hardware source documents a locate command, so treat as unconfirmed."
             verification: "hypothesis"
             value: [0x06, 0x4C, 0x4F, 0x43, 0x41, 0x54, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
           set_mic_type:
@@ -611,11 +607,12 @@ services:
 
       - uuid: "0000fa03-0000-1000-8000-00805f9b34fb"
         name: "Notify/Ack Data"
-        properties: ["read", "notify"]
+        properties: ["notify"]
         role: "notify"
         notes: >
-          Primarily the notify/ack channel: upload-progress responses and
-          command acks (05 00 <cmd> <sub> 01) arrive here; also readable.
+          Notify-only channel: upload-progress responses and command acks
+          (05 00 <cmd> <sub> 01) arrive here. Public GATT declarations have
+          property byte 0x10 (notify), with no read property.
 
 entities:
   - platform: "light"

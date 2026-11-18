@@ -690,6 +690,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   frame, discovery and parser changes. Static findings remain `reported`;
   existing hardware evidence, newer research and all rejected hypotheses stay
   intact.
+- **Capture and firmware protocol audit.** Corrected twelve protocol contracts:
+  Airthings multi-block history/tails/request offsets/clock domains, iDotMatrix
+  primary-service/GATT/pixel framing, badge acknowledged-write timing and flash
+  budget, ThermoPro TP9xx scalar and battery layouts, INKBIRD history and OTA
+  reassembly, Flowtoys RF/USB-update framing, Vector onboarding and battery
+  schema, Veryfit real-time/battery/set-time layouts, M6 standard battery,
+  Ignis base64 firmware containers, Spectra manual-only discovery, and Pebble
+  framing/serial/PPoGATT roles. Existing docs pages now match. Independent
+  standard-library tests use public sanitized or invented vectors throughout;
+  all protocol changes remain reported/untested rather than hardware-confirmed,
+  and unresolved transforms, units, discovery candidates and update recovery
+  behavior stay explicitly open.
 - **New hardware evidence corrects five LED-panel specs and FOREO Peach 2.**
   iLEDColor now declares its live A950 command path, write properties,
   Connect/TestPass vectors, advertised geometry and successful static/animated
