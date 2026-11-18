@@ -75,7 +75,7 @@ Accept only the exact pairs `(stopped, 5)`, `(starting, 6)`, `(running, 17)` and
 `(stopping, 17)`; reject cross-combinations and truncation even with valid XOR.
 The five-byte stopped frame carries delimiter, marker, mode, XOR and end only.
 The six-byte starting frame additionally has unresolved raw byte `0x05` at
-offset 3; preserve it rather than decoding it as speed. Publish mode and the
+offset 3; return it as `offset_3_raw` rather than decoding it as speed. Publish mode and the
 public decoder's compatibility zeroes for speed/heart rate on valid short
 frames; leave full-frame-only elapsed/distance unavailable and never read beyond
 the payload.

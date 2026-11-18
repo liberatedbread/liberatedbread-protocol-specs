@@ -25,25 +25,33 @@ table and firmware evidence, not just the `OzoEvo` name. Ari (advertised product
 | Credentials | None |
 | MTU / direct packet | 23 / 20-byte ATT payload |
 
-For current units, enable notifications and validate a bounded `watchersInfo`
-MemRead response before allocating watchers or staging RPC. Normal setup does
-not send stop-execution. Request ID 0 stops current programs and is only an
-**optional advanced recovery action after explicit owner confirmation**, never
-a mandatory open step, hidden read or factory reset.
+Manually verify the Evo advertisement product before connecting, then confirm
+native GATT endpoints before invoking any future handler. Its first operation
+must be a bounded `watchersInfo` MemRead whose response validates before other
+RPC, watchers or staging. Normal setup does not send stop-execution. Request ID
+0 stops current programs and is only an **optional advanced recovery action
+after explicit owner confirmation**, never a mandatory open step, hidden read or
+factory reset.
 
 **Factory reset**: unknown. Stop-execution, watcher teardown, disconnecting and
 the legacy stop-file sequence are not factory resets.
 
-**Rebinding**: disable all watchers/regions, disconnect, then rediscover by
-manufacturer device ID where possible and negotiate the generation again.
-Legacy addresses may change. No bond or Wi-Fi credential is involved.
+**Rebinding**: disable all watchers/regions, disconnect, then repeat manual Evo
+product verification and post-connect confirmation before handler use. Legacy
+addresses may change. No bond or Wi-Fi credential is involved.
 
 ## Discovery
 
-Manufacturer company ID is `0x03eb` (decimal 1003), but a bare company match is
-not sufficient because it also matches Ari. The schema's masked matcher checks
-packet ID 0 at payload offset 0 and product 0/4 at offset 22; product 5 is
-rejected. The payload after the company-ID bytes is:
+**Manual selection is required.** Current mobile consumers drop exact/masked
+manufacturer matchers and evaluate only prefixes, so the schema-valid mask in
+`protocol_details` is an unsupported experiment, not executable discovery or an
+operational Ari rejection. The owner must use tooling that exposes the payload
+to verify packet ID 0 and product 0/4; bare company 1003, `OzoEvo` names, service
+UUIDs, missing product bytes and product 5 Ari do not qualify. Post-connect
+native GATT and first-response confirmation are also mandatory.
+
+Manufacturer company ID is `0x03eb` (decimal 1003). The payload after the
+company-ID bytes is:
 
 | Offset | Meaning |
 |--------|---------|
@@ -130,8 +138,9 @@ decoding. Synthetic CRC vectors never authorize arbitrary caller payloads.
 
 ## Validation and omissions
 
-`scripts/test_ozobot_evo_spec.py` independently checks masked Evo/Ari discovery,
-advertisement parsing, request IDs, MemRead, exact region-clear/watcher-disable
+`scripts/test_ozobot_evo_spec.py` independently checks the unsupported
+experimental mask's Ari-negative case and manual advertisement parsing, then
+request IDs, MemRead, exact region-clear/watcher-disable
 teardown after partial setup failure, malformed packets and long-RPC CRC
 integrity. All payloads are synthetic; no movement operation is included.
 

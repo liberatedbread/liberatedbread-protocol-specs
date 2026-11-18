@@ -12,8 +12,8 @@ ADVERTISEMENT = bytes.fromhex(
 BATTERY_REQUEST = bytes.fromhex("01 00 bc 00 00 00 08 00")
 BATTERY_RESPONSE = bytes.fromhex("02 00 00 08 00 00 00 50 01 20 4e 00 00")
 LONG_PAYLOAD = bytes(range(25))
-DISCOVERY_PATTERN = bytes(23)
-DISCOVERY_MASK = bytes.fromhex("ff000000000000000000000000000000000000000000fb")
+EXPERIMENTAL_PATTERN = bytes(23)
+EXPERIMENTAL_MASK = bytes.fromhex("ff000000000000000000000000000000000000000000fb")
 
 
 def parse_advertisement(data: bytes, require_patch: bool = False) -> dict:
@@ -28,28 +28,28 @@ def parse_advertisement(data: bytes, require_patch: bool = False) -> dict:
     }
 
 
-def matches_discovery(company_id: int, data: bytes) -> bool:
-    if company_id != 1003 or len(data) < len(DISCOVERY_PATTERN):
+def matches_experimental_mask(company_id: int, data: bytes) -> bool:
+    if company_id != 1003 or len(data) < len(EXPERIMENTAL_PATTERN):
         return False
-    candidate = data[: len(DISCOVERY_PATTERN)]
+    candidate = data[: len(EXPERIMENTAL_PATTERN)]
     return all(
         (value & mask) == (pattern & mask)
-        for value, pattern, mask in zip(candidate, DISCOVERY_PATTERN, DISCOVERY_MASK, strict=True)
+        for value, pattern, mask in zip(candidate, EXPERIMENTAL_PATTERN, EXPERIMENTAL_MASK, strict=True)
     )
 
 
-def test_masked_discovery_accepts_only_evo_products() -> None:
-    assert len(DISCOVERY_PATTERN) == len(DISCOVERY_MASK) == 23
-    assert matches_discovery(1003, ADVERTISEMENT)
+def test_unsupported_experimental_mask_rejects_ari() -> None:
+    assert len(EXPERIMENTAL_PATTERN) == len(EXPERIMENTAL_MASK) == 23
+    assert matches_experimental_mask(1003, ADVERTISEMENT)
     evo_zero = bytearray(ADVERTISEMENT)
     evo_zero[22] = 0
-    assert matches_discovery(1003, evo_zero)
+    assert matches_experimental_mask(1003, evo_zero)
     ari = bytearray(ADVERTISEMENT)
     ari[22] = 5
-    assert not matches_discovery(1003, ari)
-    assert not matches_discovery(1003, b"\x01" + ADVERTISEMENT[1:])
-    assert not matches_discovery(1003, ADVERTISEMENT[:22])
-    assert not matches_discovery(0, ADVERTISEMENT)
+    assert not matches_experimental_mask(1003, ari)
+    assert not matches_experimental_mask(1003, b"\x01" + ADVERTISEMENT[1:])
+    assert not matches_experimental_mask(1003, ADVERTISEMENT[:22])
+    assert not matches_experimental_mask(0, ADVERTISEMENT)
 
 
 def request_id(counter: int) -> tuple[int, bytes]:

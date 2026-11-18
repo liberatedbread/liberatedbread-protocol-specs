@@ -66,60 +66,52 @@ device:
       Python implementation. The independent legacy client is separately
       acknowledged as reverse-engineered historical evidence.
   identification:
-    local_name_prefixes: ["OzoEvo"]
-    service_uuids: ["8903136c-5f13-4548-a885-c58779136801"]
     notes: >
-      Prefer the masked Evo product match or current native service over the
-      legacy OzoEvo name. Parse company-0x03eb payloads with
-      protocol_details.advertisement: byte 0 is packet id, bytes 1-16 the stable
-      device ID and byte 22 the product (0/4 Evo, 5 Ari). Legacy addresses may
-      change. Ari is excluded even though the same official library supports it.
+      Manual Evo selection is required. OzoEvo names and native service UUIDs
+      are candidate hints only, not executable identity proof. Current mobile
+      consumers drop exact/masked manufacturer matchers and evaluate only
+      prefixes, so no company/product matcher is declared here. Manually parse
+      company-0x03eb payloads with protocol_details.advertisement and require
+      packet id 0 plus product 0/4; product 5 is Ari and must be rejected.
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          local_name:
-            match: "prefix"
-            values: ["OzoEvo"]
-          service_uuids: ["8903136c-5f13-4548-a885-c58779136801"]
-          manufacturer_data:
-            company_id: 1003
-            match: "masked"
-            pattern: "0000000000000000000000000000000000000000000000"
-            mask: "ff000000000000000000000000000000000000000000fb"
-            description: "Over 23 payload bytes after company ID, require packet id 0 at offset 0 and product 0 or 4 at offset 22 (mask fb ignores only product bit 2). Bare company 1003 is not sufficient; product 5 Ari and nonzero packet IDs fail."
-        notes: >
-          A name-only hit may be a legacy unit. After connecting, enumerate
-          native ...6801/...6802 versus legacy ...6701/...6702/...6703 before
-          choosing a protocol; product 5 is Ari and must be rejected.
+    none: >
+      Manual selection only. Before any handler use, the owner must use tooling
+      that exposes the manufacturer payload to verify packet id 0 and Evo
+      product 0/4; do not proceed on bare company 1003, a name, a service UUID,
+      missing product bytes or Ari/product 5. The schema-valid mask retained in
+      protocol_details is unsupported experimental documentation because the
+      current mobile consumer ignores exact/masked matchers. Post-connect native
+      GATT and first-response confirmation are also mandatory.
     identity:
       stable_keys: ["manufacturer_device_id", "address"]
       display: "local_name"
-      notes: "manufacturer_device_id is bytes 1-16 of the company-0x03eb payload. Address is fallback only, especially on legacy units."
+      notes: "manufacturer_device_id is bytes 1-16 of a manually verified company-0x03eb payload. Address is fallback only, especially on legacy units."
     static_ip_required: false
   setup:
     required: false
     confidence: "medium"
-    notes: "No provisioning, account or bond. The protocol generation is selected by masked Evo identity, GATT evidence and a validated native response rather than name alone. Normal setup sends no stop-execution."
+    notes: "No provisioning, account or bond. Manual Evo product verification, post-connect native GATT confirmation and a validated first response are required before handler use. Normal setup sends no stop-execution."
     methods:
       - type: "ble_direct"
         name: "Current native ...6802 RPC and read-only watchers"
         role: "variant"
         verified: false
-        description: "For units with current native service ...6801 and characteristic ...6802. A future dedicated handler must validate a bounded read-only response before watcher or staging operations; stop-on-open is not performed."
+        description: "For manually verified Evo units only. Confirm native service ...6801 and characteristic ...6802 after connecting before invoking a future dedicated handler; its first bounded read-only response must validate before watcher or staging operations. Stop-on-open is not performed."
         ble:
           pairing_required: false
           service_uuid: "8903136c-5f13-4548-a885-c58779136801"
           write_characteristic: "8903136c-5f13-4548-a885-c58779136802"
           read_characteristic: "8903136c-5f13-4548-a885-c58779136802"
         steps:
-          - action: "Confirm packet id 0 and Evo product 0/4 in the advertisement when available, reject Ari/product 5, then enumerate the native endpoints."
+          - action: "Using advertisement tooling, manually verify packet id 0 and Evo product 0/4. Do not select this profile for Ari/product 5, missing product bytes or a bare company/name/service match."
+            actor: "user"
+          - action: "Connect and enumerate native ...6801/...6802 before invoking any future dedicated handler; stop without sending RPC if those endpoints are absent."
             actor: "client"
           - action: "Force/retain MTU 23, enable native notifications, and do not coalesce or split an RPC packet except through future handler-managed long-RPC staging."
             actor: "client"
-          - action: "A future dedicated handler must read watchersInfo at 0x10073 for two bytes and validate response 2 result, exact length and data before any watcher region/setup or long-RPC staging. On timeout or malformed/failed response, send no further command and disconnect."
+          - action: "The handler's first operation must be a bounded watchersInfo MemRead at 0x10073 for two bytes; validate response 2 result, exact length and data before any other handler operation. On timeout or malformed/failed response, send no further command and disconnect."
             actor: "client"
-            expect: "The first native response proves the expected read-only dialect; no watcher or arbitrary RPC is attempted on an unvalidated candidate."
+            expect: "Post-connect native GATT and the first response prove the expected read-only dialect before watcher, staging or other RPC use."
           - action: "Only after that validation, allocate watcher/region IDs without exceeding 17 data bytes per watcher at MTU 23; use MemRead for the read-only memory map and disable every configured region and watcher on exit or partial setup failure."
             actor: "client"
             expect: "Validated response/event IDs and exact lengths; no persistent watcher is left active."
@@ -145,11 +137,13 @@ device:
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
-      notes: "BLE only: disconnect the previous central, disable any watchers first, then rediscover and negotiate the generation again."
+      notes: "BLE only: disconnect the previous central, disable any watchers first, then repeat manual Evo product verification and post-connect confirmation before handler use."
       steps:
         - action: "Disable all watcher setups/regions and disconnect the old client."
           actor: "client"
-        - action: "Reconnect by manufacturer device ID where available, enumerate the generation and re-create only required watchers."
+        - action: "Repeat manual packet id and Evo product verification; do not reconnect an Ari or unverified candidate."
+          actor: "user"
+        - action: "Reconnect and confirm the native generation before handler use; re-create only required watchers after the first-response gate."
           actor: "client"
     credentials:
       wifi_passphrase_protection: "not_applicable"
@@ -253,7 +247,16 @@ protocol_details:
       - {offset: 23, length: 1, name: "version_major", type: "uint8", mask: 0x7F}
       - {offset: 24, length: 1, name: "version_minor", type: "uint8"}
       - {offset: 25, length: 2, name: "version_patch", type: "uint16", endianness: "little", notes: "Present in the full 27-byte form; treat missing patch as 0 only for display."}
-    validation: "Reject lengths below 25, nonzero packet id, product values other than 0/4 and trailing lengths 26 when a full patch is required."
+    validation: "Manual verification rejects lengths below 25, nonzero packet id, product values other than 0/4 and trailing lengths 26 when a full patch is required."
+    unsupported_experimental_masked_matcher:
+      status: "unsupported_experimental"
+      consumer_limitation: "Schema-valid documentation only. Current mobile drops exact/masked manufacturer matchers and evaluates only prefixes, so this mask cannot operationalize Evo recognition or Ari rejection. discovery.none, manual product verification and post-connect confirmation are mandatory."
+      company_id: 1003
+      match: "masked"
+      pattern: "0000000000000000000000000000000000000000000000"
+      mask: "ff000000000000000000000000000000000000000000fb"
+      intent: "For a future masked-capable consumer: over 23 payload bytes require packet id 0 at offset 0 and product 0/4 at offset 22 (fb ignores only product bit 2). Product 5 Ari fails."
+      negative_test: "scripts/test_ozobot_evo_spec.py::test_unsupported_experimental_mask_rejects_ari checks the experimental bytes only; it is not a mobile capability claim."
     synthetic_vector:
       hex: "00 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 00 00 00 00 00 04 83 02 01 00"
       decoded: {packet_id: 0, device_id: "000102030405060708090a0b0c0d0e0f", product: 4, version: "3.2.1"}

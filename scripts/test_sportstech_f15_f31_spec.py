@@ -39,6 +39,8 @@ def decode_frame(data: bytes) -> dict:
         "elapsed_s": None,
         "distance_km": None,
     }
+    if len(data) == 6:
+        result["offset_3_raw"] = data[3]
     if len(data) == 17:
         result.update(
             speed=data[3] * 0.1,
@@ -86,7 +88,7 @@ class StreamDecoder:
 
 
 def test_exact_mode_length_pairs_and_starting_reserved_byte() -> None:
-    assert STARTING[3] == 0x05
+    assert decode_frame(STARTING)["offset_3_raw"] == 0x05
     valid_lengths = {0: 5, 2: 6, 3: 17, 4: 17}
     for frame in (STOPPED, STARTING, RUNNING, STOPPING):
         for mode in (0, 2, 3, 4):
