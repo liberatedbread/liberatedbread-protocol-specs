@@ -1171,9 +1171,6 @@ ENTITYLESS_CONTROL_SURFACES = {
     "aqara-hub": "The two commands are onboarding verbs (multicast whois, "
                  "encrypted credential push); the spec's own finding is that "
                  "no post-setup LAN control surface exists to bind.",
-    "picobrew-picostill": "Direct /data exposes nine raw fields whose units "
-                          "and conversions are unknown, so no unit-bearing "
-                          "entity can be declared; all actuation is excluded.",
 }
 
 
@@ -2653,6 +2650,30 @@ def test_bespoke_blocks_live_under_protocol_details(specs):
     }
     assert not stray, (
         f"undeclared top-level keys (move under protocol_details): {stray}"
+    )
+
+
+def test_openapi_only_keys_stay_out_of_http_endpoints(specs):
+    """Opaque OpenAPI metadata belongs in protocol_details, not fake bindings."""
+    invisible_endpoint_keys = {"query_parameters", "responses"}
+    invisible_body_keys = {"required", "required_fields"}
+    invisible_field_keys = {"example", "maxLength", "pattern"}
+    offenders = []
+    for device_id, spec in specs.items():
+        for endpoint in spec.get("http_endpoints") or []:
+            if invisible_endpoint_keys & set(endpoint):
+                offenders.append(f"{device_id}: {endpoint['method']} {endpoint['path']}")
+            body = endpoint.get("request_body") or {}
+            if invisible_body_keys & set(body):
+                offenders.append(f"{device_id}: {endpoint['method']} {endpoint['path']} request_body")
+            for field in body.get("fields") or []:
+                if invisible_field_keys & set(field):
+                    offenders.append(
+                        f"{device_id}: {endpoint['method']} {endpoint['path']} field {field.get('name')}"
+                    )
+    assert not offenders, (
+        "OpenAPI-only keys in http_endpoints; move them to "
+        "protocol_details.openapi.operations: " + ", ".join(offenders)
     )
 
 

@@ -27,7 +27,17 @@ FRAME_CAP = 16 * 1024 * 1024
 NETWORK_CAP = 1024 * 1024
 GZIP_THRESHOLD = 16256
 PRIORITIES = {0: "normal", 1: "bulk", 2: "background"}
-UUID_KEYS = {"id", "requestId", "transferId", "webapp"}
+UUID_KEYS = {
+    "id",
+    "requestId",
+    "transferId",
+    "webapp",
+    "connectionId",
+    "streamId",
+    "tunnelId",
+    "launcher",
+    "overlay",
+}
 
 
 @pytest.fixture(scope="module")
@@ -43,6 +53,11 @@ def details(spec: dict) -> dict:
 @pytest.fixture(scope="module")
 def vectors(details: dict) -> dict[str, dict]:
     return {vector["name"]: vector for vector in details["test_vectors"]}
+
+
+@pytest.fixture(scope="module")
+def uuid_vectors(details: dict) -> dict[str, dict]:
+    return {vector["name"]: vector for vector in details["uuid_test_vectors"]}
 
 
 def msgpack_decode(data: bytes) -> object:
@@ -191,6 +206,14 @@ def uuid_bytes(value: str) -> bytes:
     return uuid.UUID(value).bytes
 
 
+def is_uuid_string(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
 def encode_golden_envelope(decoded: dict) -> bytes:
     """Apply the documented JSON/raw-UUID mapping before MessagePack encoding."""
 
@@ -201,7 +224,7 @@ def encode_golden_envelope(decoded: dict) -> bytes:
             if key == "bytes" and all(isinstance(part, int) for part in value):
                 return bytes(value)
             return [convert(part) for part in value]
-        if isinstance(value, str) and key in UUID_KEYS:
+        if isinstance(value, str) and key in UUID_KEYS and is_uuid_string(value):
             return uuid_bytes(value)
         return value
 
@@ -502,6 +525,52 @@ def test_golden_transfer_fragments_and_gap_rejection(vectors):
         assemble_transfer([], 256 * 1024 + 1)
 
 
+def test_nested_uuid_vectors_cover_every_upstream_field(details, vectors, uuid_vectors):
+    declared = details["envelope"]["uuid"]
+    assert set(declared["fields"]) == UUID_KEYS
+    assert set(uuid_vectors) == {
+        "client_to_bridge/tts-uuid",
+        "client_to_bridge/tts-cancel-uuid",
+        "client_to_bridge/ws-close-uuid",
+        "client_to_bridge/ws-send-uuid",
+        "client_to_bridge/stream-open-uuid",
+        "client_to_bridge/stream-cancel-uuid",
+        "bridge_to_gateway/tunnel-data-uuid",
+        "bridge_to_gateway/webapp-slots-uuid",
+        "bridge_to_gateway/forward-webapp-uuid",
+    }
+
+    seen = set()
+
+    def check_binary(value, key=None):
+        if isinstance(value, dict):
+            for name, part in value.items():
+                if name in UUID_KEYS and part is not None:
+                    if isinstance(part, bytes):
+                        assert len(part) == 16
+                        seen.add(name)
+                    elif name != "id" or not isinstance(part, str) or is_uuid_string(part):
+                        raise AssertionError(f"{name} must be MessagePack bin when it is a UUID")
+                check_binary(part, name)
+        elif isinstance(value, list):
+            for part in value:
+                check_binary(part, key)
+
+    for vector in [*vectors.values(), *uuid_vectors.values()]:
+        decoded = decode_vector(vector)
+        check_binary(decoded["message"])
+        assert normalize_decoded(decoded["message"]) == vector["decoded_json"]
+        assert json.loads(json.dumps(vector["decoded_json"])) == vector["decoded_json"]
+        payload = encode_golden_envelope(vector["decoded_json"])
+        priority = {name: code for code, name in PRIORITIES.items()}[vector["priority"]]
+        assert frame(payload, priority=priority).hex() == vector["framed_hex"]
+
+    assert seen == UUID_KEYS
+    for payload_type in ("Tts", "TtsCancel", "NetWsClose", "NetWsSend", "NetStreamOpen", "NetStreamCancel"):
+        assert "UUID" in details["payload_types"][payload_type]
+        assert "string" not in details["payload_types"][payload_type].split("UUID")[0]
+
+
 def test_typed_catalogue_is_directional_and_complete(details):
     rows = details["typed_command_catalogue"]["rows"]
     keys = {(row["direction"], row["surface"], row["event"]) for row in rows}
@@ -538,6 +607,8 @@ def test_typed_catalogue_is_directional_and_complete(details):
 def test_scope_and_ios_alternative_are_explicit(spec):
     device = spec["device"]
     assert device["testing"]["status"] == "untested"
+    assert device["integration"] == "identify_only"
+    assert "entities" not in spec
     assert spec["local_access"]["status"] == "firmware_replacement"
     assert "never stock" in spec["protocol_details"]["scope"]["firmware"]
     profile = spec["bluetooth_classic"]["profiles"][0]

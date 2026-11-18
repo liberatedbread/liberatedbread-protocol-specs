@@ -140,12 +140,17 @@ def test_noop_state_change_and_session_closure_are_not_emergency_stops(spec):
 
 def test_untested_scope_and_full_lifecycle_answers(spec):
     assert spec["device"]["testing"]["status"] == "untested"
+    assert spec["device"]["integration"] == "identify_only"
     assert spec["local_access"]["status"] == "native"
     assert spec["device"]["setup"]["required"] is False
     assert spec["device"]["setup"]["methods"][0]["verified"] is False
     assert spec["device"]["setup"]["factory_reset"]["applicable"] == "unknown"
     assert spec["device"]["setup"]["rejoin"]["requires_factory_reset"] is False
     assert spec["device"]["pairing"]["required"] is False
+    assert "content_type" not in spec["http_endpoints"][0]["response_body"]
+    assert "independently of the HTTP Content-Type header" in (
+        spec["protocol_details"]["direct_appliance_telemetry"]["record_encoding"]
+    )
     assert spec["remaining_unknowns"]
     unknowns = " ".join(spec["remaining_unknowns"])
     assert "Units, scaling, precision" in unknowns

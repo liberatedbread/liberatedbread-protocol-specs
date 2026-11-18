@@ -2,6 +2,7 @@
 
 > **Status**: Spec Available, untested
 > **Protocol**: Wi-Fi, device-local HTTP
+> **Integration**: Supported through the declared HTTP command/entity bindings
 > **Manufacturer**: Violet / Mindscape hardware; ServerlessNabaztag replacement firmware
 > **Manufacturer Status**: Original platform shut down
 
@@ -13,8 +14,10 @@ and it does not cover Karotz. Nothing here has been replayed against hardware.
 
 The spec
 [`nabaztag-tag-serverless.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/nabaztag-tag-serverless.yaml)
-contains all 33 paths and 34 operations from OpenAPI 1.1.0, with parameter
-constraints, form encodings, and responses. The replacement project and its
+contains all 33 paths and 34 operations from OpenAPI 1.1.0. Exact parameter
+constraints, form encodings, and responses live under
+`protocol_details.openapi.operations`; executable controls use only declared
+command parameters and endpoint request/response fields. The replacement project and its
 [OpenAPI document](https://github.com/andreax79/ServerlessNabaztag/blob/63e654955aadffeff82786d03d345cd6e910d230/vl/api/openapi.yaml)
 are authoritative.
 

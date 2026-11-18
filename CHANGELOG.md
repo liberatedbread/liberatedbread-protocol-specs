@@ -33,9 +33,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   all 34 OpenAPI operations, head-button SoftAP setup, and separate resource,
   weather, NTP, and AI dependencies; relay secrets never reside on the rabbit.
   PicoStill is limited to raw nine-field `GET /data` telemetry with unknown
-  units and no actuation or firmware bindings. Existing PicoBrew research now
-  distinguishes appliance-to-replacement-server routes, the no-op
-  `picoChangeState`, and the absence of an HTTP emergency stop.
+  units and no actuation or firmware bindings. Bridgething and PicoStill are
+  identify-only until bespoke consumers exist; Nabaztag retains supported
+  command/entity bindings while exact OpenAPI metadata lives in
+  `protocol_details`. Existing PicoBrew research now distinguishes
+  appliance-to-replacement-server routes, the no-op `picoChangeState`, and the
+  absence of an HTTP emergency stop.
 
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current

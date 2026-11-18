@@ -2,6 +2,7 @@
 
 > **Status**: Spec Available, untested
 > **Protocol**: Bluetooth Classic RFCOMM, iAP2, WebSocket
+> **Integration**: Identify-only until a bespoke typed-envelope consumer exists
 > **Manufacturer**: Spotify hardware; Bridgething replacement daemon
 > **Manufacturer Status**: Stock service ended; custom firmware required
 
@@ -124,10 +125,17 @@ Every message has a fresh UUID, `meta.kind`, and typed `data`:
 }
 ```
 
-MessagePack uses named maps and 16 raw UUID bytes. JSON uses a lowercase
-hyphenated UUID string. The outer `type` selects a surface and the inner
-`event` selects its variant; `meta.kind` must be legal for that variant. These
-are typed envelopes, not arbitrary JSON method calls.
+MessagePack uses named maps. Every upstream UUID-typed field serializes as 16
+raw binary bytes, never as a UTF-8 string; JSON uses a lowercase hyphenated UUID
+string. This applies recursively to `id`, `requestId`, `transferId`, `webapp`,
+`connectionId`, `streamId`, `tunnelId`, `launcher`, and `overlay`, including TTS,
+WebSocket, stream, tunnel, and webapp-slot payloads. Opaque asset identifiers
+such as `spotify/img/248/cover` are not UUIDs and remain strings. The containing
+payload type decides which representation applies.
+
+The outer `type` selects a surface and the inner `event` selects its variant;
+`meta.kind` must be legal for that variant. These are typed envelopes, not
+arbitrary JSON method calls.
 
 A response gets a fresh `id` and puts the request's UUID in
 `meta.data.requestId`. Answer every request exactly once. Successful commands

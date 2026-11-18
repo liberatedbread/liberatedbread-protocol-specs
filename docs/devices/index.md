@@ -276,9 +276,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Teenage Engineering OP-Z](teenage-engineering-op-z.md) | BLE-MIDI + USB | Spec Available (untested) | Manual BLE-MIDI selection (low) | teenage engineering |
 | [Sensirion BLE Gadgets](sensirion-ble-gadgets.md) | BLE (passive + GATT logger) | Spec Available (untested) | Model-specific (low) | Sensirion |
 | [Sensirion SHT31 Smart Humigadget](sensirion-sht31-smart-gadget.md) | BLE | Spec Available (untested) | ble_direct (medium) | Sensirion |
-| [Spotify Car Thing with Bridgething](spotify-car-thing-bridgething.md) | Bluetooth Classic RFCOMM + iAP2/WebSocket | Spec Available (untested) | Custom firmware + Bluetooth pairing (medium) | Spotify / Bridgething |
+| [Spotify Car Thing with Bridgething](spotify-car-thing-bridgething.md) | Bluetooth Classic RFCOMM + iAP2/WebSocket | Identify-only (untested) | Custom firmware + Bluetooth pairing (medium) | Spotify / Bridgething |
 | [Nabaztag/tag with ServerlessNabaztag](nabaztag-tag-serverless.md) | WiFi HTTP | Spec Available (untested) | Custom firmware + head-button SoftAP (medium) | Violet / Mindscape / ServerlessNabaztag |
-| [PicoBrew PicoStill](picobrew-picostill.md) | WiFi HTTP (read-only) | Spec Available (untested) | Already networked; no client onboarding (medium) | PicoBrew |
+| [PicoBrew PicoStill](picobrew-picostill.md) | WiFi HTTP (read-only) | Identify-only (untested) | Already networked; no client onboarding (medium) | PicoBrew |
 
 ## Not everything here was liberated
 

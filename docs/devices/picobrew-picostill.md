@@ -2,6 +2,7 @@
 
 > **Status**: Spec Available, untested
 > **Protocol**: Wi-Fi, read-only HTTP
+> **Integration**: Identify-only until a bespoke monitoring consumer exists
 > **Manufacturer**: PicoBrew Inc.
 > **Manufacturer Status**: Shutdown / receivership
 
@@ -46,7 +47,9 @@ appliance merely to obtain telemetry or end a session.
 
 ## Nine-field response
 
-The response is one `#...#` record with exactly nine comma-separated fields:
+Parse the response as text independently of the HTTP `Content-Type` header; the
+actual MIME type is unestablished. The response is one `#...#` record with
+exactly nine comma-separated fields:
 
 ```text
 #t1,t2,t3,t4,pres,ok,d1,d2,errmsg#

@@ -198,6 +198,16 @@ def endpoints(spec: dict) -> dict[tuple[str, str], dict]:
     return result
 
 
+@pytest.fixture(scope="module")
+def operations(spec: dict) -> dict[tuple[str, str], dict]:
+    result = {}
+    for operation in spec["protocol_details"]["openapi"]["operations"]:
+        key = (operation["method"], operation["path"])
+        assert key not in result, f"duplicate OpenAPI operation {key}"
+        result[key] = operation
+    return result
+
+
 def normalized_form(endpoint: dict) -> dict | None:
     body = endpoint.get("request_body")
     if body is None:
@@ -228,13 +238,13 @@ def expected_form(form: dict | None) -> dict | None:
     return {"required": form["required"], "fields": fields}
 
 
-def test_every_openapi_route_method_parameter_and_response_matches(endpoints):
-    assert set(endpoints) == set(EXPECTED)
-    assert len(endpoints) == 34
-    assert len({path for _, path in endpoints}) == 33
+def test_every_openapi_route_method_parameter_and_response_matches(operations):
+    assert set(operations) == set(EXPECTED)
+    assert len(operations) == 34
+    assert len({path for _, path in operations}) == 33
 
     for key, (parameters, form, responses) in EXPECTED.items():
-        endpoint = endpoints[key]
+        operation = operations[key]
         actual_parameters = [
             {
                 "name": parameter["name"],
@@ -242,19 +252,19 @@ def test_every_openapi_route_method_parameter_and_response_matches(endpoints):
                 "required": parameter["required"],
                 "schema": parameter["schema"],
             }
-            for parameter in endpoint.get("query_parameters", [])
+            for parameter in operation.get("query_parameters", [])
         ]
         assert actual_parameters == parameters, f"{key}: query contract"
-        assert normalized_form(endpoint) == expected_form(form), f"{key}: form contract"
-        assert endpoint["responses"] == responses, f"{key}: response contract"
+        assert normalized_form(operation) == expected_form(form), f"{key}: form contract"
+        assert operation["responses"] == responses, f"{key}: response contract"
 
 
-def test_only_json_documented_responses_have_json_content(endpoints):
+def test_only_json_documented_responses_have_json_content(operations, endpoints):
     json_routes = {("GET", "/status"), ("GET", "/animations"), ("GET", "/tasks"), ("POST", "/forth")}
-    for key, endpoint in endpoints.items():
+    for key, operation in operations.items():
         json_responses = [
             response
-            for response in endpoint["responses"].values()
+            for response in operation["responses"].values()
             if "content" in response
         ]
         if key in json_routes:
@@ -262,22 +272,26 @@ def test_only_json_documented_responses_have_json_content(endpoints):
             content = json_responses[0]["content"]
             assert set(content) == {"application/json"}
             assert content["application/json"]["schema"] == {"type": "object"}
+            assert endpoints[key]["response_body"] == {"content_type": "application/json"}
         else:
             assert not json_responses
-            assert set(endpoint["responses"]) == {"204"}
+            assert set(operation["responses"]) == {"204"}
+            assert "response_body" not in endpoints[key]
 
 
-def test_form_examples_percent_encode_literal_values_once(endpoints):
-    leds = endpoints[("POST", "/leds")]
+def test_form_examples_percent_encode_literal_values_once(operations, endpoints):
+    leds = operations[("POST", "/leds")]
     led_values = [(field["name"], field["example"]) for field in leds["request_body"]["fields"]]
     assert urlencode(led_values) == "n=-1&l=%23ff0000&c=%2300ff00&r=-1&b=-1"
     assert leds["request_body"]["example"] == urlencode(led_values)
     assert "#ff0000" not in leds["request_body"]["example"].split("&")[1]
+    assert endpoints[("POST", "/leds")]["request_body"]["example"] == urlencode(led_values)
 
-    forth = endpoints[("POST", "/forth")]
+    forth = operations[("POST", "/forth")]
     code = forth["request_body"]["fields"][0]["example"]
     assert forth["request_body"]["example"] == urlencode({"c": code})
     assert forth["request_body"]["example"] == "c=left-ear+forward+10+move-ear"
+    assert endpoints[("POST", "/forth")]["request_body"]["example"] == urlencode({"c": code})
 
 
 def validate_value(value: object, schema: dict) -> None:
@@ -334,9 +348,9 @@ def test_every_query_schema_accepts_an_independent_representative():
             validate_value(representative(parameter["schema"]), parameter["schema"])
 
 
-def test_ranges_patterns_and_transport_constraints(endpoints):
+def test_ranges_patterns_and_transport_constraints(operations):
     for side in ("left", "right"):
-        params = endpoints[("GET", f"/{side}")]["query_parameters"]
+        params = operations[("GET", f"/{side}")]["query_parameters"]
         assert params[0]["schema"]["minimum"] == 0
         assert params[0]["schema"]["maximum"] == 16
         assert params[1]["schema"]["enum"] == [0, 1]
@@ -362,7 +376,7 @@ def test_device_local_routes_do_not_acquire_platform_prefix(spec, endpoints):
     assert spec["device"]["discovery"]["none"]
 
 
-def test_external_dependencies_are_separate_and_relay_secrets_stay_off_rabbit(spec):
+def test_external_dependencies_are_separate_and_relay_secrets_stay_off_rabbit(spec, operations):
     external = spec["protocol_details"]["external_dependencies"]
     assert set(external) == {"resource_fetch", "weather", "ntp", "ai"}
     assert external["resource_fetch"]["requirement"].startswith("Plain HTTP only")
@@ -376,11 +390,41 @@ def test_external_dependencies_are_separate_and_relay_secrets_stay_off_rabbit(sp
     assert "stored in rabbit flash" in secret_rule
     assert "exposed through /status" in secret_rule
 
-    for endpoint in spec["http_endpoints"]:
-        for parameter in endpoint.get("query_parameters", []):
+    for operation in operations.values():
+        for parameter in operation.get("query_parameters", []):
             assert parameter["name"] not in {"key", "api_key", "apikey", "token", "password"}
+        for field in operation.get("request_body", {}).get("fields", []):
+            assert field["name"] not in {"key", "api_key", "apikey", "token", "password"}
+    for endpoint in spec["http_endpoints"]:
         for field in endpoint.get("request_body", {}).get("fields", []):
             assert field["name"] not in {"key", "api_key", "apikey", "token", "password"}
+
+
+def test_revised_bindings_are_consumable(spec):
+    assert spec["device"].get("integration", "supported") == "supported"
+    expected_paths = {
+        "stop_activity": "/stop",
+        "sleep_rabbit": "/sleep",
+        "wake_rabbit": "/wakeup",
+        "left_ear_forward": "/left?p={position}&d=0",
+        "right_ear_forward": "/right?p={position}&d=0",
+        "nose_status": "/nose?v={state}",
+        "reboot_rabbit": "/reboot",
+    }
+    for name, path in expected_paths.items():
+        command = spec["commands"][name]
+        assert command["transport"] == "http"
+        assert command["method"] == "GET"
+        assert command["path"] == path
+    for name in ("left_ear_forward", "right_ear_forward"):
+        assert spec["commands"][name]["parameters"]["position"] == {
+            "type": "integer", "required": True, "min": 0, "max": 16
+        }
+    assert set(spec["commands"]["nose_status"]["parameters"]["state"]["values"]) == {0, 1, 2, 3, 4}
+    for entity in spec["entities"]:
+        for role in entity["commands"].values():
+            command_name = role if isinstance(role, str) else role["command"]
+            assert command_name in spec["commands"]
 
 
 def test_reboot_and_forth_are_advanced_and_status_entities_are_not_invented(spec, endpoints):

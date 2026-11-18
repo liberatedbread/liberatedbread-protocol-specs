@@ -18,6 +18,7 @@ device:
   category: "display"
   category_hierarchy: ["display", "screen"]
   type: "automotive-display-custom-daemon"
+  integration: "identify_only"
   aliases: ["Car Thing", "superbird", "Bridgething"]
   openness:
     status: "open_by_design"
@@ -273,9 +274,12 @@ protocol_details:
       data: "{type: <surface>, data: {event: <variant>, data: <typed payload>}}; unit variants omit their inner data."
     tagging: "Outer type and inner event are camelCase. The variant fixes the legal meta.kind."
     uuid:
-      msgpack: "16 raw bytes (bin), not a 36-byte string."
-      json: "Canonical lowercase hyphenated UUID string."
+      fields: ["id", "requestId", "transferId", "webapp", "connectionId", "streamId", "tunnelId", "launcher", "overlay"]
+      msgpack: "When a field named in fields is declared uuid::Uuid, it serializes as 16 raw bytes (MessagePack bin), never as a UTF-8 string, including when nested in TTS, WebSocket, stream, tunnel, or webapp-slot payloads."
+      json: "The same UUID-typed fields serialize as canonical lowercase hyphenated UUID strings in JSON. launcher and overlay are nullable; null is not a UUID byte string."
+      opaque_id_exception: "Some payloads also use id for opaque asset or other non-UUID identifiers. Those remain strings; only an actual UUID-typed id uses the 16-byte representation. The containing payload type is authoritative."
       correlation: "A response has a fresh id and meta.data.requestId equal to the request's id. Never match by response id, arrival order, or surface alone."
+      type_note: "TypeScript string annotations describe the JSON representation only. They do not change the MessagePack binary representation."
     request_rules:
       - "Answer every request with exactly one response; unanswered requests time out."
       - "A request may instead return a domain error on its own reply variant; distinguish it from a WireError."
@@ -374,8 +378,8 @@ protocol_details:
     AssetPreload: "{ids: string[]; only first 64 used}"
     SetVolume: "{level: number}"
     SetMute: "{muted: boolean}"
-    Tts: "{id: string, text: string, voice: optional string}"
-    TtsCancel: "{id: string}"
+    Tts: "{id: UUID, text: string, voice: optional string}"
+    TtsCancel: "{id: UUID}"
     Earcon: "{name: string}"
     ConnectBluetooth: "{mac: string}"
     SetBluetoothAlias: "{name: string}"
@@ -385,10 +389,21 @@ protocol_details:
     FavoritesToggle: "{item: ItemRef}"
     FavoritesSet: "{item: ItemRef, liked: boolean}"
     FavoritesSetMany: "{entries: FavoritesSet[]}"
-    NetWsClose: "{connectionId: string, code: optional number, reason: optional string}"
-    NetWsSend: "{connectionId: string, frame: WsFrame}"
-    NetStreamOpen: "{streamId: string, request: NetFetchRequest}"
-    NetStreamCancel: "{streamId: string}"
+    NetWsOpen: "{connectionId: UUID, url: string, protocols: optional string[], headers: optional HttpHeader[]}"
+    NetWsClose: "{connectionId: UUID, code: optional u16, reason: optional string}"
+    NetWsSend: "{connectionId: UUID, frame: WsFrame}"
+    NetStreamOpen: "{streamId: UUID, request: NetFetchRequest}"
+    NetStreamCancel: "{streamId: UUID}"
+    NetFetchRequest: "{url: string, method: GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS, headers: HttpHeader[], body: optional bytes, timeoutMs: optional u32, redirect: follow|manual|error}"
+    WsFrame: "{type: text|binary, data: string for text or bytes for binary}"
+    StreamBegin: "{streamId: UUID, status: u16, headers: HttpHeader[], totalSize: optional u32}"
+    StreamChunk: "{streamId: UUID, offset: u32, bytes: binary}"
+    StreamEnd: "{streamId: UUID}"
+    TunnelOpen: "{tunnelId: UUID, host: string, port: u16}"
+    TunnelData: "{tunnelId: UUID, bytes: binary}"
+    TunnelAck: "{tunnelId: UUID, consumed: u32}"
+    TunnelClosed: "{tunnelId: UUID, reason: optional string}"
+    WebappSlots: "{launcher: optional UUID, overlay: optional UUID}"
     NotificationInvoke: "{id: string}"
     PhoneCallAction: "{callId: string}"
     PhoneAcceptAction: "{callId: string, action: AcceptCallAction}"
@@ -710,6 +725,125 @@ protocol_details:
         data: {type: "error", data: {type: "unsupported"}}
       framed_hex: "dead020000000000000000000000007483a26964c4100192f2a0bbb07c00a000000000000001a46d65746182a46b696e64a8726573706f6e7365a46461746181a9726571756573744964c4100192f2a0bbb07c00a000000000000099a46461746182a474797065a56572726f72a46461746181a474797065ab756e737570706f72746564"
 
+  uuid_test_vector_source: "Synthetic vectors derived from the upstream uuid::Uuid field declarations, using documentation UUIDs and TEST-NET-1; these are not upstream golden fixtures."
+  uuid_test_vectors:
+    - name: "client_to_bridge/tts-uuid"
+      direction: "client_to_bridge"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000017"
+        meta: {kind: "command"}
+        data:
+          type: "audio"
+          data:
+            event: "tts"
+            data: {id: "0192f2a0-bbb0-7c00-a000-000000000018", text: "hello", voice: "marin"}
+      framed_hex: "dead020000000000000000000000007c83a26964c4100192f2a0bbb07c00a000000000000017a46d65746181a46b696e64a7636f6d6d616e64a46461746182a474797065a5617564696fa46461746182a56576656e74a3747473a46461746183a26964c4100192f2a0bbb07c00a000000000000018a474657874a568656c6c6fa5766f696365a56d6172696e"
+    - name: "client_to_bridge/tts-cancel-uuid"
+      direction: "client_to_bridge"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000018"
+        meta: {kind: "command"}
+        data:
+          type: "audio"
+          data:
+            event: "ttsCancel"
+            data: {id: "0192f2a0-bbb0-7c00-a000-000000000018"}
+      framed_hex: "dead020000000000000000000000006b83a26964c4100192f2a0bbb07c00a000000000000018a46d65746181a46b696e64a7636f6d6d616e64a46461746182a474797065a5617564696fa46461746182a56576656e74a974747343616e63656ca46461746181a26964c4100192f2a0bbb07c00a000000000000018"
+    - name: "client_to_bridge/ws-close-uuid"
+      direction: "client_to_bridge"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000019"
+        meta: {kind: "command"}
+        data:
+          type: "net"
+          data:
+            event: "wsClose"
+            data: {connectionId: "0192f2a0-bbb0-7c00-a000-000000000020", code: 1000, reason: "done"}
+      framed_hex: "dead020000000000000000000000008583a26964c4100192f2a0bbb07c00a000000000000019a46d65746181a46b696e64a7636f6d6d616e64a46461746182a474797065a36e6574a46461746182a56576656e74a77773436c6f7365a46461746183ac636f6e6e656374696f6e4964c4100192f2a0bbb07c00a000000000000020a4636f6465cd03e8a6726561736f6ea4646f6e65"
+    - name: "client_to_bridge/ws-send-uuid"
+      direction: "client_to_bridge"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000020"
+        meta: {kind: "command"}
+        data:
+          type: "net"
+          data:
+            event: "wsSend"
+            data:
+              connectionId: "0192f2a0-bbb0-7c00-a000-000000000020"
+              frame: {type: "text", data: "ping"}
+      framed_hex: "dead020000000000000000000000008b83a26964c4100192f2a0bbb07c00a000000000000020a46d65746181a46b696e64a7636f6d6d616e64a46461746182a474797065a36e6574a46461746182a56576656e74a6777353656e64a46461746182ac636f6e6e656374696f6e4964c4100192f2a0bbb07c00a000000000000020a56672616d6582a474797065a474657874a464617461a470696e67"
+    - name: "client_to_bridge/stream-open-uuid"
+      direction: "client_to_bridge"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000021"
+        meta: {kind: "command"}
+        data:
+          type: "net"
+          data:
+            event: "streamOpen"
+            data:
+              streamId: "0192f2a0-bbb0-7c00-a000-000000000022"
+              request: {url: "http://192.0.2.1/data", method: "GET", headers: [], redirect: "follow"}
+      framed_hex: "dead02000000000000000000000000b783a26964c4100192f2a0bbb07c00a000000000000021a46d65746181a46b696e64a7636f6d6d616e64a46461746182a474797065a36e6574a46461746182a56576656e74aa73747265616d4f70656ea46461746182a873747265616d4964c4100192f2a0bbb07c00a000000000000022a77265717565737484a375726cb5687474703a2f2f3139322e302e322e312f64617461a66d6574686f64a3474554a76865616465727390a87265646972656374a6666f6c6c6f77"
+    - name: "client_to_bridge/stream-cancel-uuid"
+      direction: "client_to_bridge"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000022"
+        meta: {kind: "command"}
+        data:
+          type: "net"
+          data:
+            event: "streamCancel"
+            data: {streamId: "0192f2a0-bbb0-7c00-a000-000000000022"}
+      framed_hex: "dead020000000000000000000000007283a26964c4100192f2a0bbb07c00a000000000000022a46d65746181a46b696e64a7636f6d6d616e64a46461746182a474797065a36e6574a46461746182a56576656e74ac73747265616d43616e63656ca46461746181a873747265616d4964c4100192f2a0bbb07c00a000000000000022"
+    - name: "bridge_to_gateway/tunnel-data-uuid"
+      direction: "bridge_to_gateway"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000023"
+        meta: {kind: "command"}
+        data:
+          type: "tunnel"
+          data:
+            event: "data"
+            data: {tunnelId: "0192f2a0-bbb0-7c00-a000-000000000024", bytes: [1, 2, 3]}
+      framed_hex: "dead020000000000000000000000007883a26964c4100192f2a0bbb07c00a000000000000023a46d65746181a46b696e64a7636f6d6d616e64a46461746182a474797065a674756e6e656ca46461746182a56576656e74a464617461a46461746182a874756e6e656c4964c4100192f2a0bbb07c00a000000000000024a56279746573c403010203"
+    - name: "bridge_to_gateway/webapp-slots-uuid"
+      direction: "bridge_to_gateway"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000025"
+        meta:
+          kind: "response"
+          data: {requestId: "0192f2a0-bbb0-7c00-a000-000000000016"}
+        data:
+          type: "webapp"
+          data:
+            event: "slots"
+            data: {launcher: "0192f2a0-bbb0-7c00-a000-000000000026", overlay: "0192f2a0-bbb0-7c00-a000-000000000027"}
+      framed_hex: "dead02000000000000000000000000ab83a26964c4100192f2a0bbb07c00a000000000000025a46d65746182a46b696e64a8726573706f6e7365a46461746181a9726571756573744964c4100192f2a0bbb07c00a000000000000016a46461746182a474797065a6776562617070a46461746182a56576656e74a5736c6f7473a46461746182a86c61756e63686572c4100192f2a0bbb07c00a000000000000026a76f7665726c6179c4100192f2a0bbb07c00a000000000000027"
+    - name: "bridge_to_gateway/forward-webapp-uuid"
+      direction: "bridge_to_gateway"
+      priority: "normal"
+      decoded_json:
+        id: "0192f2a0-bbb0-7c00-a000-000000000028"
+        meta: {kind: "event"}
+        data:
+          type: "forward"
+          data:
+            event: "routed"
+            data:
+              webapp: "0192f2a0-bbb0-7c00-a000-000000000029"
+              message: {encoding: "text", data: "hello"}
+      framed_hex: "dead020000000000000000000000008e83a26964c4100192f2a0bbb07c00a000000000000028a46d65746181a46b696e64a56576656e74a46461746182a474797065a7666f7277617264a46461746182a56576656e74a6726f75746564a46461746182a6776562617070c4100192f2a0bbb07c00a000000000000029a76d65737361676582a8656e636f64696e67a474657874a464617461a568656c6c6f"
+
 local_access:
   status: "firmware_replacement"
   summary: >
@@ -725,15 +859,6 @@ local_access:
     - "Any stock Spotify firmware control protocol"
     - "Firmware installation, bootloader access, and image format"
     - "Network listener authentication/access control, which is unknown"
-
-entities:
-  - platform: "sensor"
-    name: "Bridgething Daemon"
-    notes: >
-      Presence/identity marker only. This is not a generic control binding:
-      the useful surface consists of directional, UUID-correlated typed
-      msgpack/JSON envelopes in protocol_details, which the schema's plain JSON
-      WebSocket and RFCOMM command arms cannot faithfully represent.
 
 remaining_unknowns:
   - "Physical installation and factory-reset procedures, their erase scope, and whether bonds survive them."
