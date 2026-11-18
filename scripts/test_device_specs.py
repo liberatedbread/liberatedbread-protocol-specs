@@ -3625,6 +3625,7 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
     # ServerlessNabaztag's head-button setup AP uses the same product-fixed IP.
     "192.168.0.1": frozenset({
         "frigidaire-portable-ac", "frigidaire-window-ac", "nabaztag-tag-serverless",
+        "tplink-tapo-klap",
         "docs/devices/frigidaire-local-api-audit.md", "docs/devices/frigidaire-ac.md",
     }),
     # AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket.
@@ -3671,6 +3672,9 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
         "limitlessled-milight-bridge", "govee-home-apk-v7.5.30",
         "docs/CLEANROOM_RULES.md",
     }),
+    # Meross setup AP; Sonoff/eWeLink setup AP.
+    "10.10.10.1": frozenset({"meross-wifi-appliances"}),
+    "10.10.7.1": frozenset({"sonoff-ewelink-lan"}),
     # Wemo setup AP.
     "10.22.22.1": frozenset({
         "wemo-devices", "docs/devices/wemo-setup.md", "docs/protocols/device-setup.md",
