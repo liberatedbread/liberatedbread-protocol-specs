@@ -1,0 +1,509 @@
+# ANT Smart BMS legacy and 2021+ BLE — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: official legacy four-page protocol document, two official apps,
+# and three pinned public implementations. No battery or live radio accessed.
+
+device:
+  name: "ANT Smart BMS (legacy and 2021+ BLE)"
+  manufacturer: "Shenzhen ANT (Zhuofeng)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against a battery/BMS by this project. The official legacy
+      protocol document and exact model lists, public frame fixtures, and
+      current/legacy Python decoders were reviewed without live contact.
+      Fallback channel behavior and one-versus-two-byte length prose need
+      real captures. Every telemetry/control fact is reported, not confirmed.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "energy"
+  type: "battery-management-system"
+  notes: >
+    Read-only local telemetry for two incompatible ANT generations. The
+    legacy 2019/2020 Smart 7S-32S / BMS-12 / BMS-24 protocol returns exactly
+    140 bytes headed AA 55 AA FF. The 2021+ protocol starts 7E A1, has a
+    one-byte length and CRC-16/Modbus, and moves scalar offsets with cell and
+    temperature counts. The shared FFE0 service does NOT make those formats
+    interchangeable.
+
+    No FET, balancing, calibration, protection, factory-default, DTU, vehicle
+    or firmware write is offered. The only non-read operation is optional
+    owner-secret authentication on 2021+ and a bounded read-only probe used
+    to select a working GATT channel. Telemetry is not a battery safety
+    interlock; the BMS hardware's own protections remain authoritative.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/patman15/aiobmsble"
+    license: "Apache-2.0"
+    upstream_docs:
+      - url: "https://github.com/syssi/esphome-ant-bms/blob/f93196ecd7917ad138300bdee0390732ec61eabb/docs/ANT_communication_protocol_EN.1.pdf"
+        title: "ANT asynchronous serial/Bluetooth communication protocol (legacy)"
+        covers: "Six-byte Bluetooth status request, 140-byte response and fixed field offsets."
+    notes: >
+      The four-page legacy document is official but does not cover 2021+.
+      New framing, dynamic offsets, authentication and fallback channels come
+      from public clients and app static analysis, not a vendor publication.
+  safety_advisory:
+    severity: "warning"
+    summary: "Use these readings as non-safety-critical telemetry only; never as a substitute for the pack's protection hardware."
+    detail: >
+      A wrong generation, dynamic offset or current sign can make plausible
+      values wrong. Validate the exact frame and CRC before using any reading,
+      and do not drive contactors, chargers, loads or alarms solely from this
+      document. Parameter/FET/factory writes can damage a lithium pack and
+      are intentionally excluded.
+    acknowledge_required: true
+
+  identification:
+    local_name_prefixes: ["ANT-BLE", "ANT@BLE", "ANT~BLE"]
+    notes: >
+      Names are candidate matchers only, not proof of generation. Do not
+      require FFE0 in discovery: schema name/service matching is OR, and FFE0
+      belongs only to the post-connect GATT/fallback path. Generation selection
+      must follow protocol_details.generation_selection because prefixes collide.
+      ANT-BLE16ZMUB and ANT-BLE04DMUB look like legacy [01] names, and
+      ANT@BLE22AAUB resembles the legacy ANT-BLE22* pattern, yet all three
+      are documented 2021+ boards. Known 2021+ identities win first.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^ANT[-@~]BLE"
+        notes: "Match the ANT name prefix only. Validate a generation-appropriate response after connecting before decoding; FFE0 is used only as the default GATT/fallback channel."
+    identity:
+      stable_keys: ["address", "local_name"]
+      display: "local_name"
+      notes: "Keep model/hardware strings from device info; do not log owner MAC addresses or authentication secrets."
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Open units need only connect/subscribe/read. Some 2021+ units instead
+      require the owner's application secret before answering; no account or
+      OS bond is needed. Confidence is high for the documented default FFE1
+      paths, lower for fallback channels and unlisted models.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Select the generation, subscribe to FFE1, and issue the matching
+          status read. On 2021+ units configured for authentication, perform
+          function 0x23 with the owner's own ASCII secret first.
+        ble:
+          service_uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+          pairing_required: false
+        steps:
+          - action: "Match a known 2021+ identity first, then the generic 2021+ and legacy name rules; do not choose by FFE0 alone."
+            actor: "client"
+          - action: "Subscribe to FFE1 and send exactly one matching status request: six-byte legacy DB request or ten-byte 7E A1 request."
+            actor: "client"
+            expect: "Legacy returns 140 bytes; 2021+ returns function 0x11. Reject wrong headers, lengths and checksums."
+          - action: "If a 2021+ unit stays silent pending application authentication, send function 0x23 at 0x6a01 with the owner's secret, then retry the status read."
+            actor: "client"
+            expect: "A valid 0x11 response; wrong secrets only time out in the public client and must not be retried indiscriminately."
+          - action: "Only if FFE1 is absent or produces no valid reply, enumerate actual parent services and try the fallback pairs in protocol_details.gatt_fallback, one bounded read-only probe at a time."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        The legacy register table includes factory-default and reboot control
+        addresses, but their effect on cell count, capacity, protection
+        thresholds, calibration and secrets is not established for these
+        boards. No reset command is supplied.
+      description: >
+        A BMS reset is a safety-relevant pack-configuration operation, not a
+        BLE onboarding step. Ordinary client migration needs no reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership or OS bond exists. Rediscover, select the same
+        generation/channel and repeat reads; supply the existing owner secret
+        again only on units that require it.
+      steps:
+        - action: "Close the previous client, rediscover by ANT name prefix, and rerun the matching read-only generation/channel validation; FFE0 is only the default GATT path."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Pack configuration/protection/calibration and, on some 2021+ units, an owner application secret"
+      issued_to_client: []
+      notes: >
+        The owner supplies an existing application secret if required. Never
+        publish it or a captured authenticated session. No recovered/default
+        secret is included here.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Close the ANT/vendor app and reconnect with a fresh read-only session; do not reset pack settings to resolve contention."
+    enter_pairing_mode:
+      required: false
+      notes: "The modules advertise for ordinary BLE connections; application authentication is optional per device configuration."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "No OS bond needs removal. Application-secret reset/revocation is outside this spec."
+    notes: >
+      Default FFE1 monitoring needs no link-layer pairing. Optional function
+      0x23 authentication uses the owner's own secret and is not OS pairing.
+
+  variants:
+    - model: "Legacy Smart 7S-32S / BMS-12 / BMS-24 (2019-2020)"
+      generation: "legacy_140"
+      notes: "ANT-BLE[01]* and ANT-BLE22* legacy candidates, after excluding every exact known 2021+ identity."
+    - model: "ANT-BLE16ZMUB"
+      generation: "2021_plus"
+      aliases: ["16ZMUB00-220501A", "16ZMB0TB120A"]
+      notes: "Documented 2021+ despite the legacy-looking ANT-BLE1 prefix."
+    - model: "ANT-BLE24BHUB"
+      generation: "2021_plus"
+      aliases: ["24BHUB00-211026A", "24BH"]
+    - model: "ANT-BLE04DMUB"
+      generation: "2021_plus"
+      aliases: ["04DMUB00-240122B", "04DMA0TB120A"]
+      notes: "Documented 2021+ despite the legacy-looking ANT-BLE0 prefix."
+    - model: "ANT@BLE22AAUB"
+      generation: "2021_plus"
+      aliases: ["22AAUB00-241008A", "22PHB8TB130A"]
+      notes: "Documented 2021+; do not route it to the legacy ANT-BLE22* decoder."
+    - model: "Other ANT?BLE24* or ANT?BLE3* candidate"
+      generation: "2021_plus"
+      notes: "Community executable matcher; validate a 0x11 reply before decoding and do not widen to other numbers."
+    - model: "Wired-only cross-check models"
+      generation: "not_qualified_for_ble"
+      notes: "16ZMB-TB-7-16S-300A and 24AHA-TB-24S-200A document the family over wired links but are not BLE evidence."
+
+protocol_handler: "ant_bms_generationed"
+
+initialization:
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Subscribe before status/auth requests and reassemble across notifications."
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    description: "Select generation first. 2021+ units with an owner secret require protocol_details.authentication before the status poll; no write occurs on open units."
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Default ANT BLE service"
+    notes: >
+      Default FFE1 write+notify path. Fallback characteristics can belong to
+      different actual services; do not assume they belong to FFE0.
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "ANT request/notification"
+        properties: ["write", "write_without_response", "notify"]
+        role: "command"
+        notes: >
+          Legacy: six-byte requests and exact 140-byte replies. 2021+: ten-byte
+          base frames plus optional data, with fragmented/coalesced replies.
+          One-byte declared length is specific to 2021+; never use it on the
+          legacy generation or the conflicting two-byte prose form.
+        commands:
+          legacy_read_status:
+            description: "Legacy DB DB address 00, value 0000 big-endian, additive checksum 00. Exactly six bytes; the official document prints 0XDBDB00000000."
+            value: [0xDB, 0xDB, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          new_read_status:
+            description: "2021+ function 01, address 0, requested reply data length 0xbe, no request payload. CRC-16/Modbus little-endian 0x5518."
+            value: [0x7E, 0xA1, 0x01, 0x00, 0x00, 0xBE, 0x18, 0x55, 0xAA, 0x55]
+            verification: "reported"
+          new_read_device_info:
+            description: "2021+ function 02, address 0x026c little-endian, requested data length 0x20. Response type 0x12 has a documented incorrect-length exception."
+            value: [0x7E, 0xA1, 0x02, 0x6C, 0x02, 0x20, 0x58, 0xC4, 0xAA, 0x55]
+            verification: "reported"
+          new_authenticate:
+            description: "Optional 2021+ function 0x23 at 0x6a01 with the owner's own ASCII secret. This authenticates the application; it changes no pack parameter."
+            template: [0x7E, 0xA1, 0x23, 0x01, 0x6A, "{secret_length}", "{secret}", "{crc}", 0xAA, 0x55]
+            parameters:
+              secret_length:
+                type: "uint8"
+                description: "Length of secret in bytes, 0..255. For authentication this equals actual data length, unlike a read request's requested reply length."
+              secret:
+                type: "bytes"
+                min_length: 0
+                max_length: 255
+                source: "credential:application_secret"
+                description: "Owner-supplied ASCII bytes, never a recovered/published credential."
+              crc:
+                type: "uint16"
+                endianness: "little"
+                description: "CRC-16/Modbus over a1 23 01 6a <secret_length> <secret>, stored little-endian before aa 55."
+            verification: "reported"
+
+commands:
+  new_channel_probe:
+    description: "Bounded read-only fallback probe with requested length 0xf5 and no request data; accept only valid function 0x11 or 0x12 replies before normal polling."
+    characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    value: [0x7E, 0xA1, 0x01, 0x00, 0x00, 0xF5, 0x58, 0x62, 0xAA, 0x55]
+    verification: "reported"
+
+payload_formats:
+  Legacy_Status:
+    description: "Exactly 140 bytes, AA 55 AA FF header, big-endian numeric fields and two-byte additive checksum at the end."
+    fields:
+      - {name: "header", offset: 0, length: 4, type: "bytes", min_length: 4, max_length: 4, description: "aa 55 aa ff."}
+      - {name: "pack_voltage", offset: 4, length: 2, type: "uint16", endianness: "big", scale: 0.1, unit: "V", device_class: "voltage"}
+      - {name: "cell_voltages", offset: 6, length: 64, type: "bytes", min_length: 64, max_length: 64, description: "Up to 32 uint16 big-endian millivolt readings; use only cell_count values, scale 0.001 V each."}
+      - {name: "current_raw", offset: 70, length: 4, type: "int32", endianness: "big", scale: -0.1, unit: "A", device_class: "current", notes: "Generation-specific sign inversion: decoded = raw * -0.1 A; after this transform positive is charging, negative discharging."}
+      - {name: "soc", offset: 74, length: 1, type: "uint8", unit: "%", device_class: "battery"}
+      - {name: "design_capacity_raw", offset: 75, length: 4, type: "uint32", endianness: "big", scale: 0.000001, unit: "Ah", notes: "Microamp-hours; zero has a documented optional estimate, not a real capacity."}
+      - {name: "cycle_charge_raw", offset: 79, length: 4, type: "uint32", endianness: "big", scale: 0.000001, unit: "Ah"}
+      - {name: "total_charge_raw", offset: 83, length: 4, type: "uint32", endianness: "big", scale: 0.001, unit: "Ah", notes: "Lifetime counter in milliamp-hours."}
+      - {name: "runtime", offset: 87, length: 4, type: "uint32", endianness: "big", unit: "s"}
+      - {name: "temperatures", offset: 91, length: 12, type: "bytes", min_length: 12, max_length: 12, description: "Six reserved slots; decode the first four signed int16 big-endian values in whole C in the reviewed client. Unused slots are not invented sensors."}
+      - {name: "charge_mosfet", offset: 103, length: 1, type: "uint8", notes: "1 on, 0 off; other values are protection/status codes, preserve them."}
+      - {name: "discharge_mosfet", offset: 104, length: 1, type: "uint8", notes: "1 on, 0 off; other values are protection/status codes."}
+      - {name: "balancer", offset: 105, length: 1, type: "uint8", mask: 0x04, notes: "Bit 2 set means automatic balancing; other values are status codes."}
+      - {name: "power", offset: 111, length: 4, type: "int32", endianness: "big", unit: "W", device_class: "power"}
+      - {name: "max_cell_voltage", offset: 116, length: 2, type: "uint16", endianness: "big", scale: 0.001, unit: "V", device_class: "voltage"}
+      - {name: "min_cell_voltage", offset: 119, length: 2, type: "uint16", endianness: "big", scale: 0.001, unit: "V", device_class: "voltage"}
+      - {name: "average_cell_voltage", offset: 121, length: 2, type: "uint16", endianness: "big", scale: 0.001, unit: "V", device_class: "voltage"}
+      - {name: "cell_count", offset: 123, length: 1, type: "uint8", description: "Use at most 32 and reject larger counts rather than reading beyond the reserved cell array."}
+      - {name: "balance_bitmask", offset: 132, length: 4, type: "uint32", endianness: "big", notes: "Bit per cell, 1S-32S."}
+      - {name: "checksum", offset: 138, length: 2, type: "uint16", endianness: "big", description: "sum(bytes 4..137) modulo 65536, stored big-endian."}
+    parse_rules:
+      - "Buffer to 140 bytes and require the four-byte header and checksum before decoding. Split fragmented notifications; if frames coalesce, consume 140 and parse the remainder independently."
+      - "Reject short/overlong candidates and wrong checksum. If a fresh AA 55 AA FF arrives while resynchronizing, discard the earlier partial candidate."
+      - "Legacy raw current sign differs from 2021+: multiply by -0.1, not +0.1. Positive decoded current means charging in the aiobmsble convention; negative means discharging."
+      - "If design_capacity_raw is zero, do not present zero as a real capacity. When SOC is nonzero, the public client optionally estimates round(cycle_charge_ah / SOC * 100, -1) Ah (nearest 10 Ah); when SOC is zero, omit design capacity instead of dividing."
+    example: "aa 55 aa ff ... 0f 0d  (140 bytes; complete public fixture in protocol_details.legacy_vector)"
+  New_Frame:
+    description: "2021+ 7E A1 frame with one-byte length and CRC-16/Modbus little-endian. Reply function is request function + 0x10."
+    fields:
+      - {name: "header", offset: 0, length: 2, type: "bytes", min_length: 2, max_length: 2, description: "7e a1."}
+      - {name: "function", offset: 2, length: 1, type: "uint8", notes: "01 status, 02 info, 23 auth; replies 11/12/33 respectively."}
+      - {name: "address", offset: 3, length: 2, type: "uint16", endianness: "little"}
+      - {name: "data_length", offset: 5, length: 1, type: "uint8", unit: "B", description: "ONE byte, not the two-byte length-high/length-low prose variant."}
+      - {name: "data", offset: 6, length: 0, type: "bytes", min_length: 0, max_length: 255, description: "Reply data length bytes; total reply length is data_length + 10."}
+      - {name: "crc", offset: 6, length: 2, type: "uint16", endianness: "little", description: "Actually located after data: CRC over bytes 1 through end of data, little-endian."}
+      - {name: "trailer", offset: 8, length: 2, type: "bytes", min_length: 2, max_length: 2, description: "Actually after data+CRC: aa 55."}
+    parse_rules:
+      - "On a reply wait for data_length + 10 bytes total, require function request|0x10 and trailer aa 55, then verify CRC-16/Modbus over frame[1:-4]."
+      - "On a READ REQUEST the length byte is the requested reply size and there is no request payload, even when nonzero (status 0xbe, fallback 0xf5, info 0x20). Actual request size is still 10 bytes. On authentication, length is the actual secret length and data follows."
+      - "Fragment/coalesce notifications without treating callback edges as frames. Reject wrong header/function/trailer/CRC and impossible lengths; never reinterpret length as two bytes."
+      - "Function 0x12 device info is the ONLY length-quirk exception: verify CRC at declared_total-4..declared_total-2 over frame[1:declared_total-4], even when bytes at declared_total-2 are not aa 55. Require aa 55 at the ACTUAL end of the response and preserve intervening bytes from declared_total-2 through the final trailer. Stream parsing must compare the declared trailer at declared_total-2:declared_total (NOT the CRC at declared_total-4:declared_total-2) before deciding whether to seek the final trailer, and must not slice at declared_total before finding it. Never apply this exception to status."
+    example: "7e a1 01 00 00 be 18 55 aa 55  (status request; 0xbe is requested reply length, not request payload)"
+  New_Status:
+    description: "Function 0x11 data plus frame header; offsets below include the six-byte header. Dynamic shift S = 2*(min(cell_count,32) + min(temp_count,6))."
+    fields:
+      - {name: "temp_count", offset: 8, length: 1, type: "uint8", description: "Clamp to 6 for the supported decoder; larger counts need a new map, not a blind offset."}
+      - {name: "cell_count", offset: 9, length: 1, type: "uint8", description: "Clamp to 32; never reuse scalar offsets without computing S."}
+      - {name: "cell_voltages", offset: 34, length: 0, type: "bytes", min_length: 0, max_length: 64, description: "cell_count consecutive uint16 little-endian millivolt values, scale 0.001 V."}
+      - {name: "temperatures", offset: 34, length: 0, type: "bytes", min_length: 0, max_length: 16, description: "Starts at 34 + 2*cell_count: temp_count probe int16 LE whole C, then MOSFET and balancer int16 LE whole C."}
+      - {name: "pack_voltage", offset: 38, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "V", device_class: "voltage", dynamic_offset: "38 + S"}
+      - {name: "current", offset: 40, length: 2, type: "int16", endianness: "little", scale: 0.1, unit: "A", device_class: "current", dynamic_offset: "40 + S", notes: "Positive charging, negative discharging in the aiobmsble convention; no legacy-style negation."}
+      - {name: "soc", offset: 42, length: 2, type: "uint16", endianness: "little", unit: "%", device_class: "battery", dynamic_offset: "42 + S"}
+      - {name: "soh", offset: 44, length: 2, type: "uint16", endianness: "little", unit: "%", dynamic_offset: "44 + S"}
+      - {name: "charge_mosfet", offset: 46, length: 1, type: "uint8", dynamic_offset: "46 + S", notes: "1 on, 0 off; other values are status codes."}
+      - {name: "discharge_mosfet", offset: 47, length: 1, type: "uint8", dynamic_offset: "47 + S", notes: "1 on, 0 off."}
+      - {name: "balancer", offset: 48, length: 1, type: "uint8", mask: 0x04, dynamic_offset: "48 + S", notes: "Bit 2 set means balancing."}
+      - {name: "design_capacity_raw", offset: 50, length: 4, type: "uint32", endianness: "little", scale: 0.000001, unit: "Ah", dynamic_offset: "50 + S", notes: "Microamp-hours."}
+      - {name: "cycle_charge_raw", offset: 54, length: 4, type: "uint32", endianness: "little", scale: 0.000001, unit: "Ah", dynamic_offset: "54 + S"}
+      - {name: "power", offset: 62, length: 4, type: "int32", endianness: "little", unit: "W", device_class: "power", dynamic_offset: "62 + S", notes: "Signed; same normalized direction as current in the public decoder."}
+      - {name: "delta_cell_voltage", offset: 82, length: 2, type: "uint16", endianness: "little", scale: 0.001, unit: "V", device_class: "voltage", dynamic_offset: "82 + S"}
+    parse_rules:
+      - "Read counts first, compute S, and require every accessed range inside the declared data. Do not decode a short frame by silently yielding zero."
+      - "The initial charging state byte at frame offset 7 equals 2 in the public decoder. It is separate from current sign and FET state; do not infer charging from only one of these contradictory indicators."
+      - "Public example has cell_count=22 and temp_count=4, so S=52: pack voltage is at 90, current 92, SOC 94, SOH 96, power 114 and delta 134."
+  Device_Info:
+    description: "Function 0x12 response data, with the only accepted incorrect-length quirk."
+    fields:
+      - {name: "hardware", offset: 6, length: 16, type: "bytes", min_length: 16, max_length: 16, description: "NUL-padded hardware string; decode UTF-8 conservatively and strip trailing NULs."}
+      - {name: "software", offset: 22, length: 16, type: "bytes", min_length: 16, max_length: 16, description: "NUL-padded software/version string."}
+    actual_fixture:
+      notes: "The real 48-byte public fixture, not a manufactured trailer. Declared total 42, declared CRC 57 96 at offsets 38-39, intervening ff 0b 00 00 41 f2 at 40-45, final aa 55 at 46-47."
+      hex: "7ea1126c02203234424800000000000000000000000032344248554230302d323131303236415796ff0b000041f2aa55"
+      hardware: "24BH"
+      software: "24BHUB00-211026A"
+      trailing: "ff 0b 00 00 41 f2"
+    crc55aa_fixture:
+      notes: "Declared total 12, data 44 d0, CRC 0x55aa stored aa 55 at offsets 8-9, intervening ff 0b 00 00 41 f2 at 10-15, final aa 55 at 16-17. The CRC is not the declared trailer; direct and fragmented/coalesced stream parsing must accept it."
+      hex: "7ea1126c020244d0aa55ff0b000041f2aa55"
+      trailing: "ff 0b 00 00 41 f2"
+
+protocol_details:
+  generation_selection:
+    ordered_rules:
+      - "1. Exact known 2021+ names/aliases: ANT-BLE16ZMUB, ANT-BLE24BHUB, ANT-BLE04DMUB, ANT@BLE22AAUB. Always choose new 7E A1 for these before legacy patterns."
+      - "2. Other ANT?BLE24* or ANT?BLE3* names: candidate 2021+; validate a 0x11 frame before decoding."
+      - "3. Remaining ANT-BLE[01]* and ANT-BLE22* candidates: legacy 140-byte decoder. Do not apply rule 3 before exact new-name exclusion."
+      - "4. Unknown ANT-BLE/ANT@BLE/ANT~BLE names: no automatic telemetry decode. Use only a read-only generation probe/validation and record the identity for review."
+    rationale: "The separator in the current app can be '-', '@' or '~'. The executable matchers use '?' as one arbitrary separator, not as a regex wildcard here; the discovery regex above accepts exactly those three real separators."
+  crc16_modbus:
+    polynomial_reflected: 0xa001
+    initial: 0xffff
+    reflect_input: true
+    reflect_output: true
+    xor_out: 0x0000
+    coverage: "From A1 (frame index 1) through final data byte, excluding initial 7E, CRC field and AA 55."
+    storage: "little-endian immediately before AA 55"
+    check: "CRC-16/Modbus('123456789') = 0x4b37"
+  gatt_fallback:
+    default: {service: "0000ffe0-0000-1000-8000-00805f9b34fb", write: "0000ffe1-0000-1000-8000-00805f9b34fb", notify: "0000ffe1-0000-1000-8000-00805f9b34fb"}
+    candidates:
+      - {label: "ffe1", write: "0000ffe1-0000-1000-8000-00805f9b34fb", notify: "0000ffe1-0000-1000-8000-00805f9b34fb"}
+      - {label: "fff3-fff4", write: "0000fff3-0000-1000-8000-00805f9b34fb", notify: "0000fff4-0000-1000-8000-00805f9b34fb"}
+      - {label: "fff5-fff6", write: "0000fff5-0000-1000-8000-00805f9b34fb", notify: "0000fff6-0000-1000-8000-00805f9b34fb"}
+    algorithm:
+      - "Try default FFE1 first. If it is absent or yields no valid response, enumerate GATT and record each candidate characteristic's ACTUAL parent service; fff3-fff6 are not asserted to be under FFE0."
+      - "Select one candidate with the required write and notify properties, subscribe to its notify characteristic, and send new_channel_probe once. Accept only a valid 0x11 or 0x12 response with correct trailer and CRC."
+      - "Use a short bounded timeout (2 seconds is a client choice, not a device constant), then disconnect that candidate before the next. Stop on the first valid channel and perform ordinary status reads only there."
+      - "Never blindly write every candidate and never use DTU/vehicle commands as probes. Fallback pair support on named retail boards remains unverified."
+  legacy_vector:
+    notes: "Public aiobmsble fixture, with no real owner identifier. It verifies additive checksum and big-endian field decoding."
+    hex: "aa55aaff021e0d0a0d0b0d0b0d0b0d550d3f0d6c0d480d880d760d460db20d0b0d0b0d0b0d0b000000000000000000000000000000000000000000000000000000000000000000000000640000000008581e020b3879530a13fbf3001a001dfffb0015000000000201020000000000000000000c0db2010d0a0d3910ffef00800000000000000b5034090f0d"
+    expected: {pack_voltage: 54.2, current: 0.0, soc: 100, design_capacity_ah: 140, cycle_charge_ah: 139.992578, runtime_s: 169081843, cell_count: 16, first_cell_v: 3.338, last_cell_v: 3.339, temperatures_c: [26, 29, -5, 21], charge_mosfet_on: false, discharge_mosfet_on: true, checksum: "0f0d"}
+  new_status_vector:
+    notes: "Public aiobmsble function-0x11 fixture with 22 cells, four probes plus MOSFET/balancer temperatures; S=52."
+    hex: "7ea11100009e050404160000000000000000000088010000000000000000000000001e091b091e091d091d091e0920091e098f088e0890082209eb08200920091f091e091f091e091f0921091f091d001d001d001d001e001e00e01315000a0064000101000000b4c40486f197003aede8006a000000a1f2c0030000000022090c008e080a009400080900006d006a00af02f3fa4c74e5002866ec00c35d6200ccb39200edc8aa55"
+    expected: {data_length: 158, total_length: 168, cell_count: 22, temp_count: 4, pack_voltage: 50.88, current: 2.1, soc: 10, soh: 100, cycle_charge_ah: 9.957766, design_capacity_ah: 80, power_w: 106, delta_cell_voltage: 0.148, first_cell_v: 2.334, last_cell_v: 2.335, temperatures_c: [29, 29, 29, 29, 30, 30], charge_mosfet_on: true, discharge_mosfet_on: true}
+  authentication:
+    address: 0x6a01
+    function: 0x23
+    secret_encoding: "Owner's own secret as ASCII; length is actual data length and data immediately follows. No default or recovered secret is published."
+    public_example_warning: "Public clients use an invented example secret in tests. It is not an ANT default and must not be tried against hardware."
+  excluded_operations:
+    - "Legacy A5 writes and every BMS control/protection/configuration address, including factory default/reboot."
+    - "2021+ register/FET/balancer/calibration writes and any operation not functions 01/02/23."
+    - "DTU, vehicle, GPS/cloud/remote-control surfaces in the V2 app."
+    - "Firmware update, which was not investigated and has no asserted entry/service/recovery behavior."
+
+entities:
+  - platform: "sensor"
+    name: "Pack Voltage"
+    device_class: "voltage"
+    unit: "V"
+    notes: "Legacy offset 4 big-endian *0.1; 2021+ offset 38+S little-endian *0.01."
+  - platform: "sensor"
+    name: "Pack Current"
+    device_class: "current"
+    unit: "A"
+    notes: "Legacy signed BE32 *-0.1; 2021+ signed LE16 at 40+S *+0.1. Positive decoded current means charging."
+  - platform: "sensor"
+    name: "State of Charge"
+    device_class: "battery"
+    unit: "%"
+    notes: "Legacy u8 at 74; 2021+ u16 LE at 42+S."
+  - platform: "sensor"
+    name: "State of Health"
+    unit: "%"
+    notes: "2021+ u16 LE at 44+S; the legacy 140-byte protocol has no SOH field."
+  - platform: "sensor"
+    name: "Power"
+    device_class: "power"
+    unit: "W"
+    notes: "Legacy signed BE32 at 111; 2021+ signed LE32 at 62+S."
+  - platform: "sensor"
+    name: "Cell Count"
+    notes: "Legacy at 123 (max 32); 2021+ at 9 (clamp 32) and used to compute dynamic offsets."
+  - platform: "sensor"
+    name: "Cell 1 Voltage"
+    device_class: "voltage"
+    unit: "V"
+    notes: "Legacy BE u16 at 6 *0.001; 2021+ LE u16 at 34 *0.001. Instantiate remaining cells only through cell_count."
+  - platform: "sensor"
+    name: "Temperature 1"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Legacy signed BE16 at 91; 2021+ signed LE16 at 34+2*cell_count. Additional probes use temp_count; then MOSFET and balancer."
+  - platform: "sensor"
+    name: "Cycle Charge"
+    unit: "Ah"
+    notes: "Legacy BE u32 at 79 *1e-6; 2021+ LE u32 at 54+S *1e-6."
+  - platform: "sensor"
+    name: "Cell Voltage Delta"
+    device_class: "voltage"
+    unit: "V"
+    notes: "2021+ u16 LE at 82+S *0.001; legacy derives max-min from offsets 116 and 119 *0.001."
+
+evidence:
+  documentation_review: >
+    Official four-page ANT communication protocol: six-byte Bluetooth status
+    request, 140-byte response, big-endian layout and checksum.
+    syssi/esphome-ant-bms at f93196ecd7917ad138300bdee0390732ec61eabb
+    supplies exact 2021+ models. patman15/aiobmsble at
+    eb3fe1488eceeb25eadffbf2d40b24c9facd371b supplies separate decoders and
+    recorded vectors. fl4p/batmon-ha at
+    af401fa12414e16fcdf02ac71019c60587abfb8c supplies the conflicting prose
+    length form and current-sign cross-check; executable code wins.
+  app_static_analysis: >
+    Official ant.bms 2.3.5 binary (store metadata 2.3.9) and ant.bmsV2 3.4.0
+    (versionCode 249) corroborate FFE0/FFE1, name separators, fallback pairs,
+    the ten-byte read-only probe and optional owner authentication. No app
+    internal symbols, real secret or cloud/DTU behavior is carried into this
+    spec.
+  open_questions: >
+    Actual fallback channels on named boards, live confirmation of one-byte
+    length versus the secondary two-byte prose, device-info length quirk,
+    non-default authentication, disconnect/bond behavior and exact model
+    coverage. No production-safe writes or firmware behavior was established.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "ANT asynchronous serial interface protocol, four pages"
+      url: "https://github.com/syssi/esphome-ant-bms/blob/f93196ecd7917ad138300bdee0390732ec61eabb/docs/ANT_communication_protocol_EN.1.pdf"
+      obtained_via: "Pinned public repository copy"
+      description: "Legacy request, 140-byte frame, field offsets and checksum."
+    - type: "public_implementation"
+      artifact: "patman15/aiobmsble @ eb3fe1488eceeb25eadffbf2d40b24c9facd371b"
+      url: "https://github.com/patman15/aiobmsble/tree/eb3fe1488eceeb25eadffbf2d40b24c9facd371b"
+      obtained_via: "Pinned public Git repository"
+      description: "Independent legacy/new decoders and recorded response vectors; its required venv was absent, so fixtures were reviewed rather than executed upstream."
+    - type: "public_implementation"
+      artifact: "syssi/esphome-ant-bms @ f93196ecd7917ad138300bdee0390732ec61eabb"
+      url: "https://github.com/syssi/esphome-ant-bms/tree/f93196ecd7917ad138300bdee0390732ec61eabb"
+      obtained_via: "Pinned public Git repository"
+      description: "Exact model list, legacy manual, new dynamic decoder and capture files."
+    - type: "public_implementation"
+      artifact: "fl4p/batmon-ha @ af401fa12414e16fcdf02ac71019c60587abfb8c"
+      url: "https://github.com/fl4p/batmon-ha/tree/af401fa12414e16fcdf02ac71019c60587abfb8c"
+      obtained_via: "Pinned public Git repository"
+      description: "Third implementation, sign convention and the explicitly rejected two-byte length prose."
+
+remaining_unknowns:
+  - "Which named retail boards actually expose fff3/fff4 or fff5/fff6 and their parent service UUIDs; fallback is bounded but unverified."
+  - "The one-byte executable length form still needs live wire confirmation against the secondary two-byte prose; never implement both by guessing."
+  - "Function 0x12's incorrect declared length and trailing bytes need capture on more firmware; no equivalent exception is allowed for status."
+  - "Whether every 2021+ board shares the same decoded current direction; validate against FET/charging state before using current as a control input."
+  - "Exact behavior for counts above 32 cells/6 probes, unused temperature sentinels and non-default application authentication."
+  - "No safe writes, factory reset effect, firmware update path or other BLE models are asserted; wired-only cross-check models are not BLE-qualified."
+  - "The schema cannot express dynamic scalar offsets or generation-specific checksum/current transforms declaratively; a generationed handler is required."
+
+helpful_urls:
+  - title: "ANT legacy asynchronous serial/Bluetooth protocol (four-page PDF, pinned)"
+    url: "https://github.com/syssi/esphome-ant-bms/blob/f93196ecd7917ad138300bdee0390732ec61eabb/docs/ANT_communication_protocol_EN.1.pdf"
+    kind: "manual"
+    description: "Legacy Smart 7S-32S / BMS-12 / BMS-24 protocol: six-byte status request, exact 140-byte response, field offsets and additive checksum; not for 2021+ boards."
+  - title: "ANT official app/download center"
+    url: "https://download.antbms.com/"
+    kind: "vendor_support"
+    description: "Official ANT BMS and ANT BMS V2 downloads; legacy Play listing is gone, so the remaining official distribution matters for preservation."
+  - title: "patman15/aiobmsble"
+    url: "https://github.com/patman15/aiobmsble/tree/eb3fe1488eceeb25eadffbf2d40b24c9facd371b"
+    kind: "implementation"
+    description: "Pinned separate legacy and 2021+ decoders with recorded frames, authentication and malformed-input cases."
+  - title: "syssi/esphome-ant-bms"
+    url: "https://github.com/syssi/esphome-ant-bms/tree/f93196ecd7917ad138300bdee0390732ec61eabb"
+    kind: "implementation"
+    description: "Pinned exact model list, legacy protocol PDF, new dynamic decoder and capture history."
+  - title: "fl4p/batmon-ha"
+    url: "https://github.com/fl4p/batmon-ha/tree/af401fa12414e16fcdf02ac71019c60587abfb8c"
+    kind: "implementation"
+    description: "Third protocol implementation and sign/length cross-check; its two-byte length prose is explicitly not followed."

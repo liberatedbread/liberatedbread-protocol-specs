@@ -1,0 +1,689 @@
+# Combustion Predictive Thermometer / Probe V1 and V2+ — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: vendor DRAFT BLE specifications, vendor app 3.3.13 static review,
+# and one pinned public integration. No probe or heating command was used.
+
+device:
+  name: "Combustion Predictive Thermometer (Probe V1 / V2+)"
+  manufacturer: "Combustion Inc."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against a probe by this project. The vendor's public BLE
+      specification is marked DRAFT. Byte order and response CRC coverage were
+      cross-checked against vendor app 3.3.13 (versionCode 964) and the pinned
+      community integration; no live capture or hardware result is claimed.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
+  type: "predictive-cooking-thermometer"
+  notes: >
+    Phone-direct monitoring and control of the eight-thermistor Predictive
+    Probe. Advertisements provide temperatures without a connection; Probe
+    Status adds log range, prediction, food-safety and alarm state; the UART
+    service carries requests and responses. Cloud relay is optional.
+
+    This is deliberately a Probe profile. MeatNet Display/Booster routing,
+    Giant Grill Gauge and Engine supplements, and DFU have different boundaries.
+    Product type 1 selects this decoder. Preserve unknown product types and do
+    not feed a MeatNet node's request/response envelope into the Probe UART
+    parser merely because they share the Nordic UART UUID.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/combustion-inc/combustion-documentation"
+    upstream_docs:
+      - url: "https://github.com/combustion-inc/combustion-documentation/blob/89f2f24d1563b5279dee8b1ef23bac2beeddca85/probe_ble_specification.rst"
+        title: "Predictive Probe BLE Specification (DRAFT)"
+        covers: "Advertisements, 94/100-byte status, sensor bit packing, UART message catalog and CRC."
+      - url: "https://github.com/combustion-inc/combustion-documentation/blob/89f2f24d1563b5279dee8b1ef23bac2beeddca85/meatnet_node_ble_specification.rst"
+        title: "MeatNet Node BLE Specification (DRAFT)"
+        covers: "Product type values and the explicitly separate node/routing envelope."
+    notes: >
+      The published protocol is authoritative but still a draft. Static app
+      review resolves little-endian fields and the response success byte's
+      inclusion in CRC coverage; those implementation facts remain reported.
+
+  identification:
+    service_uuids:
+      - "00000100-caab-3792-3d44-97ae51c1407a"
+    manufacturer_data:
+      company_id: 2503
+      company_id_hex: "0x09C7"
+    notes: >
+      Match company 0x09C7 with product type 1 in the first payload byte after
+      the two company-ID bytes, or the Probe Status service in scan response.
+      Product type 2 is repeated MeatNet data; 3 Gauge, 4 Display, 5 Booster
+      and 6 Engine are outside this spec. Serial zero means no probe.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00000100-caab-3792-3d44-97ae51c1407a"
+          manufacturer_data:
+            company_id: 2503
+            company_id_hex: "0x09C7"
+            pattern: "01"
+            match: "prefix"
+        notes: >
+          BLE matching combines service and manufacturer evidence as available.
+          The 01 pattern is product type, after the company ID, not a match on
+          the company-ID bytes themselves. A passive client can decode the
+          23-byte manufacturer payload without connecting.
+    identity:
+      stable_keys: ["serial"]
+      display: "serial"
+      notes: "Use the probe serial, not the relay's BLE address; a MeatNet node can advertise on a probe's behalf. Redact real serials from logs."
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, account or OS pairing is needed. Outside its charger a
+      probe advertises continuously and accepts up to three BLE connections;
+      it becomes unconnectable when all three are occupied.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Decode advertisements passively, or connect for Probe Status and
+          UART. Normal advertisements are about 250 ms apart; Instant Read
+          repeats delays of 100, 100 and 50 ms. Normal connection intervals
+          are 400-500 ms, Instant Read 7.5-75 ms.
+        ble:
+          service_uuid: "00000100-caab-3792-3d44-97ae51c1407a"
+          read_characteristic: "00000101-caab-3792-3d44-97ae51c1407a"
+          pairing_required: false
+        steps:
+          - action: "Remove the probe from its charger so it advertises."
+            actor: "user"
+          - action: "Match product type 1 and decode the 13-byte temperature block, or connect and subscribe to Probe Status."
+            actor: "client"
+            expect: "Normal mode supplies eight temperatures; Instant Read supplies only thermistor 1 and zero placeholders in the other slots."
+          - action: "For UART operations, subscribe to TX before writing RX, then run one request/response transaction at a time."
+            actor: "client"
+          - action: "Read firmware/hardware/model information before deciding whether V1 power/RSSI behavior or V2+ behavior applies."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset procedure or credential wipe is established. UART
+        message 0x0A only resets the current cook: it clears prediction and
+        data buffers and starts a new session immediately.
+      description: >
+        Do not present the cook-session reset as a factory reset. No bond or
+        Wi-Fi credential exists to clear on the direct Probe profile.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership or bond exists. A new client can passively scan
+        or connect whenever fewer than three centrals already hold the probe.
+      steps:
+        - action: "Close one existing client if all three connection slots are occupied, then rediscover by product type/service."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Probe ID/color, power and prediction/alarm/food-safety settings"
+        - "Current cook session and log buffers; no OS pairing bond is required"
+      issued_to_client: []
+      notes: "No account password, network key or pairing secret is used by the reviewed direct BLE paths."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: "The probe supports three centrals, not one. Close enough clients to free a slot if advertisements become unconnectable."
+      notes: "Three simultaneous BLE connections are documented; do not apply MeatNet's different four-connection limits to the Probe."
+    enter_pairing_mode:
+      required: false
+      notes: "Outside the charger the probe advertises without a pairing button or PIN."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "There is no bond to remove; disconnect the central."
+
+  variants:
+    - model: "Probe V1"
+      notes: "High-radio-power preference bit 0 means normal +0 dBm. Use this bit when comparing RSSI, not an assumed model-name string."
+    - model: "Probe V2 and later"
+      notes: "The same preference bit 1 means +8 dBm, approximately 8 dB stronger RSSI at equal distance. It does not identify a different protocol."
+
+protocol_handler: "combustion_probe_uart"
+
+initialization:
+  - characteristic: "00000101-caab-3792-3d44-97ae51c1407a"
+    subscribe: true
+    notes: "The initial notification can repeat older Normal-mode state with session ID zero; that is normal."
+  - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    subscribe: true
+    notes: "Subscribe to UART TX before any RX write; responses may fragment or coalesce."
+
+services:
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name"
+        properties: ["read"]
+        notes: "UTF-8; vendor value 'Combustion Inc'."
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number"
+        properties: ["read"]
+        notes: "UTF-8 model/revision; the public spec leaves exact values open."
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number"
+        properties: ["read"]
+        notes: "UTF-8 serial; treat as owner-private and do not log it."
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision"
+        properties: ["read"]
+        notes: "UTF-8; use with the radio-power preference bit for V1/V2+ behavior."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision"
+        properties: ["read"]
+        notes: "UTF-8; reconcile with the DRAFT status layout before assuming session fields."
+  - uuid: "00000100-caab-3792-3d44-97ae51c1407a"
+    name: "Probe Status"
+    characteristics:
+      - uuid: "00000101-caab-3792-3d44-97ae51c1407a"
+        name: "Probe Status"
+        properties: ["read", "notify"]
+        role: "notify"
+        notes: >
+          Accept exactly 94 bytes (older firmware without session ID/sample
+          period) or 100 bytes (current layout). All integer fields are
+          little-endian; packed bitfields number bit 1 from the least
+          significant bit of the first byte. Decode the packed subfields with
+          protocol_details.status_layout, not fixed offsets beyond each block.
+        format:
+          - offset: 0
+            length: 4
+            name: "min_log_sequence"
+            type: "uint32"
+            endianness: "little"
+          - offset: 4
+            length: 4
+            name: "max_log_sequence"
+            type: "uint32"
+            endianness: "little"
+          - offset: 8
+            length: 13
+            name: "raw_temperature_data"
+            type: "bytes"
+            notes: "Eight consecutive unsigned 13-bit values in a 104-bit little-endian integer; scale 0.05 C and value offset -20 C."
+          - offset: 21
+            length: 1
+            name: "mode"
+            type: "uint8"
+            mask: 0x03
+            values: {"0": "normal", "1": "instant_read", "2": "reserved", "3": "error"}
+          - offset: 21
+            length: 1
+            name: "color_id"
+            type: "uint8"
+            mask: 0x1c
+            values: {"0": "yellow", "1": "grey"}
+          - offset: 21
+            length: 1
+            name: "probe_id_zero_based"
+            type: "uint8"
+            mask: 0xe0
+            notes: "Displayed probe ID is this value + 1 (0..7 maps to IDs 1..8)."
+          - offset: 22
+            length: 1
+            name: "battery_low"
+            type: "uint8"
+            mask: 0x01
+            values: {"0": "battery_ok", "1": "battery_low"}
+          - offset: 22
+            length: 1
+            name: "virtual_sensors"
+            type: "uint8"
+            mask: 0xfe
+            notes: "Core bits 1-3 of the shifted field; surface next 2; ambient next 2. Use protocol_details.virtual_sensors."
+          - offset: 23
+            length: 7
+            name: "prediction_status"
+            type: "bytes"
+          - offset: 30
+            length: 10
+            name: "food_safe_data"
+            type: "bytes"
+          - offset: 40
+            length: 8
+            name: "food_safe_status"
+            type: "bytes"
+          - offset: 48
+            length: 1
+            name: "overheating_mask"
+            type: "uint8"
+            notes: "Bit 0 is T1 and bit 7 is T8; 1 means overheating."
+          - offset: 49
+            length: 1
+            name: "power_mode"
+            type: "uint8"
+            mask: 0x03
+            values: {"0": "normal", "1": "always_on", "2": "reserved", "3": "reserved"}
+          - offset: 49
+            length: 1
+            name: "high_radio_power"
+            type: "uint8"
+            mask: 0x04
+            values: {"0": "normal +0 dBm (V1)", "1": "high +8 dBm (V2+)"}
+          - offset: 50
+            length: 22
+            name: "high_alarms"
+            type: "bytes"
+            notes: "Eleven uint16 LE alarm records: T1..T8, Core, Surface, Ambient."
+          - offset: 72
+            length: 22
+            name: "low_alarms"
+            type: "bytes"
+            notes: "Same eleven-record ordering as high_alarms."
+          - offset: 94
+            length: 4
+            name: "session_id"
+            type: "uint32"
+            endianness: "little"
+            notes: "Only present in 100-byte form. Zero is a normal unspecified value, not an error."
+          - offset: 98
+            length: 2
+            name: "sample_period"
+            type: "uint16"
+            endianness: "little"
+            unit: "ms"
+            notes: "Only present in 100-byte form."
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Probe UART (Nordic UART transport only)"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART RX (client to probe)"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Request bytes are CA FE, CRC-16/CCITT-FALSE little-endian, type,
+          payload length, payload. CRC covers type/length/payload only. The
+          public docs do not specify a 20-byte request fragmenter; write a
+          whole request when the negotiated ATT payload permits and do not
+          borrow MeatNet or Hunter framing.
+        commands:
+          read_session_info:
+            description: "Type 03, empty payload. Response has session uint32 LE and sample period uint16 LE ms."
+            value: [0xCA, 0xFE, 0x5C, 0x48, 0x03, 0x00]
+            verification: "reported"
+          read_logs:
+            description: "Type 04 with inclusive start/end uint32 LE sequence numbers. Expect a sequence of 24-byte log payloads, each in its own response."
+            template: [0xCA, 0xFE, "{crc}", 0x04, 0x08, "{start_sequence}", "{end_sequence}"]
+            parameters:
+              start_sequence:
+                type: "uint32"
+                endianness: "little"
+              end_sequence:
+                type: "uint32"
+                endianness: "little"
+              crc:
+                type: "uint16"
+                endianness: "little"
+                description: "CRC-16/CCITT-FALSE over 04 08 <start LE32> <end LE32>; computed by the dedicated handler, not a schema auto role."
+            advanced: true
+            advanced_reason: "Large log ranges can produce many responses and keep a battery-powered probe busy. Bound the range to the advertised min/max sequence numbers and read incrementally."
+            verification: "reported"
+          set_prediction:
+            description: "Type 05 with two-byte packed prediction: setpoint in bits 0-9 (0.1 C), mode in bits 10-11 (0 none, 1 removal, 2 removal+resting)."
+            template: [0xCA, 0xFE, "{crc}", 0x05, 0x02, "{prediction_data}"]
+            parameters:
+              prediction_data:
+                type: "uint16"
+                endianness: "little"
+                description: "raw = round(setpoint_c * 10) | (mode << 10). Setpoint must fit 0..102.3 C and mode must be 1 or 2 for a real prediction. 69.5 C/mode 2 = 0x0ab7."
+              crc:
+                type: "uint16"
+                endianness: "little"
+                description: "CRC-16/CCITT-FALSE over 05 02 <prediction_data LE16>. Example is 0x7035, bytes 35 70."
+            verification: "reported"
+          read_over_temperature:
+            description: "Type 06; one-byte response payload, 1 means the over-temperature flag is set."
+            value: [0xCA, 0xFE, 0xA9, 0xB7, 0x06, 0x00]
+            verification: "reported"
+          set_high_low_alarms:
+            description: "Type 0B with 44 bytes: eleven high-alarm records followed by eleven low-alarm records, uint16 LE each, in T1..T8/Core/Surface/Ambient order."
+            template: [0xCA, 0xFE, "{crc}", 0x0B, 0x2C, "{alarm_data}"]
+            parameters:
+              alarm_data:
+                type: "bytes"
+                min_length: 44
+                max_length: 44
+                description: "Read current high/low arrays and change only intended records. Per record: bit 0 set, bit 1 tripped (ignored on write), bit 2 alarming (ignored on write), bits 3-15 temperature raw = round((C + 20) * 10), range -20..799 C."
+              crc:
+                type: "uint16"
+                endianness: "little"
+                description: "CRC-16/CCITT-FALSE over 0b 2c and all 44 alarm bytes. All 44 zero gives 0x60d2, bytes d2 60."
+            advanced: true
+            advanced_reason: "This replaces high and low alarm configuration for all eleven sensor/virtual-sensor positions. Read both arrays first and preserve unrelated records and tripped/alarming read-only bits; an error can suppress or create a cooking alarm."
+            verification: "reported"
+          silence_alarms:
+            description: "Type 0C, empty payload. Silences ordinary alarms but deliberately not critical overheat alarms."
+            value: [0xCA, 0xFE, 0x62, 0x58, 0x0C, 0x00]
+            verification: "reported"
+          reset_cook_session:
+            description: "Type 0A, empty payload. Clears prediction and data buffers and starts a new cook immediately; not a factory reset."
+            value: [0xCA, 0xFE, 0xC4, 0xF2, 0x0A, 0x00]
+            advanced: true
+            advanced_reason: "This discards the active prediction and log buffers and starts a new session. Export any needed logs first; recovery is only starting a new cook, not restoring the old one."
+            verification: "reported"
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART TX (probe to client)"
+        properties: ["read", "notify"]
+        role: "notify"
+        notes: >
+          Response: CA FE, CRC little-endian, type, success (1 success/0
+          failure), payload length, payload. CRC covers type, success, length
+          and payload. Accumulate the byte stream, honoring split and coalesced
+          frames; validate length and CRC before dispatch. The success byte is
+          part of response CRC coverage even though the DRAFT table does not
+          call it out separately.
+
+payload_formats:
+  Manufacturer_Data:
+    description: >
+      Probe advertisement as 25 bytes including the two little-endian company
+      ID bytes c7 09. Most host APIs remove those two bytes and expose only the
+      remaining 23 bytes; offsets below include them for an unambiguous map.
+    fields:
+      - {name: "company_id_le", offset: 0, length: 2, type: "uint16", endianness: "little", description: "0x09c7."}
+      - {name: "product_type", offset: 2, length: 1, type: "uint8", values: {"0": "unknown", "1": "probe", "2": "MeatNet repeated data", "3": "Gauge", "4": "Display", "5": "Booster", "6": "Engine"}}
+      - {name: "serial", offset: 3, length: 4, type: "uint32", endianness: "little", notes: "Zero means no probe; never publish an owner's serial."}
+      - {name: "raw_temperature_data", offset: 7, length: 13, type: "bytes", min_length: 13, max_length: 13}
+      - {name: "mode_id", offset: 20, length: 1, type: "uint8", notes: "Same bit layout as Probe Status offset 21."}
+      - {name: "battery_virtual", offset: 21, length: 1, type: "uint8", notes: "Same bit layout as Probe Status offset 22."}
+      - {name: "network_info", offset: 22, length: 1, type: "uint8", notes: "Unused on a direct Probe; MeatNet uses hop information."}
+      - {name: "overheating_mask", offset: 23, length: 1, type: "uint8"}
+      - {name: "preferences", offset: 24, length: 1, type: "uint8", notes: "Bits 0-1 power mode; bit 2 high radio power."}
+    example: "c7 09 01 01 00 5e 00 20 c3 66 30 0d b1 81 37 1c 07 e9 d0 1d 20 48 00 81 04"
+  UART_Response:
+    description: "One Probe UART response frame; header seven bytes plus payload."
+    fields:
+      - {name: "sync", offset: 0, length: 2, type: "bytes", min_length: 2, max_length: 2, description: "ca fe."}
+      - {name: "crc", offset: 2, length: 2, type: "uint16", endianness: "little", description: "CRC-16/CCITT-FALSE over bytes 4 through end."}
+      - {name: "message_type", offset: 4, length: 1, type: "uint8", description: "Same message type as request; this is not MeatNet's high-bit response marker."}
+      - {name: "success", offset: 5, length: 1, type: "uint8", values: {"0": "failure", "1": "success"}}
+      - {name: "payload_length", offset: 6, length: 1, type: "uint8", unit: "B"}
+      - {name: "payload", offset: 7, length: 0, type: "bytes", min_length: 0, max_length: 255, description: "Exactly payload_length bytes; total frame is 7 + length."}
+    parse_rules:
+      - "Scan to ca fe only after discarding a malformed candidate. Wait for seven header bytes, then for 7 + payload_length total bytes; a one-byte length is inherent to this Probe protocol."
+      - "Verify CRC before decoding. A failure success=0 is a completed response, not a transport error; unknown message types remain undecoded."
+      - "After one valid frame, parse any following bytes as another frame. Do not assume one notification equals one response."
+    example: "ca fe ca 21 03 01 06 78 56 34 12 e8 03  (session 0x12345678, 1000 ms, success)"
+  Log_Record:
+    description: "Payload of one type-04 log response, 24 bytes."
+    fields:
+      - {name: "sequence", offset: 0, length: 4, type: "uint32", endianness: "little"}
+      - {name: "raw_temperature_data", offset: 4, length: 13, type: "bytes", min_length: 13, max_length: 13}
+      - {name: "prediction_log", offset: 17, length: 7, type: "bytes", min_length: 7, max_length: 7, notes: "Packed layout in protocol_details.prediction_log_layout."}
+
+protocol_details:
+  temperature_decoder:
+    algorithm: >
+      Require exactly 13 bytes. Let packed = int.from_bytes(block, 'little').
+      For thermistor i = 1..8, raw_i = (packed >> (13 * (i - 1))) & 0x1fff;
+      temperature_c = raw_i * 0.05 - 20. This is not eight big-endian values.
+      The 13-bit wire range maps to -20..389.55 C, while the vendor's stated
+      valid measurement range is -20..369 C (raw <= 7780); reject larger raw
+      values rather than displaying them as food temperatures.
+    instant_read: "In mode 1 only T1 is a reading. Slots T2..T8 contain raw zero placeholders, not eight real -20 C measurements. In Normal mode raw zero is the legitimate -20 C encoding."
+    vector:
+      raw_values: [800, 822, 844, 866, 888, 910, 932, 954]
+      packed_hex: "20 c3 66 30 0d b1 81 37 1c 07 e9 d0 1d"
+      temperatures_c: [20.0, 21.1, 22.2, 23.3, 24.4, 25.5, 26.6, 27.7]
+  virtual_sensors:
+    packed: "Take the battery/virtual byte as an integer. Core = (byte >> 1) & 0x07, surface = (byte >> 4) & 0x03, ambient = (byte >> 6) & 0x03."
+    core_map: ["T1", "T2", "T3", "T4", "T5", "T6", "reserved6", "reserved7"]
+    surface_map: ["T4", "T5", "T6", "T7"]
+    ambient_map: ["T5", "T6", "T7", "T8"]
+  status_layout:
+    lengths: [94, 100]
+    common_bytes: "Offsets 0-93 inclusive as declared on the characteristic. New session_id is offset 94 LE32; sample_period offset 98 LE16 ms."
+    missing_session_rule: "Treat a 94-byte status and session_id=0 in a 100-byte status as normal unspecified values. The first notification after subscribe may repeat Normal state with zero until measured."
+    prediction_status:
+      packed_endianness: "little, bit zero is the first field's bit 1"
+      fields:
+        state: {bit_offset: 0, bit_length: 4, values: {"0": "not_inserted", "1": "inserted", "2": "warming", "3": "predicting", "4": "removal_done", "15": "unknown"}}
+        mode: {bit_offset: 4, bit_length: 2, values: {"0": "none", "1": "time_to_removal", "2": "removal_and_resting", "3": "reserved"}}
+        type: {bit_offset: 6, bit_length: 2, values: {"0": "none", "1": "removal", "2": "resting", "3": "reserved"}}
+        setpoint: {bit_offset: 8, bit_length: 10, scale: 0.1, unit: "C"}
+        heat_start: {bit_offset: 18, bit_length: 10, scale: 0.1, unit: "C"}
+        seconds: {bit_offset: 28, bit_length: 17, unit: "s"}
+        estimated_core: {bit_offset: 45, bit_length: 11, scale: 0.1, value_offset: -20, unit: "C"}
+    food_safe_data:
+      fields:
+        mode: {bit_offset: 0, bit_length: 3, values: {"0": "simplified", "1": "integrated"}}
+        product: {bit_offset: 3, bit_length: 10, notes: "Enumeration depends on mode; preserve unknown codes."}
+        serving: {bit_offset: 13, bit_length: 3, values: {"0": "immediate", "1": "cooked_and_chilled"}}
+        threshold_c: {bit_offset: 16, bit_length: 13, scale: 0.05, unit: "C"}
+        z_value_c: {bit_offset: 29, bit_length: 13, scale: 0.05, unit: "C"}
+        reference_temperature_c: {bit_offset: 42, bit_length: 13, scale: 0.05, unit: "C"}
+        d_value_seconds: {bit_offset: 55, bit_length: 13, scale: 0.05, unit: "s"}
+        target_log_reduction: {bit_offset: 68, bit_length: 8, scale: 0.1, unit: "log_reduction"}
+    food_safe_status:
+      fields:
+        state: {bit_offset: 0, bit_length: 3, values: {"0": "not_safe", "1": "safe", "2": "safety_impossible"}}
+        log_reduction: {bit_offset: 3, bit_length: 8, scale: 0.1, unit: "log_reduction"}
+        seconds_above_threshold: {bit_offset: 11, bit_length: 16, unit: "s"}
+        log_sequence: {bit_offset: 27, bit_length: 32}
+    alarm_record:
+      byte_order: "little"
+      fields:
+        set: {mask: 0x0001}
+        tripped: {mask: 0x0002, notes: "Read-only; ignore when writing."}
+        alarming: {mask: 0x0004, notes: "Read-only/silenced state; ignore when writing."}
+        temperature: {mask: 0xfff8, shift: 3, scale: 0.1, value_offset: -20, unit: "C", valid_decoded_range: [-20, 799]}
+      record_count: 11
+      order: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "Core", "Surface", "Ambient"]
+  prediction_log_layout:
+    fields:
+      virtual_sensors: {bit_offset: 0, bit_length: 7}
+      state: {bit_offset: 7, bit_length: 4}
+      mode: {bit_offset: 11, bit_length: 2}
+      type: {bit_offset: 13, bit_length: 2}
+      setpoint: {bit_offset: 15, bit_length: 10, scale: 0.1, unit: "C"}
+      seconds: {bit_offset: 25, bit_length: 17, unit: "s"}
+      estimated_core: {bit_offset: 42, bit_length: 11, scale: 0.1, value_offset: -20, unit: "C"}
+  crc:
+    name: "CRC-16/CCITT-FALSE"
+    polynomial: 0x1021
+    initial: 0xffff
+    reflect_input: false
+    reflect_output: false
+    xor_out: 0x0000
+    storage: "little-endian at offset 2"
+    request_coverage: "message type, payload length, payload"
+    response_coverage: "message type, success, payload length, payload"
+    check: "CRC-16/CCITT-FALSE('123456789') = 0x29b1"
+  uart_test_vectors:
+    read_session_info_request: "ca fe 5c 48 03 00"
+    read_logs_1_through_5_request: "ca fe 65 9e 04 08 01 00 00 00 05 00 00 00"
+    set_prediction_69_5c_mode_2_request: "ca fe 35 70 05 02 b7 0a"
+    clear_all_44_alarm_bytes_request_prefix: "ca fe d2 60 0b 2c"
+    silence_alarms_request: "ca fe 62 58 0c 00"
+    reset_cook_session_request: "ca fe c4 f2 0a 00"
+    session_response: "ca fe ca 21 03 01 06 78 56 34 12 e8 03"
+  status_test_vector:
+    notes: "Entirely synthetic: invented serial/session and exact decimal thermistor values; no probe data."
+    new_100_byte_hex: "010000002a00000020c366300db181371c07e9d01d2048638a4206e1803e0000000000000000000000000000000000008104000000000000000000000000000000000000000000000000000000000000000000000000000000000000000078563412e803"
+    old_94_byte_rule: "Remove the final six bytes (78 56 34 12 e8 03); all common fields keep their offsets and session_id becomes unspecified."
+    expected:
+      min_log_sequence: 1
+      max_log_sequence: 42
+      temperatures_c: [20.0, 21.1, 22.2, 23.3, 24.4, 25.5, 26.6, 27.7]
+      probe_id: 2
+      prediction_state: "predicting"
+      prediction_mode: "removal_and_resting"
+      prediction_type: "removal"
+      setpoint_c: 65.0
+      heat_start_c: 40.0
+      prediction_seconds: 3600
+      estimated_core_c: 30.0
+      overheating: ["T1", "T8"]
+      high_radio_power: true
+      session_id: 0x12345678
+      sample_period_ms: 1000
+  excluded_surfaces:
+    meatnet: "Nodes use 10-byte request and 15-byte response headers with request/response IDs and a high response bit; do not use the Probe six-/seven-byte parser."
+    gauge_engine: "Separate vendor supplements and capabilities; not inferred from eight-probe thermistor behavior."
+    dfu: "The public Probe document leaves its Nordic DFU details TBD. The Nordic UART UUID is not evidence of a bootloader service or entry command."
+    destructive: "Food-safety configure/reset and cook-session reset are not passive monitoring. Only reset_cook_session is exposed, advanced; configure/reset food-safety remain undocumented as commands here."
+
+entities:
+  - platform: "sensor"
+    name: "Thermistor 1 (tip)"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Decode protocol_details.temperature_decoder from advertisement or Probe Status. The only valid slot in Instant Read."
+  - platform: "sensor"
+    name: "Thermistor 2"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Unavailable in Instant Read, where its raw zero is a placeholder."
+  - platform: "sensor"
+    name: "Thermistor 3"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Normal mode only."
+  - platform: "sensor"
+    name: "Thermistor 4"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Normal mode only."
+  - platform: "sensor"
+    name: "Thermistor 5"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Normal mode only."
+  - platform: "sensor"
+    name: "Thermistor 6"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Normal mode only."
+  - platform: "sensor"
+    name: "Thermistor 7"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Normal mode only."
+  - platform: "sensor"
+    name: "Thermistor 8 (handle)"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Normal mode only."
+  - platform: "sensor"
+    name: "Prediction Time"
+    unit: "s"
+    notes: "Packed 17-bit value in Probe Status prediction block; interpretation is removal or resting according to prediction type."
+  - platform: "sensor"
+    name: "Estimated Core Temperature"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Packed 11-bit value, raw * 0.1 - 20 C."
+  - platform: "binary_sensor"
+    name: "Low Battery"
+    device_class: "battery"
+    notes: "Battery bit 0 in advertisement/status."
+  - platform: "binary_sensor"
+    name: "Overheating"
+    device_class: "problem"
+    notes: "Eight-bit mask; any set bit means at least one named thermistor is overheating."
+  - platform: "button"
+    name: "Silence Ordinary Alarms"
+    commands:
+      press: "silence_alarms"
+    notes: "Critical overheat alarms cannot be silenced by this command."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "bundled_in_app"
+        notes: "The vendor app delivers updates, but image format/authenticity was not established."
+      enter:
+        how: "unknown"
+        notes: "Public Probe DFU details are TBD. Do not infer bootloader entry from the UART service or send a guessed command."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+evidence:
+  documentation_review: >
+    combustion-inc/combustion-documentation at
+    89f2f24d1563b5279dee8b1ef23bac2beeddca85: Probe advertising, status,
+    prediction/alarm layouts, UART and MeatNet product boundaries.
+    legrego/homeassistant-combustion at
+    1e6764dd38b9b36ee0caea92d7c07611fde731f6 cross-checks the 13-byte
+    little-endian thermistor unpacking and advertisement product routing.
+  app_static_analysis: >
+    inc.combustion.app 3.3.13 (versionCode 964), reviewed without executing
+    it, establishes little-endian CRC storage, 16/32-bit status fields, and
+    the response success byte's inclusion in CRC coverage. No vendor internal
+    symbol is reproduced in this spec. The app is not a hardware result.
+  open_questions: >
+    Exact model/revision strings and DRAFT changes per firmware; UART request
+    segmentation above the default ATT MTU; real 94/100-byte status captures;
+    log timing/order and backpressure; DFU; Gauge/Engine and MeatNet extras.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "combustion-inc/combustion-documentation @ 89f2f24d1563b5279dee8b1ef23bac2beeddca85"
+      url: "https://github.com/combustion-inc/combustion-documentation/tree/89f2f24d1563b5279dee8b1ef23bac2beeddca85"
+      obtained_via: "Pinned public Git repository"
+      description: "DRAFT Probe and MeatNet protocol documents."
+    - type: "static_analysis"
+      artifact: "inc.combustion.app 3.3.13 (versionCode 964), base APK"
+      sha256: "6322f981d144b939898f3f0592d308d263da74d1d90c3aa90890625431bbc0a7"
+      obtained_via: "Public app archive, 2026-11"
+      description: "CRC byte order/coverage and status scalar endianness only; no live operation."
+    - type: "public_implementation"
+      artifact: "legrego/homeassistant-combustion @ 1e6764dd38b9b36ee0caea92d7c07611fde731f6"
+      url: "https://github.com/legrego/homeassistant-combustion/tree/1e6764dd38b9b36ee0caea92d7c07611fde731f6"
+      obtained_via: "Pinned public Git repository"
+      description: "Advertisement and packed-temperature decoder cross-check."
+
+remaining_unknowns:
+  - "Actual firmware/model strings and which builds emit 94-byte versus 100-byte status; the DRAFT can change."
+  - "UART RX behavior when a request exceeds the negotiated ATT payload; no universal 20-byte fragmentation rule is asserted."
+  - "Log response pacing, end-of-range behavior and whether every record is always a separate response frame."
+  - "Food-safety product enum beyond preserving it, integrated-mode validation, and safe read-modify-write behavior."
+  - "DFU service/entry, image signing and recovery; MeatNet routing, Giant Grill Gauge and Engine details are separate profiles."
+  - "A real factory reset (if any) is unknown; UART 0x0A is only a new-cook reset."
+  - "The schema cannot express packed 13-bit thermistors or the other packed prediction/food-safety fields declaratively; the dedicated decoder and vectors are required."
+
+helpful_urls:
+  - title: "Combustion Predictive Probe BLE specification (DRAFT, pinned)"
+    url: "https://github.com/combustion-inc/combustion-documentation/blob/89f2f24d1563b5279dee8b1ef23bac2beeddca85/probe_ble_specification.rst"
+    kind: "protocol_writeup"
+    description: "Vendor publication for Probe advertising, 94/100-byte status, packed sensors/prediction/alarms, UART messages and CRC."
+  - title: "Combustion MeatNet Node BLE specification (DRAFT, pinned)"
+    url: "https://github.com/combustion-inc/combustion-documentation/blob/89f2f24d1563b5279dee8b1ef23bac2beeddca85/meatnet_node_ble_specification.rst"
+    kind: "protocol_writeup"
+    description: "Defines the separate node envelope and product types; included to prevent merging Probe and MeatNet framing."
+  - title: "legrego/homeassistant-combustion"
+    url: "https://github.com/legrego/homeassistant-combustion/tree/1e6764dd38b9b36ee0caea92d7c07611fde731f6"
+    kind: "implementation"
+    description: "Pinned local-BLE integration used to cross-check advertisement and 13-bit sensor decoding."
+  - title: "Combustion vendor FAQ"
+    url: "https://combustion.inc/pages/faq"
+    kind: "vendor_support"
+    description: "Official product support and operating guidance for the Predictive Thermometer family."
