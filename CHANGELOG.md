@@ -93,6 +93,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   encrypted/session-based entries are identify-only and all actuation stays
   advanced, attended and outside generic one-tap consumers. No hardware was
   driven, and no owner keys, tokens, serials or MACs are included.
+- **Two distinct Casambi BLE mesh protocols.** New identify-only,
+  reported/untested specs and owner guides separate Evolution network protocols
+  10–11 from Classic full-session protocols 5–9. Evolution covers company
+  `0x03c3`/FE4D discovery, new session/management/OTA UUIDs, strict 23-byte
+  NodeInfo, P-256 ECDH, folded SHA-256 transport keys, directional AES-128-CTR
+  nonces/counters, CMAC verification, type-7 targets/opcodes and fixture-driven
+  type-6 state. Protocol 12 is explicitly unsupported. Classic covers its
+  8/13-byte connection read, visitor four-byte and manager sixteen-byte CMAC
+  envelopes, nonzero 16-bit sequence, operation records and plaintext state.
+  Legacy framing and the separate direct FE3D API are excluded rather than
+  conflated. Both document complete-warm-cache versus first-time cloud
+  provisioning, reset/rejoin/foreign-unpair limits and advanced OTA caveats.
+  Independent standard-library suites rebuild fresh Evolution NodeInfo, both
+  ECDH directions, auth/CTR/CMAC packets, invocation and public-fixture state
+  vectors, plus all relevant Classic full-session golden vectors and malformed
+  cases. No owner keys, private topology or hardware operations are included;
+  bespoke consumers remain necessary for `supported` integration.
 - **November 15 audit follow-up: Anova Mini and Nano protocols.** Separate,
   model-scoped specs and owner guides cover the Mini's JSON/Base64 GATT commands
   and the Nano's distinct COBS/proto2 TX/RX transport, with independent

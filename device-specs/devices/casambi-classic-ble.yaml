@@ -1,0 +1,759 @@
+# Casambi Classic BLE lighting networks — full-session protocols 5 through 9
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# App-corroborated full-network session only. The separate direct FE3D/FE4D
+# opcode API and the uncertain legacy UUID header are deliberately excluded.
+
+device:
+  name: "Casambi Classic BLE lighting networks (protocols 5–9)"
+  manufacturer: "Casambi Technologies Oy"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No fixture was scanned, connected, reset, unpaired, upgraded or controlled
+      by this project, and no Casambi account or owner network was accessed.
+      Facts are reported from static app analysis and the pinned full-session
+      Classic client. Golden vectors are public synthetic/derived fixtures;
+      upstream captured labels are not independent verification by this project.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "light"
+  category_hierarchy: ["light", "other"]
+  type: "lighting-mesh-network"
+  integration: "identify_only"
+  aliases: ["Casambi Classic", "Classic Casambi mesh", "Casambi Ready Classic"]
+  companion_apps:
+    - name: "Casambi"
+      package: "casambi.ambi"
+      role: "primary"
+      platform: "android"
+      notes: "Still contains the full Classic path in the reviewed release; used for authorized provisioning and ownership operations."
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/hellqvio86/casambi-classic-ble/tree/98ebe25bd95897c24ee471c5f011dfaf62ecda12"
+    notes: >
+      Casambi does not publish this full-session wire protocol. The pinned
+      public implementation is not official documentation, and its separate
+      direct-device API is outside this spec.
+  notes: >
+    SCOPE: the app-corroborated full-network Classic API for network protocols
+    5, 6, 7, 8 and 9 using company id 0x03c3, service FE4D and the new
+    characteristic UUID scheme. Network protocol, fixture firmware number and
+    firmware grade are independent; a Classic 26.x image does not by itself
+    prove a network protocol version.
+
+    CLASSIC IS NOT EVOLUTION-LITE. Classic payloads are not encrypted. Visitor
+    frames carry a four-byte AES-CMAC and manager frames a sixteen-byte CMAC;
+    that authenticates plaintext but supplies no confidentiality. Do not send
+    Evolution NodeInfo, P-256, AES-CTR or type-7 invocations to Classic.
+
+    The separate CasambiDevice/direct API writes one-byte opcodes to FE3D or
+    FE4D characteristics and documents a different nonce/sequence story. FE3D
+    was not found in the reviewed vendor app and that path was not independently
+    validated here, so it is excluded, including its direct golden opcodes.
+    Legacy CA5A/CA52-family framing is also excluded because the recovered
+    legacy Classic header is internally uncertain pending capture.
+
+    A full client needs cloud-provisioned visitor/manager keys, topology and
+    fixture controls once, then operates offline only from a complete compatible
+    warm cache. This project's generic mobile app cannot execute the custom
+    session/CMAC/target protocol, hence identify_only.
+  identification:
+    service_uuids: ["0000fe4d-0000-1000-8000-00805f9b34fb"]
+    manufacturer_data:
+      company_id: 963
+      company_id_hex: "0x03C3"
+      description: >
+        New UUID scheme marker. FE4D and this company id are shared with
+        Evolution; decode the advertised network protocol rather than selecting
+        Classic from manufacturer data alone.
+    notes: >
+      For a short network advert, payload byte 6 after the company-id bytes has
+      the network protocol in its low five bits. Values 5–9 select this spec;
+      10–11 select casambi-evolution-ble.yaml; other values are unsupported.
+      FE3D advertisements and legacy 5a ca records are outside this profile.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids: ["0000fe4d-0000-1000-8000-00805f9b34fb"]
+          manufacturer_data:
+            company_id: 963
+            description: "Family match only; protocol_details.advertisements supplies the required generation check."
+        notes: >
+          Accept only decoded network protocol 5–9 for this full-session client.
+          Do not identify a direct FE3D device or infer Classic from a reversed
+          passive-advert address, which is not an IEEE OUI.
+        verification: "reported"
+    identity:
+      stable_keys: ["network_id"]
+      display: "network_name_from_warm_cache"
+      notes: "The six-byte advertised network id selects the owner's cached network document; unit addresses and topology stay private."
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      This setup authorizes a full-network controller; it does not provision a
+      direct FE3D device or create a network offline. Public full-session clients
+      implement protocols 5–9, but this project did not run them on hardware.
+    methods:
+      - type: "ble_direct"
+        name: "Existing complete Classic warm cache (offline)"
+        role: "primary"
+        verified: false
+        description: >
+          Use a trusted cache with protocol 5–9, visitor key and optional manager
+          key, full units/groups/scenes and unexpired fixture controls. A cached
+          network id or password alone is not sufficient.
+        ble:
+          pairing_required: false
+          service_uuid: "0000fe4d-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "c9ffde48-ca5a-0001-ab83-8f519b482f77"
+          write_characteristic: "c9ffde48-ca5a-0001-ab83-8f519b482f77"
+        steps:
+          - action: "Validate cache version 4 or the client's supported equivalent, protocol 5–9, visitor key, complete topology and every unexpired fixture control definition."
+            actor: "client"
+            expect: "All required key, topology and fixture files are present; no network request is needed."
+          - action: "Read the Classic connection hash on 0001, subscribe, sign and send the initial version packet with a nonzero 16-bit sequence, then accept only protocol 5–9 state traffic."
+            actor: "client"
+            expect: "A valid full session with CMAC-verifiable commands and fixture-aware state; no ECDH exchange occurs."
+      - type: "cloud_account"
+        name: "Authorized first-time Classic cloud provisioning"
+        role: "alternative"
+        verified: false
+        description: >
+          Download the Classic visitor/manager keys and complete network and
+          fixture documents using the owner's authorized Casambi credentials.
+        cloud:
+          local_alternative: >
+            Only after a complete compatible cache exists. No independent cloud
+            replacement or offline first-time key/topology provisioner was found.
+        steps:
+          - action: "Ask the owner to share the Classic network or provide its authorized network credentials; preserve any existing full backup before changes."
+            actor: "user"
+          - action: "Create an authorized network session and persist visitor/manager keys, protocol, units, groups, scenes and every fixture definition in the protected Classic JSON cache."
+            actor: "client"
+            request:
+              protocol: "http"
+              service: "https://api.casambi.com"
+              action: "Authorized network/session and fixture requests described in protocol_details.cloud_provisioning"
+            expect: "The complete versioned cache can be reopened with force_offline without a fixture request."
+          - action: "Disconnect from the cloud and verify the full BLE session using only cached material; do not validate setup with a direct opcode write."
+            actor: "client"
+        troubleshooting:
+          - symptom: "Offline mode contacts the fixture endpoint or skips a unit."
+            causes:
+              - "A fixture definition is absent/expired or cache versions differ; topology alone does not satisfy the offline boundary."
+          - symptom: "Commands are refused or state looks like plaintext garbage."
+            causes:
+              - "Wrong connection hash, key selector, key role, sequence byte order or use of direct/legacy frames instead of this full-session envelope."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No vendor-independent physical reset or exact cleared-state list is
+        established. Classic command type 53 is a manager-authorized network
+        Reset operation, not evidence of a universal hardware factory reset.
+      description: >
+        Do not substitute arbitrary power cycling, controller-cache deletion or
+        ESP32 clearconfig for fixture reset. Partner hardware may have its own
+        procedure, which must be established per model.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        An authorized controller reconnects by rereading the connection hash and
+        starting a fresh sequence; moving a fixture between meshes requires
+        manager-authorized unpair and recommissioning. Foreign fixtures need a
+        cloud-issued unpair key and the official guided recovery.
+      steps:
+        - action: "Before losing the old network or controller, share it and preserve the complete versioned Classic cache, including manager key if ownership operations will be needed."
+          actor: "user"
+        - action: "Unpair an owned fixture with manager authorization, or use the official foreign-device recovery to obtain authorization, then recommission with the vendor app."
+          actor: "user"
+          expect: "The old mesh releases the unit before it joins another; no factory reset is assumed."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Classic mesh membership and fixture/network configuration"
+        - "Network authorization material for visitor and manager roles"
+      issued_to_client:
+        - "16-byte visitorKey used for ordinary frames, truncated to a four-byte CMAC"
+        - "Optional 16-byte managerKey used for administrative frames, full sixteen-byte CMAC"
+        - "Complete protocol/topology/fixture cache and per-connection eight-byte connection hash"
+      notes: >
+        Classic JSON caches still contain plaintext hex keys and session data.
+        Use intended 0700 directories and 0600 files, preserve the whole
+        same-version directory, and never publish a backup. Legacy pickle files
+        are ignored by the pinned JSON client, not migrated or interchangeable.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Close the other Casambi/BLE central if the session cannot connect. No OS bond needs clearing; reconnect and reread the connection hash instead of reusing a sequence."
+      notes: "The pinned direct-client documentation says one central, but this project did not establish a universal full-session per-node limit."
+    enter_pairing_mode:
+      required: false
+      notes: "No physical pairing window is used for an already provisioned network. Cloud-issued visitor/manager keys authorize the application-layer CMAC."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Fixture membership in a Classic mesh; not an OS Bluetooth bond and not necessarily a hardware reset."
+      notes: >
+        Unpair uses manager-keyed management frame type 2 on characteristic
+        0002. A unit foreign to the current network needs fixture/unpair (not
+        Evolution's /v2 route) before that write; offline third-party foreign
+        unpair is unavailable.
+    notes: >
+      No BLE bonding is required. CMAC authenticates a shared network role, not
+      a unique client identity, and the four-byte visitor tag is short; protect
+      keys and do not mistake integrity for confidentiality.
+
+initialization:
+  - description: "Read c9ffde48-ca5a-0001-ab83-8f519b482f77; retain the first eight bytes as connection hash, and when present parse the five gateway fields through byte 13. Reject full-session protocols outside 5–9."
+  - characteristic: "c9ffde48-ca5a-0001-ab83-8f519b482f77"
+    subscribe: true
+    notes: "Notifications are plaintext Classic state/config/response records, not Evolution encrypted packets."
+  - description: "Using sequence 1, sign payload 00 01 0b with the connection hash and the operation's role key, write the new-scheme envelope with response, then increment nonzero 16-bit sequences for later full-session records."
+
+services:
+  - uuid: "0000fe4d-0000-1000-8000-00805f9b34fb"
+    name: "Casambi Classic full-session service (new UUID scheme)"
+    notes: >
+      Classic uses write-with-response by default and the default ATT MTU 23;
+      larger frames may switch to write-without-response within the negotiated
+      budget. No characteristic commands are declared because the CMAC,
+      connection hash, sequence, target and fixture context are not generic.
+    characteristics:
+      - uuid: "c9ffde48-ca5a-0001-ab83-8f519b482f77"
+        name: "Classic full-session control and notifications"
+        properties: ["read", "notify", "write", "write_without_response"]
+        role: "command"
+        notes: >
+          Reads return the eight-byte connection hash, optionally followed by
+          unit/flags/MTU/protocol/flags-high. Writes carry selector || CMAC ||
+          sequence:u16be || optional type || payload. Notifications are not
+          encrypted: 00 config, ff debug, f0 response, or unit-state records.
+      - uuid: "c9ffde48-ca5a-0002-ab83-8f519b482f77"
+        name: "Classic management"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          Time sync uses visitor CMAC; unpair type 2 uses manager CMAC;
+          hardware-config request 01 05 uses selector 1 without a MAC. These
+          operations have role and safety prerequisites, not fixed public writes.
+      - uuid: "c9ffde48-ca5a-0003-ab83-8f519b482f77"
+        name: "Casambi Classic OTA channel"
+        properties: ["notify", "write", "write_without_response"]
+        role: "bulk"
+        notes: >
+          Advanced vendor-image transfer. The container and block protocol are
+          shared with Evolution but Classic images and Classic-to-Evolution
+          conversion images are separate selections and must not be mixed.
+
+protocol_details:
+  scope:
+    network_protocols: [5, 6, 7, 8, 9]
+    full_session_api: "CasambiClientClassic-compatible connection-hash/CMAC/16-bit-sequence protocol"
+    new_uuid_scheme_only: true
+    dedicated_consumer_required: true
+    generic_mobile_execution: false
+    version_boundary: "Below 5 is not supported by the conformant full-session client; 10 and above is Evolution, not Classic"
+  exclusions:
+    direct_service_uuid: "0000fe3d-0000-1000-8000-00805f9b34fb"
+    direct_control_uuid: "0000fe3e-0000-1000-8000-00805f9b34fb"
+    direct_status_uuid: "0000fe3f-0000-1000-8000-00805f9b34fb"
+    direct_api: >
+      Excluded. Raw direct opcodes 01/02/03/04/05/07/0f/10/11/14/81/82, MD5
+      password payloads, one-byte sequence claims and FE3D characteristics are
+      a materially different API. Direct golden vectors are not reused here.
+    legacy_uuid_scheme: >
+      Excluded pending capture. The recovered legacy Classic builder appears to
+      overwrite its own type/MAC slot, so CA5A service and CA52/CA51/CA50/CA53
+      characteristic framing is not asserted. New-scheme facts do not resolve it.
+    evolution: "Protocols 10 and above use casambi-evolution-ble.yaml; never use Classic plaintext/CMAC framing for Evolution"
+  advertisements:
+    company_id: 963
+    company_id_hex: "0x03C3"
+    on_air_company_bytes: "c3 03"
+    service_uuid: "0000fe4d-0000-1000-8000-00805f9b34fb"
+    network_record:
+      payload_after_company_id: "network_id[6] | variant_and_protocol"
+      version_byte_offset: 6
+      version_mask: 31
+      accepted_versions: [5, 6, 7, 8, 9]
+    unit_record:
+      version_byte_offset: 19
+      version_mask: 31
+      notes: "Long unit adverts place variant/protocol after address, fixture/vendor/firmware/update, network id and unit id; validate the full layout before use"
+    passive_direct_parser: "The direct client's 8/10/12+-byte reversed-address state beacons are not this spec's full-session discovery grammar and are not used as identity proof"
+  security:
+    payload_encryption: "none"
+    integrity: "aes-128-cmac"
+    confidentiality: "None: connection hash, sequence, type and command/state payload remain plaintext"
+    visitor: {selector: 2, key_source: "cloud visitorKey", cmac_bytes: 4, use: "ordinary state and time-sync frames"}
+    manager: {selector: 3, key_source: "cloud managerKey", cmac_bytes: 16, use: "administrative/unpair frames"}
+    none: {selector: 1, cmac_bytes: 0, use: "hardware-config and explicitly unauthenticated management only"}
+    verification: "Recompute CMAC and compare in constant time before parsing or emitting state; a valid tag does not hide payload from a listener"
+    replay_boundary: "Eight-byte per-connection hash plus nonzero 16-bit sequence only; short visitor tag and shared keys are not strong replay protection"
+  session:
+    initial_read:
+      characteristic: "c9ffde48-ca5a-0001-ab83-8f519b482f77"
+      accepted_lengths: [8, 13]
+      fields:
+        - {name: "connection_hash", offset: 0, length: 8, type: "bytes", description: "Opaque per-connection CMAC prefix"}
+        - {name: "unit_id", offset: 8, length: 1, type: "uint8", required_when: "13-byte gateway read"}
+        - {name: "flags_lo", offset: 9, length: 1, type: "uint8", required_when: "13-byte gateway read"}
+        - {name: "mtu", offset: 10, length: 1, type: "uint8", min: 1, unit: "bytes", required_when: "13-byte gateway read"}
+        - {name: "protocol", offset: 11, length: 1, type: "uint8", allowed: [5, 6, 7, 8, 9], required_when: "13-byte gateway read"}
+        - {name: "flags_hi", offset: 12, length: 1, type: "uint8", required_when: "13-byte gateway read"}
+      flags_formula: "flags_lo | (flags_hi << 8)"
+      malformed_rules:
+        - "Require 8 bytes for phone-direct or exactly 13 for the gateway form; reject other lengths, zero MTU and protocols outside 5–9."
+        - "Connection hash is not ECDH material and is not stable across reconnects. Never substitute NodeInfo's 16-byte nonce."
+    startup:
+      subscribe_characteristic: "c9ffde48-ca5a-0001-ab83-8f519b482f77"
+      initial_payload_hex: "00010b"
+      initial_sequence: 1
+      write_type: "response"
+      role: "visitor for ordinary session startup; manager only for an administrative queue"
+      completion: "After the signed startup write, accept Classic state/config/response records and send full command records; no key exchange acknowledgement or encrypted state follows"
+    envelope:
+      layout: "key_selector:u8 | CMAC[selector-specific] | sequence:u16be | [frame_type:u8] | payload"
+      sequence_byte_order: "big"
+      sequence_range: "1..65535; skip 0000, so 65535 is followed by 1 on a continuing session"
+      cmac_input: "connection_hash[8] || sequence_u16be || optional_frame_type || payload"
+      cmac_output: "visitor first 4 bytes, manager all 16 bytes; selector byte itself is excluded from CMAC input"
+      no_mac: "Selector 1 has no MAC bytes; sequence and payload remain present"
+      command_records: "Ordinary operation records follow sequence directly with no frame-type byte; direct state batch uses frame type 6; unpair management uses frame type 2"
+      malformed_rules:
+        - "Reject unsupported selectors, insufficient MAC/sequence bytes, sequence zero and any CMAC mismatch before decoding a command."
+        - "Keep envelope sequence separate from command origin. Do not use the direct API's one-byte sequence or put the selector in the MAC input."
+  command_records:
+    length_and_marker: "Total record length 4..16 bytes; first byte = 0xf0 | (total_length - 1). The same f0 nibble marks responses in the other direction."
+    fields:
+      - {name: "length_marker", type: "uint8", length: 1}
+      - {name: "type_flags", type: "uint8", length: 1, description: "low 6 bits operation type; bit 6 origin follows; bit 7 target follows"}
+      - {name: "origin", type: "uint8", length: 1, description: "Outgoing command origin, rolls through 1..255; independent of 16-bit envelope sequence"}
+      - {name: "target_id", type: "uint8", length: 1, required_when: "type_flags bit 7"}
+      - {name: "lifetime", type: "uint8", length: 1, default: 200}
+      - {name: "payload", type: "bytes", length: "remaining bytes"}
+    outgoing_flags: "Set bit 6 (origin) always; set bit 7 for unit/group/scene targets, clear for whole-network targets"
+    malformed_rules:
+      - "Require the f0 length marker, 4..16 total bytes, origin, any flagged target and lifetime; reject truncated or trailing data rather than guessing a shorter payload."
+      - "Validate operation/target combinations and exact payload lengths before signing. SetTemperature/Color/Vertical/White do not accept scene targets in the pinned full-session map."
+    operation_types:
+      scene_level: {type: 1, target: "scene", payload: "level:u8; specialized scene restore uses level || 00 00 01"}
+      scene_temperature: {type: 2, target: "scene", payload: "temperature_raw:u8"}
+      scene_color: {type: 3, target: "scene", payload: "r:u8 | g:u8 | b:u8"}
+      network_level: {type: 4, target: "network", payload: "level:u8"}
+      network_temperature: {type: 5, target: "network", payload: "temperature_raw:u8"}
+      network_color: {type: 6, target: "network", payload: "r:u8 | g:u8 | b:u8"}
+      unit_level: {type: 7, target: "unit", payload: "level:u8"}
+      unit_temperature: {type: 8, target: "unit", payload: "temperature_raw:u8"}
+      unit_color: {type: 9, target: "unit", payload: "r:u8 | g:u8 | b:u8"}
+      delete_node: {type: 10, role: "manager", advanced: true, payload: "unit_id:u8"}
+      set_firmware_version: {type: 11, role: "manager", advanced: true, payload: "model-specific; not generically executable"}
+      set_radio_mode: {type: 12, role: "manager", advanced: true, payload: "mode-specific; not generically executable"}
+      activate_timers: {type: 15, target: "network", payload: "none"}
+      execute_extended_upgrade: {type: 16, role: "manager", advanced: true, payload: "Classic-to-Evolution conversion; no network rollback"}
+      dimmer_0: {type: 17, payload: "level:u8"}
+      dimmer_1: {type: 18, payload: "level:u8"}
+      dimmer_2: {type: 39, payload: "level:u8"}
+      ack_overheat: {type: 19, payload: "none"}
+      scene_switch: {type: 20, payload: "scene-specific"}
+      test_unpair: {type: 21, role: "manager", advanced: true, payload: "unpair test; not a factory reset"}
+      network_vertical: {type: 22, target: "network", payload: "vertical:u8"}
+      network_white: {type: 23, target: "network", payload: "white:u8"}
+      unit_vertical: {type: 24, target: "unit", payload: "vertical:u8"}
+      unit_white: {type: 25, target: "unit", payload: "white:u8"}
+      group_level: {type: 26, target: "group", payload: "level:u8"}
+      group_temperature: {type: 27, target: "group", payload: "temperature_raw:u8"}
+      group_color: {type: 28, target: "group", payload: "r:u8 | g:u8 | b:u8"}
+      group_vertical: {type: 29, target: "group", payload: "vertical:u8"}
+      group_white: {type: 30, target: "group", payload: "white:u8"}
+      set_parameter: {type: 31, advanced: true, payload: "parameter_id and fixture-specific value"}
+      identify_input: {type: 32, payload: "input identifier; locate is not advanced"}
+      vendor_message: {types: [33, 34, 35, 36], payload: "vendor-specific; excluded from generic controls"}
+      set_physical_level: {type: 37, payload: "level | minimum | maximum, each u8"}
+      ext_packet: {type: 38, payload: "fixture-specific extended packet"}
+      get_parameter: {type: 40, payload: "parameter_id:u8"}
+      get_sensor: {type: 41, payload: "sensor_id:u8"}
+      start_calibration: {type: 42, advanced: true, payload: "x:u8 | 0f"}
+      button_events: {types: [43, 44, 45, 46, 47, 48, 49, 50], direction: "incoming"}
+      presence: {type: 51, direction: "incoming"}
+      absence: {type: 52, direction: "incoming"}
+      reset: {type: 53, role: "manager", advanced: true, payload: "network Reset operation, not a universal hardware reset"}
+      resume_automation: {type: 54, payload: "none"}
+      attributes: {types: [55, 56, 57, 58], payload: "attribute-specific"}
+      white_color_balance: {type: 59, payload: "balance-specific"}
+    scalar_encodings:
+      level: {type: "uint8", min: 0, max: 255, unit: "%", scale: 0.39215686274509803, description: "0 off, 255 full; percentage = raw * 100 / 255"}
+      vertical: {type: "uint8", min: 0, max: 255, description: "Top/bottom balance, fixture-defined direction"}
+      white: {type: "uint8", min: 0, max: 255, unit: "%", scale: 0.39215686274509803, description: "White-channel amount, not Kelvin"}
+      temperature: {type: "uint8", min: 0, max: 255, unit: "K", scale: 50, encoding: "floor(kelvin / 50); reject negative and above 12750 K, and enforce fixture min/max"}
+      color: "r, g, b each uint8 0..255 in that order; Classic full-session color is RGB, not Evolution HS"
+      restore_on: "ff 01 00 00 01 for ordinary unit/group/network restore; scene-level specialized form is level || 00 00 01. Do not use Evolution ff 05."
+  direct_state:
+    frame_type: 6
+    record: "unit_id:u8 | flags_and_length:u8 | [scene_id:u8] | state[state_length]"
+    flags_and_length: "Low nibble = state-vector length; bit 6 means scene_id follows; other bits are not a generic command mask"
+    fixture_cache_required: true
+    malformed_rules:
+      - "Require unit id, flags/length, optional scene id and exactly the declared state length; reject any trailing or truncated bytes."
+      - "State bytes must also equal the cached fixture state_length before semantic decoding or read-modify-write."
+  incoming_state:
+    special_first_bytes:
+      0: "Network configuration chunk; queue only after checking chunk sequencing, not unit state"
+      240: "Response: f0 | responding_unit | origin | remaining state bytes"
+      255: "ASCII debug log; never publish as state"
+    unit_record:
+      fields:
+        - {name: "unit_id", type: "uint8", length: 1}
+        - {name: "flags", type: "uint8", length: 1, description: "low nibble state length; bit 4 source flag; bit 5 level extra; bit 6 source extra; bit 7 on (app-corroborated)"}
+        - {name: "level", type: "uint8", length: 1, required_when: "flags bit 5", unit: "%", scale: 0.39215686274509803}
+        - {name: "source", type: "uint8", length: 1, required_when: "flags bit 6"}
+        - {name: "state_vector", type: "bytes", length: "flags & 0x0f"}
+      on_flag: "Bit 7 is the app-corroborated on flag. The pinned Python client labels it online and hardcodes on=True; that naming discrepancy is not copied into this spec's semantics."
+      fixture_cache_required: true
+      malformed_rules:
+        - "Reject empty/truncated headers, missing level/source extras and short state vectors; never emit a partial unit update."
+        - "Decode state vectors only with the cached fixture. Raw bytes may be retained without it, but names, engineering units and SetState are blocked."
+  fixture_cache:
+    format: "Classic JSON cache version 4 or a documented compatible equivalent"
+    default_directory: "${XDG_DATA_HOME:-~/.local/share}/casambi-classic-ble-store or Home Assistant <config>/.storage/casambi_classic_bt/"
+    required_files:
+      - ".cachever = 4"
+      - "<normalized-network-uuid>/casambi_network_id.txt"
+      - "<network-id>.json with protocol, units, groups and scenes"
+      - "casambi_lookup.json with plaintext visitorKey and optional managerKey"
+      - "casambi_session.json"
+      - "casambi_types.json with every unexpired fixture definition"
+    offline_boundary: "A complete warm compatible cache only; force_offline may still request a missing or 28-day-expired fixture, so cached network id alone proves nothing"
+    security: "Atomic writes and intended 0700/0600 permissions; legacy keys.pck/session.pck/types.pck are ignored, not migrated as objects"
+    public_examples:
+      board_1:
+        source_url: "https://api.casambi.com/fixture/1"
+        source_sha256: "44f618a672bc59283dca9a59e6073475c16b9df91e1d5fa203dc2938b539e858"
+        fixture_id: 1
+        model: "Board"
+        classic_firmware_offer: 6680
+        state_length: 1
+        controls:
+          - {name: "dimmer", type: "dimmer", offset: 0, length: 8, default: 255, readonly: false, min: 0, max: 255, unit: "%", scale: 0.39215686274509803}
+        notes: "Anonymous public fixture, not an owner network. A Classic firmware offer does not itself prove the mesh protocol version."
+  cloud_provisioning:
+    current_public_base: "https://api.casambi.com"
+    app_generation_base: "https://api.casambi.com/api/"
+    authorized_flow:
+      - "Resolve the 48-bit network id and create an authorized network session with the owner's network credentials."
+      - "Download and preserve the complete network JSON including visitorKey, optional managerKey, units, grid/groups and scenes."
+      - "Fetch fixture/<id> for every unit type and cache controls before entering force_offline."
+    backup_boundary: "Restore only a complete trusted same-version directory. No converter among Classic JSON, Android JSON, Evolution pickle and reduced ESP32 JSON is implemented or claimed."
+    unavailable_offline:
+      - "initial keys/topology, new networks and lost credentials with no backup"
+      - "foreign fixture/unpair key issuance"
+      - "cloud Network History and out-of-range bridge relay"
+      - "firmware selection/images not already cached"
+  management:
+    time_sync:
+      characteristic: "c9ffde48-ca5a-0002-ab83-8f519b482f77"
+      packet_type: 7
+      selector: 2
+      cmac_bytes: 4
+      interval_minutes: {default: 120, minimum: 15, source: "network time.syncInterval"}
+      reported_layout: "07 | year:u16be | month/day/hour/minute/second:u8 | timezone_offset_minutes:u16be | next_dst_transition:u32be | dst_change_minutes:u8 | latitude[3] | longitude[3] | reserved:u16be | microseconds:u24be | latitude_high:u8"
+      unresolved_coordinate_rule: "The Classic three-byte coordinate words and final latitude-high byte require capture before generating location sync; do not borrow Evolution's two int32 fixed-point fields. A client may omit time/location sync rather than send a guessed location."
+    unpair:
+      characteristic: "c9ffde48-ca5a-0002-ab83-8f519b482f77"
+      frame_type: 2
+      selector: 3
+      cmac_bytes: 16
+      cloud_dependency: "Foreign units need fixture/unpair?hash=<connection-hash>&address=<unit-address>&network=<network-id>&id=<unit-id>; placeholders only"
+      advanced: true
+      advanced_reason: "Removes mesh ownership and can strand fixtures without a complete shared backup"
+    hardware_config:
+      characteristic: "c9ffde48-ca5a-0002-ab83-8f519b482f77"
+      request_hex: "0105"
+      selector: 1
+      cmac_bytes: 0
+      advanced: true
+      advanced_reason: "Model-specific hardware configuration was not exercised"
+  ota:
+    advanced: true
+    advanced_reason: "Writes fixture firmware; wrong generation/board/CPU/grade/variant or interruption can leave lighting unavailable"
+    characteristic: "c9ffde48-ca5a-0003-ab83-8f519b482f77"
+    container: "0xca5a0002 | outer CRC-32:u32be over remainder | version/device/board/flags/block_count:u16be | typed blocks | addon:u16be | 64-byte trailer"
+    block_transfer: "PREPARE 01 with metadata/signature, BEGIN 02 with first 16 block bytes after replacing first four with little-endian block CRC-32, DATA 03 fragments <=MTU-4, COMMIT 04, indexed notifications, final APPLY 05 without response"
+    image_verification: "Validate outer reflected IEEE CRC-32 and exact block/container lengths. The app checks CRC only; trailer algorithm/trust key and node enforcement are unknown."
+    conversion: "Classic operation type 16 executes Extended Upgrade with manager authorization. Evolution cannot be rolled back as a network; every device must be unpaired, individually restored to Classic and commissioned into a new Classic network."
+    recovery: "Update-mode identity, bad-CRC response and interrupted-update result are unknown; never apply a partial image or assume Nordic DFU behavior"
+  test_vectors:
+    provenance: >
+      crypto_session_vectors and classic_session_operations are the relevant
+      public full-session entries from hellqvio86/casambi-classic-ble commit
+      98ebe25bd95897c24ee471c5f011dfaf62ecda12, fixtures/golden_vectors.json.
+      Their keys, hashes, ids and payloads are synthetic fixtures, not owner
+      material. Direct API opcodes and protected_mesh_xor are deliberately not
+      included. connection_info, incoming_state and direct_state are fresh
+      synthetic examples for this spec. The independent stdlib test rebuilds all.
+    crypto_session_vectors:
+      - description: "Visitor signed packet, arbitrary public fixture payload, sequence 1"
+        auth_level: 2
+        sig_len: 4
+        key_hex: "0102030405060708090a0b0c0d0e0f10"
+        connhash_hex: "a1b2c3d4e5f60718"
+        packet_hex: "00010301ff"
+        expected_sig_hex: "1459c583"
+        expected_digested_hex: "1459c58300010301ff"
+        expected_wire_hex: "021459c58300010301ff"
+        provenance: "derived"
+      - description: "Visitor signed packet, arbitrary public fixture payload, sequence 2"
+        auth_level: 2
+        sig_len: 4
+        key_hex: "0102030405060708090a0b0c0d0e0f10"
+        connhash_hex: "a1b2c3d4e5f60718"
+        packet_hex: "000204010bb8"
+        expected_sig_hex: "b6eea225"
+        expected_digested_hex: "b6eea225000204010bb8"
+        expected_wire_hex: "02b6eea225000204010bb8"
+        provenance: "derived"
+      - description: "Manager full-CMAC packet, arbitrary public fixture payload, sequence 1"
+        auth_level: 3
+        sig_len: 16
+        key_hex: "100f0e0d0c0b0a090807060504030201"
+        connhash_hex: "a1b2c3d4e5f60718"
+        packet_hex: "00010301ff"
+        expected_sig_hex: "bccc01763aa898e160f3710cd4dbaa1d"
+        expected_digested_hex: "bccc01763aa898e160f3710cd4dbaa1d00010301ff"
+        expected_wire_hex: "03bccc01763aa898e160f3710cd4dbaa1d00010301ff"
+        provenance: "derived"
+    crypto_vector_scope: "The packet_hex bodies test CMAC, not direct FE3D commands. selector || signature || packet_hex forms expected_wire_hex."
+    classic_session_operations:
+      - {name: "SetLevel_Broadcast", opcode_name: "SetLevel", target_type: "network", target_id: null, payload_hex: "ff", expected_frame_hex: "f44401c8ff", provenance: "derived"}
+      - {name: "SetLevel_Unit", opcode_name: "SetLevel", target_type: "unit", target_id: 5, payload_hex: "80", expected_frame_hex: "f5c70105c880", provenance: "captured (upstream label only)"}
+      - {name: "SetLevel_Group", opcode_name: "SetLevel", target_type: "group", target_id: 10, payload_hex: "40", expected_frame_hex: "f5da010ac840", provenance: "captured (upstream label only)"}
+      - {name: "SetLevel_Scene", opcode_name: "SetLevel", target_type: "scene", target_id: 12, payload_hex: "ff", expected_frame_hex: "f5c1010cc8ff", provenance: "captured (upstream label only)"}
+      - {name: "SetTemperature_Broadcast", opcode_name: "SetTemperature", target_type: "network", target_id: null, payload_hex: "36", expected_frame_hex: "f44501c836", provenance: "derived"}
+      - {name: "SetTemperature_Unit", opcode_name: "SetTemperature", target_type: "unit", target_id: 5, payload_hex: "36", expected_frame_hex: "f5c80105c836", provenance: "captured (upstream label only)"}
+      - {name: "SetTemperature_Group", opcode_name: "SetTemperature", target_type: "group", target_id: 10, payload_hex: "36", expected_frame_hex: "f5db010ac836", provenance: "derived"}
+      - {name: "SetColor_Broadcast", opcode_name: "SetColor", target_type: "network", target_id: null, payload_hex: "ff8000", expected_frame_hex: "f64601c8ff8000", provenance: "derived"}
+      - {name: "SetColor_Unit", opcode_name: "SetColor", target_type: "unit", target_id: 5, payload_hex: "ff8000", expected_frame_hex: "f7c90105c8ff8000", provenance: "captured (upstream label only)"}
+      - {name: "SetColor_Group", opcode_name: "SetColor", target_type: "group", target_id: 10, payload_hex: "ff8000", expected_frame_hex: "f7dc010ac8ff8000", provenance: "derived"}
+      - {name: "SetVertical_Broadcast", opcode_name: "SetVertical", target_type: "network", target_id: null, payload_hex: "64", expected_frame_hex: "f45601c864", provenance: "derived"}
+      - {name: "SetVertical_Unit", opcode_name: "SetVertical", target_type: "unit", target_id: 5, payload_hex: "64", expected_frame_hex: "f5d80105c864", provenance: "derived"}
+      - {name: "SetVertical_Group", opcode_name: "SetVertical", target_type: "group", target_id: 10, payload_hex: "64", expected_frame_hex: "f5dd010ac864", provenance: "derived"}
+      - {name: "SetWhite_Broadcast", opcode_name: "SetWhite", target_type: "network", target_id: null, payload_hex: "c8", expected_frame_hex: "f45701c8c8", provenance: "derived"}
+      - {name: "SetWhite_Unit", opcode_name: "SetWhite", target_type: "unit", target_id: 5, payload_hex: "c8", expected_frame_hex: "f5d90105c8c8", provenance: "derived"}
+      - {name: "SetWhite_Group", opcode_name: "SetWhite", target_type: "group", target_id: 10, payload_hex: "c8", expected_frame_hex: "f5de010ac8c8", provenance: "derived"}
+    operation_encoding_note: "These are operation records before the separate Classic envelope; target_type None in the upstream fixture is spelled network here."
+    connection_info:
+      hex: "a1b2c3d4e5f607180502170901"
+      expected: {connection_hash_hex: "a1b2c3d4e5f60718", unit_id: 5, flags: 258, mtu: 23, protocol: 9}
+    incoming_state:
+      record_hex: "0582aabb"
+      response_hex: "f00501aabb"
+      expected: {unit_id: 5, "on": true, source_flag: false, state_hex: "aabb"}
+      note: "Fresh two-byte opaque state only; fixture semantics require the cached layout and are not guessed from aabb."
+    direct_state:
+      record_hex: "05410c80"
+      expected: {unit_id: 5, scene_id: 12, state_hex: "80"}
+      note: "Fresh unit-5 direct-state record with scene id 12 and the public one-byte Board dimmer state 0x80."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble", "vendor_cloud"]
+      transport: ["ble", "cloud"]
+      services: ["0000fe4d-0000-1000-8000-00805f9b34fb"]
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        encrypted: false
+        source: "public_url"
+        format: "Casambi 0xca5a0002 container with outer CRC-32, typed blocks and a 64-byte trailer"
+        notes: >
+          Public Classic 26.24 and Evolution 50.0 images are different grades.
+          CRC/container validation does not establish signature acceptance.
+          Never flash only because payload bytes match across CPU variants.
+      enter:
+        how: "in_place"
+        notes: "The running application receives PREPARE on characteristic 0003; all OTA stages are advanced under protocol_details.ota."
+      dfu_mode:
+        notes: "No distinct update-mode name/service/address offset is established. FE4D also identifies normal operation and does not prove a bootloader."
+      recovery:
+        interrupted: "unknown"
+        notes: "No guaranteed old-image retention or update-mode recovery is known."
+      verification: "reported"
+      notes: "Classic-to-Evolution conversion has no network rollback; individual unpair/reflash/recommission is required to return."
+
+cloud:
+  required: false
+  vendor_service: "Casambi cloud (Classic provisioning and recovery only after warm cache)"
+  auth:
+    type: "other"
+    notes: "Owner-authorized network session supplies Classic keys and configuration; no credentials are included."
+    verification: "reported"
+  egress:
+    - host: "api.casambi.com"
+      contacted_by: "app"
+      roles: ["account", "provisioning", "api", "firmware_download"]
+      ports: [{port: 443, protocol: "tcp"}]
+      when_blocked:
+        impact: "degraded"
+        effect: "Initial Classic key/topology download, missing fixture refresh, foreign-unpair keys and uncached firmware fail; complete warm caches can still control locally."
+        workaround: "Back up the full compatible Classic JSON directory while online and use a dedicated full-session BLE client offline."
+      verification: "reported"
+      basis: "Pinned full-session client cache and public fixture/firmware endpoints; no live account or fixture session."
+    - host: "bridge.casambi.com"
+      contacted_by: "app"
+      roles: ["device_cloud"]
+      ports: [{port: 443, protocol: "tcp"}]
+      when_blocked:
+        impact: "none"
+        effect: "Optional remote relay stops; in-range full-session BLE does not depend on it."
+      verification: "reported"
+      basis: "Public cloud-relay configuration."
+  endpoints:
+    - path: "network/uuid/<48-bit-network-id> and network/<id>/session"
+      method: "POST"
+      returns: "Authorized Classic network resolution/session"
+      verification: "reported"
+    - path: "network/<id>"
+      method: "GET"
+      returns: "visitorKey, optional managerKey, protocol, units, groups, scenes and settings"
+      verification: "reported"
+    - path: "fixture/<id>"
+      method: "GET"
+      returns: "Classic fixture state length and bit-level controls; current public route has no /api prefix"
+      verification: "reported"
+    - path: "fixture/unpair and fixture/<id>/firmware/<version>"
+      method: "GET"
+      returns: "Foreign-unpair key or selected Classic firmware; not available from an independent offline issuer"
+      verification: "reported"
+  failure_mode: >
+    Existing full-session control continues only with a complete compatible
+    cache. Initial/lost-credential provisioning, missing fixtures, foreign
+    unpair, Network History, uncached OTA and remote relay stop.
+  data_leaves_device:
+    - "Account/network session and authorization metadata during provisioning"
+    - "Classic network topology, fixture identifiers and configuration during synchronization"
+  notes: "Use normal platform CA/hostname validation in new clients; no Android trust defect is reproduced as implementation guidance."
+
+local_access:
+  status: "native"
+  summary: "Full-network phone-direct BLE after one authorized cloud/cache provisioning step; no hub is required for in-range steady-state control."
+  covers:
+    - "Protocols 5–9 new-scheme connection-hash sessions"
+    - "Visitor four-byte and manager sixteen-byte CMAC envelopes"
+    - "Network/unit/group/scene operation records and direct fixture state"
+    - "Plaintext unit-state, response and configuration handling with fixture-aware controls"
+  not_covered:
+    - "Direct FE3D/raw-opcode API, protocols below 5, Evolution and legacy UUID framing"
+    - "Offline initial provisioning, lost credentials, foreign unpair and universal physical reset"
+    - "Classic location time-sync encoding pending capture, uncached OTA and unverified signature/recovery"
+    - "Out-of-range Cloud Gateway relay"
+  notes: "Local protocol availability does not imply generic mobile support; a bespoke full-session consumer is required."
+
+entities:
+  - platform: "light"
+    name: "Classic mesh light (per cached unit)"
+    instances: {keyed_by: "device_id", label_path: "name"}
+    notes: >
+      Descriptive only while identify_only. A bespoke consumer uses cached
+      targets and fixture controls, wraps each operation in the correct role/
+      sequence/CMAC envelope and parses plaintext state. No direct opcode or
+      fixed generic GATT command is bound.
+
+evidence:
+  app_static_analysis: >
+    Vendor Android app v3.20.2 supplied the complete Classic path: protocol
+    selection, new UUID map, eight-byte connection hash, selector/CMAC/sequence,
+    operation records/types, state/direct-state, management, cloud keys and OTA.
+    It establishes that Classic is not confined to an old third-party fork.
+    Legacy-header output is internally uncertain and therefore excluded.
+  public_implementation: >
+    hellqvio86/casambi-classic-ble at 98ebe25bd95897c24ee471c5f011dfaf62ecda12
+    corroborates protocols 5–9, 13-byte connection info, four/sixteen-byte CMAC,
+    16-bit big-endian sequence with zero skipped, operation records, JSON cache
+    and malformed-state handling. Its direct CasambiDevice API is separate and
+    excluded. Its incoming bit-7 online naming is not allowed to override the
+    app-corroborated on semantics recorded here.
+  public_fixtures: >
+    The pinned client's golden_vectors.json supplied only relevant full-session
+    crypto and operation entries. Public fixture/1 supplied the one-byte dimmer
+    layout. Upstream captured labels remain third-party claims, not hardware
+    confirmation by this project.
+  open_questions: >
+    Capture the legacy Classic header, validate foreign recovery and OTA block/
+    signature behavior on sacrificial hardware, resolve Classic location sync,
+    and reconcile bit-7 state semantics with a redacted full-session capture.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "casambi.ambi v3.20.2 (versionCode 240483), base APK"
+      sha256: "f29e99161fd8fbe68e30913b215a44561c6662b5eb630ea80f4d62645eed7cce"
+      obtained_via: "Third-party APK mirror, 2026-09; static analysis only"
+      description: "Derived full-session and lifecycle facts; no binary or decompiled source committed."
+    - type: "public_implementation"
+      artifact: "hellqvio86/casambi-classic-ble, commit 98ebe25bd95897c24ee471c5f011dfaf62ecda12"
+      url: "https://github.com/hellqvio86/casambi-classic-ble/tree/98ebe25bd95897c24ee471c5f011dfaf62ecda12"
+      description: "Pinned full-session Classic implementation and public golden fixtures; direct API deliberately excluded."
+    - type: "public_implementation"
+      artifact: "hellqvio86/casambi-classic-bt-hass, commit 428b192a6d051bb8c836f3279337e91595a24c7f"
+      url: "https://github.com/hellqvio86/casambi-classic-bt-hass/tree/428b192a6d051bb8c836f3279337e91595a24c7f"
+      description: "Home Assistant cache/offline integration boundary; mocked tests are not fixture interoperability evidence."
+    - type: "public_document"
+      artifact: "Public fixture 1 metadata"
+      sha256: "44f618a672bc59283dca9a59e6073475c16b9df91e1d5fa203dc2938b539e858"
+      url: "https://api.casambi.com/fixture/1"
+      description: "Anonymous one-byte dimmer state definition used by independent tests."
+
+remaining_unknowns:
+  - "Legacy UUID-scheme Classic frame header and protocols below 5; no legacy commands are claimed."
+  - "Direct FE3D/FE4D raw-opcode API interoperability and its distinct challenge/sequence format; excluded rather than merged."
+  - "Classic three-byte location coordinate packing and final latitude-high byte for time sync."
+  - "Bit-7 on semantics versus the pinned client's online naming needs a redacted app-session capture."
+  - "Foreign-fixture offline unpair, universal physical reset, cache conversion and lost-credential recovery."
+  - "OTA signature/trust key, block acknowledgement/CRC rejection, update-mode identity and interruption recovery."
+
+helpful_urls:
+  - title: "hellqvio86/casambi-classic-ble (pinned full-session client)"
+    url: "https://github.com/hellqvio86/casambi-classic-ble/tree/98ebe25bd95897c24ee471c5f011dfaf62ecda12"
+    kind: "implementation"
+    description: "Classic protocols 5–9, CMAC/session/operation implementation and relevant public golden fixtures; direct API is outside this spec."
+  - title: "hellqvio86/casambi-classic-bt-hass (pinned Home Assistant integration)"
+    url: "https://github.com/hellqvio86/casambi-classic-bt-hass/tree/428b192a6d051bb8c836f3279337e91595a24c7f"
+    kind: "implementation"
+    description: "Classic Home Assistant integration and JSON warm-cache/offline boundary; no live interoperability is claimed."
+  - title: "Casambi Classic and Evolution support article"
+    url: "https://support.casambi.com/support/solutions/articles/12000068796-what-is-classic-and-evolution-"
+    kind: "vendor_support"
+    description: "Vendor explanation of network generations; HTTP 200 verified 2026-11-18."
+  - title: "Casambi app user guide (February 2026)"
+    url: "https://support.casambi.com/helpdesk/attachments/12179447849"
+    kind: "manual"
+    description: "Official 101-page Casambi network/app guide covering Classic and Evolution setup, sharing and unpairing; HTTP 200 verified 2026-11-18."
+  - title: "Casambi operation and maintenance manual (Classic network ownership)"
+    url: "https://support.casambi.com/helpdesk/attachments/12159158129"
+    kind: "manual"
+    description: "January 2025 network handover/replacement guide, including Not shared network risks; HTTP 200 verified 2026-11-18."
+  - title: "Casambi CBU-PWM4 four-channel dimmer datasheet (Classic hardware example)"
+    url: "https://7177595.fs1.hubspotusercontent-na1.net/hubfs/7177595/Data%20sheets/CBU_PWM4_Data-Sheet_EU_EN_2_0.pdf"
+    kind: "manual"
+    description: "Vendor CBU-PWM4 installation/data sheet for a model named in public Classic client evidence; hardware manual, not wire-protocol proof. HTTP 200 verified 2026-11-18."
+  - title: "Casambi troubleshooting paired devices"
+    url: "https://support.casambi.com/support/solutions/articles/12000096173-troubleshooting-paired-devices"
+    kind: "vendor_support"
+    description: "Official app-guided foreign-fixture recovery, not an offline reset algorithm; HTTP 200 verified 2026-11-18."
+  - title: "Public Board fixture 1 control definition"
+    url: "https://api.casambi.com/fixture/1"
+    kind: "protocol_writeup"
+    description: "Anonymous public one-byte dimmer layout used in the independent direct-state vector; HTTP 200 verified 2026-11-18."

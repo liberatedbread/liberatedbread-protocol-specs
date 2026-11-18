@@ -46,6 +46,8 @@ spec's `device.setup` block; the patterns are explained in
 | [LED space Wi-Fi LED Screen](led-space.md) | Wi-Fi (device AP) + BLE variant | Complete | None needed (device hosts its AP) | LOY SPACE / popled.cn |
 | [SP105E Magic LED Controller](sp105e-magic-led.md) | BLE | Spec Available | None needed | Sperll-era OEM (BTF-LIGHTING, ALITOVE, …) |
 | [BanlanX SP6xxE LED Controllers](banlanx-sp6xxe.md) | BLE | Spec Available | None needed | Sperll (BanlanX app) |
+| [Casambi Evolution BLE networks (protocols 10–11)](casambi-evolution-ble.md) | BLE (ECDH/AES-CTR/CMAC mesh session) | Identify-only (untested) | Complete warm cache or authorized cloud provisioning (medium) | Casambi Technologies Oy |
+| [Casambi Classic BLE networks (protocols 5–9)](casambi-classic-ble.md) | BLE (plaintext + CMAC full session) | Identify-only (untested) | Complete warm cache or authorized cloud provisioning (medium) | Casambi Technologies Oy |
 | [SP108E LED Shop WiFi Controller](led-shop-sp108e.md) | WiFi (device AP; TCP 8189) | Spec Available | Join device SoftAP (low) | Sperll-era OEM |
 | [duoCo StripX / Lotus Lantern Pixel Strips](wl-smartled-pixel-strips.md) | BLE | Spec Available | None needed | fstart/easylink OEM (MELK/ELK) |
 | [LotusLamp X (MELK/ELK/ELBU)](lotuslamp-x.md) | BLE | Spec Available | None needed | Shenzhen ELK |
