@@ -43,14 +43,16 @@ device:
     notifications or parse a partial response.
 
     KEY REGISTERS:
-      0x03 basic info — pack voltage (u16, 10 mV), current (s16, negative =
-           discharge), remaining + design capacity, cycle count,
-           protection/error flags, software version, SOC %, FET status bits
-           (charge/discharge), cell count, NTC count + temps (0.1 K).
-           On firmware implementing operation-status bit 7 as the units flag,
-           set means current 100 mA and both capacities 100 mAh; otherwise
-           current is 10 mA and both capacities 10 mAh. Do not generalize one
-           scale across firmware.
+      0x03 basic info — pack voltage (u16 BE @0, 10 mV), current (s16 BE @2,
+           negative = discharge), remaining capacity (u16 BE @4) and design
+           capacity (u16 BE @6), cycle count, protection/error flags, software
+           version, SOC %, FET status bits (charge/discharge), cell count,
+           NTC count + temps (0.1 K). Offsets are into the response payload,
+           which starts after DD/register/status/length. operation_status is
+           payload byte 20 (whole-frame byte 24). On firmware implementing its
+           bit 7 as the units flag, set means current 100 mA and both
+           capacities 100 mAh; otherwise current is 10 mA and both capacities
+           10 mAh. Do not generalize one scale across firmware.
       0x04 per-cell voltages (u16 @ 1 mV)
       0x05 device name string
     EEPROM config needs factory mode: write 0x56 0x78 to register 0x00; exit via
@@ -206,6 +208,22 @@ services:
             verification: "reported"
             value: [0xDD, 0xA5, 0x05, 0x00, 0xFF, 0xFB, 0x77]
 
+protocol_details:
+  basic_info_response:
+    payload_basis: "Response payload begins after DD, register, status and length, so whole-frame offset = payload offset + 4."
+    fields:
+      pack_voltage: {payload_offset: 0, frame_offset: 4, length: 2, type: "uint16", endianness: "big", scale: 0.01, unit: "V"}
+      pack_current: {payload_offset: 2, frame_offset: 6, length: 2, type: "int16", endianness: "big", unit: "A", signedness: "signed; negative = discharge; unit scale selected by operation_status bit 7"}
+      remaining_capacity: {payload_offset: 4, frame_offset: 8, length: 2, type: "uint16", endianness: "big", unit: "Ah", signedness: "unsigned; unit scale selected by operation_status bit 7"}
+      design_capacity: {payload_offset: 6, frame_offset: 10, length: 2, type: "uint16", endianness: "big", unit: "Ah", signedness: "unsigned; unit scale selected by operation_status bit 7"}
+      operation_status: {payload_offset: 20, frame_offset: 24, length: 1, type: "uint8", bit: 7}
+    unit_selection: "operation_status bit 7 clear: current 10 mA and capacities 10 mAh. Set on firmware implementing the flag: current 100 mA and capacities 100 mAh. Do not apply one scale to all firmware."
+    fixture_prefix_hex: "13 88 ff 06 13 88 17 70"
+    fixture_padding: "12 zero bytes at payload offsets 8-19, then operation_status at payload offset 20 (whole-frame byte 24)."
+    fixtures:
+      - {operation_status: "00", current_a: -2.5, remaining_capacity_ah: 50, design_capacity_ah: 60}
+      - {operation_status: "80", current_a: -25.0, remaining_capacity_ah: 500, design_capacity_ah: 600}
+
 entities:
   - platform: "sensor"
     name: "Pack Voltage"
@@ -216,7 +234,7 @@ entities:
     name: "Pack Current"
     device_class: "current"
     unit: "A"
-    notes: "From register 0x03 (s16; negative = discharge). Operation-status bit 7 selects 100 mA on firmware implementing that flag; otherwise 10 mA. Both capacities use the corresponding 100/10 mAh scale."
+    notes: "Signed BE at payload offset 2. Operation-status at payload offset 20 (whole-frame byte 24), bit 7 selects 100 mA on firmware implementing that flag; otherwise 10 mA. Unsigned BE capacities at offsets 4/6 use corresponding 100/10 mAh."
   - platform: "sensor"
     name: "State of Charge"
     device_class: "battery"

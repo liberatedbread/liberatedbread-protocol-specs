@@ -22,8 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   OpenEVSE, Concept2, FTMS, VESC, OBD/ISO-TP/UDS and clean-room labels receive
   corresponding focused corrections. WheelLog's other-brand speed/current/voltage/
   temperature scales and shared FFE0/FFE1 transport are explicit, with manual
-  discovery retained. Two standard-library modules carry 21 independent fixture
-  and regression checks; verification levels are unchanged.
+  discovery retained. Review follow-ups add Victron's AUX selector and shifted
+  non-byte offsets, Mi Flora's acknowledgement gate, Mopeka's configured-MAC-only
+  identity, Enphase's phase-4 nonce slices, and JBD's operation-status offset.
+  Two standard-library modules carry 21 independent fixture and regression
+  checks; verification levels are unchanged.
 
 ### Added
 

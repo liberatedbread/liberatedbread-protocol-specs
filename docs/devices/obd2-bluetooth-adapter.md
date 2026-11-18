@@ -188,11 +188,12 @@ common) and typically fails on:
 - custom headers via `ATSH` on some protocols
 
 Single-frame Mode 01 reads and small Mode 03 replies work almost everywhere. On
-classic CAN normal addressing, Mode 03 returns `43`, a DTC count and two bytes
-per DTC: three DTCs need eight application bytes and ISO-TP multiframe receive,
-with replies from multiple ECUs kept separate. If a documented function works on
-an OBDLink and fails on a clone, multiframe support is one protocol capability
-to check.
+classic CAN normal addressing, Mode 03 returns `43 ??`, a DTC count and two bytes
+per DTC; parse exactly `2 + 2*count` application bytes for 0/1/2/3/4+ codes.
+Three DTCs need eight application bytes and ISO-TP multiframe receive (separate
+example `43 03 01 23 04 56 07 89`), with replies from multiple ECUs kept
+separate. If a documented function works on an OBDLink and fails on a clone,
+multiframe support is one protocol capability to check.
 
 A quick capability probe:
 

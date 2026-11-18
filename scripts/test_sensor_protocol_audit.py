@@ -209,10 +209,14 @@ def test_mopeka_ten_byte_layout_formulas_and_vector():
     assert distance == 451
     assert frame[5:] == bytes(5)
     text = spec("mopeka-pro-check-ble")
-    assert "company_id: 89" in text
-    assert "company ID alone is not identity" in text
     assert "Bytes 5-9 are not decoded" in text
     assert "Reading Quality" in text
+    assert "company_id: 89" not in text
+    discovery = text.split("  discovery:\n", 1)[1].split("  setup:", 1)[0]
+    assert "none: >" in discovery
+    assert "methods:" not in discovery
+    assert "shared Nordic company ID" in discovery
+    assert "0x0059 alone must never select this spec" in discovery
 
 
 def test_miflora_success_ack_and_two_step_destructive_clear():
@@ -226,7 +230,12 @@ def test_miflora_success_ack_and_two_step_destructive_clear():
     assert 'ordered_commands: ["history_read_init", "history_sync_success"]' in text
     assert "failure_acknowledgement: \"a3 00 00\"" in text
     assert "clear history (CONFIRMED)" not in text
-    assert 'history_sync_success:\n            description:' in text
+    sync_start = text.index("          history_sync_success:")
+    sync_end = text.index("          history_read_fail:", sync_start)
+    sync = text[sync_start:sync_end]
+    assert "advanced: true" in sync
+    assert "irreversibly deletes stored history" in sync
+    assert "Use history_read_fail (a3 00 00) instead when synchronization failed" in sync
 
 
 def test_pvvx_custom_widths_and_vector_without_losing_newer_firmware_facts():

@@ -45,9 +45,10 @@ Commissioning over BLE: connect to the XBee 3 BLE service and perform the
 four-frame SRP-6a unlock (XBee API `0x2C`/response `0xAC`, user `apiservice`).
 Reviewed Ensemble provisioning, existing-device link-key verification and live
 data all expect `030609`; `password` is confined to separate range-test and
-gateway helpers. Verify the 32-byte proof, then use the 32-byte session key for
-AES-256-CTR with direction-specific 12-byte nonces and initial remaining counter
-value 1. Then send User Data Relay frames carrying link key push (frame type 1,
+gateway helpers. Verify the 32-byte proof. In phase 4, bytes 32–43 are the
+12-byte TX nonce for client→XBee and bytes 44–55 are the 12-byte RX nonce for
+XBee→client. Use those direction-specific nonces with the 32-byte session key
+for AES-256-CTR and initial remaining counter value 1. Then send User Data Relay frames carrying link key push (frame type 1,
 `[0x01][0x10][16 key bytes]`), gateway serial write (type 7), and
 pairing/commissioning status polls (types 4/5). The 16-byte 802.15.4 link key is
 generated locally. A candidate with 13 zero bytes plus the reserved `03 06 09`
