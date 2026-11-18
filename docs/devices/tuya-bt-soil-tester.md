@@ -43,7 +43,7 @@ BT3L or the ambiguous “BTH” label previously recorded here.
 |----------|-------|
 | Setup required | Yes (pairing is mandatory; nothing is readable unpaired) |
 | Method | `ble_provisioning` (vendor app + Tuya cloud account), then `ble_direct` with extracted keys |
-| Setup AP / advertised name | BLE advertisement with service-data `0xA201` + manufacturer data `0x07D0` |
+| Setup AP / advertised name | Manual product selection; classic ≤3 service-data `0xA201`, protocol-4 service-data `0xFD50`, both + manufacturer data `0x07D0` |
 | Passphrase protection | not_applicable (BLE; local-key secret + six-byte device_random KDF) |
 | Confidence | medium (community implementations + Smart Life SDK decompile; not replayed by this project) |
 
@@ -70,9 +70,14 @@ BLE-only).
 ## Protocol Summary
 
 Advertisements carry device identity only — never sensor readings (ble_monitor
-confirms SGS01 cannot be supported passively). Discovery requires service data
-`0xA201` plus company ID `0x07D0`, not an assumed advertised GATT service.
-All state moves as encrypted Tuya DP frames over protocol-specific GATT:
+confirms SGS01 cannot be supported passively). **Manual product selection is
+required** because the generic BLE schema/mobile matcher has no `service_data`
+key. The maintained implementation uses `0xFD50` service data for protocol 4
+and falls back to `0xA201` for classic ≤3, both with company ID `0x07D0`.
+Those are advertisement records, not advertised GATT service UUIDs and not
+soil-specific identity. Confirm product ID and protocol/GATT layout before a
+session. All state moves as encrypted Tuya DP frames over protocol-specific
+GATT:
 
 ### BLE Services
 

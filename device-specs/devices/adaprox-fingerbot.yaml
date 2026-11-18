@@ -30,9 +30,10 @@ device:
       session handler is required; it does not offer unattended actuation.
   notes: >
     This entry covers only the three reported protocol-3 product IDs and DP
-    layouts below. It does not infer support from a generic Fingerbot name.
-    Discovery uses Tuya service data 0xA201 together with manufacturer company
-    ID 0x07D0. The protocol-3 GATT layout is service 0x1910, write 0x2B11 and
+    layouts below. It does not infer support from a generic Fingerbot name or
+    the generic A201 + 0x07D0 Tuya advertisement. Manual product-ID/GATT
+    confirmation is required; A201 is documentary platform evidence only.
+    The protocol-3 GATT layout is service 0x1910, write 0x2B11 and
     notify 0x2B10; the association between a physical model, product ID, DP
     layout and GATT layout remains reported until a device-info/GATT dump is
     collected. Other Tuya protocol generations and other button-pushers are
@@ -65,32 +66,20 @@ device:
       research, not published as an Adaprox local API. No vendor source or app
       artifact is included here.
   identification:
-    manufacturer_data:
-      company_id: 2000
-      company_id_hex: "0x07D0"
-      description: >
-        Tuya's company ID corroborates the service-data match; it does not by
-        itself distinguish a Fingerbot from another Tuya BLE product.
     notes: >
-      Require both advertisement signals in discovery. Do not require an
-      advertised GATT service UUID: the relevant pre-connect evidence is
-      service data 0xA201 plus company 0x07D0. Select one of the three product
-      IDs only after the vendor binding supplies it or a device-info exchange
-      establishes it.
+      No automatic product identity is declared. A201 service data with company
+      0x07D0 is generic Tuya-platform evidence shared with the soil tester and
+      many other products, so it lives only in protocol_details. Manually
+      select this spec and confirm one of the three product IDs plus the
+      protocol-3 GATT layout before any session or actuation.
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_data:
-            - "0000a201-0000-1000-8000-00805f9b34fb"
-          manufacturer_data:
-            company_id: 2000
-            description: "Tuya company ID 0x07D0; identity only, no arm state."
-        verification: "reported"
-        notes: >
-          This is a Tuya platform match, not sufficient proof of an Adaprox
-          model. Do not send an actuation until product ID and the protocol-3
-          GATT layout have been verified after connection.
+    none: >
+      Manual selection is required until a product-specific matcher exists.
+      A201 service data and company 0x07D0 identify only the Tuya platform,
+      not an Adaprox Fingerbot, and the generic BLE schema/mobile matcher has
+      no service_data key. Do not auto-select this spec for another Tuya
+      product. Confirm product ID and the expected 0x1910/0x2B11/0x2B10 GATT
+      layout before use.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -274,7 +263,7 @@ services:
             description: "Query current DPs with function 0x0002; decode reports on 0x2B10 without triggering the arm."
             verification: "reported"
           press:
-            description: "Attended click using DP101 BOOL true in push/click mode. Do not send together with toggle as a fallback; select from the observed layout."
+            description: "Attended push using DP2 BOOL true in push/click mode for every covered layout. Read DP8 first; do not send DP101 as an additional push."
             verification: "reported"
             advanced: true
             advanced_reason: "Moves the actuator and the attached button/switch. Use only with the mechanism and controlled appliance under direct observation."
@@ -283,8 +272,18 @@ services:
             verification: "reported"
             advanced: true
             advanced_reason: "Changes and physically operates the attached switch. Attend the action and verify the current DP mode/state first."
+          program_action:
+            description: "Attended DP2 BOOL write in program mode to start/stop the loaded program; read DP8 and the current program state first."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Starts or stops physical programmed actuation. Attend the entire first run on an inert installation."
+          press_original_alternative:
+            description: "Original ltak7e1p only: reported DP101 BOOL alternative to DP2 push per ha_tuya_ble issue #9. Not asserted for other products and never an extra write after DP2."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Moves the original Fingerbot arm. Use only after confirming ltak7e1p and observing the mechanism; never try it to identify a unit."
           set_mode:
-            description: "Set DP8 ENUM: 0 click/push, 1 switch, 2 program. This changes how later DP2/DP101 writes behave."
+            description: "Set DP8 ENUM: 0 click/push, 1 switch, 2 program. This changes how the mode-dependent DP2 action behaves; DP101 remains only the original product's reported alternative."
             verification: "reported"
             advanced: true
             advanced_reason: "Changes actuator behavior and can make a later write move the arm unexpectedly; attend and verify the mechanical installation."
@@ -345,7 +344,11 @@ protocol_details:
     advertisement:
       service_data_uuid: "0xA201"
       manufacturer_company_id: "0x07D0"
-      notes: "Identity only; do not assume an advertised GATT service UUID or broadcast arm/battery state."
+      automatic_spec_selection: false
+      product_identity: false
+      service_data_matching_supported: false
+      selection: "Manual product-ID and protocol-3 GATT confirmation until a product-specific matcher exists; another Tuya product with the same A201/0x07D0 evidence must not select this spec."
+      notes: "Documentary Tuya-platform evidence only; do not assume an advertised GATT service UUID or broadcast arm/battery state."
     gatt:
       protocol: 3
       service: "0x1910"
@@ -410,8 +413,16 @@ protocol_details:
     verification: "reported"
     selection: "Select by product ID and confirm against a device-info/DP dump before any write; never try layouts by actuating the arm."
     common:
-      click_dp: {id: 101, type: "bool", access: "rw", notes: "Single click in push/click mode; not a second write to send after DP2."}
-      toggle_dp: {id: 2, type: "bool", access: "rw", notes: "Switch/program action in the applicable mode; read current state/mode first."}
+      action_dp:
+        id: 2
+        type: "bool"
+        access: "rw"
+        mode_dependent:
+          0: "Attended push/click in push mode"
+          1: "Switch on/off in switch mode"
+          2: "Start/stop program in program mode"
+        notes: "Read DP8 and current state first. DP2 is the push operation for every covered layout, not merely a switch toggle."
+      tap_enable_dp: {id: 17, type: "bool", access: "rw", reported_product_ids: ["ltak7e1p", "blliqpsj"], notes: "Tap enable is reported on original ltak7e1p and Plus, not Plus-only and not asserted for y6kttvd6."}
       mode_dp: {id: 8, type: "enum", access: "rw", values: {0: "click/push", 1: "switch", 2: "program"}}
       down_movement_dp: {id: 9, type: "value", access: "rw", unit: "%", min: 50, max: 100}
       up_movement_dp: {id: 15, type: "value", access: "rw", unit: "%", min: 0, max: 50}
@@ -419,6 +430,7 @@ protocol_details:
       invert_dp: {id: 11, type: "bool", access: "rw", notes: "Reverse up/down meaning in switch mode; not an unattended calibration command."}
     original_tenths:
       applies_to_product_ids: ["ltak7e1p"]
+      alternative_click_dp: {id: 101, type: "bool", access: "rw", scope: "Original ltak7e1p only, reported alternative to DP2 push per ha_tuya_ble issue #9; not asserted for the other products and not a second write after DP2."}
       sustain_dp: {id: 10, type: "value", access: "rw", unit: "s", scale: 0.1, raw_min: 0, raw_max: 100, decoded_min: 0, decoded_max: 10}
       timer_dp: 111
       week_program_dps: [112, 113, 114, 115]
@@ -434,7 +446,6 @@ protocol_details:
       sustain_dp: {id: 10, type: "value", access: "rw", unit: "s", scale: 1, raw_min: 0, raw_max: 10, decoded_min: 0, decoded_max: 10}
       timer_dp: 111
       week_program_dps: [112, 113, 114, 115]
-      manual_control_dp: {id: 17, type: "bool", access: "rw"}
       loop_dp: {id: 121, support: "reported Plus loop control; read its current representation before writing"}
     raw_timer:
       layout: "[operation u8][seconds u32be]"
@@ -448,8 +459,8 @@ protocol_details:
       days_enable: "One opaque weekday-mask/enable byte for this spec; bit-to-weekday ordering is unresolved and deliberately not guessed"
       synthetic_vector: {operation: 1, days_enable_hex: "81", hour: 6, minute: 30, second: 0, expected_hex: "0181061e00", note: "0x81 is an encoding fixture only, not a weekday assertion"}
     dp_examples:
-      click: {record_hex: "65010101", decode: "DP101 BOOL length 1 true"}
-      toggle: {record_hex: "02010101", decode: "DP2 BOOL length 1 true"}
+      push: {record_hex: "02010101", decode: "DP2 BOOL length 1 true = attended push in push mode"}
+      original_alternative_click: {record_hex: "65010101", decode: "DP101 BOOL length 1 true = original ltak7e1p reported alternative only"}
       original_sustain_5_seconds: {record_hex: "0a020400000032", decode: "DP10 VALUE raw 50 -> 5.0 s at scale 0.1"}
       plus_sustain_5_seconds: {record_hex: "0a020400000005", decode: "DP10 VALUE raw 5 -> 5 s at scale 1"}
 
@@ -493,7 +504,7 @@ local_access:
     every actuation requires attendance, not because the vendor protocol is a
     cloud-only LAN API.
   covers:
-    - "Reported advertisement matching, protocol-3 GATT endpoints and encrypted framing"
+    - "Documentary advertisement evidence with manual product-ID/GATT selection, protocol-3 endpoints and encrypted framing"
     - "Independent synthetic crypto/CRC/fragment and DP/raw-schedule vectors"
   not_covered:
     - "Production-ready unattended actuation, generic fixed-byte writes, protocol 4, CubeTouch, weekday ordering or production firmware updates"

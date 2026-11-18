@@ -169,20 +169,39 @@ def test_three_vendor_products_have_three_bounded_layouts():
         assert sustain["unit"] == "s"
 
     common = layouts["common"]
-    assert common["click_dp"]["id"] == 101
-    assert common["toggle_dp"]["id"] == 2
+    assert common["action_dp"]["id"] == 2
+    assert common["action_dp"]["mode_dependent"] == {
+        0: "Attended push/click in push mode",
+        1: "Switch on/off in switch mode",
+        2: "Start/stop program in program mode",
+    }
+    assert common["tap_enable_dp"]["id"] == 17
+    assert common["tap_enable_dp"]["reported_product_ids"] == [
+        "ltak7e1p",
+        "blliqpsj",
+    ]
     assert common["mode_dp"]["id"] == 8
     assert common["down_movement_dp"]["id"] == 9
     assert common["up_movement_dp"]["id"] == 15
     assert common["battery_dp"]["id"] == 12
+    original_alternative = layouts["original_tenths"]["alternative_click_dp"]
+    assert original_alternative["id"] == 101
+    assert "ltak7e1p only" in original_alternative["scope"]
+    assert "issue #9" in original_alternative["scope"]
+    assert "not a second write after DP2" in original_alternative["scope"]
+    assert "manual_control_dp" not in layouts["plus_seconds"]
     assert layouts["plus_seconds"]["loop_dp"]["id"] == 121
 
 
 def test_dp_scaling_and_raw_schedule_vectors():
     layouts = SPEC["protocol_details"]["dp_layouts"]
     examples = layouts["dp_examples"]
-    assert examples["click"]["record_hex"] == "65010101"
-    assert examples["toggle"]["record_hex"] == "02010101"
+    assert examples["push"]["record_hex"] == "02010101"
+    assert "attended push in push mode" in examples["push"]["decode"]
+    assert examples["original_alternative_click"]["record_hex"] == "65010101"
+    assert "original ltak7e1p" in examples["original_alternative_click"]["decode"]
+    assert "click" not in examples
+    assert "toggle" not in examples
     assert dp_value(10, 50).hex() == examples["original_sustain_5_seconds"][
         "record_hex"
     ]
@@ -217,6 +236,15 @@ def test_dp_scaling_and_raw_schedule_vectors():
 def test_identify_only_gatt_scope_and_attended_actuation():
     assert SPEC["device"]["integration"] == "identify_only"
     assert SPEC["device"]["testing"]["status"] == "untested"
+    discovery = SPEC["device"]["discovery"]
+    assert "methods" not in discovery
+    assert "Manual selection is required" in discovery["none"]
+    assert "not an Adaprox Fingerbot" in discovery["none"]
+    assert set(SPEC["device"]["identification"]) == {"notes"}
+    advertisement = SPEC["protocol_details"]["tuya_ble_v3"]["advertisement"]
+    assert advertisement["automatic_spec_selection"] is False
+    assert advertisement["product_identity"] is False
+    assert advertisement["service_data_matching_supported"] is False
     services = SPEC["services"]
     assert len(services) == 1
     service = services[0]
@@ -230,9 +258,14 @@ def test_identify_only_gatt_scope_and_attended_actuation():
     commands = characteristics["00002b11-0000-1000-8000-00805f9b34fb"][
         "commands"
     ]
+    assert "DP2 BOOL true in push/click mode" in commands["press"]["description"]
+    assert "DP2 BOOL write in program mode" in commands["program_action"]["description"]
+    assert "Original ltak7e1p only" in commands["press_original_alternative"]["description"]
     for name in (
         "press",
         "toggle",
+        "program_action",
+        "press_original_alternative",
         "set_mode",
         "set_movement",
         "set_sustain",

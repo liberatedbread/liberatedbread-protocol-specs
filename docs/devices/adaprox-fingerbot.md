@@ -26,7 +26,7 @@ and this project does not offer unattended actuation.
 |----------|-------|
 | Setup required | Yes — vendor binding, then device-ID/local-key export |
 | Method | `ble_provisioning` in the vendor app, followed by `ble_direct` with a dedicated v3 client |
-| Advertisement evidence | Service data `0xA201` **and** manufacturer company ID `0x07D0`; no assumed advertised GATT service UUID |
+| Advertisement evidence | Documentary only: service data `0xA201` + company `0x07D0` (generic Tuya); manual product-ID/GATT selection required |
 | Passphrase protection | `not_applicable` (BLE; no Wi-Fi credential) |
 | Confidence | Medium for the public implementations, low for un dumped model/layout associations; no project hardware run |
 
@@ -63,10 +63,12 @@ recovery route; the owner must unbind it or it must be reset.
 
 ## Discovery and protocol-3 GATT
 
-Advertisements identify a Tuya BLE platform device, not a Fingerbot by
-themselves. Require service data `0xA201` plus company `0x07D0`, then establish
-the product ID and expected service after connection. Do not probe layouts by
-actuating the arm.
+Advertisements identify only the Tuya BLE platform, not a Fingerbot. A201
+service data with company `0x07D0` is shared with the soil tester and other
+Tuya products, and the generic schema/mobile matcher has no `service_data`
+key. **Manual selection is required**: do not auto-select this spec for another
+Tuya product. Confirm the product ID and expected protocol-3 GATT layout after
+connection. Do not probe layouts by actuating the arm.
 
 | Role | Protocol-3 UUID |
 |------|-----------------|
@@ -152,11 +154,18 @@ values decode as signed big-endian integers of the declared length; VALUE
 writes are signed four-byte big-endian. This record rule is not generalized to
 DP_V4.
 
-Shared controls are click DP101, switch/action DP2, mode DP8 (0 click/push,
-1 switch, 2 program), down movement DP9, up movement DP15, inversion DP11 and
-battery DP12. Click and toggle are alternatives selected by mode/layout, not a
-sequence to send together. Down/up movement is reported as 50–100% and 0–50%
-respectively; battery is 0–100%.
+DP2 is the mode-dependent action: attended push in push/click mode, switch
+on/off in switch mode, and start/stop in program mode. Read DP8 and current
+state first. **DP2 is the push operation for every covered layout.** DP101 is
+only original `ltak7e1p`’s reported alternative to DP2 push, per
+[ha_tuya_ble issue #9](https://github.com/PlusPlus-ua/ha_tuya_ble/issues/9);
+do not assert it for the other products or send it as an additional push.
+
+Other shared controls are mode DP8 (0 click/push, 1 switch, 2 program), down
+movement DP9, up movement DP15, inversion DP11 and battery DP12. Down/up
+movement is reported as 50–100% and 0–50% respectively; battery is 0–100%.
+Tap-enable DP17 is reported on original `ltak7e1p` and Plus, not Plus-only and
+not asserted for `y6kttvd6`.
 
 | Layout | Product ID | Sustain DP10 | Raw timer | Four week programs | DP121 |
 |--------|------------|--------------|-----------|--------------------|-------|
@@ -164,8 +173,8 @@ respectively; battery is 0–100%.
 | `adaprox_low_schedule` | `y6kttvd6` | raw × 0.1 s, raw 0–100 | DP3 | DP4–7 | Reported only; representation/availability needs a dump |
 | `plus_seconds` | `blliqpsj` | raw seconds, 0–10 | DP111 | DP112–115 | Reported Plus loop control; read before writing |
 
-Plus also reports manual/touch control DP17. Do not import the
-`adaptive_movement` meaning used for DP121 on other category-`kg` products.
+Do not import the `adaptive_movement` meaning used for DP121 on other
+category-`kg` products.
 
 All actuation, movement, sustain, timer, week-program and loop commands in the
 spec are `advanced`. The layout-specific sustain scaling matters: a raw value

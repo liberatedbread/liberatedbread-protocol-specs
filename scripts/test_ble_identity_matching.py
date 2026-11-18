@@ -306,3 +306,26 @@ def test_no_spec_claims_a_device_by_a_shared_signal_alone():
         f"scan matchers on Apple's company ID with no payload pattern: {bare_apple}"
     )
 
+
+def test_adaprox_never_auto_selects_another_tuya_product():
+    spec = specs()["adaprox-fingerbot"]
+    device = spec["device"]
+    assert "methods" not in device["discovery"]
+    assert "Manual selection is required" in device["discovery"]["none"]
+    assert set(device["identification"]) == {"notes"}
+    assert "manufacturer_data" not in device["identification"]
+    assert "service_uuids" not in device["identification"]
+
+    a201 = "0000a201-0000-1000-8000-00805f9b34fb"
+    protocol3_service = "00001910-0000-1000-8000-00805f9b34fb"
+    for advertised_name, advertised_services in (
+        ("SGS01", [a201]),
+        ("Tuya soil tester", []),
+        ("Other Tuya product", [protocol3_service]),
+        ("Fingerbot", [a201]),
+    ):
+        assert not matches(spec, advertised_name, advertised_services), (
+            advertised_name,
+            advertised_services,
+        )
+

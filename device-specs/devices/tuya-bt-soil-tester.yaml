@@ -45,8 +45,10 @@ device:
     PROTOCOL: this is a Tuya BLE "single-point" device — connectable GATT,
     NOT BLE mesh and NOT a passive beacon. Advertisements carry device
     identity only, never sensor readings; the ble_monitor project confirms
-    SGS01 cannot be supported passively. Discovery uses service data 0xA201
-    plus company ID 0x07D0. Protocol <=3 uses GATT service 0x1910 with write
+    SGS01 cannot be supported passively. Selection is manual because the
+    generic matcher has no service_data key: classic <=3 advertisements use
+    A201 and protocol-4 advertisements use FD50 service data, both with
+    company ID 0x07D0. Protocol <=3 uses GATT service 0x1910 with write
     0x2B11 and notify 0x2B10. Protocol 4 instead uses service 0xFD50 with
     write 00000001-0000-1001-8001-00805f9b07d0 and notify
     00000002-0000-1001-8001-00805f9b07d0; those characteristics are not part
@@ -119,36 +121,35 @@ device:
       company_id_hex: "0x07D0"
       description: >
         Tuya's Bluetooth SIG company ID 0x07D0, present in the advertisement
-        manufacturer data. Combined with service-data UUID 0xA201 this is how
-        Home Assistant's tuya_ble discovery fingerprints Tuya BLE
-        single-point devices; it identifies "a Tuya BLE device", not this
-        family specifically.
+        manufacturer data. The maintained implementation uses service-data
+        0xFD50 for protocol 4 and 0xA201 for classic protocol <=3, but the
+        generic BLE schema/mobile matcher has no service_data key. These are
+        platform facts, not an automatic soil-tester match.
     notes: >
       Distinguishing a soil tester from any other Tuya BLE single-point
-      device requires connecting (pairing) and reading device info / DPs, or
-      matching the product id learned at cloud pairing time against
-      `device.variants`. Do not require an advertised GATT service UUID:
-      protocol <=3 and protocol 4 use different post-connection services,
-      while the shared pre-connect evidence is 0xA201 + 0x07D0.
+      device requires manual selection and product-ID confirmation from the
+      vendor binding or a device-info/DP exchange. Do not require an advertised
+      GATT service UUID: service-data 0xFD50 and 0xA201 are advertisement
+      records, while the post-connection GATT services have their own protocol-
+      specific mappings below.
 
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_data:
-            - "0000a201-0000-1000-8000-00805f9b34fb"
-          manufacturer_data:
-            company_id: 2000
-            description: "Tuya company ID 0x07D0"
+    none: >
+      Manual selection is required until the generic BLE schema/mobile matcher
+      supports service data. Protocol-4 advertisements use FD50 service data;
+      classic protocol <=3 falls back to A201, both with company 0x07D0.
+      Neither is an advertised GATT service UUID or product-specific identity,
+      and putting either in an invisible discovery.service_data key would make
+      the spec look matched when no consumer can match it. Confirm the product
+      ID and protocol-specific GATT layout before starting a session.
     identity:
       stable_keys: ["address"]
       display: "local_name"
     static_ip_required: false
     notes: >
-      Advertisements are connectable and carry service-data UUID 0xA201 plus
-      Tuya manufacturer data (company ID 0x07D0) with device identity — never
-      sensor values. Confidence: reported (community integrations + the
-      Smart Life BLE SDK), not captured by this project.
+      Advertisements are connectable and carry identity, never sensor values.
+      Confidence: reported (community integrations + the Smart Life BLE SDK),
+      not captured by this project.
 
   setup:
     required: true
@@ -179,24 +180,30 @@ device:
             name: "Pair in the vendor app, and extract the keys"
             verified: false
             description: >
-              Standard Tuya BLE pairing in the vendor app: the device advertises
-              service data 0xA201 plus company ID 0x07D0 in pairing mode. The
-              app selects service 0x1910 with 0x2B11/0x2B10 for protocol <=3,
-              or service 0xFD50 with the two 128-bit Tuya characteristics for
-              protocol 4, then exchanges PAIR frames (function code 0x0001)
-              carrying the cloud-issued credentials. Requires a Tuya cloud
-              account in Smart Life or Tuya Smart. No protocol-3 session or KDF
-              claim is generalized to protocol 4.
+              Standard Tuya BLE pairing in the vendor app after manual product
+              selection: classic protocol <=3 advertisements use A201 service
+              data and protocol-4 advertisements use FD50 service data, both
+              with company ID 0x07D0. These service-data records are not the
+              advertised GATT service UUIDs. The app selects service 0x1910
+              with 0x2B11/0x2B10 for protocol <=3, or service 0xFD50 with the
+              two 128-bit Tuya characteristics for protocol 4, then exchanges
+              PAIR frames (function code 0x0001) carrying the cloud-issued
+              credentials. Requires a Tuya cloud account in Smart Life or Tuya
+              Smart. No protocol-3 session or KDF claim is generalized to
+              protocol 4.
             steps:
               - action: >
                   Put the tester in pairing mode (per the vendor quick-start:
-                  batteries in / reset pin held) so it advertises service data
-                  0xA201 with manufacturer company ID 0x07D0.
+                  batteries in / reset pin held), then manually select the
+                  product rather than relying on an unsupported service_data
+                  matcher. Expect A201 for classic <=3 or FD50 for protocol 4,
+                  plus manufacturer company ID 0x07D0.
                 actor: "user"
               - action: >
-                  Determine the protocol version, then connect to service 0x1910
-                  for protocol <=3 or 0xFD50 for protocol 4; use only the write
-                  and notify characteristics assigned to that version below.
+                  Confirm product ID and protocol version, then connect to
+                  service 0x1910 for protocol <=3 or 0xFD50 for protocol 4;
+                  use only the write and notify characteristics assigned to
+                  that version below.
                 actor: "client"
               - action: >
                   Exchange PAIR frames (function code 0x0001) carrying the
@@ -336,7 +343,7 @@ device:
           steps:
             - action: "Insert the batteries, or hold the reset pin on an already-bound tester."
               actor: "user"
-              expect: "The tester advertises service data 0xA201 plus manufacturer company ID 0x07D0 in pairing mode; select the protocol-specific GATT service only after determining the version."
+              expect: "The tester advertises A201 (classic <=3) or FD50 (protocol 4) service data plus manufacturer company ID 0x07D0 in pairing mode; manually select the product and confirm the protocol-specific GATT service."
     notes: >
       Nothing is readable at all without completing this: BLE v3 derives its
       session key from the local-key secret and six-byte device_random, both
@@ -401,9 +408,16 @@ protocol_details:
     verification: "reported"
     transport: "BLE GATT, encrypted session, default ATT MTU 20"
     advertising:
-      service_data_uuid: "0xA201"
       manufacturer_company_id: "0x07D0 (Tuya)"
-      notes: "Identity only; no sensor readings are ever broadcast."
+      classic_le_3:
+        service_data_uuid: "0xA201"
+        role: "Classic protocol <=3 fallback identity record"
+      protocol_4:
+        service_data_uuid: "0xFD50"
+        role: "Protocol-4 identity record; the maintained implementation tries FD50 before the classic fallback"
+      service_data_matching_supported: false
+      selection: "Manual product-ID and protocol/GATT confirmation is required because the generic BLE schema/mobile matcher has no service_data key; neither service-data UUID is an advertised GATT service UUID or soil-specific identity."
+      notes: "Reported identity only; no sensor readings are ever broadcast."
     gatt:
       protocol_le_3:
         service: "0x1910"
@@ -598,10 +612,11 @@ services:
     verification: "reported"
     notes: >
       Protocol 4 uses a different service and two Tuya-specific 128-bit
-      characteristics below. The service-data 0xA201 advertisement remains
-      the pre-connect match. This entry does not claim that the v3 KDF,
-      one-byte DP record length, OTA command or session implementation works
-      unchanged on protocol 4; no fixed commands are declared here.
+      characteristics below. Its reported advertisement uses FD50 service
+      data, not A201 and not an assumed advertised GATT service UUID; manual
+      product selection is still required. This entry does not claim that the
+      v3 KDF, one-byte DP record length, OTA command or session implementation
+      works unchanged on protocol 4; no fixed commands are declared here.
     characteristics:
       - uuid: "00000001-0000-1001-8001-00805f9b07d0"
         name: "Protocol-4 write"
@@ -809,7 +824,7 @@ evidence:
       obtained_via: "Huawei AppGallery, 2026-08-18 (reused from the tuya-wifi-gas-sensor research; not re-downloaded)"
       description: "Static analysis of the Smart Life Android app (2026-08-18; the same reading as the tuya-wifi-gas-sensor research)."
       confirms:
-        - "Tuya BLE advertisement service-data UUID 0xA201 and manufacturer company ID 0x07D0; protocol <=3 uses GATT service 0x1910 with write 0x2B11 / notify 0x2B10, while protocol 4 uses service 0xFD50 with its separate 128-bit characteristics. Default ATT MTU 20."
+        - "Tuya BLE manufacturer company ID 0x07D0; classic <=3 uses A201 service data and protocol 4 uses FD50 service data. Protocol <=3 uses GATT service 0x1910 with write 0x2B11 / notify 0x2B10, while protocol 4 uses service 0xFD50 with its separate 128-bit characteristics. Default ATT MTU 20."
         - "The BLE function-code and DP-type tables (PAIR 0x0001, DPS 0x0002, UNBIND 0x0005, DEVICE_RESET 0x0006, FUN_RECEIVE_DP 0x8001, etc.)."
         - "No soil-tester-specific code: zero hits for the `zwjcy` category anywhere in the app — the device UI is a cloud-delivered RN panel bundle."
       confidence: "high for the generic platform constants; per-model protocol generation, DP maps and protocol-4 behavior remain reported"
@@ -817,6 +832,10 @@ evidence:
       name: "PlusPlus-ua/python-tuya-ble"
       url: "https://github.com/PlusPlus-ua/python-tuya-ble"
       used_for: "Protocol <=3 GATT UUIDs, pairing/session model, function codes and one-byte DP length."
+    - type: "public_research"
+      name: "timlaing/ha_tuya_ble advertisement decoder and transport constants"
+      url: "https://github.com/timlaing/ha_tuya_ble/blob/main/custom_components/tuya_ble/tuya_ble/advertisement.py"
+      used_for: "Maintained protocol-4 FD50 service-data decoding, FD50-first selection and A201 classic fallback; also confirms that this is service data, not an advertised GATT service UUID."
     - type: "public_research"
       name: "TuyaOS Bluetooth Pairing documentation"
       url: "https://developer.tuya.com/en/docs/iot-device-dev/robot_ble_distribution_network?id=Kd93nvlhfoqp6"
