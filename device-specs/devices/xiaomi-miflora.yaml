@@ -299,24 +299,31 @@ services:
         name: "History Control"
         properties: ["write", "notify"]
         notes: >
-          ATT handle 0x3E. Write 0xA00000 to init history read, 0xA20000 to
-          clear history (CONFIRMED), 0xA1+2byte_addr to request a specific
-          history entry index. 0xA30000 is the history-sync-failed
-          acknowledgement: the miflora library defines it but never sends
-          it, while the vendor app DOES send it when a history
-          sync fails (app-derived, not hardware-verified).
+          ATT handle 0x3E. Write a0 00 00 to initialize a history session and
+          a2 00 00 to acknowledge history-sync success. The community clear
+          operation is destructive and requires BOTH writes in that order in
+          the initialized session: a0 00 00, then a2 00 00. Bare a2 00 00 is
+          not the complete clear sequence. Use a1 + two-byte little-endian
+          address to request a history entry. a3 00 00 acknowledges failed
+          synchronization, not success. All commands remain reported, not
+          hardware-confirmed.
         commands:
           history_read_init:
-            description: "Initialize history read session."
+            description: "Initialize history read session; also the required first write of the two-step history_clear operation."
             value: [0xA0, 0x00, 0x00]
+            verification: "reported"
+          history_sync_success:
+            description: "Acknowledge successful history synchronization. In an initialized history session this is the second write of the destructive clear sequence; it is not a standalone clear command."
+            value: [0xA2, 0x00, 0x00]
+            advanced: true
+            advanced_reason: "After history_read_init, this success acknowledgement irreversibly deletes stored history. Use history_read_fail (a3 00 00) instead when synchronization failed; deletion cannot be undone."
             verification: "reported"
           history_read_fail:
             description: "Signal that history synchronization failed (sent by the vendor app on sync failure)."
             value: [0xA3, 0x00, 0x00]
             verification: "reported"
           history_clear:
-            description: "Clear all stored history data on device. IRREVERSIBLE."
-            value: [0xA2, 0x00, 0x00]
+            description: "Clear all stored history: execute history_read_init (a0 00 00), then history_sync_success (a2 00 00), in that order in the same initialized history session. IRREVERSIBLE. This description-only command deliberately has no single value because one write is not the complete operation."
             advanced: true
             advanced_reason: "Permanently deletes all historical data from device storage with no recovery."
             verification: "reported"
@@ -382,6 +389,17 @@ features:
         DA14580 SoC. Firmware older than ~2.7 only broadcasts its MAC and
         needs this app-driven update before the MiBeacon sensor broadcast
         works. The unpopulated SWD header is the wired fallback.
+
+protocol_details:
+  history_completion:
+    verification: "reported"
+    success_acknowledgement: "a2 00 00"
+    failure_acknowledgement: "a3 00 00"
+    destructive_clear:
+      advanced: true
+      ordered_commands: ["history_read_init", "history_sync_success"]
+      ordered_writes: ["a0 00 00", "a2 00 00"]
+      notes: "Both writes are required in this order in one initialized history session. Bare a2 00 00 is the success acknowledgement, not a standalone clear."
 
 entities:
   - platform: "sensor"

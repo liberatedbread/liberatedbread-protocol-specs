@@ -9,15 +9,29 @@
 
 WheelLog decodes King Song, Gotway/Begode, Veteran/Leaperkim and Ninebot Z
 electric unicycles locally over BLE. No vendor cloud is needed on this control
-path. Other brands' service and characteristic UUIDs are module-specific and
-unasserted. The Ninebot Z has a reported Nordic-UART transport below, but that
-shared transport is not advertisement identity; always select the wheel model
-manually and confirm its protocol after connecting.
+path. King Song and Gotway commonly use service `0xFFE0` and characteristic
+`0xFFE1`, but that endpoint is shared with other protocols and is not a unique
+discovery signature. Select the wheel manually, compare its complete GATT
+layout, then validate the brand's frame format before decoding. The Ninebot Z
+has a separately reported Nordic-UART transport below, also not an identity.
 
-King Song uses a 20-byte `AA 55` frame with packet type at byte 16.
-Gotway/Begode uses a 24-byte `55 AA` frame with a `5A 5A 5A 5A` footer and type
-at byte 18. Veteran/Leaperkim uses `DC 5A 5C`, a length byte and big-endian
-telemetry. Their existing entries in the spec are unchanged. InMotion's legacy
+## Other-brand scales and transport
+
+- **King Song:** 20-byte `AA 55` frame with packet type at byte 16 (`0xA9`
+  live data). Voltage, speed, current and temperature are each signed int16
+  little-endian, scaling by 0.01: volts, km/h, amps and °C respectively.
+- **Gotway/Begode:** 24-byte `55 AA` frame with a `5A 5A 5A 5A` footer and type
+  at byte 18. Frame-A speed is signed big-endian `raw * 3.6 / 100 = raw *
+  0.036 km/h`, not `raw * 3.6`. Thus `00 64` is +3.6 km/h and `ff 9c` is
+  -3.6 km/h. Phase current remains signed 0.01 A.
+- **Veteran/Leaperkim:** `DC 5A 5C`, a length byte and big-endian telemetry,
+  with CRC32 on longer frames. Voltage is 0.01 V, speed signed 0.1 km/h, phase
+  current signed 0.1 A and temperature signed 0.01 °C. Pack/cell configuration
+  is model- and firmware-dependent; do not assume every Veteran is 24S.
+
+`scripts/test_mobility_protocol_audit.py` independently checks signed Gotway
+±100 → ±3.6 km/h, Veteran 25 → 2.5 km/h and King Song's signed 0.01 scaling.
+These are implementation vectors, not hardware verification. InMotion's legacy
 and V2 protocols have a [separate spec and guide](inmotion-euc.md).
 
 The machine-readable source of truth is

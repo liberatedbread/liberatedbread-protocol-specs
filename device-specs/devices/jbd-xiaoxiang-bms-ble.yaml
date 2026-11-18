@@ -28,17 +28,31 @@ device:
     GATT: service 0000ff00-0000-1000-8000-00805f9b34fb; notify (RX)
     0000ff01-...; write (TX) 0000ff02-....
 
-    FRAME: start 0xDD, then payload, a 2-byte checksum, end 0x77. Checksum =
-    0x10000 - sum(payload bytes). Command byte 0xA5 = read, 0x5A = write. A read
-    request is [0xDD, 0xA5, register, length, data..., checksum-hi, checksum-lo,
-    0x77]; a response is [0xDD, register, status (0x00 OK / 0x80 error), length,
-    data..., checksum, 0x77].
+    FRAME: start 0xDD, then payload, a 2-byte big-endian checksum, end 0x77.
+    Command byte 0xA5 = read, 0x5A = write. Request checksum =
+    0x10000 - sum(register + length + data), excluding DD, A5, the checksum
+    itself and 77. Response checksum = 0x10000 - sum(register + status +
+    length + data), excluding DD, the checksum and 77. The vectors
+    DD A5 03 00 FF FD 77, DD A5 04 00 FF FC 77 and DD A5 05 00 FF FB 77
+    prove that A5 is outside the request sum.
+
+    RESPONSE REASSEMBLY: notifications may split a frame anywhere. Starting at
+    DD, read register, status and length, then accumulate to exactly
+    4 + length + 3 bytes total (four header bytes, data, two checksum bytes and
+    77) before validating the terminator and checksum. Never CRC individual
+    notifications or parse a partial response.
 
     KEY REGISTERS:
-      0x03 basic info — pack voltage (u16, 10 mV), current (s16, 10 mA, negative
-           = discharge), remaining + design capacity (10 mAh), cycle count,
-           protection/error flags, software version, SOC %, FET status bits
-           (charge/discharge), cell count, NTC count + temps (0.1 K)
+      0x03 basic info — pack voltage (u16 BE @0, 10 mV), current (s16 BE @2,
+           negative = discharge), remaining capacity (u16 BE @4) and design
+           capacity (u16 BE @6), cycle count, protection/error flags, software
+           version, SOC %, FET status bits (charge/discharge), cell count,
+           NTC count + temps (0.1 K). Offsets are into the response payload,
+           which starts after DD/register/status/length. operation_status is
+           payload byte 20 (whole-frame byte 24). On firmware implementing its
+           bit 7 as the units flag, set means current 100 mA and both
+           capacities 100 mAh; otherwise current is 10 mA and both capacities
+           10 mAh. Do not generalize one scale across firmware.
       0x04 per-cell voltages (u16 @ 1 mV)
       0x05 device name string
     EEPROM config needs factory mode: write 0x56 0x78 to register 0x00; exit via
@@ -62,20 +76,14 @@ device:
       community and multiple implementations agree. The newer-firmware auth
       handshake internals are the least-settled part.
 
-  identification:
-    service_uuids:
-      - "0000ff00-0000-1000-8000-00805f9b34fb"
-
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids:
-            - "0000ff00-0000-1000-8000-00805f9b34fb"
-        notes: >
-          Match the 0xFF00 service. Local names vary widely by pack vendor; the
-          service UUID plus a valid 0xDD/0x77 reply to a 0x03 read is the real
-          discriminator.
+    none: >
+      Manual selection only. Local names vary widely by pack vendor and the
+      shared FF00/FF01/FF02 endpoint is also used by Bluetti, so no advertised
+      signal is a safe automatic JBD identity match. After the user selects a
+      candidate, require a valid, fully reassembled and checksummed 0xDD ...
+      0x77 response to the read-only 0x03 basic-info request before treating
+      it as JBD or offering any write.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -92,15 +100,18 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          Connect, subscribe to notify char 0xFF01, write commands to 0xFF02.
-          Read 0x03 for basic info and 0x04 for per-cell voltages.
+          Manually select the candidate, connect and subscribe to notify char
+          0xFF01. Prove JBD identity with the read-only, checksummed 0x03
+          exchange before offering 0x04 reads or any write; FF00 alone is not
+          enough because Bluetti shares the endpoint.
         ble:
           pairing_required: false
         steps:
-          - action: "Connect and subscribe to the notify characteristic (0xFF01)."
+          - action: "Manually select the BMS candidate; do not auto-identify from service 0xFF00. Connect and subscribe to the notify characteristic (0xFF01)."
             actor: "client"
-          - action: "Write a 0x03 read to 0xFF02 to get basic info; parse the 0xDD..77 response."
+          - action: "Write the exact 0x03 read DD A5 03 00 FF FD 77 to 0xFF02; reassemble to 4 + length + 3 bytes, then validate terminator 0x77 and the response checksum before parsing basic info or offering writes."
             actor: "client"
+            expect: "A valid 0xDD-framed 0x03 response with status 0x00 and checksum over register + status + length + data confirms the JBD protocol rather than a shared-endpoint lookalike."
     factory_reset:
       applicable: true
       confidence: low
@@ -167,13 +178,15 @@ services:
   - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
     name: "JBD BMS service"
     notes: >
-      Notify (RX) on 0xFF01, write (TX) on 0xFF02. All frames are 0xDD ...
-      checksum 0x77; checksum = 0x10000 - sum(payload).
+      Notify (RX) on 0xFF01, write (TX) on 0xFF02. These endpoints are shared
+      with Bluetti, not an identity. Requests checksum register+length+data;
+      responses checksum register+status+length+data, in both cases excluding
+      DD, the checksum and 77 (and excluding A5 on requests).
     characteristics:
       - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
         name: "Notify (RX)"
         properties: ["notify"]
-        notes: "Responses arrive here: [0xDD, register, status, length, data..., checksum, 0x77]."
+        notes: "Responses arrive fragmented here. Reassemble to 4 + length + 3 bytes, then validate the 0x77 terminator and checksum over register + status + length + data before parsing."
       - uuid: "0000ff02-0000-1000-8000-00805f9b34fb"
         name: "Write (TX)"
         properties: ["write"]
@@ -195,6 +208,22 @@ services:
             verification: "reported"
             value: [0xDD, 0xA5, 0x05, 0x00, 0xFF, 0xFB, 0x77]
 
+protocol_details:
+  basic_info_response:
+    payload_basis: "Response payload begins after DD, register, status and length, so whole-frame offset = payload offset + 4."
+    fields:
+      pack_voltage: {payload_offset: 0, frame_offset: 4, length: 2, type: "uint16", endianness: "big", scale: 0.01, unit: "V"}
+      pack_current: {payload_offset: 2, frame_offset: 6, length: 2, type: "int16", endianness: "big", unit: "A", signedness: "signed; negative = discharge; unit scale selected by operation_status bit 7"}
+      remaining_capacity: {payload_offset: 4, frame_offset: 8, length: 2, type: "uint16", endianness: "big", unit: "Ah", signedness: "unsigned; unit scale selected by operation_status bit 7"}
+      design_capacity: {payload_offset: 6, frame_offset: 10, length: 2, type: "uint16", endianness: "big", unit: "Ah", signedness: "unsigned; unit scale selected by operation_status bit 7"}
+      operation_status: {payload_offset: 20, frame_offset: 24, length: 1, type: "uint8", bit: 7}
+    unit_selection: "operation_status bit 7 clear: current 10 mA and capacities 10 mAh. Set on firmware implementing the flag: current 100 mA and capacities 100 mAh. Do not apply one scale to all firmware."
+    fixture_prefix_hex: "13 88 ff 06 13 88 17 70"
+    fixture_padding: "12 zero bytes at payload offsets 8-19, then operation_status at payload offset 20 (whole-frame byte 24)."
+    fixtures:
+      - {operation_status: "00", current_a: -2.5, remaining_capacity_ah: 50, design_capacity_ah: 60}
+      - {operation_status: "80", current_a: -25.0, remaining_capacity_ah: 500, design_capacity_ah: 600}
+
 entities:
   - platform: "sensor"
     name: "Pack Voltage"
@@ -205,7 +234,7 @@ entities:
     name: "Pack Current"
     device_class: "current"
     unit: "A"
-    notes: "From register 0x03 (s16, 10 mA; negative = discharge)."
+    notes: "Signed BE at payload offset 2. Operation-status at payload offset 20 (whole-frame byte 24), bit 7 selects 100 mA on firmware implementing that flag; otherwise 10 mA. Unsigned BE capacities at offsets 4/6 use corresponding 100/10 mAh."
   - platform: "sensor"
     name: "State of Charge"
     device_class: "battery"

@@ -19,7 +19,7 @@ motor-control writes. Do not select this spec from NUS alone.
 
 ## Protocol Summary
 
-Nordic UART service 6e400001-…; write 6e400002, notify 6e400003. COMM packet: 02/03/04 start, length, payload, CRC16 (big-endian), 0x03 stop. Command ids: 4 GET_VALUES, 5 SET_DUTY, 6 SET_CURRENT, 8 SET_RPM, 34 FORWARD_CAN. No auth by default (safety).
+Nordic UART service 6e400001-…; write 6e400002, notify 6e400003. COMM packet: 02/03/04 start, length, payload, CRC16 big-endian, 0x03 stop. CRC is poly 0x1021, init 0x0000, MSB-first, no reflection/final XOR; payload `04` gives `02 01 04 40 84 03`. Command ids: 4 GET_VALUES, 5 SET_DUTY, 6 SET_CURRENT, 8 SET_RPM, 34 FORWARD_CAN. No auth by default (safety).
 
 See `device-specs/devices/vesc-ble-uart.yaml` for the full machine-readable spec.
 
