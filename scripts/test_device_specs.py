@@ -1153,6 +1153,11 @@ ENTITYLESS_CONTROL_SURFACES = {
     "logitech-harmony-hub": "The local WebSocket envelope is unconfirmed "
                             "(the spec says so), so binding entities to it "
                             "would promise a control nobody has driven.",
+    "homewizard-p1-meter": "P1 has two negotiated APIs with different paths "
+                           "and field aliases. A single entity binding would "
+                           "either pretend they are path fallbacks or choose "
+                           "the wrong transport; it awaits negotiated-API "
+                           "entity support.",
     "parrot-arsdk-drone": "ARSDK is a binary UDP protocol after a TCP "
                           "handshake; the commands document it, and no "
                           "generic renderer reaches it.",

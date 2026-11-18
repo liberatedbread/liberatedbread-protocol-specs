@@ -14,7 +14,7 @@ Docs: api-documentation.homewizard.com. Two API generations:
 - `GET /api` → product name/type, serial, firmware, `api_version`.
 - `GET /api/v1/data` → measurement JSON (P1: `total_power_import_kwh`,
   `total_power_export_kwh`, `active_power_w`, per-phase voltage/current,
-  gas/water where attached; Socket: import Wh, active W, relay state).
+  gas/water where attached; Socket: import/export kWh, active W, relay state).
 - `GET /api/v1/telegram` → raw DSMR telegram (P1 Meter).
 - `GET/PUT /api/v1/system` → includes `cloud_enabled`; setting
   `{"cloud_enabled": false}` severs the cloud link while local API, switching

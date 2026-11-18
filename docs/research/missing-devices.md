@@ -116,7 +116,10 @@ TP-Link Kasa (`tplink-kasa-smart-plug.yaml`),
 [Yeelight](../devices/yeelight-wifi.md), [LG webOS](../devices/lg-webos.md),
 [PurpleAir](../devices/purpleair-sensor.md), [Vizio SmartCast](../devices/vizio-smartcast.md),
 [iRobot Roomba](../devices/irobot-roomba.md), [Wyze](../devices/wyze-bridge-camera.md),
-[ratgdo](../devices/ratgdo.md), [June Oven](../devices/june-oven.md) and
+[ratgdo](../devices/ratgdo.md), [June Oven (stock)](../devices/june-oven.md),
+[second-gen June Oven with Project July](../devices/june-oven-project-july.md),
+[HomeWizard P1 Meter](../devices/homewizard-p1-meter.md),
+[HomeWizard Energy Socket](../devices/homewizard-energy-socket.md) and
 [Chamberlain Security+](../devices/chamberlain-garage-opener-secplus.md).
 The Govee LAN API is in [`govee-rgbic-light`](../devices/govee-rgbic-light.md),
 and the H5074/H5179 family is in [`govee-h5075-thermo`](../devices/govee-h5075-thermo.md).

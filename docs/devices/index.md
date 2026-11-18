@@ -86,6 +86,8 @@ spec's `device.setup` block; the patterns are explained in
 | [Denon AVR-S720W](denon-avr-s720w.md) | WiFi (HTTP `/goform/` + ASCII on 23 + UPnP) | Spec Available | On-receiver menu / Ethernet (medium) | Denon |
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
+| [HomeWizard P1 Meter](homewizard-p1-meter.md) | WiFi (HTTP v1 / HTTPS v2) | Spec Available (untested) | App + v1 toggle or v2 button token (medium) | HomeWizard |
+| [HomeWizard Energy Socket](homewizard-energy-socket.md) | WiFi (HTTP v1, GET-only) | Spec Available (untested) | App + Local API toggle (medium) | HomeWizard |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
 | [iRobot Roomba (Wi-Fi models)](irobot-roomba.md) | WiFi (MQTT over TLS 8883) | Complete | Button-press or account credential extraction (medium) | iRobot / Picea Robotics |
 | [LIFX Z](lifx-z.md) | WiFi | Complete | SoftAP, uncaptured (low) | LIFX |
@@ -129,7 +131,8 @@ spec's `device.setup` block; the patterns are explained in
 | [TIRO LED Helmet Display](led-helmet-display.md) | BLE | Spec Available | None needed | TIRO / Heaton |
 | [Yeelight Cube Lamp](yeelight-cube-lamp.md) | WiFi (LAN TCP 55443) + Matter | Spec Available | App / Matter commissioning (medium) | Yeelight (Yeelink) |
 | [Tuya Wi-Fi Gas Sensor (rqbj family)](tuya-wifi-gas-sensor.md) | WiFi (Tuya LAN TCP 6668) | Spec Available | Tuya pairing + local-key extraction (medium) | Tuya OEM |
-| [June Oven](june-oven.md) | WiFi (cloud-only, no local surface) | Research | Cloud account — shutdown 2026-09-22 (low) | June Life / Weber |
+| [June Oven (stock firmware)](june-oven.md) | WiFi (stock: cloud-only) | Research | Cloud account — shutdown 2026-09-22 (low) | June Life / Weber |
+| [June Oven — Project July (second gen)](june-oven-project-july.md) | WiFi (local HTTPS/HTTP + signed WebSocket) | Spec Available (untested) | July 0.9.1 USB/APX installer + local PIN (medium) | June Life / Project July |
 | [Brava Oven](brava-oven.md) | WiFi (cloud-only, no local surface) | Research | Cloud account — vendor defunct, cloud zombie (low) | Brava / Middleby |
 | [iPixel Color LED Panels](ipixel-color-led-panel.md) | BLE | Spec Available | None needed | TIRO / Heaton (JTPD-03-011, HCZ-001/002 SKUs) |
 | [Triones / HappyLighting LED Strips](qh-happylighting-led-strips.md) | BLE | Spec Available | None needed | Qianghe (QHM) |

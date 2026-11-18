@@ -1,0 +1,843 @@
+# HomeWizard P1 Meter (HWE-P1) — official local API v1 and v2
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "HomeWizard P1 Meter"
+  manufacturer: "HomeWizard"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No P1 meter, smart meter, token, account or live TLS session was used.
+      Facts come from HomeWizard's official API documentation revision
+      571384adec2183c16a79392a227d0e5ee92b4ee9 and official Python client
+      revision 60be21a42da6700f3939bdbf3ed4e3d87a0bc2d8, whose offline tests
+      and sanitized fixtures were reviewed. All behavior here is reported.
+  protocol: "wifi"
+  type: "smart-meter-p1-reader"
+  category: "energy"
+  transport: "http"
+  aliases: ["HWE-P1", "HomeWizard Wi-Fi P1 Meter"]
+  companion_apps:
+    - name: "HomeWizard Energy"
+      package: "nl.homewizard.android.energy"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=nl.homewizard.android.energy"
+      notes: "Official Wi-Fi setup and v1 Local API toggle; do not substitute the older nl.homewizard.android hub app."
+    - name: "HomeWizard Energy"
+      role: "primary"
+      platform: "ios"
+      url: "https://apps.apple.com/app/homewizard-energy/id1492427207"
+      notes: "App Store ID 1492427207, linked by the vendor product page."
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/homewizard/python-homewizard-energy"
+    license: "Apache-2.0"
+    upstream_docs:
+      - url: "https://api-documentation.homewizard.com/docs/introduction#devices"
+        title: "HomeWizard device/API compatibility"
+        covers: "HWE-P1 supports v1 and v2 from API 2.3.0; Energy Socket is not evidence for another product's v2 support."
+      - url: "https://api-documentation.homewizard.com/docs/discovery"
+        title: "HomeWizard mDNS discovery"
+        covers: "v1 _hwenergy HTTP/80 and v2 _homewizard HTTPS/443 service and TXT records."
+      - url: "https://api-documentation.homewizard.com/docs/v1/measurement"
+        title: "HomeWizard v1 measurement"
+        covers: "Exact optional P1 field names and units."
+      - url: "https://api-documentation.homewizard.com/docs/v2/measurement"
+        title: "HomeWizard v2 measurement"
+        covers: "Exact optional P1 field names, units and timezone-free timestamps."
+      - url: "https://api-documentation.homewizard.com/docs/v2/authorization"
+        title: "HomeWizard v2 authorization"
+        covers: "Physical-button token flow, name/token syntax, CA chain and certificate hostname."
+    notes: >
+      This is a summary of the vendor's published personal, noncommercial local
+      API, not a recovered private protocol. Review the upstream API-use terms
+      before building a commercial product.
+  notes: >
+    HWE-P1 exposes two distinct official local APIs. v1 uses plain HTTP/80,
+    `_hwenergy._tcp.local.` and `/api/v1/...`; it must be enabled in the
+    HomeWizard Energy app. v2 is supported from API 2.3.0, uses HTTPS/443,
+    `_homewizard._tcp.local.`, bearer tokens and `/api/...` (not `/api/v1`).
+    Choose from product_type plus negotiated api_version and the advertised
+    service; firmware_version is a different value. Prefer v2 where supported,
+    but never turn a timeout, 404 or TLS failure into a request for the other
+    API path. In particular, never request v1 over HTTPS.
+
+    Every measurement field is optional. A missing point means unavailable or
+    not supplied by the connected smart meter, never zero. Preserve unknown
+    fields for forward-compatible minor versions. The API returns the latest
+    measurement, not a historical series; cloud/app history and Energy+ are
+    separate services and are not required for current local readings.
+
+    PRIVACY: serials, meter identifiers, SSIDs and token-user names are
+    installation-specific. Redact them in logs and fixtures. A serial is not a
+    bearer secret, but it remains private device metadata. v1 has no request
+    authentication on the trusted LAN. v2 tokens grant full data access and
+    must be stored as secrets; the public HomeWizard CA is not a private key.
+
+  identification:
+    mdns_service_type: "_hwenergy._tcp.local."
+    mdns_txt_match:
+      - key: "product_type"
+        match: "exact"
+        value: "HWE-P1"
+        description: "Restrict the shared HomeWizard v1 service to the P1 Meter; other product types are different specs/devices."
+    default_port: 80
+    notes: >
+      The primary cheap matcher is v1. v1 advertisements carry api_enabled 0/1,
+      path=/api/v1, serial, product_name and product_type; api_enabled=0 means
+      setup is incomplete, not that the device is absent. v2-capable units also
+      advertise `_homewizard._tcp.local.` on HTTPS/443 with api_version, id,
+      serial and product metadata. The v2 TXT id is the expected certificate
+      hostname and should be appliance/p1dongle/<serial>; do not construct it
+      from HWE-P1 or assume the discovery label p1meter is the certificate type.
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_hwenergy._tcp.local."
+          port: 80
+          txt_record_keys: ["api_enabled", "path", "serial", "product_name", "product_type"]
+          txt_match:
+            - key: "product_type"
+              match: "exact"
+              value: "HWE-P1"
+              description: "Official API product type for the P1 Meter; tolerate unknown types as other products, not as P1."
+          identity_mapping:
+            stable_keys:
+              - source: "txt:serial"
+                key: "serial"
+            display:
+              source: "txt:product_name"
+        notes: >
+          API v1 candidate. For active v1 use require api_enabled=1 and
+          path=/api/v1, then confirm GET /api reports product_type=HWE-P1 and
+          api_version=v1. A disabled unit can still be shown for onboarding.
+          Use HTTP port 80 only.
+      - type: "mdns"
+        mdns:
+          service_type: "_homewizard._tcp.local."
+          port: 443
+          txt_record_keys: ["api_version", "id", "serial", "product_name", "product_type"]
+          txt_match:
+            - key: "product_type"
+              match: "exact"
+              value: "HWE-P1"
+              description: "Selects the P1 Meter only; never infer Energy Socket v2 from this shared v2 service."
+          identity_mapping:
+            stable_keys:
+              - source: "txt:serial"
+                key: "serial"
+              - source: "txt:id"
+                key: "certificate_id"
+            display:
+              source: "txt:product_name"
+        notes: >
+          API v2 candidate. Negotiate semantic api_version (2.3.0 or newer for
+          P1 support), not firmware_version. Use HTTPS port 443 and TXT id as
+          server_hostname while validating against the HomeWizard CA. Confirm
+          authorized GET /api returns product_type=HWE-P1 and a 2.x api_version.
+          If both APIs are present, v2 is preferred; this is capability
+          selection, not path fallback.
+    identity:
+      stable_keys: ["serial", "certificate_id"]
+      display: "product_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Initial Wi-Fi provisioning uses the official HomeWizard Energy app for
+      both APIs. Whether an account is strictly required for that initial app
+      flow was not established; do not claim an account-free setup. v1 also
+      needs the app's Local API toggle. v2's subsequent physical-button token
+      exchange is local and needs no cloud account.
+    methods:
+      - type: "button_pairing"
+        name: "API v2: app Wi-Fi, CA, then 30-second button token"
+        role: "primary"
+        verified: false
+        description: >
+          Recommended route for a P1 advertising _homewizard with API 2.3.0 or
+          newer. Initial Wi-Fi setup and local token authorization are separate
+          phases; only the second uses the physical button.
+        stages:
+          - type: "cloud_account"
+            name: "Join Wi-Fi with the official Energy app"
+            verified: false
+            description: >
+              Use HomeWizard Energy (Android nl.homewizard.android.energy or
+              iOS 1492427207), not the older HomeWizard hub app. An account-free
+              initial provisioning path is not established.
+            cloud:
+              provider: "HomeWizard app onboarding"
+              local_alternative: >
+                The next stage is the local v2 physical-button authorization;
+                no account-free initial Wi-Fi provisioning alternative is
+                established. A deliberately configured v1 route is the other
+                setup method, not a network-error fallback.
+            steps:
+              - action: "Connect the P1 Meter to the smart meter and follow the official Energy app's Wi-Fi setup on the same LAN as the client."
+                actor: "user"
+                expect: "The meter advertises _homewizard._tcp.local. and/or _hwenergy._tcp.local.; redact its serial in retained notes."
+          - type: "button_pairing"
+            name: "Authorize a named local user at the P1 button"
+            verified: false
+            description: >
+              Request a token only after the user selects this exact meter.
+              Do not run a token-creation loop against an unknown device.
+            issues_credentials:
+              token:
+                command: "create_local_user"
+                reply_path: "token"
+                notes: "Store the 32-character A-F0-9 token in platform key storage, keyed by the device serial/certificate id."
+            steps:
+              - action: "Read the v2 TXT id and api_version; require product_type=HWE-P1 and API >=2.3.0, then configure HTTPS/443 with the public HomeWizard CA and TXT id as server_hostname."
+                actor: "client"
+                expect: "Expected identity appliance/p1dongle/<serial>, with chain and hostname verification enabled."
+              - action: "POST /api/user with Content-Type application/json, X-Api-Version: 2 and a unique name matching ^local\\/[a-zA-Z0-9\\-_/\\\\# ]{1,40}$ (for example local/example-client)."
+                actor: "client"
+                request:
+                  protocol: "http"
+                  action: "POST /api/user"
+                  arguments:
+                    - {name: "name", type: "string", required: true, description: "local/-prefixed unique client name, 1-40 characters after the prefix"}
+                expect: "403 with error user:creation-not-enabled until the physical button authorizes creation."
+              - action: "Press the P1 Meter's physical button once."
+                actor: "user"
+                expect: "A 30-second token-creation window opens."
+              - action: "Repeat the same POST /api/user within 30 seconds."
+                actor: "client"
+                expect: "200 with the same name and a token matching ^[A-F0-9]{32}$. Reusing a name can invalidate its previous token."
+                timeout_seconds: 30
+              - action: "Store the token and verify GET /api with Authorization: Bearer <token> and X-Api-Version: 2."
+                actor: "client"
+                expect: "product_type=HWE-P1 and semantic 2.x api_version; 401 user:unauthorized means repair/re-pair, not a v1-path fallback."
+      - type: "cloud_account"
+        name: "API v1: app Wi-Fi and Local API toggle"
+        role: "alternative"
+        verified: false
+        description: >
+          For a unit using v1, or when v2 is unavailable by negotiated version.
+          This is a different selected API, not a fallback request after a v2
+          error. Initial app/account requirements are the same unknowns above.
+        cloud:
+          provider: "HomeWizard app onboarding"
+          local_alternative: >
+            This method IS the local v1 path after the app's Wi-Fi setup and
+            Local API toggle. No account-free initial provisioning alternative
+            is established; the v2 physical-button method is selected by API
+            capability rather than tried after a v1 failure.
+        steps:
+          - action: "Provision Wi-Fi with the official Energy app, then open Settings → Meters → this P1 Meter and enable Local API."
+            actor: "user"
+            expect: "The v1 advertisement reports api_enabled=1 and path=/api/v1."
+          - action: "Browse _hwenergy._tcp.local. and require product_type=HWE-P1; then GET /api over HTTP/80."
+            actor: "client"
+            expect: "product_type=HWE-P1 and api_version=v1. No bearer token is used."
+          - action: "Use only the v1 paths /api/v1/data, /api/v1/telegram and /api/v1/system, polling no more often than the documented 500 ms guidance."
+            actor: "client"
+            expect: "Latest measurement, raw DSMR text and system state over unauthenticated HTTP on the trusted LAN."
+
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Vendor documentation says factory reset restores cloud communication.
+        The exact physical reset procedure, and whether Wi-Fi credentials and
+        local v2 users/tokens survive, were not established here.
+      description: >
+        Do not substitute pairing mode for factory reset and do not invent a
+        button hold. Pairing mode also re-enables cloud. Consult current vendor
+        support for the exact unit before clearing it; retain any required v2
+        token recovery procedure first.
+
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Use the official Energy app's Wi-Fi/pairing flow to move networks;
+        pairing mode re-enables cloud. No factory-reset-only rejoin requirement
+        is documented. v2 token survival across a network change was not
+        established: rediscover by serial/certificate id and reauthorize only if
+        the device rejects the existing token.
+      steps:
+        - action: "Run the official Energy app's Wi-Fi/pairing flow for the new network."
+          actor: "user"
+          expect: "The meter returns to the LAN and cloud is re-enabled by pairing mode."
+        - action: "Rediscover _homewizard and/or _hwenergy, match serial/certificate id, and select v2 >=2.3.0 or v1 from negotiated metadata rather than probing alternate paths."
+          actor: "client"
+          expect: "The same selected API works, or a 401 identifies the need for a new v2 token."
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials provisioned by the official app"
+        - "Named local/cloud API users and their token state on v2"
+      issued_to_client:
+        - "v2 bearer token: exactly 32 uppercase A-F0-9 characters"
+        - "Public HomeWizard Appliance Access CA and expected certificate id (not secrets)"
+      notes: >
+        v1 issues no client credential and uses plain HTTP. v2 tokens authorize
+        full local data access; never log them. Name syntax is
+        ^local\\/[a-zA-Z0-9\\-_/\\\\# ]{1,40}$ and token syntax is
+        ^[A-F0-9]{32}$. Tokens prefixed local/ or cloud/ identify how users were
+        created; both are for local device communication, not cloud login.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "required"
+    pin:
+      source: "user_chosen"
+      notes: >
+        No numeric PIN. The client chooses a unique local/ name and the P1
+        button authorizes token issuance. v1 needs no pairing credential but
+        does require the app's Local API toggle.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Multiple named users are supported. Use a new unique local/ name for an
+        independent client; reusing a name can invalidate its previous token.
+        If a token is lost or rejected, repeat the physical-button flow. No
+        reset is needed merely to add a client.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One named v2 API user and its token, without touching other clients."
+      notes: >
+        Vendor documents DELETE /api/user with the full local/ name and an
+        authorized bearer token. Token deletion is deliberately outside this
+        first implementation's commands. Deleting the current token locks that
+        client out until another authorized user exists or it pairs again.
+    enter_pairing_mode:
+      required: true
+      window_seconds: 30
+      procedures:
+        - name: "Single press of the P1 Meter button"
+          verified: false
+          basis: "Official HomeWizard v2 authorization documentation; the 1-3 second hold applies to kWh Meter, not this P1 procedure."
+          power_state: "on"
+          press_count: 1
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "POST /api/user once and observe 403 user:creation-not-enabled."
+              actor: "client"
+            - action: "Press the P1 Meter button once."
+              actor: "user"
+              expect: "Token creation is enabled for 30 seconds."
+            - action: "Repeat the same POST within 30 seconds and store the returned token."
+              actor: "client"
+              timeout_seconds: 30
+    notes: >
+      This block describes v2 client authorization. v1 is open after its app
+      toggle and uses no bearer credential. Both require initial Wi-Fi setup in
+      the official app; physical v2 pairing itself does not require a cloud
+      account.
+
+  variants:
+    - model: "HWE-P1"
+      identification:
+        model_prefix: "HWE-P1"
+      notes: >
+        The API product_type. v1 and v2 use different field spellings declared
+        below; do not treat HWE-SKT/HWE-SKT-21, kWh, Watermeter or Plug-In
+        Battery schemas as interchangeable with this one.
+
+http_endpoints:
+  - method: "GET"
+    path: "/api"
+    name: "v1 Device Information"
+    description: "HTTP/80 v1 identity: product_name, product_type, serial, firmware_version and api_version=v1. Select support from product_type plus api_version, tolerate additional fields."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "product_name", type: "string"}
+        - {name: "product_type", type: "string", description: "Must be HWE-P1 for this spec."}
+        - {name: "serial", type: "string", description: "Twelve hexadecimal characters; redact in retained fixtures."}
+        - {name: "firmware_version", type: "string", description: "Not the API version."}
+        - {name: "api_version", type: "string", description: "Exactly v1 for this transport/schema."}
+      example: |
+        {"product_type":"HWE-P1","product_name":"P1 Meter","serial":"001122aabbcc","firmware_version":"5.18","api_version":"v1"}
+    verification: "reported"
+  - method: "GET"
+    path: "/api/v1/data"
+    name: "v1 P1 Measurement"
+    description: >
+      Most recent v1 measurement over HTTP/80. Every field below is optional;
+      missing/null is unavailable, not zero. Energy totals are kWh, never Wh.
+      Negative active power/current indicates export. v1 timestamps are numeric
+      YYMMDDhhmmss with no timezone; do not label them UTC.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "unique_id", type: "string", description: "Smart-meter identifier; private metadata."}
+        - {name: "smr_version", type: "number", description: "DSMR version; v2 alias protocol_version."}
+        - {name: "meter_model", type: "string"}
+        - {name: "wifi_ssid", type: "string", description: "Optional; do not use its presence to decide whether the whole payload is v1."}
+        - {name: "wifi_strength", type: "number", unit: "%"}
+        - {name: "active_tariff", type: "number", description: "v2 alias tariff."}
+        - {name: "total_power_import_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_import_t1_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_import_t2_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_import_t3_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_import_t4_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_export_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_export_t1_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_export_t2_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_export_t3_kwh", type: "number", unit: "kWh"}
+        - {name: "total_power_export_t4_kwh", type: "number", unit: "kWh"}
+        - {name: "active_power_w", type: "number", unit: "W", description: "Signed aggregate; not the absolute sum of phases."}
+        - {name: "active_power_l1_w", type: "number", unit: "W"}
+        - {name: "active_power_l2_w", type: "number", unit: "W"}
+        - {name: "active_power_l3_w", type: "number", unit: "W"}
+        - {name: "active_voltage_l1_v", type: "number", unit: "V"}
+        - {name: "active_voltage_l2_v", type: "number", unit: "V"}
+        - {name: "active_voltage_l3_v", type: "number", unit: "V"}
+        - {name: "active_current_l1_a", type: "number", unit: "A"}
+        - {name: "active_current_l2_a", type: "number", unit: "A"}
+        - {name: "active_current_l3_a", type: "number", unit: "A"}
+        - {name: "active_frequency_hz", type: "number", unit: "Hz"}
+        - {name: "voltage_sag_l1_count", type: "number"}
+        - {name: "voltage_sag_l2_count", type: "number"}
+        - {name: "voltage_sag_l3_count", type: "number"}
+        - {name: "voltage_swell_l1_count", type: "number"}
+        - {name: "voltage_swell_l2_count", type: "number"}
+        - {name: "voltage_swell_l3_count", type: "number"}
+        - {name: "any_power_fail_count", type: "number"}
+        - {name: "long_power_fail_count", type: "number"}
+        - {name: "active_power_average_w", type: "number", unit: "W", description: "v2 alias average_power_15m_w."}
+        - {name: "montly_power_peak_w", type: "number", unit: "W", description: "Exact misspelled v1 wire name; v2 corrects to monthly_power_peak_w."}
+        - {name: "montly_power_peak_timestamp", type: "integer", description: "YYMMDDhhmmss, no timezone; exact montly spelling."}
+        - {name: "total_gas_m3", type: "number", unit: "m³", description: "Legacy first gas meter; prefer typed external records for new code."}
+        - {name: "gas_timestamp", type: "integer", description: "YYMMDDhhmmss, no timezone."}
+        - {name: "unique_gas_id", type: "string", description: "Legacy gas identifier spelling in the parameter table."}
+        - {name: "gas_unique_id", type: "string", description: "Legacy gas identifier spelling in the official example; accept either alias."}
+        - {name: "external", type: "array", description: "Typed external utility meters; preserve each entry's unit and tolerate future types."}
+      example: |
+        {"smr_version":50,"meter_model":"Example Meter","active_tariff":2,"total_power_import_kwh":13779.338,"total_power_import_t1_kwh":10830.511,"total_power_import_t2_kwh":2948.827,"total_power_export_kwh":0,"active_power_w":-543,"active_power_l1_w":-676,"active_power_l2_w":133,"active_power_l3_w":0,"active_current_l1_a":-4,"active_current_l2_a":2,"active_current_l3_a":0,"voltage_sag_l1_count":1,"voltage_swell_l1_count":0,"any_power_fail_count":4,"long_power_fail_count":5,"total_gas_m3":2569.646,"gas_timestamp":210606140010,"active_power_average_w":123.0,"montly_power_peak_w":1111.0,"montly_power_peak_timestamp":230101080010,"external":[{"unique_id":"example-gas-id","type":"gas_meter","timestamp":210606140010,"value":2569.646,"unit":"m3"},{"unique_id":"example-water-id","type":"water_meter","timestamp":210606140015,"value":123.456,"unit":"m3"}]}
+    verification: "reported"
+  - method: "GET"
+    path: "/api/v1/telegram"
+    name: "v1 DSMR Telegram"
+    description: >
+      Most recent valid raw DSMR telegram as text/plain. The device validates
+      checksum when present and otherwise passes text through. Use a real DSMR
+      parser for structured values and redact meter identifiers in retained
+      telegrams; this is not a stable JSON substitute.
+    response_body:
+      content_type: "text/plain"
+      example: |
+        /XMP5\\2EXAMPLE-1
+
+        3:0.2.8(50)
+        0-0:1.0.0(210606140010W)
+        1-0:1.8.1(10830.511*kWh)
+        1-0:2.8.1(01285.951*kWh)
+        1-0:1.7.0(00.543*kW)
+        0-1:24.2.1(210606140010W)(02569.646*m3)
+        !1F28
+    verification: "reported"
+  - method: "GET"
+    path: "/api/v1/system"
+    name: "v1 System Status"
+    description: "Read-only view of cloud_enabled. PUT is intentionally not declared: disabling cloud disconnects the official app and stops firmware updates; pairing mode/factory reset can restore it."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "cloud_enabled", type: "boolean"}
+      example: |
+        {"cloud_enabled":true}
+    verification: "reported"
+  - method: "GET"
+    path: "/api"
+    name: "v2 Device Information"
+    description: "HTTPS/443 authorized v2 identity. Send Authorization: Bearer <token> and X-Api-Version: 2; confirm product_type=HWE-P1 and semantic api_version, never firmware_version."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "product_name", type: "string"}
+        - {name: "product_type", type: "string"}
+        - {name: "serial", type: "string"}
+        - {name: "firmware_version", type: "string"}
+        - {name: "api_version", type: "string", description: "Semantic API version; P1 v2 support begins at 2.3.0."}
+      example: |
+        {"product_name":"P1 Meter","product_type":"HWE-P1","serial":"001122aabbcc","firmware_version":"6.00","api_version":"2.3.0"}
+    verification: "reported"
+  - method: "GET"
+    path: "/api/measurement"
+    name: "v2 P1 Measurement"
+    description: >
+      Most recent v2 measurement over HTTPS/443 with bearer token and
+      X-Api-Version: 2. Every field is optional. v2 timestamps are ISO 8601
+      strings without timezone information. current_a is the sum of ABSOLUTE
+      per-phase currents; signed per-phase currents indicate export.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "unique_id", type: "string"}
+        - {name: "protocol_version", type: "number"}
+        - {name: "meter_model", type: "string"}
+        - {name: "timestamp", type: "string", description: "YYYY-MM-DDTHH:mm:ss, no timezone; do not assume UTC."}
+        - {name: "tariff", type: "number"}
+        - {name: "energy_import_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_import_t1_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_import_t2_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_import_t3_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_import_t4_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_export_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_export_t1_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_export_t2_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_export_t3_kwh", type: "number", unit: "kWh"}
+        - {name: "energy_export_t4_kwh", type: "number", unit: "kWh"}
+        - {name: "power_w", type: "number", unit: "W"}
+        - {name: "power_l1_w", type: "number", unit: "W"}
+        - {name: "power_l2_w", type: "number", unit: "W"}
+        - {name: "power_l3_w", type: "number", unit: "W"}
+        - {name: "voltage_v", type: "number", unit: "V"}
+        - {name: "voltage_l1_v", type: "number", unit: "V"}
+        - {name: "voltage_l2_v", type: "number", unit: "V"}
+        - {name: "voltage_l3_v", type: "number", unit: "V"}
+        - {name: "current_a", type: "number", unit: "A", description: "Sum of absolute phase currents, not signed sum."}
+        - {name: "current_l1_a", type: "number", unit: "A"}
+        - {name: "current_l2_a", type: "number", unit: "A"}
+        - {name: "current_l3_a", type: "number", unit: "A"}
+        - {name: "frequency_hz", type: "number", unit: "Hz"}
+        - {name: "voltage_sag_l1_count", type: "number"}
+        - {name: "voltage_sag_l2_count", type: "number"}
+        - {name: "voltage_sag_l3_count", type: "number"}
+        - {name: "voltage_swell_l1_count", type: "number"}
+        - {name: "voltage_swell_l2_count", type: "number"}
+        - {name: "voltage_swell_l3_count", type: "number"}
+        - {name: "any_power_fail_count", type: "number"}
+        - {name: "long_power_fail_count", type: "number"}
+        - {name: "average_power_15m_w", type: "number", unit: "W"}
+        - {name: "monthly_power_peak_w", type: "number", unit: "W", description: "Corrected v2 spelling; v1 uses montly_power_peak_w."}
+        - {name: "monthly_power_peak_timestamp", type: "string", description: "ISO 8601 without timezone."}
+        - {name: "external", type: "array"}
+      example: |
+        {"protocol_version":50,"meter_model":"Example Meter","timestamp":"2024-06-28T14:12:34","tariff":2,"energy_import_kwh":13779.338,"energy_import_t1_kwh":10830.511,"energy_import_t2_kwh":2948.827,"energy_export_kwh":0,"power_w":-543,"power_l1_w":-676,"power_l2_w":133,"power_l3_w":0,"current_a":6,"current_l1_a":-4,"current_l2_a":2,"current_l3_a":0,"voltage_sag_l1_count":1,"any_power_fail_count":4,"average_power_15m_w":123.0,"monthly_power_peak_w":1111.0,"monthly_power_peak_timestamp":"2024-06-04T10:11:22","external":[{"unique_id":"example-gas-id","type":"gas_meter","timestamp":"2024-06-28T14:00:00","value":2569.646,"unit":"m3"}]}
+    verification: "reported"
+  - method: "GET"
+    path: "/api/telegram"
+    name: "v2 DSMR Telegram"
+    description: "Authorized HTTPS raw DSMR text. 503 telegram:no-telegram-received is an empty/unavailable result, not a reason to try the v1 path."
+    response_body:
+      content_type: "text/plain"
+    verification: "reported"
+  - method: "GET"
+    path: "/api/system"
+    name: "v2 System Status"
+    description: "Authorized HTTPS read of v2 system telemetry. Writes for cloud, v1 enablement, LED, identify and reboot are excluded."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "wifi_ssid", type: "string"}
+        - {name: "wifi_rssi_db", type: "number", unit: "dBm", description: "Distinct from v1 wifi_strength percentage."}
+        - {name: "uptime_s", type: "number", unit: "s"}
+        - {name: "cloud_enabled", type: "boolean"}
+        - {name: "status_led_brightness_pct", type: "number", unit: "%", description: "0-100, distinct from Energy Socket's 0-255 brightness."}
+        - {name: "api_v1_enabled", type: "boolean", description: "Optional and removed when v1 is retired."}
+      example: |
+        {"wifi_ssid":"ExampleNet","wifi_rssi_db":-77,"cloud_enabled":false,"uptime_s":356,"status_led_brightness_pct":100,"api_v1_enabled":true}
+    verification: "reported"
+  - method: "POST"
+    path: "/api/user"
+    name: "create_local_user"
+    advanced: true
+    advanced_reason: >
+      Creates a bearer credential with full local data access. Reusing a name
+      can invalidate its previous token. Run only after the user selects this
+      exact P1 and presses its button; never loop token creation at unknown hosts.
+    description: >
+      HTTPS/443 with X-Api-Version: 2 and JSON {name: local/<unique-name>}.
+      Before the button it returns 403 user:creation-not-enabled. One P1 button
+      press opens 30 seconds; repeat the same request within that window for
+      200 {name,token}. Store the 32-character A-F0-9 token securely.
+    request_body:
+      content_type: "application/json"
+      fields:
+        - {name: "name", type: "string", required: true, description: "Matches ^local\\/[a-zA-Z0-9\\-_/\\\\# ]{1,40}$"}
+      example: |
+        {"name":"local/example-client"}
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "name", type: "string"}
+        - {name: "token", type: "string", description: "Matches ^[A-F0-9]{32}$; secret."}
+      example: |
+        {"name":"local/example-client","token":"0123456789ABCDEF0123456789ABCDEF"}
+    verification: "reported"
+
+commands:
+  read_v1_device_info:
+    description: "HTTP/80 v1 identity; require HWE-P1 and api_version=v1."
+    transport: "http"
+    method: "GET"
+    path: "/api"
+    verification: "reported"
+  read_v1_measurement:
+    description: "HTTP/80 latest v1 measurement with exact v1 aliases and kWh totals; all points optional."
+    transport: "http"
+    method: "GET"
+    path: "/api/v1/data"
+    verification: "reported"
+  read_v1_telegram:
+    description: "HTTP/80 latest valid raw DSMR telegram; redact identifiers in retained text."
+    transport: "http"
+    method: "GET"
+    path: "/api/v1/telegram"
+    verification: "reported"
+  read_v1_system:
+    description: "HTTP/80 GET-only cloud_enabled state; never issue a system PUT from this first implementation."
+    transport: "http"
+    method: "GET"
+    path: "/api/v1/system"
+    verification: "reported"
+  read_v2_device_info:
+    description: "HTTPS/443 authorized v2 identity with major-version selection."
+    transport: "http"
+    method: "GET"
+    path: "/api"
+    headers:
+      Authorization: "Bearer {token}"
+      X-Api-Version: "2"
+    parameters:
+      token: {type: "string", source: "credential:token"}
+    verification: "reported"
+  read_v2_measurement:
+    description: "HTTPS/443 authorized latest v2 measurement with exact v2 aliases and timezone-free ISO timestamps."
+    transport: "http"
+    method: "GET"
+    path: "/api/measurement"
+    headers:
+      Authorization: "Bearer {token}"
+      X-Api-Version: "2"
+    parameters:
+      token: {type: "string", source: "credential:token"}
+    verification: "reported"
+  read_v2_telegram:
+    description: "HTTPS/443 authorized raw DSMR telegram; 503 means no telegram, not API-path fallback."
+    transport: "http"
+    method: "GET"
+    path: "/api/telegram"
+    headers:
+      Authorization: "Bearer {token}"
+      X-Api-Version: "2"
+    parameters:
+      token: {type: "string", source: "credential:token"}
+    verification: "reported"
+  read_v2_system:
+    description: "HTTPS/443 authorized v2 system telemetry; GET only."
+    transport: "http"
+    method: "GET"
+    path: "/api/system"
+    headers:
+      Authorization: "Bearer {token}"
+      X-Api-Version: "2"
+    parameters:
+      token: {type: "string", source: "credential:token"}
+    verification: "reported"
+  create_local_user:
+    description: "Setup-only v2 physical-button token request; 403 means press the P1 button, then repeat once within 30 seconds."
+    transport: "http"
+    method: "POST"
+    path: "/api/user"
+    headers:
+      Content-Type: "application/json"
+      X-Api-Version: "2"
+    body: '{"name":"{name}"}'
+    parameters:
+      name:
+        type: "string"
+        required: true
+        description: "Unique name matching ^local\\/[a-zA-Z0-9\\-_/\\\\# ]{1,40}$"
+    advanced: true
+    advanced_reason: "Creates a full-data bearer token; a reused name can invalidate its predecessor. Use only after explicit user selection and the physical P1 button press."
+    example_body: '{"name":"local/example-client"}'
+    verification: "reported"
+
+payload_formats:
+  ExternalMeter:
+    description: "One typed external utility-meter record in either P1 API generation."
+    fields:
+      - {name: "unique_id", type: "string", description: "External meter identifier; redact in retained data."}
+      - {name: "type", type: "string", description: "gas_meter, heat_meter, warm_water_meter, water_meter or inlet_heat_meter; tolerate future types."}
+      - {name: "timestamp", type: "string", description: "v1 numeric YYMMDDhhmmss or v2 ISO 8601 string; neither carries timezone."}
+      - {name: "value", type: "number", description: "Raw reading interpreted only with the entry's own unit."}
+      - {name: "unit", type: "string", description: "For example m3 or GJ; preserve verbatim instead of forcing m³."}
+    parse_rules:
+      - "Prefer external over legacy total_gas_m3/gas_timestamp/*gas*id fields for new code; legacy gas fields are scheduled for future removal."
+      - "Do not coerce external.value to a common unit and do not discard unknown external types or fields."
+    example: |
+      {"unique_id":"example-water-id","type":"water_meter","timestamp":"2024-06-28T14:05:00","value":123.456,"unit":"m3"}
+  P1Timestamps:
+    description: "Timezone-free timestamps in the two API generations."
+    parse_rules:
+      - "v1 uses numeric YYMMDDhhmmss for gas and montly_power_peak_timestamp; v2 uses ISO 8601 YYYY-MM-DDTHH:mm:ss strings."
+      - "No timezone is supplied by either form. Preserve naive timestamps and never append Z or claim UTC without separate evidence."
+
+protocol_details:
+  api_selection:
+    product_type: "HWE-P1"
+    preferred: "v2 when _homewizard and semantic api_version >=2.3.0 establish support; otherwise deliberately configured v1"
+    v1: {service: "_hwenergy._tcp.local.", scheme: "http", port: 80, identity_api_version: "v1", measurement: "/api/v1/data", telegram: "/api/v1/telegram", system: "/api/v1/system", auth: "none after app Local API toggle"}
+    v2: {service: "_homewizard._tcp.local.", scheme: "https", port: 443, minimum_api_version: "2.3.0", measurement: "/api/measurement", telegram: "/api/telegram", system: "/api/system", headers: {Authorization: "Bearer <token>", X-Api-Version: "2"}}
+    negotiation: "Use mDNS service/TXT plus product_type and semantic api_version from GET /api. Firmware version does not select the schema. Preserve unknown minor-version fields."
+    no_path_fallback: "Never request /api/v1/* over HTTPS or /api/* v2 paths as a response to a v1 error. Timeout, 404, 401, 503 and TLS failure are not permission to switch APIs. Select once from negotiated capabilities and report errors within that API."
+    normalizer_caveat: "The pinned Python normalizer chooses v1 aliases based on wifi_ssid presence, but wifi_ssid is optional. This spec selects mapping from negotiated API version, never from that optional field."
+    verification: "reported"
+  polling:
+    minimum_interval_ms: 500
+    recommended_default_ms: 1000
+    freshness: "Latest measurement only; use monotonic staleness handling. Repeated counters or old timestamps are not new measurements."
+    dsmr_5: {power_update_seconds: 1, gas_update_seconds: 300}
+    older_dsmr: {power_update_seconds: 10, gas_update_seconds: 3600}
+    verification: "reported"
+  tls:
+    ca_url: "https://api-documentation.homewizard.com/homewizard-ca-cert.pem"
+    ca_subject: "HomeWizard Appliance Access CA (self-signed public root)"
+    ca_validity: "2021-12-18 through 2031-12-16"
+    ca_sha256_fingerprint: "4E:C2:77:E6:20:33:FA:E8:BC:37:3E:3F:2A:97:66:76:D3:F6:65:68:38:73:F1:EA:8E:3B:DF:78:AC:68:00:03"
+    hostname_source: "Prefer exact v2 mDNS TXT id; otherwise construct from certificate product type and serial."
+    expected_hostname: "appliance/p1dongle/<serial>"
+    product_type_mapping: {HWE-P1: "p1dongle"}
+    verification_rule: "Validate the leaf chain against the public HomeWizard CA and pass the expected identity through the HTTP library's server_hostname facility. Do not use --insecure or disable hostname checks. No live leaf was tested."
+    verification: "reported"
+  token_flow:
+    endpoint: "POST /api/user"
+    name_regex: '^local\/[a-zA-Z0-9\-_/\\# ]{1,40}$'
+    token_regex: '^[A-F0-9]{32}$'
+    initial_error: {status: 403, body: {error: "user:creation-not-enabled"}}
+    button: "Press the P1 button once; do not apply the kWh Meter's 1-3 second hold."
+    window_seconds: 30
+    success: {status: 200, fields: ["name", "token"]}
+    request_headers: {Content-Type: "application/json", X-Api-Version: "2"}
+    name_reuse: "A new token for the same name can invalidate the previous token; choose unique names."
+    unauthorized: {status: 401, body: {error: "user:unauthorized"}, meaning: "Stored credential missing/invalid; repair pairing, do not switch paths."}
+    verification: "reported"
+  field_aliases:
+    smr_version: "protocol_version"
+    active_tariff: "tariff"
+    total_power_import_kwh: "energy_import_kwh"
+    total_power_import_t1_kwh: "energy_import_t1_kwh"
+    total_power_import_t2_kwh: "energy_import_t2_kwh"
+    total_power_import_t3_kwh: "energy_import_t3_kwh"
+    total_power_import_t4_kwh: "energy_import_t4_kwh"
+    total_power_export_kwh: "energy_export_kwh"
+    total_power_export_t1_kwh: "energy_export_t1_kwh"
+    total_power_export_t2_kwh: "energy_export_t2_kwh"
+    total_power_export_t3_kwh: "energy_export_t3_kwh"
+    total_power_export_t4_kwh: "energy_export_t4_kwh"
+    active_power_w: "power_w"
+    active_power_l1_w: "power_l1_w"
+    active_power_l2_w: "power_l2_w"
+    active_power_l3_w: "power_l3_w"
+    active_voltage_l1_v: "voltage_l1_v"
+    active_voltage_l2_v: "voltage_l2_v"
+    active_voltage_l3_v: "voltage_l3_v"
+    active_current_l1_a: "current_l1_a"
+    active_current_l2_a: "current_l2_a"
+    active_current_l3_a: "current_l3_a"
+    active_frequency_hz: "frequency_hz"
+    active_power_average_w: "average_power_15m_w"
+    montly_power_peak_w: "monthly_power_peak_w"
+    montly_power_peak_timestamp: "monthly_power_peak_timestamp"
+    external: "external"
+    semantics: "Keys on the left are v1, keys on the right are v2. Apply only according to negotiated API version and retain unknown fields. Gas legacy fields migrate to typed external records; unique_gas_id and gas_unique_id are accepted legacy spellings."
+    verification: "reported"
+  read_only_boundary:
+    included: "GET identity, measurement, raw telegram and system on the negotiated API, plus the setup-only POST /api/user physical pairing flow."
+    excluded: "System/cloud/LED/v1-enable writes, token list/delete, identify, reboot, battery controls, firmware functions and all other non-GET controls. No such operation was exercised."
+    verification: "reported"
+
+local_access:
+  status: "native"
+  summary: "Official local v1 and v2 APIs provide latest P1 electricity/external-meter data, raw DSMR and system state without ongoing cloud access."
+  covers:
+    - "v1 HTTP/80 identity, optional measurement fields, DSMR text and cloud flag after app enablement"
+    - "v2 HTTPS/443 identity, optional measurement fields, DSMR text and system telemetry with physical-button bearer token"
+    - "Offline local readings with exact v1/v2 aliases, units, CA hostname validation and >=500 ms polling"
+  not_covered:
+    - "Historical series, cloud/Energy+ features and internet remote access"
+    - "System writes, token administration beyond initial pairing, identify/reboot/battery/firmware controls"
+    - "Other HomeWizard products and their schemas or v2 support"
+
+cloud:
+  required: false
+  notes: >
+    Current local measurements need no cloud session or Energy+ subscription.
+    Initial Wi-Fi setup uses the official app, v1 enablement uses that app, and
+    cloud remains relevant to app history and firmware updates unless disabled.
+    Disabling cloud via a write is outside this spec and stops both official app
+    communication and future updates; pairing mode/factory reset restores it.
+
+helpful_urls:
+  - title: "HomeWizard local API compatibility"
+    url: "https://api-documentation.homewizard.com/docs/introduction#devices"
+    description: "Official table: P1 HWE-P1 supports v1 and v2 from API 2.3.0; support is product-specific."
+  - title: "HomeWizard API getting started"
+    url: "https://api-documentation.homewizard.com/docs/getting-started"
+    description: "Official app setup, v1 enablement, v2 token flow and >=500 ms polling guidance."
+  - title: "HomeWizard mDNS discovery"
+    url: "https://api-documentation.homewizard.com/docs/discovery"
+    description: "Exact v1/v2 service types, ports and TXT identity fields."
+  - title: "HomeWizard API versioning"
+    url: "https://api-documentation.homewizard.com/docs/versioning"
+    description: "Semantic versions, X-Api-Version major selection and why v1-over-HTTPS is rejected."
+  - title: "HomeWizard v1 P1 measurement"
+    url: "https://api-documentation.homewizard.com/docs/v1/measurement"
+    description: "Official optional v1 fields, kWh totals, montly misspelling, external meters and Socket distinctions."
+  - title: "HomeWizard v2 P1 measurement"
+    url: "https://api-documentation.homewizard.com/docs/v2/measurement"
+    description: "Official optional v2 fields, aliases, units and timezone-free timestamps."
+  - title: "HomeWizard v2 authorization and certificate validation"
+    url: "https://api-documentation.homewizard.com/docs/v2/authorization"
+    description: "Exact 30-second P1 button flow, name/token regexes and appliance/p1dongle/<serial> hostname."
+  - title: "HomeWizard public local API CA"
+    url: "https://api-documentation.homewizard.com/homewizard-ca-cert.pem"
+    description: "Public HomeWizard Appliance Access CA for chain validation; not a private key. Fingerprint recorded in protocol_details.tls."
+  - title: "HomeWizard P1 Meter product page"
+    url: "https://www.homewizard.com/shop/wi-fi-p1-meter/"
+    description: "Hardware and official Energy app links. No suitable first-party PDF manual was found, so no manual link is asserted."
+
+evidence:
+  documentation_review: >
+    Read official introduction, getting-started, discovery, versioning, v1
+    identity/measurement/telegram/system and v2 identity/authorization/
+    measurement/telegram/system documents. Reviewed official Python model
+    aliases, hostname mapping and sanitized v1/v2 fixtures. No APK analysis or
+    live network discovery was needed or performed.
+  open_questions: >
+    Physical compatibility, actual token pairing, optional-field behavior on
+    every firmware, live certificate chains, exact smart-meter cadence and all
+    write operations remain unverified. Initial app account necessity and
+    factory-reset/token-survival details were not established.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "homewizard/api-documentation 571384adec2183c16a79392a227d0e5ee92b4ee9"
+      url: "https://github.com/homewizard/api-documentation"
+      description: "Authoritative product/API compatibility, endpoints, field names/units, token flow, discovery and CA rules."
+    - type: "public_implementation"
+      artifact: "homewizard/python-homewizard-energy 60be21a42da6700f3939bdbf3ed4e3d87a0bc2d8"
+      url: "https://github.com/homewizard/python-homewizard-energy"
+      description: "Official client models, aliases, certificate mapping and sanitized offline fixtures; the wifi_ssid normalizer caveat is deliberately not copied."
+    - type: "vendor_documentation"
+      artifact: "HomeWizard Appliance Access CA"
+      sha256: "4ec277e62033fae8bc373e3f2a976676d3f665683873f1ea8e3bdf78ac680003"
+      url: "https://api-documentation.homewizard.com/homewizard-ca-cert.pem"
+      description: "Public CA parsed offline; SHA-256 shown here is the certificate fingerprint, not a private artifact. No live TLS session was verified."
+
+remaining_unknowns:
+  - "No physical P1 or attached smart meter was read; firmware-specific availability and every optional-field combination need hardware confirmation."
+  - "Actual v2 token issuance/revocation, live leaf certificate and hostname/TLS negotiation were not exercised."
+  - "Whether initial HomeWizard Energy app provisioning strictly requires an account is unresolved; only the subsequent physical v2 token flow is established as local."
+  - "Exact factory-reset procedure and Wi-Fi/v2-user/token survival across reset or network change are not established."
+  - "Smart-meter timestamp timezone is deliberately unspecified by the API; local timezone interpretation must come from the meter/user, not an invented UTC claim."
+  - "Behavior of future external meter types and future minor API fields must be confirmed without discarding unknown data."

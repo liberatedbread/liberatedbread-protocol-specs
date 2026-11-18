@@ -27,10 +27,14 @@ device:
     CLOUD-ONLY, and the cloud has a published death date. Weber retires the
     June app and ALL cloud services on 2026-09-22 (Weber consumer-care FAQ).
     This spec exists to record the dependency and the recovered wire protocol,
-    not to offer a local control surface: there is none on stock hardware.
+    not to offer a local control surface on STOCK FIRMWARE. Project July is a
+    separate replacement-firmware path for second-generation Tegra/APX ovens,
+    specified independently in `june-oven-project-july.yaml`; it does not make
+    stock firmware local and does not cover Gen 1 or Gen 3.
 
-    TRANSPORT: Wi-Fi to the vendor cloud only. No mDNS, SSDP, UPnP or local
-    HTTP. No BLE control surface: BLE hardware is present on Gen 1 and Gen 3
+    STOCK TRANSPORT: Wi-Fi to the vendor cloud only. No mDNS, SSDP, UPnP or
+    local HTTP has been found on stock firmware. No stock BLE control surface:
+    BLE hardware is present on Gen 1 and Gen 3
     per FCC filings (Gen 2 has Wi-Fi-only grants), but zero Bluetooth GATT
     service UUIDs appear anywhere in the final companion app, and Weber's
     FAQ states Bluetooth is not supported. A former
@@ -78,14 +82,17 @@ device:
 
   identification:
     notes: >
-      No local identification signals exist: the oven advertises no BLE name
-      or service (verified: no GATT UUIDs in the companion app), announces no
-      mDNS/SSDP service, and its DHCP hostname and MAC OUI have never been
-      captured. Identity is established through the cloud: pairing yields an
-      oven_id via GET /2/devices/{deviceId}/associated. The often-quoted TCP
-      port 8156 is a single unverified community report and is deliberately
-      NOT stated as a default_port — record it as a hypothesis to settle with
-      a port scan against a real oven.
+      On stock firmware no local identification signals are known: the oven
+      advertises no BLE name or service (verified: no GATT UUIDs in the
+      companion app), announces no mDNS/SSDP service, and its DHCP hostname and
+      MAC OUI have never been captured. Identity is established through the
+      cloud: pairing yields an oven_id via GET /2/devices/{deviceId}/associated.
+      Project July's separate `_http._tcp.local.` advertisement is not a stock
+      signal and is accepted only after its `/local/status` server check; see
+      `june-oven-project-july.yaml`. The often-quoted TCP port 8156 is a single
+      unverified community report and is deliberately NOT stated as a
+      default_port — record it as a hypothesis to settle with a port scan
+      against a real oven.
 
   discovery:
     methods:
@@ -100,11 +107,12 @@ device:
               stable_keys:
                 - source: "json://oven_id"
     notes: >
-      There is nothing to find on the LAN: no mDNS, SSDP, UPnP, or documented
-      local HTTP service. Discovery is a cloud operation — after pairing, the
-      companion asks the cloud which oven is associated with its registered
-      device_id. A consumer should not probe the oven's IP at all; the only
-      known-open-port claim (TCP 8156) is unverified.
+      On stock firmware there is nothing to find on the LAN: no mDNS, SSDP,
+      UPnP, or documented local HTTP service. Discovery is a cloud operation —
+      after pairing, the companion asks the cloud which oven is associated with
+      its registered device_id. A consumer should not probe a stock oven's IP
+      at all; the only known-open-port claim (TCP 8156) is unverified. Project
+      July discovery is documented separately in `june-oven-project-july.yaml`.
 
   setup:
     required: true
@@ -167,13 +175,17 @@ device:
             cloud:
               provider: "June cloud (retires 2026-09-22)"
               local_alternative: >
-                None known. Pairing exists only inside the vendor cloud: there is
-                no mDNS/SSDP/local HTTP surface and no BLE control surface on
-                stock firmware, so after the shutdown no new companion can be
-                paired at all. An already-paired oven keeps cooking from its own
-                touchscreen; a factory-reset or new oven cannot complete first
-                boot. Recovering remote control means standing up a replacement
-                backend for the recovered endpoints.
+                None on stock firmware. Pairing exists only inside the vendor
+                cloud: there is no mDNS/SSDP/local HTTP surface and no BLE
+                control surface on stock firmware, so after the shutdown no new
+                companion can be paired at all. An already-paired oven keeps
+                cooking from its own touchscreen; a factory-reset or new oven
+                cannot complete first boot. Recovering stock-firmware remote
+                control means standing up a replacement backend for the
+                recovered endpoints. Separately, a second-generation Tegra/APX
+                oven can be converted to Project July installer 0.9.1 and paired
+                locally; see `june-oven-project-july.yaml`. That is replacement
+                firmware, not a hidden stock-firmware pairing path.
     factory_reset:
       applicable: true
       confidence: low
@@ -365,10 +377,10 @@ protocol_details:
       milliseconds. Probe presence is STRUCTURAL — a non-empty
       sensor_data.probe array; there is no food_present field.
     outgoing_codes:
-      11002: "Preheat / start cook — data {primitive_type, temperature_cavity milliC}. Only 'bake' and 'roast' are confirmed on-oven; the app's broil/air-fry/toast/dehydrate/pizza vocabulary was never enumerated against hardware. Rejected while a cook is running — clients cancel (11004) and restart instead."
-      11004: "CancelCooking — data {plan_id: 0}"
-      11005: "SetTemperatureCavity — data {plan_id: 0, temperature_cavity milliC}. Rejected mid-cook; cancel-and-restart is the working pattern."
-      11006: "SetTimer — data {plan_id: 0, duration ms}"
+      11002: "Preheat / start cook — data {primitive_type, temperature_cavity milliC, optional plan_index}. The air-fry primitive is spelled 'airfry' (normalize legacy stored 'air-fry'). Only 'bake' and 'roast' were confirmed on-oven by the original stock-firmware integration; Project July reports the wider vocabulary separately in june-oven-project-july.yaml. Rejected while a cook is running — clients cancel (11004) and restart only under the plan-safety rules below."
+      11004: "CancelCooking — data {plan_id: ACTUAL food.plan.id reported for the running cook}. Never substitute 0: plan 0 is only the value when the oven actually reported plan 0."
+      11005: "SetTemperatureCavity — data {plan_id: ACTUAL reported plan id, temperature_cavity milliC}. Attempt in place first. Only an explicit 10020 refusal may trigger the restricted cancel-and-restart fallback below; an unanswered request or timeout is not refusal."
+      11006: "SetTimer — data {plan_id: ACTUAL reported plan id, duration ms}. Wait for a newly started cook's plan report instead of reusing the previous plan id."
       11007: "SetTemperatureTargetProbe"
       11011: "Ping / keepalive, ~7 s interval — data {}"
       11012: "Unpair"
@@ -383,23 +395,45 @@ protocol_details:
       12001: "UploadOvenBugReport — instructs the oven to upload its logs"
     incoming_codes:
       10011: "VideoFrame — data {video_id, ts, signed_url, image_url, content_type, image_size}; ~1 fps JPEG stills via pre-signed URLs expiring in ~300 s. NEVER video."
-      10012: "CookNotification"
-      10013: "Telemetry ~1 Hz — sensor_data.cavity (milliC), sensor_data.probe[], sensor_data.weight (Gen 3), cook_state_data.progress"
-      10014: "Cook plan started"
-      10015: "Cook plan updated"
-      10016: "Cook plan temperature changed"
-      10017: "Cook ended / cancelled"
+      10012: "CookNotification — data.notification_id == 'NOTIFICATION_PREHEAT_COMPLETE' marks preheat completion. Deduplicate it against the plan's transition to 'preheat_and_hold' by data.session_id, emitting at most one completion event per cook session; a plan first seen already holding after a client restart does not create a fresh event."
+      10013: "Telemetry ~1 Hz — sensor_data.cavity (milliC), sensor_data.probe[], sensor_data.weight (Gen 3), cook_state_data.progress; cook_plan_data repeats the current plan"
+      10014: "Cook plan started — may arrive after the 10020 start acknowledgement; this or suitable 10013 telemetry establishes the new plan id"
+      10015: "Cook plan updated — may repeat or arrive late. An older 10015 received after a 10016 moved to a later step (including 'preheat_and_hold') must not move presentation or preheat state backward."
+      10016: "Cook plan temperature/step changed — advances the current step; later stale 10015 frames cannot regress it"
+      10017: "Cook ended / cancelled — a cached plan after this is history, not an active cook"
       10018: "Device state — data {state: 'idle' | 'active'}"
       10020: "Ack — data {request_order, status: 'success' | 'not-allowed' | 'door-open' | 'not-ready' | 'cleaning'}. This is the protocol's safety channel; surface statuses verbatim. Door state is observable ONLY as a 10020 'door-open' rejection, never as a push."
       10022: "Oven-initiated unpair"
       10026: "Pairing info — data.key_info; the SECOND 10026 carries oven_info and completes pairing"
       10027: "PairingSessionInvalidated"
       10033: "Cook adjustment offer"
+    plan_command_rules:
+      plan_id_source: "Current cook plan's food.plan.id, read from 10014/10015/10016 or 10013 cook_plan_data (REST cook_plan/cook_plan_data as fallback). The current step is food.plan.steps[step_state.step_index]."
+      start_race: >
+        A 11002 start can be acknowledged before the new plan is reported. Mark
+        the previous plan stale when starting. Timer, temperature and stop must
+        wait for and name the new plan, ignoring late telemetry from the plan
+        being replaced. If no new plan arrives, fail locally without sending
+        11004/11005/11006. A definite start refusal restores the old plan as
+        current; a start timeout may have applied, so its plan remains unknown.
+      temperature_restart: >
+        Send 11005 in place first. Restart only after an explicit 10020 refusal,
+        and only when the running cook was phone-startable, its actual plan id
+        is 0, and its mode is restart-eligible. NEVER cancel/restart fixed-plan
+        modes (broil, toast, reheat, warm, pizzaiolo), grill, an unknown mode,
+        or a touchscreen-originated program (nonzero plan id, even when its
+        mode name is phone-startable). No ack, an invalid signature, a socket
+        drop or a timeout may have applied the change and NEVER authorizes a
+        restart. After an eligible refusal, cancel the actual plan id, wait
+        400 ms, then start the same mode at the requested temperature and wait
+        for its new plan before further plan-targeted commands.
+      verification: "reported"
     safety: >
       Remote preheat starts a heating element. June shipped a remote-preheat
       disable option and a 30-minute no-food auto-off after documented 2019
       self-preheating incidents; both live on the oven. A client must never
-      offer a path that defeats them.
+      offer a path that defeats them. Preserve the distinct 10020 outcomes and
+      verify Stop against the real reported plan before creating an automation.
     verification: "reported"
 
   ota:
@@ -596,20 +630,21 @@ cloud:
 local_access:
   status: "none_known"
   summary: >
-    No local control path is known on stock hardware, and the honest answer
-    today is that there may never be one: the oven is a pure outbound client
-    (no mDNS/SSDP/UPnP/local HTTP; ADB removed from the shipped user-mode
-    firmware), and its one candidate local surface — a community-reported
-    open TCP port 8156 — is unverified. The theoretical rescue path is a
-    DNS-redirect replacement cloud: all five junelife hosts are plain DNS
-    names a bench gateway can repoint, and a cloud-orphaned oven keeps
-    dialling essentially forever, so that experiment does NOT race the
-    shutdown. Two gates stand in front of it, both unmeasured: whether the
-    oven pins TLS (the app does; the oven is unknown), and where the oven
-    gets its clock (Weber's FAQ says it is cloud-dependent — a replacement
-    cloud may need to answer NTP). A replacement cloud is explicitly out of
-    scope for this project; this spec's job is to make the dependency and the
-    wire protocol legible to whoever builds one.
+    No local control path is known on STOCK FIRMWARE: the stock oven is a pure
+    outbound client (no mDNS/SSDP/UPnP/local HTTP found; ADB removed from the
+    shipped user-mode firmware), and its one candidate local surface — a
+    community-reported open TCP port 8156 — is unverified. The theoretical
+    stock-firmware rescue path is a DNS-redirect replacement cloud: all five
+    junelife hosts are plain DNS names a bench gateway can repoint, and a
+    cloud-orphaned oven keeps dialling essentially forever, so that experiment
+    does NOT race the shutdown. Two gates stand in front of it, both
+    unmeasured: whether the oven pins TLS (the app does; the oven is unknown),
+    and where the oven gets its clock (Weber's FAQ says it is cloud-dependent
+    — a replacement cloud may need to answer NTP). This stock spec does not
+    claim that rescue. Separately, Project July installer 0.9.1 provides native
+    replacement-firmware local control for supported second-generation
+    Tegra/APX ovens; that different path is specified in
+    `june-oven-project-july.yaml`, not folded into this stock-firmware verdict.
   covers: []
   not_covered:
     - "all remote control (preheat, cancel, timer, target temperature, cook modes)"
@@ -628,9 +663,15 @@ local_access:
     NTP behaviour, one full control session) — it needs a live June server to
     record, and the DNS log is the only known way to name the oven's real
     prod OTA host. The port-8156 and BLE-advertisement questions are one
-    bench session each and are not deadline-bound.
+    bench session each and are not deadline-bound. Project July changes the
+    answer only after a supported second-generation oven is converted with
+    installer 0.9.1; use the separate July spec for that firmware's native
+    local pairing, cook, status and camera APIs.
 
 helpful_urls:
+  - title: "Project July installer and June Local"
+    url: "https://github.com/prj-july/installer"
+    description: "Separate replacement-firmware local-control path for supported second-generation Tegra/APX ovens. Use installer 0.9.1 only; see june-oven-project-july.yaml and its update/reset warnings."
   - title: "keithah/homebridge-june-oven"
     url: "https://github.com/keithah/homebridge-june-oven"
     description: "Clean-room June integration spec plus working TypeScript/Python clients, verified end-to-end against a physical gen-3 oven (provenance: Android emulator + Frida, hooking libsodium and conscrypt). The primary protocol source for this spec. Already supports baseUrl/wsUrl overrides — the durable client design; its protocol-decode layer hardcodes the camera hosts, which is the PR a replacement-cloud future needs."
