@@ -80,11 +80,18 @@ delete `30`, mkdir `40`, list `50` and move `60`. Responses use `11`, `21`,
 Read/list first; file writes/mkdir/delete/move are advanced and optional.
 
 DFU follows nine documented stages: start, three image sizes, init packet,
-receipt interval, image chunks, validate and activate. Data segments are at
+receipt interval, image chunks, validate and activate. After the start
+acknowledgement, request init parameters, **write the matching `.dat` first,
+send `02 01` second, and only then wait for `10 02 01`**. Data segments are at
 most 20 bytes and receipt counts are little-endian `uint32`. Use only matching
 official `.bin` + `.dat`, stop on any missed receipt/CRC failure, and validate
 firmware in settings afterward or the previous image may boot. Every update
 step is advanced and unverified here.
+
+The complete flow is documentary only. No generic DFU commands, initialization,
+bare framing or byte-parameter writes are exposed: one dedicated updater must
+own notifications, sequencing, image bytes, receipts, CRC and recovery before
+any write is attempted.
 
 ## Limitations
 

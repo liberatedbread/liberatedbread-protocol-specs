@@ -142,6 +142,20 @@ def test_connected_rejects_checksum_length_type_and_user_mismatch():
         parse_connected(build_connected(0x13), 54321)
 
 
+def test_checksumless_variant_and_generic_measurement_are_out_of_scope(spec):
+    with pytest.raises(ValueError, match="packet size"):
+        parse_connected(build_connected(0x13)[:-1], 12345)
+    connected = spec["protocol_details"]["connected_transport"]
+    assert connected["generic_measurement_entities"] is False
+    assert "entities" not in spec
+    assert spec["device"]["integration"] == "supported"
+    for variant in spec["device"]["variants"][:2]:
+        assert "checksum-bearing only" in variant["model"]
+        assert "checksum-less" in variant["notes"] or "XOR" in variant["notes"]
+    assert "PR1287" in connected["checksum_variant_gate"]
+    assert "Never bypass XOR" in connected["checksum_variant_gate"]
+
+
 def test_timestamp_fallback_and_zero_weight():
     decoded = parse_connected(build_connected(0x13, timestamp=0), 12345, host_time=1760000000)
     assert decoded["timestamp"] == 1760000000

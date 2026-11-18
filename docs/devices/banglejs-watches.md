@@ -16,6 +16,12 @@ The machine-readable spec is `device-specs/devices/banglejs-watches.yaml`.
 No watch was driven from it, and no optional relay, code upload or firmware
 update was exercised.
 
+**Integration is identify-only.** A dedicated stream handler is required for
+both directions. In particular, Find Watch is documentary, not a generic button:
+its 29-byte start and 30-byte stop frames must be split into ordered writes of
+at most 20 bytes, then responses reassembled by JSON/GB line boundary. No
+characteristic commands or ordinary entities are exposed to generic consumers.
+
 ## Hardware
 
 | Property | Bangle.js 1 | Bangle.js 2 |

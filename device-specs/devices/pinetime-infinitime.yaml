@@ -273,91 +273,26 @@ services:
   - uuid: "00001530-1212-efde-1523-785feabcd123"
     name: "Nordic legacy DFU"
     notes: >
-      Update runs in the normal InfiniTime application, not a separately identified
-      DfuTarg mode. Enable notifications on control before any command. Only matching
-      official 1.16-targeted images with their .dat init packet belong here.
-    initialization:
-      - characteristic: "00001531-1212-efde-1523-785feabcd123"
-        subscribe: true
-        notes: "Mandatory before DFU; all acknowledgements/receipts arrive here."
+      Documentary surface only. A dedicated updater must own control notifications,
+      the full command sequence, .dat/.bin bytes, receipts, CRC and recovery before
+      any write is attempted. No generic initialization, partial command or bare
+      framing is exposed. Update runs in the normal application, not a separately
+      identified DfuTarg mode. Only matching official 1.16 images belong here.
     characteristics:
       - uuid: "00001531-1212-efde-1523-785feabcd123"
         name: "DFU Control Point"
         properties: ["write", "notify"]
         role: "command"
-        commands:
-          begin_dfu:
-            description: "ADVANCED optional step 1: start application DFU (01 04)."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Begins a firmware update that can erase the staging area and leave the watch needing recovery. Use only a matching official image and a recoverable unit."
-            value: [0x01, 0x04]
-          init_packet_begin:
-            description: "ADVANCED optional step 3: expect the .dat init packet (02 00), after 10 01 01."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Changes DFU state; sending out of sequence can abort update or require recovery."
-            value: [0x02, 0x00]
-          init_packet_complete:
-            description: "ADVANCED optional step 4b: mark the .dat packet complete (02 01), after writing it and receiving 10 02 01."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Commits init metadata for a firmware update; only matching .bin/.dat images are valid."
-            value: [0x02, 0x01]
-          receipt_every_ten_segments:
-            description: "ADVANCED optional step 5: request receipt every ten 20-byte segments (08 0a)."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Alters DFU flow control; use only after successful init acknowledgement 10 02 01."
-            value: [0x08, 0x0a]
-          receive_firmware_image:
-            description: "ADVANCED optional step 6: enter image-data state (03)."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Starts the actual image transfer; wrong image/size can brick or require wired recovery."
-            value: [0x03]
-          validate_firmware_image:
-            description: "ADVANCED optional step 8: validate the received image (04) after 10 03 01."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Checks the staged image; a CRC mismatch must stop the flow, never be followed by activation."
-            value: [0x04]
-          activate_image_and_reset:
-            description: "ADVANCED optional step 9: activate a validated image and reboot (05), only after 10 04 01."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Activates new firmware and reboots. Validate on the watch afterward or the previous image may be restored."
-            value: [0x05]
+        notes: >
+          Control-point writes and notifications are deliberately not exposed as
+          generic commands. protocol_details.dfu documents the required sequence.
       - uuid: "00001532-1212-efde-1523-785feabcd123"
         name: "DFU Packet"
         properties: ["write_without_response"]
         role: "bulk"
-        framing: {max_chunk_size: 20}
-        commands:
-          application_image_size:
-            description: "ADVANCED optional step 2: three little-endian u32 sizes (SoftDevice, bootloader, application), the first two zero."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Declares the image length used by the transfer and receipt checks; wrong sizes make the update invalid."
-            template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{application_size}"]
-            parameters:
-              application_size: {type: "uint32", endianness: "little", min: 1, max: 475136, unit: "bytes"}
-          dfu_init_packet:
-            description: "ADVANCED optional step 4a: the matching .dat bytes."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Init metadata contains the expected image CRC and device compatibility data; do not synthesize it."
-            template: ["{init_packet}"]
-            parameters:
-              init_packet: {type: "bytes", min_length: 12, max_length: 255, description: "The exact .dat packet accompanying the selected official image."}
-          firmware_segment:
-            description: "ADVANCED optional step 7: one <=20-byte image segment, with receipt count checks."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Writes firmware into the update staging area; any lost segment must be detected by receipt count before continuing."
-            template: ["{segment}"]
-            parameters:
-              segment: {type: "bytes", min_length: 1, max_length: 20}
+        notes: >
+          Image/init bytes require a dedicated implementation. No bare framing or
+          byte-parameter command is declared; 20 bytes is the segment limit only.
       - uuid: "00001534-1212-efde-1523-785feabcd123"
         name: "DFU Revision"
         properties: ["read"]
@@ -498,7 +433,7 @@ features:
         interrupted: "unknown"
         notes: "After successful activation, validate firmware in watch settings or the previous image may be restored. Interrupted-transfer behavior needs a recoverable-unit test."
       verification: "reported"
-      notes: "Nine documented steps, 20-byte data segments, receipt counts and CRC validation. Never mix with MCUBoot recovery or an arbitrary image."
+      notes: "Nine documented steps, 20-byte data segments, receipt counts and CRC validation. No generic/partial updater is exposed; a dedicated implementation owns the whole flow. Never mix with MCUBoot recovery or an arbitrary image."
 
 entities:
   - platform: "sensor"
@@ -680,6 +615,24 @@ protocol_details:
       read_response: {hex: "11 01 00 00 00 00 00 00 09 00 00 00 04 00 00 00 62 6f 6f 74", decoded: "success, offset 0, total 9, chunk boot; remaining 5 bytes require read_continue"}
       list_final_response: {hex: "51 01 00 00 02 00 00 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00", decoded: "entry 2 == total 2, empty path terminates listing"}
   dfu:
+    implementation: "documentation_only"
+    required_handler: "One dedicated implementation must own control-point subscription, sequencing, image bytes, notifications, receipts, CRC failure and recovery before any write is attempted; no generic or partial updater is exposed."
+    control_writes:
+      begin_dfu: {hex: "01 04", advanced: true, optional: true}
+      init_packet_begin: {hex: "02 00", advanced: true, optional: true, prerequisite: "Wait 10 01 01 after image sizes."}
+      init_packet_complete:
+        hex: "02 01"
+        advanced: true
+        optional: true
+        description: "Write the matching .dat packet FIRST, then send 02 01, and only after sending it wait for 10 02 01."
+      receipt_every_ten_segments: {hex: "08 0a", advanced: true, optional: true, prerequisite: "Wait 10 02 01 after init_packet_complete."}
+      receive_firmware_image: {hex: "03", advanced: true, optional: true}
+      validate_firmware_image: {hex: "04", advanced: true, optional: true, prerequisite: "Wait 10 03 01 after complete image."}
+      activate_image_and_reset: {hex: "05", advanced: true, optional: true, prerequisite: "Require 10 04 01; never activate after CRC failure."}
+    packet_writes:
+      application_image_size: "Eight zero bytes for SoftDevice/bootloader sizes, then application size as u32 LE."
+      dfu_init_packet: "The exact .dat bytes supplied with the selected official image; never synthesize them."
+      firmware_segment: "At most 20 bytes per segment; every receipt count must equal the actual number of bytes sent."
     sequence:
       - "Control begin_dfu 01 04."
       - "Packet: SoftDevice u32 LE=0, bootloader u32 LE=0, application size u32 LE."

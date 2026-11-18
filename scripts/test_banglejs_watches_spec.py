@@ -88,10 +88,16 @@ def test_find_watch_vector_and_command(spec):
     frame = hx(vector["phone_frame_hex"])
     assert parse_gb_frame(frame) == {"t": "find", "n": True}
     assert encode_gb({"t": "find", "n": True}) == frame
-    command = spec["services"][0]["characteristics"][0]["commands"]["find_watch_start"]
-    assert bytes(command["value"]) == frame
+    command = spec["protocol_details"]["uart_commands"]["find_watch_start"]
+    assert hx(command["frame_hex"]) == frame
     assert command["locate"] == "both"
     assert command.get("advanced") is not True
+    assert spec["protocol_details"]["uart_commands"]["execution"] == "documentation_only"
+    for characteristic in spec["services"][0]["characteristics"]:
+        assert "commands" not in characteristic
+        assert "framing" not in characteristic
+    assert "entities" not in spec
+    assert spec["device"]["integration"] == "identify_only"
 
 
 def test_phone_fragmentation_at_every_split():
@@ -176,13 +182,12 @@ def test_privileged_surfaces_are_optional_advanced_and_separate(spec):
         assert entry["advanced_reason"]
     assert "HTTPS" in entries["http_relay"]["advanced_reason"]
     assert "insecure:false" in entries["http_relay"]["advanced_reason"]
-    command = spec["services"][0]["characteristics"][0]["commands"]["evaluate_javascript"]
+    command = spec["protocol_details"]["uart_commands"]["evaluate_javascript"]
     assert command["advanced"] is True
-    assert "optional" not in command
+    assert command["optional"] is True
     assert "OPTIONAL" in command["description"]
     assert command["advanced_reason"]
-    assert len(spec["entities"]) == 1
-    assert spec["entities"][0]["commands"] == {"press": "find_watch_start"}
+    assert "entities" not in spec
 
 
 def test_reset_clean_boot_and_unpair_are_distinct(spec):

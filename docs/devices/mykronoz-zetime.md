@@ -16,6 +16,11 @@ ZeTimeConnect's author reports discovery, serial/info and time sync working on
 one 2017-firmware watch. Notification/weather writes and raw history were not
 validated upstream, and this project has not driven a watch.
 
+**Integration is identify-only.** A dedicated session handler must perform the
+ordered 20-byte body writes, 20 ms pacing, the later `8002` commit and response
+reassembly. The commit byte is not an independent command, and no isolated GATT
+writes or bare framing declarations are exposed to generic consumers.
+
 ## Initial Setup and Pairing
 
 | Property | Value |

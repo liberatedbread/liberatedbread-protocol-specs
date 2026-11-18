@@ -33,6 +33,7 @@ device:
   category: "scale"
   category_hierarchy: ["measurement", "health", "body_composition"]
   type: "body-composition-scale"
+  integration: "supported"
   companion_apps:
     - name: "openScale"
       package: "com.health.openscale"
@@ -58,6 +59,14 @@ device:
     profile, not a medically validated measurement. Broadcast weight and impedance
     are visible to any compatible receiver in radio range; there is no pairing or
     encryption on that path.
+
+    Connected measurement deliberately has NO generic entity binding: a dedicated
+    handler must validate packet length, XOR, protocol version, target user and
+    nonzero weight before publishing. The independent configuration commands remain
+    a supported surface, so this is not identify-only. Advertised Mini/SE names are
+    candidates only: openScale PR1287 records connected variants that omit the final
+    checksum byte. Those units are OUT OF SCOPE until a sanitized checksum-less
+    vector and model mapping exist; XOR validation is never weakened on units with it.
   identification:
     local_name_prefixes:
       - "YUNMAI-SIGNAL"
@@ -205,16 +214,19 @@ device:
       Absence of pairing is not profile authorization: connected final frames still
       require the target user ID to match, and broadcast frames still require address echo.
   variants:
-    - model: "Mini (connected)"
+    - model: "Mini (connected, checksum-bearing only)"
       identification:
         local_name_prefix: "YUNMAI-SIGNAL"
       notes: >
-        Also accepts YUNMAI-ISM*, YUNMAI-ISC2P* and exact YUNMAI-Scale-3 through the
-        top-level matcher. Protocol <0x1e has 18-byte final; 0x1e/0x1f has 20-byte final.
-    - model: "SE (connected)"
+        Also accepts YUNMAI-ISM*, YUNMAI-ISC2P* and exact YUNMAI-Scale-3 as CANDIDATES
+        only. Measurement support is limited to units whose captured response passes
+        the documented XOR check; openScale PR1287's checksum-less variants are excluded
+        pending a sanitized vector/model mapping. Protocol <0x1e has 18-byte final;
+        0x1e/0x1f has 20-byte final.
+    - model: "SE (connected, checksum-bearing only)"
       identification:
         local_name_prefix: "YUNMAI-ISSE"
-      notes: "Same connected framing and version bounds; complete history/unit management is not claimed."
+      notes: "Same candidate-name and mandatory-XOR gate as Mini; complete history/unit management is not claimed. Checksum-less variants are unresolved and excluded."
     - model: "X YMBS-M268 (broadcast)"
       identification:
         service_uuids: ["00001320-0000-1000-8000-00805f9b34fb"]
@@ -281,27 +293,13 @@ services:
               activity_code: {type: "uint8", min: 0, max: 1, labels: ["ordinary", "heavy/extreme activity"]}
               checksum: {type: "uint8", auto: "xor_checksum", checksum_start: 1}
 
-entities:
-  - platform: "sensor"
-    name: "Weight"
-    variants: ["Mini (connected)", "SE (connected)"]
-    device_class: "weight"
-    unit: "kg"
-    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
-    state_mapping: {value: "weight"}
-    notes: "Final type-02 connected frames only, after version/length/checksum/user-ID validation."
-  - platform: "sensor"
-    name: "Impedance"
-    variants: ["Mini (connected)", "SE (connected)"]
-    unit: "ohm"
-    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
-    state_mapping: {value: "impedance"}
-    notes: "Raw resistance, not a clinical composition measurement. Broadcast variants need the dedicated passive renderer in protocol_details."
-
 protocol_details:
   connected_transport:
-    applies_to: ["Mini (connected)", "SE (connected)"]
+    applies_to: ["Mini (connected, checksum-bearing only)", "SE (connected, checksum-bearing only)"]
     verification: "reported"
+    generic_measurement_entities: false
+    handler_required: "A dedicated connected-measurement handler must complete all response checks before publishing weight/impedance. Configuration commands remain independently consumable; no generic measurement entity exists."
+    checksum_variant_gate: "Advertised Mini/SE names are only candidates. Accept measurement decoding only after a response with valid declared length and XOR. openScale PR1287 reports checksum-less connected variants; they are excluded until a sanitized vector and model mapping exist. Never bypass XOR on a checksum-bearing unit."
     request:
       layout: "0d | packet_size:u8 | command:u8 | payload | xor:u8"
       checksum: "XOR of bytes 1 through the byte before checksum, inclusive; packet_size is total request bytes."
@@ -396,6 +394,11 @@ evidence:
     No official model-specific manual/FCC record was established. No history download,
     medical validation, full profile/unit manager, firmware update flow or generic
     YUNMAI-name compatibility is claimed.
+  checksum_variants: >
+    openScale PR1287 (merged 2026-01-18) records connected models that do not append
+    the final checksum byte. It supplies no sanitized checksum-less vector/model map,
+    so those units remain outside this spec. Name prefixes are candidates only;
+    measurement claims require a response passing the same XOR validation used by tests.
   open_questions: >
     A real international X frame and connected Mini/SE session are needed, including
     0x1320 uniqueness, >=0x20 layouts, profile-ID resync and broadcast rearm timing.
@@ -417,8 +420,13 @@ remaining_unknowns:
   - "Meaning of broadcast session byte and precise live/stable rearm behavior across weigh-ins."
   - "How to dedup/passively identify broadcasts on hosts that hide the hardware address."
   - "Model-specific reset, stored-history clearing and unsupported regional/Wi-Fi variants."
+  - "openScale PR1287's checksum-less connected variants: no sanitized vector or model mapping exists, so they are excluded rather than accepted without XOR."
 
 helpful_urls:
+  - title: "openScale PR1287: connected checksum-less variant evidence"
+    url: "https://github.com/oliexdev/openScale/pull/1287"
+    kind: "implementation"
+    description: "Records connected variants that omit the final checksum byte; kept unresolved here because no sanitized checksum-less vector/model mapping is available."
   - title: "openScale local-first scale client"
     url: "https://github.com/oliexdev/openScale/tree/35a67c7eea706d0c0cbd6a48b98f7b352960d0a1"
     kind: "implementation"

@@ -34,6 +34,7 @@ device:
   transport: "ble-gatt"
   category: "wearable"
   type: "hybrid-smartwatch"
+  integration: "identify_only"
   notes: >
     A hybrid analog/digital watch controlled directly over BLE with no account,
     cloud key or application-layer encryption. Discovery is by a name such as
@@ -218,68 +219,17 @@ services:
         name: "Message body writes"
         properties: ["write_without_response"]
         role: "command"
-        framing:
-          max_chunk_size: 20
         notes: >
-          Every logical envelope is split into <=20-byte writes, followed by 03 on
-          8002. The schema has no ZeTime envelope scheme, so protocol_details carries
-          the exact builder/parser. No ATT write response is expected.
-        commands:
-          read_serial:
-            description: "Subject 02/type 70 with one zero payload byte; response is 12 ASCII bytes on 8002."
-            verification: "reported"
-            value: [0x6f, 0x02, 0x70, 0x01, 0x00, 0x00, 0x8f]
-          query_history_availability:
-            description: "Subject 52/type 70; response carries four u16 LE pending-record counts."
-            verification: "reported"
-            value: [0x6f, 0x52, 0x70, 0x01, 0x00, 0x00, 0x8f]
-          set_time:
-            description: "Subject 04/type 71 with a 12-byte local-time/timezone payload. Commit on 8002; does not calibrate analog hands."
-            verification: "reported"
-            template: [0x6f, 0x04, 0x71, 0x0c, 0x00, "{year}", "{month}", "{day}", "{hour}", "{minute}", "{second}", 0x00, 0x00, 0x01, "{timezone_hour}", "{timezone_minute}", 0x8f]
-            parameters:
-              year: {type: "uint16", endianness: "little", min: 2000, max: 2099}
-              month: {type: "uint8", min: 1, max: 12}
-              day: {type: "uint8", min: 1, max: 31}
-              hour: {type: "uint8", min: 0, max: 23, unit: "h"}
-              minute: {type: "uint8", min: 0, max: 59, unit: "min"}
-              second: {type: "uint8", min: 0, max: 59, unit: "s"}
-              timezone_hour:
-                type: "int8"
-                min: -12
-                max: 14
-                unit: "h"
-                description: "Signed whole hours of local offset from UTC, truncated toward zero."
-              timezone_minute:
-                type: "uint8"
-                min: 0
-                max: 59
-                unit: "min"
-                description: "Absolute minutes beyond the whole-hour offset; UTC-09:30 sends hour -9, minute 30. Fractional offsets are reasoned from the client, not hardware-verified."
-          read_activity_page:
-            description: "Read one activity record page (subject 54). Raw history was not collected upstream."
-            verification: "reported"
-            template: [0x6f, 0x54, 0x70, 0x02, 0x00, "{page}", 0x8f]
-            parameters:
-              page: {type: "uint16", endianness: "little", min: 0, max: 65535}
-          read_sleep_page:
-            description: "Read one sleep event page (subject 56). Raw history was not collected upstream."
-            verification: "reported"
-            template: [0x6f, 0x56, 0x70, 0x02, 0x00, "{page}", 0x8f]
-            parameters:
-              page: {type: "uint16", endianness: "little", min: 0, max: 65535}
-          read_heart_rate_page:
-            description: "Read one heart-rate record page (subject 61). Raw history was not collected upstream."
-            verification: "reported"
-            template: [0x6f, 0x61, 0x70, 0x02, 0x00, "{page}", 0x8f]
-            parameters:
-              page: {type: "uint16", endianness: "little", min: 0, max: 65535}
+          Documentation-only body channel. A dedicated session handler must perform
+          ordered <=20-byte writes, pacing, the later 8002 commit and reassembly.
+          No isolated command or bare framing is exposed.
       - uuid: "00008002-0000-1000-8000-00805f9b34fb"
         name: "Commit and response notifications"
         properties: ["write_without_response", "notify"]
         role: "notify"
         notes: >
-          Phone writes 03 to commit each body. Watch responses arrive fragmented here.
+          Phone writes 03 only after the final 8001 chunk of the same logical message;
+          it is not an independent command. Watch responses arrive fragmented here.
           Match response subject and type 80 to the request; ignore late/unrelated
           subjects instead of consuming them as the current response.
         format_match: {offset: 1, value: 0x02, notes: "Serial response only; other subjects use protocol_details layouts."}
@@ -289,11 +239,6 @@ services:
           - {offset: 2, length: 1, name: "type", type: "uint8", values: {128: "watch response"}}
           - {offset: 3, length: 2, name: "payload_length", type: "uint16", endianness: "little", unit: "bytes", notes: "12 for serial; reject inconsistent frame length."}
           - {offset: 5, length: 12, name: "serial", type: "string", notes: "ASCII, no terminator. Example vectors use an invented serial."}
-        commands:
-          commit_message:
-            description: "Commit the immediately preceding fragmented 8001 body. Required after every logical envelope."
-            verification: "reported"
-            value: [0x03]
       - uuid: "00008003-0000-1000-8000-00805f9b34fb"
         name: "Answers to watch-initiated requests"
         properties: ["write_without_response"]
@@ -330,6 +275,40 @@ features:
       notes: "Recorded to keep update access read-only and prevent unsupported OTA claims."
 
 protocol_details:
+  command_catalog:
+    execution: "documentation_only"
+    write_sequence:
+      - "Build the complete 6f envelope, then write it to 8001 in ordered chunks of at most 20 bytes with 20 ms between writes."
+      - "Only after the last 8001 chunk, write single byte 03 to 8002. The commit is sequenced, not an independent executable command."
+      - "Reassemble 8002 responses and 8004 watch requests in separate buffers, then match subject/type as described in envelope."
+    read_serial:
+      description: "Subject 02/type 70 with one zero payload byte; response is 12 ASCII bytes on 8002."
+      verification: "reported"
+      frame_hex: "6f 02 70 01 00 00 8f"
+    query_history_availability:
+      description: "Subject 52/type 70; response carries four u16 LE pending-record counts."
+      verification: "reported"
+      frame_hex: "6f 52 70 01 00 00 8f"
+    set_time:
+      description: "Subject 04/type 71 with a 12-byte local-time/timezone payload. Commit on 8002; does not calibrate analog hands."
+      verification: "reported"
+      template: "6f 04 71 0c 00 {year:u16le} {month:u8} {day:u8} {hour:u8} {minute:u8} {second:u8} 00 00 01 {timezone_hour:int8} {timezone_minute:u8} 8f"
+    read_activity_page:
+      description: "Read one activity record page (subject 54); raw history was not collected upstream."
+      verification: "reported"
+      template: "6f 54 70 02 00 {page:u16le} 8f"
+    read_sleep_page:
+      description: "Read one sleep event page (subject 56); raw history was not collected upstream."
+      verification: "reported"
+      template: "6f 56 70 02 00 {page:u16le} 8f"
+    read_heart_rate_page:
+      description: "Read one heart-rate record page (subject 61); raw history was not collected upstream."
+      verification: "reported"
+      template: "6f 61 70 02 00 {page:u16le} 8f"
+    commit_message:
+      description: "Single byte 03 on 8002 only after the final 8001 chunk of the same message."
+      verification: "reported"
+      value: [0x03]
   envelope:
     verification: "reported"
     layout:

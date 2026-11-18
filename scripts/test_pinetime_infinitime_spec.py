@@ -379,14 +379,17 @@ def test_dfu_sizes_segments_receipts_and_advanced_gates(spec):
             receipt = b"\x11" + struct.pack("<I", sent)
             assert struct.unpack_from("<I", receipt, 1)[0] == sent
     service = next(service for service in spec["services"] if service["uuid"] == "00001530-1212-efde-1523-785feabcd123")
-    control = service["characteristics"][0]
-    for command in control["commands"].values():
-        assert command["advanced"] is True
-        assert "optional" not in command
-        assert "optional" in command["description"].lower()
-        assert command["advanced_reason"]
-    packet = service["characteristics"][1]
-    assert packet["framing"]["max_chunk_size"] == 20
+    assert "initialization" not in service
+    for characteristic in service["characteristics"][:2]:
+        assert "commands" not in characteristic
+        assert "framing" not in characteristic
+    dfu = spec["protocol_details"]["dfu"]
+    assert dfu["implementation"] == "documentation_only"
+    completion = dfu["control_writes"]["init_packet_complete"]
+    assert completion["description"].index(".dat") < completion["description"].index("02 01") < completion["description"].index("10 02 01")
+    sequence = dfu["sequence"][3]
+    assert sequence.index(".dat") < sequence.index("init_packet_complete 02 01") < sequence.index("wait 10 02 01")
+    assert dfu["packet_writes"]["firmware_segment"].startswith("At most 20 bytes")
     assert spec["features"][0]["dfu"]["mechanisms"] == ["nordic_legacy_dfu"]
 
 

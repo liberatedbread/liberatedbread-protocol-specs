@@ -1,6 +1,6 @@
 # GAPS.md
 
-Last updated: 2026-11-17
+Last updated: 2026-11-18
 
 This file is a record of the ORIGINAL 27-target research wave and what
 became of it. It is not a live list of everything the catalogue is missing

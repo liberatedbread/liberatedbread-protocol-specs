@@ -36,6 +36,7 @@ device:
   transport: "ble-gatt"
   category: "wearable"
   type: "programmable-smartwatch"
+  integration: "identify_only"
   companion_apps:
     - name: "Bangle.js Gadgetbridge"
       package: "com.espruino.gadgetbridge.banglejs"
@@ -292,32 +293,11 @@ services:
         name: "UART RX (host writes to watch)"
         properties: ["write", "write_without_response"]
         role: "command"
-        framing:
-          max_chunk_size: 20
         notes: >
-          Safe default chunk size; a negotiated higher MTU may increase it but is not
-          required. Gadgetbridge messages begin 0x10 and end GB(<JSON>)\n. Raw
-          JavaScript has no GB wrapper and is a distinct advanced surface.
-        commands:
-          find_watch_start:
-            description: "Gadgetbridge find-device on: 0x10 + GB({\"t\":\"find\",\"n\":true}) + LF."
-            verification: "reported"
-            locate: "both"
-            value: [0x10, 0x47, 0x42, 0x28, 0x7b, 0x22, 0x74, 0x22, 0x3a, 0x22, 0x66, 0x69, 0x6e, 0x64, 0x22, 0x2c, 0x22, 0x6e, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d, 0x29, 0x0a]
-          find_watch_stop:
-            description: "Gadgetbridge find-device off: same envelope with n:false."
-            verification: "reported"
-            value: [0x10, 0x47, 0x42, 0x28, 0x7b, 0x22, 0x74, 0x22, 0x3a, 0x22, 0x66, 0x69, 0x6e, 0x64, 0x22, 0x2c, 0x22, 0x6e, 0x22, 0x3a, 0x66, 0x61, 0x6c, 0x73, 0x65, 0x7d, 0x29, 0x0a]
-          evaluate_javascript:
-            description: "OPTIONAL advanced REPL input: raw JavaScript line(s), NOT GB-wrapped. Requires Programmable and a deliberate code-execution choice."
-            verification: "reported"
-            advanced: true
-            advanced_reason: "Executes arbitrary code on the watch and can alter/delete apps, files, settings or startup behavior. Use only reviewed code and keep a Clean Boot/Factory Reset recovery path."
-            template: ["{javascript}"]
-            parameters:
-              javascript:
-                type: "string"
-                description: "Raw UTF-8 JavaScript, including the intended line terminator. Split only on UART chunk boundaries, never inside a GB message parser."
+          Documentation-only write channel. A dedicated multi-write handler must
+          serialize each complete message into ordered <=20-byte writes and reassemble
+          responses; bare framing cannot encode the 29/30-byte examples below.
+          protocol_details.uart_commands is not an executable command catalogue.
       - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
         name: "UART TX (watch notifies host)"
         properties: ["notify"]
@@ -326,14 +306,6 @@ services:
           Watch-to-host Gadgetbridge messages are JSON objects, one per line, with no
           0x10/GB wrapper. Android Integration sends status and ver after connect and
           on relevant changes. Non-JSON console text belongs to the REPL, not this parser.
-
-entities:
-  - platform: "button"
-    name: "Find Watch"
-    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
-    commands:
-      press: "find_watch_start"
-    notes: "Send find_watch_stop to end the alert. This is the only ordinary bound control; the JSON catalogue needs a dedicated stream renderer."
 
 features:
   - type: "firmware_update"
@@ -378,6 +350,29 @@ features:
       notes: "Custom App Loader path plus an official DFU alternative; exact mechanisms were not exercised."
 
 protocol_details:
+  uart_commands:
+    execution: "documentation_only"
+    write_sequence:
+      - "Build one complete GB/JSON message, then write its bytes in order in chunks of at most 20; never interleave another message between chunks."
+      - "Reassemble TX notifications independently by JSON/GB line boundary. A dedicated multi-write handler is required before any command is offered."
+      - "There is no ordinary Find Watch entity or executable characteristic command in this spec."
+    find_watch_start:
+      description: "Documented Gadgetbridge find-device on: 0x10 + GB({\"t\":\"find\",\"n\":true}) + LF; 29 bytes and therefore not one bare write."
+      verification: "reported"
+      locate: "both"
+      frame_hex: "10 47 42 28 7b 22 74 22 3a 22 66 69 6e 64 22 2c 22 6e 22 3a 74 72 75 65 7d 29 0a"
+    find_watch_stop:
+      description: "Documented Gadgetbridge find-device off; 30 bytes and also requires the ordered multi-write sequence above."
+      verification: "reported"
+      frame_hex: "10 47 42 28 7b 22 74 22 3a 22 66 69 6e 64 22 2c 22 6e 22 3a 66 61 6c 73 65 7d 29 0a"
+    evaluate_javascript:
+      description: "OPTIONAL advanced REPL input: raw JavaScript line(s), NOT GB-wrapped. Requires Programmable and a deliberate code-execution choice."
+      verification: "reported"
+      advanced: true
+      optional: true
+      advanced_reason: "Executes arbitrary code on the watch and can alter/delete apps, files, settings or startup behavior. Use only reviewed code and keep a Clean Boot/Factory Reset recovery path."
+      template: "{javascript}"
+      encoding: "Raw UTF-8 JavaScript including its intended line terminator; split only into the ordered UART chunks above."
   uart_roles:
     host_to_watch:
       characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"

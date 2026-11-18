@@ -219,9 +219,16 @@ def test_weather_signed_blocks_and_partial_semantics(spec):
 def test_gatt_commit_and_chunk_contract(spec):
     service = spec["services"][0]
     body = service["characteristics"][0]
-    assert body["framing"]["max_chunk_size"] == 20
     assert body["properties"] == ["write_without_response"]
+    assert "framing" not in body
+    assert "commands" not in body
     responses = service["characteristics"][1]
-    assert responses["commands"]["commit_message"]["value"] == [3]
+    assert "commands" not in responses
+    catalog = spec["protocol_details"]["command_catalog"]
+    assert catalog["execution"] == "documentation_only"
+    assert catalog["commit_message"]["value"] == [3]
+    assert "Only after the last 8001 chunk" in catalog["write_sequence"][1]
+    assert catalog["read_serial"]["frame_hex"] == "6f 02 70 01 00 00 8f"
+    assert spec["device"]["integration"] == "identify_only"
     assert service["characteristics"][2]["properties"] == ["write_without_response"]
     assert service["characteristics"][3]["properties"] == ["notify"]

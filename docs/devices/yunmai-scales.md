@@ -61,6 +61,15 @@ Response type `01` is live/unstable and ignored; `02` is final. Common final
 fields are timestamp `uint32 BE` at 5, target ID `uint32 BE` at 9, weight
 `uint16 BE` at 13 in 0.01 kg, and impedance `uint16 BE` at 15 in ohms.
 
+**No generic measurement entities are exposed.** A dedicated handler must pass
+packet length, XOR, protocol, target-user and nonzero-weight checks before
+publishing. The independent profile/time/version configuration commands remain
+a supported surface. [openScale PR1287](https://github.com/oliexdev/openScale/pull/1287)
+records connected variants that omit the checksum byte. Those variants are out
+of scope until a sanitized checksum-less vector and model mapping exist; names
+alone do not prove checksum support, and validation is never bypassed on units
+that do carry it.
+
 | Protocol | Exact final length | Boundary |
 |----------|--------------------|----------|
 | Below `1e` (`13` documented) | 18 bytes | No inline composition field |
