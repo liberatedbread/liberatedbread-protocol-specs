@@ -1,0 +1,900 @@
+{
+  "device": {
+    "category": "wearable",
+    "discovery": {
+      "identity": {
+        "display": "local_name",
+        "notes": "CoreBluetooth may expose only a per-host peripheral identifier.",
+        "stable_keys": [
+          "address"
+        ]
+      },
+      "methods": [
+        {
+          "ble": {
+            "local_name": {
+              "match": "prefix",
+              "value": "ZeTime#"
+            }
+          },
+          "notes": "Use active scanning and merge advertisement/scan-response names. If no name appears, close the other companion or disable its phone Bluetooth, wake the watch and scan again. Post-connect layout verification is mandatory because only one 2017 firmware generation is hardware-checked upstream.\n",
+          "type": "ble_scan",
+          "verification": "reported"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "host_compatibility": [
+      {
+        "basis": "ZeTimeConnect's author reports discovery, serial/info and time sync on one 2017-firmware ZeTime using Python/bleak on Windows 11. Other operations were not validated there and are not included in this verdict.\n",
+        "stack": "windows",
+        "status": "compatible",
+        "verification": "reported"
+      }
+    ],
+    "identification": {
+      "local_name_prefix": "ZeTime#",
+      "notes": "ZeTimeConnect reports names of this form. Its broader case-insensitive ZeTime/Kronoz heuristic is not used as a strong identity rule. Confirm the 6006/8001-8004 GATT layout and read the serial before any write. Do not use old numeric handles: value handles and declaration handles differ by one on some backends; UUIDs are canonical below.\n"
+    },
+    "integration": "identify_only",
+    "manufacturer": "MyKronoz",
+    "manufacturer_status": "unsupported",
+    "name": "MyKronoz ZeTime",
+    "notes": "A hybrid analog/digital watch controlled directly over BLE with no account, cloud key or application-layer encryption. Discovery is by a name such as ZeTime#12345 (digits are only an example). A watch already connected to another phone normally stops advertising, so disconnect that phone before scanning.\nThe command envelope is 6f | subject | type | payload_length:u16 LE | payload | 8f. Split bodies into writes of at most 20 bytes on characteristic 8001, then write 03 on 8002 to commit. Notifications on 8002 are responses; notifications on 8004 are independent watch-initiated requests. A notification is a fragment, not necessarily a complete frame, and the two streams must never share a reassembly buffer or response queue.\n",
+    "openness": {
+      "license": "MIT",
+      "notes": "ZeTime is covered, not ZeFit, ZeRound or other models in the vendor SDK. The vendor Android package is delisted; company/service status beyond that is not asserted. Core protocols come from public reverse engineering.\n",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/BretzelCoder/ZeTimeConnect",
+      "status": "undocumented",
+      "upstream_docs": [
+        {
+          "covers": "GATT envelope, subjects, serial/time/history/notification/weather/music layouts.",
+          "title": "Gadgetbridge ZeTime protocol analysis",
+          "url": "https://gadgetbridge.org/internals/specifics/zetime-protocol/"
+        }
+      ]
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "Connectable whenever awake and not already held by another central; no pairing window or PIN.",
+        "required": false
+      },
+      "exclusivity": {
+        "notes": "Gadgetbridge marks ZeTime pair-free. single_bond is false because no bond is created, not because multiple encrypted bonds are supported.\n",
+        "recovery": "Close the vendor app, Gadgetbridge or ZeTimeConnect and disable the old phone's Bluetooth if needed. For an initial install animation, Gadgetbridge reports a long middle-button press may reach calibration. Calibration itself can be entered by long-pressing upper+lower buttons until power-off, then the same combination through the logo until the screen turns black and releasing; this is unverified and not a reset.\n",
+        "single_bond": false,
+        "single_connection": true
+      },
+      "notes": "Medium confidence is based on Gadgetbridge's pair-free listing and the working unpaired open client. No project hardware run is claimed.\n",
+      "required": false,
+      "security_mode": "none",
+      "unpair": {
+        "notes": "There is no BLE bond to revoke; forget any convenience entry in the old app/OS and disconnect.",
+        "requires_factory_reset": false,
+        "supported": false
+      }
+    },
+    "protocol": "ble",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [],
+        "notes": "No Wi-Fi or application credential exists in the documented path. Radio proximity is the only access control for unpaired reads/writes; protect any exported history as health data.\n",
+        "stored_on_device": [
+          "Watch settings, analog calibration and activity/sleep/heart-rate history"
+        ],
+        "wifi_passphrase_protection": "not_applicable"
+      },
+      "factory_reset": {
+        "applicable": "unknown",
+        "confidence": "low",
+        "description": "Gadgetbridge describes initial modes and analog calibration, not a reliable full reset. The long upper+lower button sequence enters calibration mode; it is NOT asserted to erase settings, bonds or history and is not listed as a factory reset. No reset bytes are provided.\n",
+        "effect": "No full factory-reset procedure or exact data-clearing scope is established."
+      },
+      "methods": [
+        {
+          "ble": {
+            "pairing_required": false
+          },
+          "description": "Disconnect the previous phone, scan for ZeTime#..., verify all four characteristics, subscribe to 8002 and 8004, read serial/info, and only then write time. Notification and weather writes remain unverified upstream.\n",
+          "steps": [
+            {
+              "action": "Charge and wake the watch; disconnect the phone or IDE already holding it.",
+              "actor": "user",
+              "expect": "The watch advertises a ZeTime#... name."
+            },
+            {
+              "action": "Connect and discover service 00006006-0000-1000-8000-00805f9b34fb and characteristics 8001-8004.",
+              "actor": "client",
+              "expect": "All four UUIDs are present; use UUIDs rather than numeric handles."
+            },
+            {
+              "action": "Subscribe independently to response stream 8002 and spontaneous-request stream 8004.",
+              "actor": "client",
+              "expect": "Each notification is appended only to its own stream buffer."
+            },
+            {
+              "action": "Send read_serial and commit_message, then match a type-80 response with subject 02.",
+              "actor": "client",
+              "expect": "A 12-byte ASCII serial response on 8002."
+            },
+            {
+              "action": "For an unknown unit, stop after read-only checks until its firmware behavior is established.",
+              "actor": "client"
+            }
+          ],
+          "timing": {
+            "inter_chunk_delay_ms": 20,
+            "max_reassembly_bytes": 4096,
+            "notes": "ATT writes are without response, so ZeTimeConnect leaves 20 ms between chunks. The 4096-byte bound is a defensive implementation limit, not a vendor-advertised protocol maximum; an implausible declared length causes resynchronization rather than allocation.\n",
+            "response_timeout_ms": 5000
+          },
+          "troubleshooting": [
+            {
+              "causes": [
+                "Another phone is connected; ZeTime normally stops advertising while occupied.",
+                "The watch is asleep, or its name is in a scan response rather than the primary advertisement.",
+                "It is in an initial install/calibration mode rather than normal operation; see the model-guide cautions below."
+              ],
+              "symptom": "The watch is absent from scans."
+            },
+            {
+              "causes": [
+                "8002 and 8004 were merged. They are independent streams and require independent buffers/queues.",
+                "The commit byte 03 was not written to 8002 after the final 8001 body chunk."
+              ],
+              "symptom": "A response never arrives or a spontaneous music request is consumed as a reply."
+            },
+            {
+              "causes": [
+                "The old fixed suffix 00 00 01 01 00 hard-codes UTC+1. Compute signed timezone hours and absolute offset minutes instead."
+              ],
+              "symptom": "Time is one or more hours wrong after sync."
+            },
+            {
+              "causes": [
+                "Time sync does not calibrate the hands. The analog calibration exchange is not publicly mapped and is outside this spec."
+              ],
+              "symptom": "Digital time changed but the analog hands did not."
+            }
+          ],
+          "type": "ble_direct",
+          "verified": false
+        }
+      ],
+      "notes": "No provisioning or bond is needed for the covered protocol. Medium confidence follows a working open implementation and hardware-checked upstream flow; this project did not repeat it. Initial watch modes are less settled: see the calibration cautions in pairing.exclusivity.recovery and remaining_unknowns.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "Nothing binds a new client. Disconnect the previous phone, optionally forget its OS/app entry, and scan again. If the watch is stuck in its initial install animation, Gadgetbridge reports that a long middle-button press can reach calibration; this was not reproduced consistently and is not a reset.\n",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Disconnect or forget the old companion and wake the watch.",
+            "actor": "user"
+          },
+          {
+            "action": "Scan, verify the GATT layout and read serial/info from the new client.",
+            "actor": "client",
+            "expect": "The same 12-byte serial and expected history availability response."
+          }
+        ]
+      },
+      "required": false
+    },
+    "testing": {
+      "notes": "This project did not drive a watch. ZeTimeConnect's author reports service discovery, serial/info and time sync working on one 2017-firmware unit from Windows 11; those are upstream reports, not this project's verification.\n",
+      "status": "untested"
+    },
+    "transport": "ble-gatt",
+    "type": "hybrid-smartwatch",
+    "variants": [
+      {
+        "model": "ZeTime (2017 firmware evidence)",
+        "notes": "The only firmware generation hardware-checked by the open client. Gadgetbridge also documents newer weather-mapping behavior; all other generations require service discovery and read-only confirmation before writes.\n"
+      }
+    ]
+  },
+  "evidence": {
+    "app_static_analysis": "The archived vendor app 1.8.2 corroborates the model/app generation and presence of shared update constants. No vendor internal names or assets are reproduced and no DFU behavior is inferred from those constants.\n",
+    "artifacts": [
+      {
+        "artifact": "BretzelCoder/ZeTimeConnect at 22f34c8948e48200904a36bd19d414fdf6bbbd76",
+        "description": "Hardware-checked serial/info/time path and offline stream/time tests; notification/weather/history remain unvalidated.",
+        "type": "public_implementation",
+        "url": "https://github.com/BretzelCoder/ZeTimeConnect"
+      },
+      {
+        "artifact": "Gadgetbridge ZeTime protocol analysis and model page",
+        "description": "Public envelope and subject layouts, pair-free support and initial-mode/OTA boundaries.",
+        "type": "public_research",
+        "url": "https://gadgetbridge.org/internals/specifics/zetime-protocol/"
+      }
+    ],
+    "negative_findings": "No vendor manual/FCC filing was established. Notification/weather writes and raw history were not hardware-validated upstream. Battery, analog calibration and complete watch-request replies remain unimplemented because evidence is insufficient.\n",
+    "open_questions": "Second-firmware behavior, actual weather-day meaning, notification rendering, history pagination/timestamps/calorie units, response formats on 8003, and reset.\n",
+    "public_implementation": "ZeTimeConnect at 22f34c8948e48200904a36bd19d414fdf6bbbd76 supplies UUID-based discovery, 20-byte chunking, the 03 commit, 20 ms pacing, independent stream reassembly, subject matching and computed timezones. Its author reports 16/16 offline tests and hardware success only for discovery/info/time on one unit.\n",
+    "public_protocol_note": "Gadgetbridge's ZeTime protocol page supplies the envelope, subjects, serial/time, history, notification, weather and music layouts. Its model page supplies pair-free support, initial-mode/calibration cautions and the unsupported-OTA boundary.\n"
+  },
+  "features": [
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "Not established; do not probe candidate DFU services."
+        },
+        "enter": {
+          "how": "unknown",
+          "notes": "Nordic/Apollo constants in an archived shared app are not evidence of a safe ZeTime update path and are deliberately not exposed."
+        },
+        "image": {
+          "notes": "The archived app fetched OTA images online; no public image or model-safe update flow was established.",
+          "signing": "unknown",
+          "source": "vendor_cloud"
+        },
+        "mechanisms": [
+          "unknown"
+        ],
+        "notes": "Recorded to keep update access read-only and prevent unsupported OTA claims.",
+        "recovery": {
+          "interrupted": "unknown",
+          "notes": "Gadgetbridge does not support ZeTime firmware update; no recovery behavior is known."
+        },
+        "transport": "ble",
+        "verification": "reported"
+      },
+      "type": "firmware_update"
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Public envelope, subject and payload layouts used for this spec.",
+      "kind": "protocol_writeup",
+      "title": "Gadgetbridge ZeTime protocol analysis",
+      "url": "https://gadgetbridge.org/internals/specifics/zetime-protocol/"
+    },
+    {
+      "description": "Pair-free support, initial install/calibration modes and firmware-update limitation for ZeTime.",
+      "kind": "vendor_support",
+      "title": "Gadgetbridge ZeTime model and setup notes",
+      "url": "https://gadgetbridge.org/gadgets/wearables/mykronoz/"
+    },
+    {
+      "description": "MIT Python/bleak client; hardware-checked discovery/serial/time on one 2017-firmware watch, with 16 offline protocol tests.",
+      "kind": "implementation",
+      "title": "BretzelCoder/ZeTimeConnect",
+      "url": "https://github.com/BretzelCoder/ZeTimeConnect/tree/22f34c8948e48200904a36bd19d414fdf6bbbd76"
+    }
+  ],
+  "protocol_details": {
+    "command_catalog": {
+      "commit_message": {
+        "description": "Single byte 03 on 8002 only after the final 8001 chunk of the same message.",
+        "value": [
+          3
+        ],
+        "verification": "reported"
+      },
+      "execution": "documentation_only",
+      "query_history_availability": {
+        "description": "Subject 52/type 70; response carries four u16 LE pending-record counts.",
+        "frame_hex": "6f 52 70 01 00 00 8f",
+        "verification": "reported"
+      },
+      "read_activity_page": {
+        "description": "Read one activity record page (subject 54); raw history was not collected upstream.",
+        "template": "6f 54 70 02 00 {page:u16le} 8f",
+        "verification": "reported"
+      },
+      "read_heart_rate_page": {
+        "description": "Read one heart-rate record page (subject 61); raw history was not collected upstream.",
+        "template": "6f 61 70 02 00 {page:u16le} 8f",
+        "verification": "reported"
+      },
+      "read_serial": {
+        "description": "Subject 02/type 70 with one zero payload byte; response is 12 ASCII bytes on 8002.",
+        "frame_hex": "6f 02 70 01 00 00 8f",
+        "verification": "reported"
+      },
+      "read_sleep_page": {
+        "description": "Read one sleep event page (subject 56); raw history was not collected upstream.",
+        "template": "6f 56 70 02 00 {page:u16le} 8f",
+        "verification": "reported"
+      },
+      "set_time": {
+        "description": "Subject 04/type 71 with a 12-byte local-time/timezone payload. Commit on 8002; does not calibrate analog hands.",
+        "template": "6f 04 71 0c 00 {year:u16le} {month:u8} {day:u8} {hour:u8} {minute:u8} {second:u8} 00 00 01 {timezone_hour:int8} {timezone_minute:u8} 8f",
+        "verification": "reported"
+      },
+      "write_sequence": [
+        "Build the complete 6f envelope, then write it to 8001 in ordered chunks of at most 20 bytes with 20 ms between writes.",
+        "Only after the last 8001 chunk, write single byte 03 to 8002. The commit is sequenced, not an independent executable command.",
+        "Reassemble 8002 responses and 8004 watch requests in separate buffers, then match subject/type as described in envelope."
+      ]
+    },
+    "envelope": {
+      "commit": "After all <=20-byte body chunks on 8001, write single byte 03 on 8002.",
+      "layout": [
+        {
+          "length": 1,
+          "name": "preamble",
+          "offset": 0,
+          "value": 111
+        },
+        {
+          "length": 1,
+          "name": "subject",
+          "offset": 1
+        },
+        {
+          "length": 1,
+          "name": "type",
+          "offset": 2,
+          "values": {
+            "112": "read request",
+            "113": "phone write/notification",
+            "128": "watch response",
+            "129": "return code under subject 01"
+          }
+        },
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "payload_length",
+          "offset": 3,
+          "type": "uint16",
+          "unit": "bytes"
+        },
+        {
+          "length": "payload_length",
+          "name": "payload",
+          "offset": 5
+        },
+        {
+          "length": 1,
+          "name": "terminator",
+          "offset": "5 + payload_length",
+          "value": 143
+        }
+      ],
+      "receive": [
+        "Maintain independent bytearrays for 8002 responses and 8004 watch requests.",
+        "Discard bytes before the next 6f. Wait for five header bytes, then compute total = 6 + payload_length.",
+        "If total exceeds 4096, drop only the current 6f and rescan. If the terminator is not 8f, drop only the current 6f and rescan.",
+        "A complete valid frame may be followed immediately by another frame in the same notification. Preserve any trailing partial frame.",
+        "Match a response by expected subject and type 80; an unknown subject/type is surfaced as an unrelated frame, never as the awaited result."
+      ],
+      "return_codes": {
+        "0": "OK",
+        "1": "not OK (public note is uncertain)"
+      },
+      "total_length": "6 + payload_length",
+      "types": {
+        "phone_notification": 113,
+        "request": 112,
+        "return_code": 129,
+        "watch_response": 128
+      },
+      "verification": "reported"
+    },
+    "history": {
+      "activity": {
+        "fields": [
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "page",
+            "offset": 0,
+            "type": "uint16"
+          },
+          {
+            "endianness": "little",
+            "length": 4,
+            "name": "epoch",
+            "offset": 2,
+            "type": "uint32",
+            "unit": "s"
+          },
+          {
+            "endianness": "little",
+            "length": 4,
+            "name": "steps",
+            "offset": 6,
+            "type": "uint32"
+          },
+          {
+            "endianness": "little",
+            "length": 4,
+            "name": "calories",
+            "notes": "Unit not established; do not label kcal.",
+            "offset": 10,
+            "type": "uint32"
+          },
+          {
+            "endianness": "little",
+            "length": 4,
+            "name": "distance",
+            "offset": 14,
+            "type": "uint32",
+            "unit": "m"
+          },
+          {
+            "endianness": "little",
+            "length": 4,
+            "name": "active_minutes",
+            "offset": 18,
+            "type": "uint32",
+            "unit": "min"
+          }
+        ],
+        "record_length": 22,
+        "subject": 84
+      },
+      "availability": {
+        "response_fields": [
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "activity_count",
+            "offset": 0,
+            "type": "uint16"
+          },
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "sleep_count",
+            "offset": 2,
+            "type": "uint16"
+          },
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "heart_rate_count",
+            "offset": 4,
+            "type": "uint16"
+          },
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "other_count",
+            "notes": "Meaning not established.",
+            "offset": 6,
+            "type": "uint16"
+          }
+        ],
+        "subject": 82
+      },
+      "heart_rate": {
+        "fields": [
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "page",
+            "offset": 0,
+            "type": "uint16"
+          },
+          {
+            "endianness": "little",
+            "length": 4,
+            "name": "epoch",
+            "offset": 2,
+            "type": "uint32",
+            "unit": "s"
+          },
+          {
+            "length": 1,
+            "name": "heart_rate",
+            "offset": 6,
+            "type": "uint8",
+            "unit": "bpm"
+          }
+        ],
+        "record_length": 7,
+        "subject": 97
+      },
+      "sleep": {
+        "fields": [
+          {
+            "endianness": "little",
+            "length": 2,
+            "name": "page",
+            "offset": 0,
+            "type": "uint16"
+          },
+          {
+            "endianness": "little",
+            "length": 4,
+            "name": "epoch",
+            "offset": 2,
+            "type": "uint32",
+            "unit": "s"
+          },
+          {
+            "length": 1,
+            "name": "sleep_type",
+            "offset": 6,
+            "type": "uint8",
+            "values": {
+              "0": "deep",
+              "1": "light",
+              "16": "begin",
+              "17": "end",
+              "2": "awake",
+              "3": "awake beginning"
+            }
+          }
+        ],
+        "record_length": 7,
+        "subject": 86
+      },
+      "support_boundary": "Layouts are from Gadgetbridge's public protocol note. No activity, sleep or heart-rate history was downloaded by this research, and ZeTimeConnect leaves these raw. Do not claim complete history sync, deletion, or duplicate handling.\n"
+    },
+    "initial_modes": {
+      "notes": "Gadgetbridge describes barcode/serial, install-animation, calibration and normal modes. Only normal mode exposes the complete support surface. A long middle-button press may skip the install animation; upper+lower-button calibration sequences are not factory resets and were not consistently reproduced upstream.\n"
+    },
+    "music": {
+      "notifications": {
+        "0": "play",
+        "1": "pause",
+        "2": "previous",
+        "3": "next",
+        "4": "set volume to following byte"
+      },
+      "replies": {
+        "simple_status": "status byte (00 playing / 01 paused) + UTF-8 title",
+        "volume_status": "02 + current volume byte"
+      },
+      "requests": {
+        "0": "return simple status"
+      },
+      "stream_role": "Requests may arrive spontaneously on 8004; answers belong on 8003 and their full formats are not all known.",
+      "subject": 208
+    },
+    "notification": {
+      "call_boundary": "Type 06 ends an incoming-call alert; failing to send it can leave the watch ringing.",
+      "limits": "Truncate each UTF-8 title/body to at most 255 bytes without splitting a code point; count bytes, not characters.",
+      "payload": [
+        {
+          "length": 1,
+          "name": "notification_type",
+          "values": {
+            "0": "missed call",
+            "1": "SMS",
+            "10": "WhatsApp",
+            "12": "Facebook",
+            "13": "Hangouts",
+            "14": "Gmail",
+            "15": "Messenger",
+            "16": "Instagram",
+            "3": "email",
+            "5": "incoming call",
+            "6": "end incoming call",
+            "8": "Viber",
+            "9": "Snapchat"
+          }
+        },
+        {
+          "length": 1,
+          "max": 255,
+          "min": 0,
+          "name": "count_same_type",
+          "type": "uint8"
+        },
+        {
+          "length": 1,
+          "name": "title_utf8_length",
+          "type": "uint8",
+          "unit": "bytes"
+        },
+        {
+          "length": 1,
+          "name": "body_utf8_length",
+          "type": "uint8",
+          "unit": "bytes"
+        },
+        {
+          "encoding": "utf-8",
+          "length": "title_utf8_length",
+          "name": "title"
+        },
+        {
+          "encoding": "utf-8",
+          "length": "body_utf8_length",
+          "name": "body"
+        },
+        {
+          "encoding": "ascii",
+          "format": "YYYYMMDDTHHMMSS",
+          "length": 15,
+          "name": "timestamp"
+        }
+      ],
+      "subject": 118,
+      "support_boundary": "Payload write was NOT validated by ZeTimeConnect and is not exposed as a generic command/entity. It is an implementable candidate requiring an owner-approved test.",
+      "test_vector": {
+        "body": "abc",
+        "payload_hex": "01 01 02 03 48 69 61 62 63 32 30 32 36 31 31 31 37 54 31 32 33 34 35 36",
+        "timestamp": "20261117T123456",
+        "title": "Hi"
+      },
+      "verification": "reported"
+    },
+    "out_of_scope": [
+      "Battery read, analog-hand calibration, user profile/goals and full watch-request response formats.",
+      "Firmware update commands and DFU UUID probing.",
+      "ZeFit, ZeRound and other vendor models; other ZeTime firmware without read-only confirmation.",
+      "Complete history sync/deletion and multi-day weather semantics."
+    ],
+    "serial": {
+      "response": "12 ASCII bytes; no terminator. The public hardware regression uses only replaced digits.",
+      "subject": 2,
+      "test_vector": {
+        "frame_hex": "6f 02 80 0c 00 30 30 30 30 30 30 30 30 30 30 30 30 8f",
+        "serial": "000000000000"
+      }
+    },
+    "time_sync": {
+      "analog_hands": "Not calibrated by this command; their separate calibration exchange is unknown.",
+      "fields": [
+        {
+          "endianness": "little",
+          "length": 2,
+          "name": "year",
+          "offset": 0,
+          "type": "uint16"
+        },
+        {
+          "length": 1,
+          "name": "month",
+          "offset": 2,
+          "type": "uint8"
+        },
+        {
+          "length": 1,
+          "name": "day",
+          "offset": 3,
+          "type": "uint8"
+        },
+        {
+          "length": 1,
+          "name": "hour",
+          "offset": 4,
+          "type": "uint8",
+          "unit": "h"
+        },
+        {
+          "length": 1,
+          "name": "minute",
+          "offset": 5,
+          "type": "uint8",
+          "unit": "min"
+        },
+        {
+          "length": 1,
+          "name": "second",
+          "offset": 6,
+          "type": "uint8",
+          "unit": "s"
+        },
+        {
+          "length": 1,
+          "name": "format_24h",
+          "offset": 7,
+          "type": "uint8",
+          "values": {
+            "0": "24-hour format used by the open client"
+          }
+        },
+        {
+          "length": 1,
+          "name": "set_time_after_calibration",
+          "offset": 8,
+          "type": "uint8",
+          "values": {
+            "0": "value used by the open client"
+          }
+        },
+        {
+          "length": 1,
+          "name": "unit",
+          "offset": 9,
+          "type": "uint8",
+          "values": {
+            "1": "value used by the open client"
+          }
+        },
+        {
+          "length": 1,
+          "name": "timezone_hour",
+          "offset": 10,
+          "type": "int8",
+          "unit": "h"
+        },
+        {
+          "length": 1,
+          "name": "timezone_minute",
+          "notes": "Absolute minute remainder, including for negative offsets.",
+          "offset": 11,
+          "type": "uint8",
+          "unit": "min"
+        }
+      ],
+      "old_suffix_warning": "The public prose constant 00 00 01 01 00 encodes UTC+1 and is not valid globally.",
+      "payload_length": 12,
+      "subject": 4,
+      "test_vectors": [
+        {
+          "local_time": "2026-11-17 12:34:56, UTC+05:30 (invented)",
+          "payload_hex": "ea 07 0b 11 0c 22 38 00 00 01 05 1e"
+        },
+        {
+          "local_time": "2026-01-06 12:00:00, UTC-09:30 (invented)",
+          "payload_hex": "ea 07 01 06 0c 00 00 00 00 01 f7 1e"
+        }
+      ],
+      "timezone_rule": "total_minutes = local UTC offset in minutes; hour = trunc(total_minutes / 60) toward zero; minute = abs(total_minutes) % 60."
+    },
+    "weather": {
+      "day_block": [
+        {
+          "length": 1,
+          "name": "unit",
+          "offset": 0,
+          "values": {
+            "0": "Celsius"
+          }
+        },
+        {
+          "length": 1,
+          "name": "current_temperature",
+          "offset": 1,
+          "type": "int8",
+          "unit": "C"
+        },
+        {
+          "length": 1,
+          "name": "minimum_temperature",
+          "offset": 2,
+          "type": "int8",
+          "unit": "C"
+        },
+        {
+          "length": 1,
+          "name": "maximum_temperature",
+          "offset": 3,
+          "type": "int8",
+          "unit": "C"
+        },
+        {
+          "length": 1,
+          "name": "icon",
+          "offset": 4,
+          "values": {
+            "1": "cloudy",
+            "4": "rainy",
+            "6": "stormy"
+          }
+        }
+      ],
+      "envelope": "Four consecutive 5-byte day blocks followed by unterminated UTF-8 location bytes.",
+      "subject": 119,
+      "support_boundary": "Weather writes were NOT validated by ZeTimeConnect. The public envelope has current plus three daily blocks, but exact J+1/J+2/J+3 semantics are unresolved. The open client's repeated-one-forecast workaround is not declared correct and is intentionally omitted. Current-day write requires owner validation; multi-day forecasting is not implementable from this document alone.\n",
+      "test_vector": "A synthetic single block 00 12 05 15 01 means 18 C, min 5 C, max 21 C, cloudy; this tests widths only, not forecast correctness.",
+      "verification": "reported"
+    }
+  },
+  "remaining_unknowns": [
+    "Behavior on firmware other than the one 2017 unit hardware-checked upstream.",
+    "Notification rendering and exact multi-day weather semantics; neither write was validated by the open client.",
+    "History pagination, duplicate handling, calorie units, epoch timezone and complete availability semantics.",
+    "Analog-hand calibration, battery read, user profiles/goals and all 8003 response formats.",
+    "A factory-reset procedure and exactly what it clears.",
+    "Model-safe firmware image/update/recovery behavior."
+  ],
+  "services": [
+    {
+      "characteristics": [
+        {
+          "name": "Message body writes",
+          "notes": "Documentation-only body channel. A dedicated session handler must perform ordered <=20-byte writes, pacing, the later 8002 commit and reassembly. No isolated command or bare framing is exposed.\n",
+          "properties": [
+            "write_without_response"
+          ],
+          "role": "command",
+          "uuid": "00008001-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "format": [
+            {
+              "length": 1,
+              "name": "preamble",
+              "notes": "0x6f.",
+              "offset": 0,
+              "type": "uint8"
+            },
+            {
+              "length": 1,
+              "name": "subject",
+              "offset": 1,
+              "type": "uint8",
+              "values": {
+                "2": "serial"
+              }
+            },
+            {
+              "length": 1,
+              "name": "type",
+              "offset": 2,
+              "type": "uint8",
+              "values": {
+                "128": "watch response"
+              }
+            },
+            {
+              "endianness": "little",
+              "length": 2,
+              "name": "payload_length",
+              "notes": "12 for serial; reject inconsistent frame length.",
+              "offset": 3,
+              "type": "uint16",
+              "unit": "bytes"
+            },
+            {
+              "length": 12,
+              "name": "serial",
+              "notes": "ASCII, no terminator. Example vectors use an invented serial.",
+              "offset": 5,
+              "type": "string"
+            }
+          ],
+          "format_match": {
+            "notes": "Serial response only; other subjects use protocol_details layouts.",
+            "offset": 1,
+            "value": 2
+          },
+          "name": "Commit and response notifications",
+          "notes": "Phone writes 03 only after the final 8001 chunk of the same logical message; it is not an independent command. Watch responses arrive fragmented here. Match response subject and type 80 to the request; ignore late/unrelated subjects instead of consuming them as the current response.\n",
+          "properties": [
+            "write_without_response",
+            "notify"
+          ],
+          "role": "notify",
+          "uuid": "00008002-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Answers to watch-initiated requests",
+          "notes": "Phone answers 8004 requests here. Response formats are not sufficiently known; no writes or commands are declared. Do not reuse 8001 for this role.\n",
+          "properties": [
+            "write_without_response"
+          ],
+          "role": "command",
+          "uuid": "00008003-0000-1000-8000-00805f9b34fb"
+        },
+        {
+          "name": "Spontaneous watch requests",
+          "notes": "Music/find-phone/call actions initiated by the watch. Keep this stream separate from 8002 and read protocol_details.music before responding on 8003.\n",
+          "properties": [
+            "notify"
+          ],
+          "role": "notify",
+          "uuid": "00008004-0000-1000-8000-00805f9b34fb"
+        }
+      ],
+      "initialization": [
+        {
+          "characteristic": "00008002-0000-1000-8000-00805f9b34fb",
+          "notes": "Response stream; reassemble frames independently of 8004.",
+          "subscribe": true
+        },
+        {
+          "characteristic": "00008004-0000-1000-8000-00805f9b34fb",
+          "notes": "Spontaneous watch requests; never consume as command responses.",
+          "subscribe": true
+        }
+      ],
+      "name": "ZeTime command service",
+      "uuid": "00006006-0000-1000-8000-00805f9b34fb"
+    }
+  ]
+}
