@@ -79,6 +79,14 @@ Notes that matter in practice:
   which bonds with a fixed passkey of `123456` during the first five minutes after
   power-on and always encrypts the link.
 
+### FIXD is outside this executable profile
+
+FIXD transport identities live only in the repository's
+`research-notes/fixd-obd-adapter.md` identity-only research note. No FIXD
+profile resolves to this spec's setup, reset, FFF2 commands, capabilities or
+ELM327 diagnostic requests. Those generic behaviors must not be inferred from
+the shared FFF0/FFF1/FFF2 transport or legacy SPP identity.
+
 ### Application layer: the ELM327 command set
 
 Two request kinds share one channel, distinguished by prefix:

@@ -43,6 +43,13 @@ newer BLE service UUIDs were recovered from the official APK
 | Passphrase protection | plaintext (WiFi credentials sent cleartext over unencrypted BLE) |
 | Confidence | medium (published source; not exercised against hardware here) |
 
+Nordic UART is not identity. Use the documented `FlowConnect <name>` or the
+production `49550001` service, never bare NUS. Manually select the exact bridge,
+then inspect its name and GATT table read-only before sync, configuration or
+group commands. The open command set has no safe identification query, so do
+not use sync as a probe. A Ninebot Z or other bare-NUS peripheral must not
+activate this spec.
+
 **Grouping props**: from off, hold the prop button ~10 seconds until the
 LEDs flash or turn white. Every prop needs a group, even a single one.
 There are 5 fixed "public" groups (IDs 1–5) plus private groups with other

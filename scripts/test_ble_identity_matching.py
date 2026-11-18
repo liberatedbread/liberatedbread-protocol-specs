@@ -159,6 +159,117 @@ def test_obd_hm10_uart_is_post_connect_routing_not_identity():
     assert matches(spec, "OBDII", [ffe0])
 
 
+def test_ninebot_z_nus_fingerprint_never_activates_scooter_spec():
+    nus = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    scooter = specs()["ninebot-segway-ble"]
+    assert "service_uuids" not in scooter["device"]["identification"]
+    assert "methods" not in scooter["device"]["discovery"]
+    assert "manual selection" in scooter["device"]["discovery"]["none"].lower()
+    assert not matches(scooter, "", [nus])
+    assert not matches(scooter, "Ninebot Z", [nus])
+
+    wheel = specs()["euc-wheellog-ble"]
+    transport = wheel["protocol_details"]["euc_frame_formats"]["ninebot_z"][
+        "transport"
+    ]
+    assert transport["verification"] == "reported"
+    assert transport["service_uuid"] == nus
+    assert transport["write_characteristic_uuid"] == (
+        "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    )
+    assert transport["notify_characteristic_uuid"] == (
+        "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    )
+    assert transport["advertisement_identity"] is False
+    assert "service_uuids" not in wheel["device"]["identification"]
+    assert "methods" not in wheel["device"]["discovery"]
+    assert not matches(wheel, "Ninebot Z", [nus])
+
+
+NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+
+
+def test_nus_is_never_an_identity_signal():
+    offenders = []
+    paths = list((ROOT / "device-specs" / "devices").glob("*.yaml"))
+    paths += list((ROOT / "device-specs" / "examples").glob("*.yaml"))
+    for path in paths:
+        device = load(path)["device"]
+        identities = [device.get("identification") or {}]
+        identities += [
+            variant.get("identification") or {}
+            for variant in device.get("variants") or []
+        ]
+        if any(NUS in (identity.get("service_uuids") or []) for identity in identities):
+            offenders.append(f"{path.stem}: identification")
+        for index, method in enumerate(device.get("discovery", {}).get("methods") or []):
+            if method.get("type") != "ble_scan":
+                continue
+            if NUS in ((method.get("ble") or {}).get("service_uuids") or []):
+                offenders.append(f"{path.stem}: discovery.methods[{index}]")
+    assert not offenders, (
+        "Nordic UART is shared with the Ninebot Z and many incompatible "
+        "protocols. Keep it in services as transport only; require manual "
+        "selection or a discriminating name plus read-only confirmation: "
+        + ", ".join(offenders)
+    )
+
+
+def test_ninebot_z_nus_observation_activates_no_incompatible_spec():
+    for advertised_name in ("Ninebot Z", "Ninebot Z10", ""):
+        activated = [
+            stem
+            for stem, spec in specs().items()
+            if matches(spec, advertised_name, [NUS])
+        ]
+        assert activated == [], (
+            f"Z observation {advertised_name!r} plus NUS activated: {activated}"
+        )
+
+
+def test_fixd_profiles_cannot_resolve_to_generic_obd_control_surface():
+    expected_profiles = {
+        "FIXD2",
+        "SETOSMART",
+        "VIECAR",
+        "VIECAR_V2",
+        "APPRAISAL_PRO",
+        "VIECAR_AUTHENTICATED",
+        "OLD_KICKSTARTER",
+    }
+    note = (ROOT / "research-notes" / "fixd-obd-adapter.md").read_text(
+        encoding="utf-8"
+    )
+    assert "IDENTIFICATION-ONLY RESEARCH" in note
+    for profile_id in expected_profiles:
+        assert profile_id in note
+
+    # No executable spec may resolve a FIXD profile. Consequently none can
+    # inherit generic ATI setup, ATZ/ATD reset, FFF2 commands or OBD requests.
+    for profile_id in expected_profiles:
+        surfaces = []
+        for stem, spec in specs().items():
+            details = spec.get("protocol_details") or {}
+            fixd = details.get("fixd_profiles") or {}
+            if profile_id in (fixd.get("profiles") or {}):
+                surfaces.append(stem)
+        assert surfaces == []
+
+    obd_path = ROOT / "device-specs" / "devices" / "obd2-bluetooth-adapter.yaml"
+    assert "FIXD" not in obd_path.read_text(encoding="utf-8")
+    generic = specs()["obd2-bluetooth-adapter"]
+    for name in ("FIXD", "FIXD2", "Appraisal PRO", "Auto Assist"):
+        assert not matches(generic, name, [])
+        assert not matches(generic, name, [FFF0])
+
+    # Removing FIXD does not remove the existing generic family's own surface.
+    fff2 = generic["services"][0]["characteristics"][1]
+    assert fff2["uuid"] == "0000fff2-0000-1000-8000-00805f9b34fb"
+    assert {"reset", "identify"} <= set(fff2["commands"])
+    assert generic["device"]["setup"]["methods"]
+    assert generic["obd"]["requests"]
+
+
 def test_thermopro_uses_the_scan_configs_exact_names():
     spec = specs()["thermopro-tempspike-bbq"]
     identity = spec["device"]["identification"]
