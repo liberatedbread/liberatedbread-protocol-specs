@@ -1,0 +1,595 @@
+# Blackmagic Bluetooth cinema-camera control — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: Blackmagic Camera Control developer manual (August 2025), the
+# Pocket Cinema Camera manual (March 2025), and two pinned public clients.
+# No camera, capture, PIN or bond was accessed.
+
+device:
+  name: "Blackmagic Cinema Cameras with Bluetooth"
+  manufacturer: "Blackmagic Design"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against a camera by this project. The GATT table, pairing
+      flow, framing, data types and examples come from Blackmagic's public
+      August 2025 developer manual. The pinned coral clients cross-check the
+      serializer and discovery filter; they are not hardware verification.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "camera"
+  type: "cinema-camera"
+  notes: >
+    Direct BLE remote control for Blackmagic bodies that document Bluetooth.
+    The current Pocket Cinema Camera 4K, 6K G2 and 6K Pro advertise this
+    capability; do not infer it on another body merely because the shared SDI
+    Camera Control protocol lists its parameters. BLE carries control and
+    status, not preview video, recording media or firmware images.
+
+    Read Camera Model and Protocol Version before enabling a command. The
+    Camera 4.9-era gain parameter (group 1, parameter 1), later signed-dB
+    gain (parameter 13), and ISO (parameter 14) are different surfaces, not
+    aliases to try blindly. A lens or media parameter also requires the
+    corresponding hardware and current camera mode.
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://documents.blackmagicdesign.com/DeveloperManuals/BlackmagicCameraControl.pdf?_v=1539929000000"
+        title: "Blackmagic Camera Control developer manual"
+        covers: "SDI Camera Control 1.6.2 framing and parameter tables, BLE GATT, bonding, power/status, timecode and protocol version."
+      - url: "https://documents.blackmagicdesign.com/UserManuals/BlackmagicPocketCinemaCameraManual.pdf"
+        title: "Pocket Cinema Camera installation and operation manual"
+        covers: "Which current Pocket bodies expose Bluetooth and the camera-side menus."
+    notes: >
+      Blackmagic publishes the wire protocol. The public coral serializer and
+      Rust client are corroboration only; no vendor app internals were used.
+
+  identification:
+    service_uuids:
+      - "291d567a-6d75-11e6-8b77-86f30ca893d3"
+    notes: >
+      Scan for the vendor service, then read the model characteristic. Camera
+      names are owner/model dependent and are not a stable family matcher.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "291d567a-6d75-11e6-8b77-86f30ca893d3"
+        notes: >
+          The service filter is the discovery fact. Confirm a Bluetooth-capable
+          model with Device Information before presenting controls.
+    identity:
+      stable_keys: ["address", "local_name"]
+      display: "local_name"
+      notes: "Bond identity belongs to the host/camera pair; do not persist a scanned address as proof of model."
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No Wi-Fi or cloud provisioning exists. Pairing is a separate recurring
+      requirement: an encrypted-control client must complete the camera's
+      six-digit bonding flow before use.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Discover the vendor service, connect, subscribe, and initiate bonding
+          with an encrypted-characteristic write. The camera supplies a fresh
+          six-digit PIN in its Bluetooth Setup menu.
+        ble:
+          service_uuid: "291d567a-6d75-11e6-8b77-86f30ca893d3"
+          write_characteristic: "5dd3465f-1aee-4299-8493-d2eca2f8e1bb"
+          read_characteristic: "b864e140-76a0-416a-bf30-5876504537d9"
+          pairing_required: true
+          pin_source: "device_screen"
+        steps:
+          - action: "Power the camera and leave its Bluetooth Setup menu reachable."
+            actor: "user"
+          - action: "Scan for the vendor service and connect to the intended camera."
+            actor: "client"
+          - action: "Read Camera Model and Protocol Version; stop if the body is not one the client supports."
+            actor: "client"
+          - action: "Subscribe to Incoming Camera Control, Camera Status and Timecode before sending commands."
+            actor: "client"
+          - action: "Write Camera Power On (01) to Camera Status, or another safe encrypted write, to initiate bonding."
+            actor: "client"
+          - action: "Read the six-digit PIN shown in the camera's Bluetooth Setup menu and enter it in the host prompt."
+            actor: "user"
+            expect: "The host stores a bond and encrypted reads, writes and notifications become usable."
+          - action: "Wait for Camera Status versions-verified and initial-payload flags before treating the parameter cache as ready."
+            actor: "client"
+            expect: "Camera Ready (0x20) is set, or a bounded wait fails visibly."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. The developer protocol does not define a reset or
+        unpair operation, and no evidence here says which bonds, names or
+        camera settings a camera-menu reset would clear.
+      description: >
+        Do not substitute a camera settings reset for a documented Bluetooth
+        reset. The Bluetooth Setup menu and the host's own bond list are the
+        first places to inspect when moving a second-hand camera.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no network membership. A replacement central discovers the
+        service and bonds again; an old central merely needs its stored bond.
+      steps:
+        - action: "Close other camera-control clients, rediscover the vendor service, and repeat the six-digit bond flow if this host has no valid bond."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Bluetooth bond material and the client-facing camera name"
+        - "Camera settings and any parameter state sent over CCU"
+      issued_to_client:
+        - "The host/camera bond created by the OS Bluetooth stack"
+      notes: >
+        The six-digit PIN is displayed for the current pairing attempt and is
+        not a reusable credential to record. Never log the PIN or bond keys.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "passkey_entry"
+    bonding: "required"
+    pin:
+      source: "device_screen"
+      length: 6
+      notes: "Shown in the camera's Bluetooth Setup menu when an encrypted write initiates bonding."
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close other control apps. If a previously paired host cannot use an
+        encrypted characteristic, forget only that stale host/camera bond and
+        pair again rather than resetting camera settings.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No separate pairing-button procedure is documented. Connect and write
+        an encrypted characteristic; the camera then displays the PIN.
+    unpair:
+      supported: "unknown"
+      notes: "The public protocol defines no camera-side unpair command or menu procedure."
+    notes: >
+      Device Information and Device Name are not stated to be encrypted;
+      Outgoing/Incoming Camera Control, Timecode and Camera Status require the
+      bond. Seeing the GATT table without using those characteristics is not a
+      successful control session.
+
+  variants:
+    - model: "Pocket Cinema Camera 4K"
+      notes: "Current vendor product page explicitly advertises Bluetooth remote control; feature availability still depends on firmware and attached lens."
+    - model: "Pocket Cinema Camera 6K G2"
+      notes: "Current vendor product page explicitly advertises Bluetooth remote control; feature availability still depends on firmware and attached lens."
+    - model: "Pocket Cinema Camera 6K Pro"
+      notes: "Current vendor product page explicitly advertises Bluetooth remote control; feature availability still depends on firmware and attached lens."
+    - model: "Other Blackmagic body with documented Bluetooth"
+      notes: "Admit only after its own manual and the runtime model/version reads establish support; the shared SDI table alone proves nothing about BLE."
+
+protocol_handler: "blackmagic_ccu_aligned"
+
+initialization:
+  - characteristic: "b864e140-76a0-416a-bf30-5876504537d9"
+    subscribe: true
+    notes: "Subscribe before the first Outgoing Camera Control write."
+  - characteristic: "7fe8691d-95dc-4fc5-8abd-ca74339b51b9"
+    subscribe: true
+    notes: "Status flags also report pairing and initial-cache progress."
+  - characteristic: "6d8f2110-86f1-41bf-9afb-451d87e976c8"
+    subscribe: true
+  - characteristic: "00002a24-0000-1000-8000-00805f9b34fb"
+    read: true
+    notes: "Use the returned model for the first feature gate."
+  - characteristic: "8f1fd018-b508-456f-8f82-3d392bee2706"
+    read: true
+    notes: "Use the returned CCU version for the second feature gate; its byte encoding is not specified by the manual."
+  - characteristic: "7fe8691d-95dc-4fc5-8abd-ca74339b51b9"
+    description: >
+      On an unbonded host, an encrypted write starts the six-digit pairing
+      flow. Do not issue a recording or configuration command as the pairing
+      probe; Camera Power On (01) is the manual's example, and even that should
+      be used only when power-on is acceptable.
+
+services:
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Camera Manufacturer"
+        properties: ["read"]
+        notes: "UTF-8 text; Blackmagic documents the value 'Blackmagic Design'."
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Camera Model"
+        properties: ["read"]
+        notes: "UTF-8 model string, for example 'URSA Mini Pro'. Use this rather than guessing from the advertised name."
+  - uuid: "291d567a-6d75-11e6-8b77-86f30ca893d3"
+    name: "Blackmagic Camera Service"
+    characteristics:
+      - uuid: "5dd3465f-1aee-4299-8493-d2eca2f8e1bb"
+        name: "Outgoing Camera Control"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          Host-to-camera CCU messages. The pinned Rust client writes without
+          response; check the actual properties on the body/firmware. Every
+          value below includes the eight-byte header, data and implicit zero
+          padding to a four-byte boundary. The length byte is data length + 4,
+          not total packet length and not padding-inclusive.
+        commands:
+          instantaneous_autofocus:
+            description: "Lens group 0, parameter 1, void/boolean type 0, assign operation 0. Vendor example addressed to camera 4; destination 255 broadcasts."
+            value: [0xFF, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00]
+            verification: "reported"
+            packet_layout: {"0": "destination (255 broadcast)", "1": "4 = no payload + 4", "2": "command id 0", "3": "reserved", "4": "category Lens", "5": "parameter autofocus", "6": "void", "7": "assign"}
+          optical_stabilisation_on:
+            description: "Lens 0.6, boolean true, with three alignment zeros. Requires a lens that supports OIS."
+            value: [0xFF, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00]
+            verification: "reported"
+          optical_stabilisation_off:
+            description: "Lens 0.6, boolean false, padded to 12 bytes. Requires a lens that supports OIS."
+            value: [0xFF, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          set_focus:
+            description: "Lens 0.0, signed 5.11 fixed16 little-endian: 0.0 near through 1.0 far. Requires a controllable lens."
+            template: [0xFF, 0x06, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, "{focus}", 0x00, 0x00]
+            parameters:
+              focus:
+                type: "int16"
+                endianness: "little"
+                min: 0
+                max: 2048
+                scale: 0.00048828125
+                description: "Decoded 0.0..1.0; encode round(value * 2048) as signed 16-bit LE. The two zeros after the parameter are padding."
+            verification: "reported"
+          set_exposure_us:
+            description: "Video 1.5, signed int32 LE exposure in microseconds, valid range 1..42000. Vendor's 10000 us example is in protocol_details.test_vectors."
+            template: [0xFF, 0x08, 0x00, 0x00, 0x01, 0x05, 0x03, 0x00, "{exposure_us}"]
+            parameters:
+              exposure_us:
+                type: "int32"
+                endianness: "little"
+                min: 1
+                max: 42000
+                unit: "us"
+            verification: "reported"
+          set_manual_white_balance:
+            description: "Video 1.2: two signed int16 LE values, color temperature then tint; exactly four payload bytes, no trailing padding."
+            template: [0xFF, 0x08, 0x00, 0x00, 0x01, 0x02, 0x02, 0x00, "{color_temperature_k}", "{tint}"]
+            parameters:
+              color_temperature_k:
+                type: "int16"
+                endianness: "little"
+                min: 2500
+                max: 10000
+                unit: "K"
+              tint:
+                type: "int16"
+                endianness: "little"
+                min: -50
+                max: 50
+            verification: "reported"
+          offset_zebra_level:
+            description: "Display 4.2, fixed16 offset operation 1. The example adds 0.15; offsets are signed and clamped by the camera."
+            template: [0xFF, 0x06, 0x00, 0x00, 0x04, 0x02, 0x80, 0x01, "{offset}", 0x00, 0x00]
+            parameters:
+              offset:
+                type: "int16"
+                endianness: "little"
+                min: -32768
+                max: 32767
+                scale: 0.00048828125
+                description: "Signed fixed16 delta; encode round(delta * 2048). Use small deliberate changes."
+            verification: "reported"
+          set_legacy_gain:
+            description: "Video 1.1, Camera 4.9-era gain multiplier as int8 plus three padding zeros. Gate on model/version; never substitute this for dB gain or ISO."
+            template: [0xFF, 0x05, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, "{gain}", 0x00, 0x00, 0x00]
+            parameters:
+              gain:
+                type: "int8"
+                allowed: [1, 2, 4, 8, 16, 32, 64, 128]
+                labels: ["1x", "2x", "4x", "8x", "16x", "32x", "64x", "128x"]
+            verification: "reported"
+          set_gain_db:
+            description: "Video 1.13, signed int8 gain in dB plus three padding zeros. Parameter introduction/version is not specified; enable only when model/version evidence supports it."
+            template: [0xFF, 0x05, 0x00, 0x00, 0x01, 0x0D, 0x01, 0x00, "{gain_db}", 0x00, 0x00, 0x00]
+            parameters:
+              gain_db:
+                type: "int8"
+                min: -128
+                max: 127
+                unit: "dB"
+            verification: "reported"
+          set_iso:
+            description: "Video 1.14, signed int32 LE ISO. Gate on model/version; do not send to a Camera 4.9-era gain-only implementation."
+            template: [0xFF, 0x08, 0x00, 0x00, 0x01, 0x0E, 0x03, 0x00, "{iso}"]
+            parameters:
+              iso:
+                type: "int32"
+                endianness: "little"
+                min: 0
+                max: 2147483647
+            verification: "reported"
+      - uuid: "b864e140-76a0-416a-bf30-5876504537d9"
+        name: "Incoming Camera Control"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Camera-to-host CCU messages with the same framing. Unknown command
+          IDs must be skipped using length plus alignment, not rejected by
+          assuming a fixed parameter table. Notification fragmentation and
+          coalescing are not specified; protocol_details.receive_reassembly is
+          the defensive parser to use without inventing a packet delimiter.
+      - uuid: "6d8f2110-86f1-41bf-9afb-451d87e976c8"
+        name: "Timecode"
+        properties: ["notify"]
+        notes: >
+          Four-byte BCD HHMMSSFF; the manual's numeric example 0x09125310
+          means 09:12:53:10 and calls the last component mm (frames in this
+          context). It does not state the characteristic's byte order, so
+          retain the raw bytes and establish that order on hardware rather
+          than assuming either endianness.
+      - uuid: "7fe8691d-95dc-4fc5-8abd-ca74339b51b9"
+        name: "Camera Status"
+        properties: ["read", "write", "write_without_response", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "status_flags"
+            type: "uint8"
+            notes: "Bitmask in payload_formats.Camera_Status."
+        commands:
+          power_on:
+            description: "Write 01 to power a connected camera on. Also the manual's example of an encrypted write that initiates bonding."
+            value: [0x01]
+            verification: "reported"
+          power_off:
+            description: "Write 00 to power a connected camera off."
+            value: [0x00]
+            advanced: true
+            advanced_reason: "Powering off can interrupt recording or an in-progress write to camera media. Confirm the camera is idle first; recovery is to power it on locally or with 01."
+            verification: "reported"
+      - uuid: "ffac0c52-c9fb-41a0-b063-cc76282eb89c"
+        name: "Device Name"
+        properties: ["write", "write_without_response"]
+        notes: "UTF-8 without a terminator, maximum 32 characters. This is the name displayed in the camera's Bluetooth Setup menu, not a CCU string command."
+      - uuid: "8f1fd018-b508-456f-8f82-3d392bee2706"
+        name: "Protocol Version"
+        properties: ["read"]
+        notes: "Read before feature selection. The manual does not state width, byte order or text encoding; retain the raw value and use only a version mapping established for that body."
+
+payload_formats:
+  CCU_Command:
+    description: >
+      One SDI Camera Control command 0 change-configuration packet as carried
+      over BLE. All multibyte numeric elements are little-endian. Data length
+      is the length byte minus four; total storage is rounded up to four bytes.
+    fields:
+      - name: "destination"
+        offset: 0
+        length: 1
+        type: "uint8"
+        description: "0..254 individual camera, 255 broadcast."
+      - name: "command_length"
+        offset: 1
+        length: 1
+        type: "uint8"
+        unit: "B"
+        description: "Four command bytes plus payload length; excludes the three-byte outer header, reserved byte and padding."
+      - name: "command_id"
+        offset: 2
+        length: 1
+        type: "uint8"
+        description: "0 for change configuration; ignore unknown IDs."
+      - name: "reserved"
+        offset: 3
+        length: 1
+        type: "uint8"
+        description: "Zero."
+      - name: "category"
+        offset: 4
+        length: 1
+        type: "uint8"
+      - name: "parameter"
+        offset: 5
+        length: 1
+        type: "uint8"
+      - name: "data_type"
+        offset: 6
+        length: 1
+        type: "uint8"
+        values: {"0": "void/boolean", "1": "int8", "2": "int16 LE", "3": "int32 LE", "4": "int64 LE", "5": "UTF-8 without terminator", "128": "signed 5.11 fixed16 LE"}
+      - name: "operation"
+        offset: 7
+        length: 1
+        type: "uint8"
+        values: {"0": "assign", "1": "offset/toggle"}
+      - name: "data"
+        offset: 8
+        length: 0
+        type: "bytes"
+        min_length: 0
+        max_length: 56
+        description: "Integral number of elements of data_type; actual width is command_length - 4. At most 56 bytes so the complete aligned packet stays within 64 bytes."
+      - name: "padding"
+        description: "Zero to three zero bytes so (8 + data width) is divisible by four; padding is excluded from command_length."
+    parse_rules:
+      - "Require at least eight bytes and 4 <= command_length <= 60. The complete aligned packet is 4 + command_length plus padding and must not exceed 64 bytes."
+      - "Let n = command_length - 4. Require n bytes at offset 8, then skip (- (8 + n)) mod 4 alignment bytes; require those bytes to be zero."
+      - "A void trigger has n = 0. A boolean has one byte, with zero false and nonzero true. int8/int16/int32/int64 elements are signed; strings have no NUL."
+      - "Fixed16 is signed int16 LE divided by 2048. Offset operation 1 is invalid for void; a nonzero boolean offset toggles."
+    example: "ff 05 00 00 00 06 00 00 01 00 00 00  (OIS true, broadcast)"
+  Camera_Status:
+    description: "Bitmask in the one-byte encrypted Camera Status characteristic."
+    values:
+      "1": "Camera power on"
+      "2": "Connected"
+      "4": "Paired"
+      "8": "Versions verified"
+      "16": "Initial payload received"
+      "32": "Camera ready"
+    parse_rules:
+      - "These are bits, not mutually exclusive enum values. Wait for versions-verified and initial-payload before using the initial parameter cache; Camera Ready is the preferred final signal."
+
+protocol_details:
+  type_widths:
+    void: 0
+    boolean: 1
+    int8: 1
+    int16: 2
+    int32: 4
+    int64: 8
+    fixed16: 2
+    string: "remaining data length; UTF-8, no terminator"
+    numeric_endianness: "little"
+    fixed16_formula: "decoded = signed_int16_le / 2048; encode nearest representable integer, then apply the parameter's valid range"
+  receive_reassembly:
+    notes: >
+      This is a defensive client rule, not a claim that every firmware splits
+      notifications the same way. Buffer a notification stream per connection.
+      Parse each complete aligned CCU packet with payload_formats.CCU_Command;
+      a new packet may follow immediately. Keep a short trailing fragment for
+      the next notification. If a length or element width is impossible, drop
+      the buffered stream rather than scanning for a magic byte that does not
+      exist. Reconnect on persistent desynchronization. Do not concatenate
+      unrelated writes and assume the camera accepts SDI's 255-byte VANC
+      grouping limit as a BLE MTU guarantee.
+  model_version_gates:
+    model_characteristic: "00002a24-0000-1000-8000-00805f9b34fb"
+    version_characteristic: "8f1fd018-b508-456f-8f82-3d392bee2706"
+    rules:
+      - "Establish that the runtime model is a body documented to expose Bluetooth before offering any control."
+      - "Use group 1 parameter 1 only for the Camera 4.9-era gain surface. Use parameters 13/14 only when the body/version supports dB gain/ISO; the manual does not provide their introduction versions."
+      - "Do not map the 2021 community JSON parameter table onto a newer body without the current official table and a runtime version check."
+      - "Treat the initial Incoming Camera Control payload and Camera Status ready flags as capability/state evidence, not proof that a write is safe in the current mode."
+  test_vectors:
+    notes: "Official Blackmagic manual examples; destination changed to 255 only where the spec's command uses broadcast. scripts/test_blackmagic_cinema_cameras.py independently rebuilds and parses them."
+    autofocus_camera_4: "04 04 00 00 00 01 00 00"
+    ois_broadcast: "ff 05 00 00 00 06 00 00 01 00 00 00"
+    exposure_camera_4_10ms: "04 08 00 00 01 05 03 00 10 27 00 00"
+    zebra_camera_4_add_0_15: "04 06 00 00 04 02 80 01 33 01 00 00"
+    video_mode_broadcast_1080p_23_98: "ff 09 00 00 01 00 01 00 18 01 03 00 00 00 00 00"
+    gamma_camera_4_subtract_green_blue_0_3: "04 0c 00 00 08 01 80 01 00 00 9a fd 9a fd 00 00"
+    white_balance_broadcast_5600k_tint_minus_2: "ff 08 00 00 01 02 02 00 e0 15 fe ff"
+    focus_broadcast_0_75: "ff 06 00 00 00 00 80 00 00 06 00 00"
+
+entities:
+  - platform: "button"
+    name: "Instantaneous Autofocus"
+    commands:
+      press: "instantaneous_autofocus"
+    notes: "Requires a lens/camera mode that supports autofocus."
+  - platform: "switch"
+    name: "Optical Image Stabilisation"
+    commands:
+      turn_on: "optical_stabilisation_on"
+      turn_off: "optical_stabilisation_off"
+    notes: "Only on a compatible lens; no portable state binding is declared."
+  - platform: "number"
+    name: "Focus"
+    min: 0
+    max: 1
+    step: 0.001
+    commands:
+      set_value: "set_focus"
+  - platform: "number"
+    name: "Exposure"
+    min: 1
+    max: 42000
+    step: 1
+    unit: "us"
+    commands:
+      set_value: "set_exposure_us"
+  - platform: "number"
+    name: "Zebra Level Offset"
+    min: -1
+    max: 1
+    step: 0.01
+    commands:
+      set_value: "offset_zebra_level"
+    notes: "Relative operation, not an absolute zebra-level setter."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "No image or authenticity mechanism was investigated."
+      enter:
+        how: "unknown"
+        notes: "The BLE Camera Control service defines no bootloader entry or image transfer. Do not treat it as a DFU service."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+evidence:
+  documentation_review: >
+    Blackmagic Camera Control (created 2025-08-04): SDI protocol pages 96-105
+    for the header, types, alignment, parameter ranges and examples; Bluetooth
+    pages 109-110 for GATT, six-digit pairing, status and timecode. The March
+    2025 Pocket manual and current product page establish only the named
+    Pocket models' Bluetooth feature. coral/blackmagic-camera-protocol at
+    21125e3b52ee30030452e571d8e4e215df44bbe4 and
+    coral/blackmagic-camera-control at
+    46cb0fa63e2e8fb83116efccebfcb4f9b66be630 cross-check UUIDs, LE encoding,
+    the eight-byte serializer and service-filtered discovery.
+  open_questions: >
+    Protocol Version's wire encoding and per-body feature mapping; exact
+    connection/bond limits and unpair route; notification boundaries; GATT
+    properties on each body; firmware transport and recovery; which commands
+    are accepted by each lens and camera mode.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "Blackmagic Camera Control developer manual, August 2025"
+      url: "https://documents.blackmagicdesign.com/DeveloperManuals/BlackmagicCameraControl.pdf?_v=1539929000000"
+      obtained_via: "Vendor HTTPS, reviewed 2026-11"
+      description: "Authoritative GATT, pairing, framing, type and example source."
+    - type: "public_implementation"
+      artifact: "coral/blackmagic-camera-control @ 46cb0fa63e2e8fb83116efccebfcb4f9b66be630"
+      url: "https://github.com/coral/blackmagic-camera-control/tree/46cb0fa63e2e8fb83116efccebfcb4f9b66be630"
+      obtained_via: "Pinned public Git repository"
+      description: "Rust BLE client and raw command serializer cross-check."
+    - type: "public_implementation"
+      artifact: "coral/blackmagic-camera-protocol @ 21125e3b52ee30030452e571d8e4e215df44bbe4"
+      url: "https://github.com/coral/blackmagic-camera-protocol/tree/21125e3b52ee30030452e571d8e4e215df44bbe4"
+      obtained_via: "Pinned public Git repository"
+      description: "Community machine-readable parameter and GATT map, used only beside the newer official manual."
+
+remaining_unknowns:
+  - "Protocol Version width, byte order/text encoding and a trustworthy per-model version-to-feature matrix."
+  - "BLE notification fragmentation/coalescing and negotiated-MTU behavior on real bodies."
+  - "Maximum simultaneous centrals and bonds, and a camera-side unpair/reset procedure."
+  - "Exact firmware-era introduction of dB gain (1.13), ISO (1.14) and other newer parameters; do not infer it from the 2021 JSON map."
+  - "Which Pocket and other Bluetooth bodies accept each lens, transport, media and display command in each mode."
+  - "Firmware update transport, image signing, entry and interrupted-update recovery; none is defined by this BLE protocol."
+  - "The generic schema has no signed-5.11 scalar type, so fixed16 commands use int16 with scale 1/2048 and a custom aligned-command handler for receive/reassembly."
+
+helpful_urls:
+  - title: "Blackmagic Camera Control developer protocol, August 2025 (PDF)"
+    url: "https://documents.blackmagicdesign.com/DeveloperManuals/BlackmagicCameraControl.pdf?_v=1539929000000"
+    kind: "manual"
+    description: "Official developer manual for the shared Camera Control protocol and all Blackmagic Bluetooth bodies: GATT, six-digit bonding, eight-byte commands, types, alignment and examples."
+  - title: "Blackmagic Pocket Cinema Camera installation and operation manual, March 2025 (PDF)"
+    url: "https://documents.blackmagicdesign.com/UserManuals/BlackmagicPocketCinemaCameraManual.pdf"
+    kind: "manual"
+    description: "Official multilingual manual for Pocket Cinema Camera bodies, including the current 4K, 6K G2 and 6K Pro Bluetooth menus and model-specific operating limits."
+  - title: "coral/blackmagic-camera-control"
+    url: "https://github.com/coral/blackmagic-camera-control/tree/46cb0fa63e2e8fb83116efccebfcb4f9b66be630"
+    kind: "implementation"
+    description: "Pinned Rust BLE client used to cross-check service discovery and command serialization."
+  - title: "coral/blackmagic-camera-protocol"
+    url: "https://github.com/coral/blackmagic-camera-protocol/tree/21125e3b52ee30030452e571d8e4e215df44bbe4"
+    kind: "implementation"
+    description: "Pinned community parameter map; older than the official 2025 manual and not a universal version gate."

@@ -39,7 +39,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `protocol_details`. Existing PicoBrew research now distinguishes
   appliance-to-replacement-server routes, the no-op `picoChangeState`, and the
   absence of an HTTP emergency stop.
-
+- **Five camera, irrigation and energy protocol specs.** Blackmagic Bluetooth
+  cinema cameras gain the vendor CCU/GATT framing and six-digit bonding flow;
+  Combustion Probe V1/V2+ gains packed temperature, old/new status,
+  prediction/alarm and CRC-checked UART handling; Hunter NODE-BT gains the
+  upstream two-station JSON/PIN core with split-array schedule safeguards;
+  Easee Charge Max gains an EC-JPAKE/AES-GCM session, schema-less protobuf
+  telemetry and bounded non-installer controls; ANT Smart BMS gains separate
+  read-only legacy 140-byte and dynamic 2021+ decoders with GATT fallback.
+  All five remain untested here and carry independent standard-library
+  vectors, explicit reset/rejoin/credential boundaries and documented unknowns.
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
   SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an

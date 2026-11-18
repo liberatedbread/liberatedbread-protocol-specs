@@ -279,6 +279,11 @@ spec's `device.setup` block; the patterns are explained in
 | [Spotify Car Thing with Bridgething](spotify-car-thing-bridgething.md) | Bluetooth Classic RFCOMM + iAP2/WebSocket | Identify-only (untested) | Custom firmware + Bluetooth pairing (medium) | Spotify / Bridgething |
 | [Nabaztag/tag with ServerlessNabaztag](nabaztag-tag-serverless.md) | WiFi HTTP | Spec Available (untested) | Custom firmware + head-button SoftAP (medium) | Violet / Mindscape / ServerlessNabaztag |
 | [PicoBrew PicoStill](picobrew-picostill.md) | WiFi HTTP (read-only) | Identify-only (untested) | Already networked; no client onboarding (medium) | PicoBrew |
+| [Blackmagic Cinema Cameras with Bluetooth](blackmagic-cinema-cameras.md) | BLE GATT | Spec Available (untested) | Six-digit camera-screen bonding (medium) | Blackmagic Design |
+| [Combustion Predictive Thermometer](combustion-predictive-thermometer.md) | BLE (passive + GATT) | Spec Available (untested) | None needed (medium) | Combustion Inc. |
+| [Hunter NODE-BT](hunter-node-bt.md) | BLE GATT | Spec Available (untested; upstream two-station core) | Owner-PIN application login (high) | Hunter Industries |
+| [Easee Charge Max](easee-charge-max.md) | BLE (ATT bond + EC-JPAKE/AES-GCM) | Spec Available (untested) | OS bond + label PIN/serial; active BLE proxy (high) | Easee AS |
+| [ANT Smart BMS](ant-smart-bms.md) | BLE GATT (two generations) | Spec Available (untested) | None on open units; optional app secret (high) | Shenzhen ANT (Zhuofeng) |
 
 ## Not everything here was liberated
 

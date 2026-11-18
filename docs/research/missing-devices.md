@@ -23,6 +23,9 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     Blue, Big Ass Fans, RadonEye, Anova ([Mini](../devices/anova-precision-cooker-mini.md) and [Nano](../devices/anova-precision-cooker-nano.md) now have separate profiles), Weber iGrill, Acaia, Furbo (identify-only), Boosted, Lippert
     OneControl (incomplete) and InMotion; from *Graduate these research
     notes*: QardioArm, Insteon Hub, Boosted Boards, Joule, Hestan Cue.
+    Newly documented outside those earlier lists: Blackmagic Bluetooth cinema
+    cameras, Combustion Probe V1/V2+, Hunter NODE-BT (two-station core),
+    Easee Charge Max, and ANT Smart BMS legacy/2021+ telemetry.
 
 This page answers one question: **which locally-controllable devices does the
 catalogue still lack, and which of them should be written up next?** It follows

@@ -1,0 +1,685 @@
+# Easee Charge Max local BLE — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: pinned easee-ble / ha-easee-ble public implementations and captured-
+# byte tests, plus vendor app static review. No charger, account or cloud call.
+
+device:
+  name: "Easee Charge Max (local BLE)"
+  manufacturer: "Easee AS"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against a charger by this project. Charge Max is the only
+      model the upstream integration says it physically tested; its 107
+      offline tests use captured bytes from a real charger. Those tests and
+      the vendor app's authentication constants were reviewed, not replayed.
+      Easee Home, Charge/Core, Equalizer, Charge Max Eichrecht and other
+      backplates are not qualified by this spec.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "energy"
+  type: "ev-charger"
+  notes: >
+    Authenticated local BLE telemetry and deliberately bounded controls for a
+    Charge Max. The owner needs the charger serial and the PIN printed on its
+    label or shown in the app, not an Easee account password. Two EC-JPAKE
+    rounds establish a 32-byte session key; later requests are AES-256-GCM
+    frames serialized as ASCII hex. State/config/structure/debug responses
+    are plaintext six-byte-header protobuf frames; COMMAND replies are JSON.
+
+    Only one BLE central can connect. Keep the authenticated link open,
+    serialize requests, and disconnect cleanly. Cloud schedules, OCPP,
+    installer/fuse/circuit settings, Wi-Fi provisioning, RFID maintenance,
+    reboot/self-test, factory reset and firmware operations are outside this
+    spec's control surface.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/parrel/easee-ble"
+    license: "MIT"
+    notes: >
+      No public vendor wire specification was found. The sans-I/O public
+      client supplies EC-JPAKE, AES-GCM, framing and commands; the companion
+      integration supplies Charge Max compatibility and host cautions.
+  safety_advisory:
+    severity: "warning"
+    summary: "BLE current controls are subordinate to the installation and are not an electrical safety interlock."
+    detail: >
+      A 40 A protocol bound is only a serializer sanity limit, not the rating
+      of this charger or its circuit. Before every current write, clamp to the
+      lowest applicable installer circuit maximum, charger maximum, cable
+      rating, dynamic limit and owner-confirmed continuous-load limit. Never
+      use BLE to raise an installer limit. Keep the charger's own protective
+      devices and a qualified electrician's installation as the safety layer;
+      telemetry and a third-party client must not be used to guarantee
+      protection against overheating, fire or vehicle damage.
+    acknowledge_required: true
+
+  identification:
+    service_uuids:
+      - "be312306-9797-2ebc-c947-08eff95544bc"
+    manufacturer_data:
+      company_id: 3118
+      company_id_hex: "0x0C26"
+    notes: >
+      The vendor service is visible after connecting; advertisements carry
+      Bluetooth SIG company ID 3118 (0x0c26). Advertising is intermittent:
+      enable always-on in the vendor app or long-press the touch button.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "be312306-9797-2ebc-c947-08eff95544bc"
+          manufacturer_data:
+            company_id: 3118
+            company_id_hex: "0x0C26"
+        notes: "Use a current advertisement and verify the Charge Max serial during onboarding; do not generalize to another Easee model."
+    identity:
+      stable_keys: ["serial"]
+      display: "serial"
+      notes: "Serial is required in State/Config reads. Treat it and all Structure output as owner-private."
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      BLE onboarding needs no account or Wi-Fi provisioning. Application
+      authentication is separate: the client must obtain the charger serial
+      and owner PIN, open an advertising window, and complete the handshake.
+      Confidence comes from the public Charge Max implementation and
+      captured-byte tests, not a run by this project.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Make the charger advertise, connect through a working active BLE
+          path, exchange two EC-JPAKE rounds with the printed PIN, then keep
+          one encrypted session at a time.
+        ble:
+          service_uuid: "be312306-9797-2ebc-c947-08eff95544bc"
+          write_characteristic: "2f7b83db-ae66-d0be-ae45-78ecf4509b3d"
+          read_characteristic: "992166b7-8cb3-fba7-9f4b-166fb352c50d"
+          pairing_required: false
+          pin_source: "printed_label"
+        issues_credentials:
+          pin:
+            user_entered: true
+            notes: "The charger PIN printed on its label or shown in the vendor app. Never log it or the derived session key."
+          serial:
+            user_entered: true
+            notes: "The Charge Max serial used as sn in State/Config poll plaintext."
+        steps:
+          - action: "Record the Charge Max serial and label/app PIN locally; do not use the Easee account password."
+            actor: "user"
+          - action: "Long-press the charger's touch button for 5 seconds to open an advertising window of a few minutes, or enable Bluetooth always-on in the vendor app."
+            actor: "user"
+            expect: "An advertisement carrying company ID 3118 appears."
+          - action: "Use an active BLE connection path. On Linux/BlueZ, prefer an active ESPHome proxy with scanning interval 320 ms/window 30 ms rather than a directly attached adapter."
+            actor: "client"
+            expect: "HELLO, COMMAND, CONFIG and STATE are available; notification replies arrive."
+          - action: "Subscribe to COMMAND, CONFIG and STATE responses and request advisory ATT MTU 333 for the handshake."
+            actor: "client"
+          - action: "Write raw EC-JPAKE round one to HELLO, validate the peer round one and write round two, then validate the server round two and derive the 32-byte key."
+            actor: "client"
+            expect: "Both parties prove knowledge of the PIN; wrong PIN yields an unusable/different key rather than an authenticated control session."
+            timeout_seconds: 90
+          - action: "Poll State and Config with fresh nonzero request IDs and the serial, then enforce read-back electrical limits before any control."
+            actor: "client"
+            expect: "Valid six-byte-header frames decode. Keep the link open and run one request at a time; disconnect cleanly when finished."
+        timing:
+          handshake_mtu: "333 advisory; round one is up to 330 bytes"
+          reply_timeout_seconds: 15
+          setup_ceiling_seconds: 90
+          request_rule: "One at a time on the authenticated connection; poll interval 30 s is the integration default, 5 s and up is supported upstream."
+        troubleshooting:
+          - symptom: "Nothing advertises or setup times out."
+            causes:
+              - "Open the touch-button window or enable always-on, move an active proxy closer, and close the vendor app/other central."
+              - "A proxy scanning continuously starves the radio. Use 320 ms interval/30 ms window with active connections."
+          - symptom: "BlueZ connects but notifications never arrive."
+            causes:
+              - "The tested charger lacks descriptors Linux needs. Use an active ESPHome Bluetooth proxy rather than a directly attached adapter."
+          - symptom: "Handshake completes but writes fail authentication or return refusals."
+            causes:
+              - "Check the printed PIN, serial, per-session nonce freshness and request serialization. A transport reply is not acceptance: COMMAND code must be 1 and Config/State must confirm."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Command 97 exists in the public command table and is described as
+        untested/irreversible upstream. Its exact effect on owner PIN, Wi-Fi,
+        electrical configuration, RFID records and cloud/OCPP binding is not
+        established and no procedure is offered here.
+      description: >
+        Do not issue factory reset, reboot, self-test or installer operations
+        to adopt a charger. Normal BLE migration needs only the current owner
+        PIN and an advertising window.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        For a new BLE central, close the existing central, open advertising
+        and repeat EC-JPAKE with the same PIN. No OS bond or factory reset is
+        needed. Wi-Fi re-provisioning is deliberately not specified.
+      steps:
+        - action: "Disconnect the existing central, long-press for 5 seconds or enable always-on, then repeat the authenticated session with the current PIN."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Owner PIN and serial, installer/electrical settings and optional Wi-Fi/cloud/OCPP configuration"
+        - "Local authorization/RFID data (not read or modified by this spec)"
+      issued_to_client:
+        - "A fresh 32-byte EC-JPAKE session key for each connection; ephemeral, never stored as a long-term credential"
+      notes: >
+        The owner supplies PIN and serial. Do not log either derived keys or
+        Structure replies, which can contain account/key material. No Wi-Fi
+        passphrase is sent by this spec.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "printed_label"
+      notes: "Per-charger PIN printed on the label or shown in the vendor app; no default and no assumed digit count."
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Disconnect the current central/integration or close the vendor app, then reconnect with a fresh handshake and fresh nonces."
+      notes: "The charger has one BLE connection slot; an active proxy also has finite slots."
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Touch-button advertising window"
+          verified: false
+          basis: "Upstream Charge Max integration setup guide; not replayed here."
+          hold_seconds: 5
+          power_state: "on"
+          steps:
+            - action: "Long-press the charger's touch button for 5 seconds."
+              actor: "user"
+              expect: "The charger advertises for a few minutes; exact window duration is not specified."
+        - name: "Always-on Bluetooth advertisement"
+          verified: false
+          basis: "Upstream Charge Max integration setup guide and Config field 20 mode 3."
+          power_state: "on"
+          steps:
+            - action: "Enable Bluetooth always-on in the vendor app, or use the bounded set_bt_always command after authentication."
+              actor: "user"
+              expect: "The charger advertises continuously instead of only after a button press."
+      notes: "This opens discovery/application onboarding, not an OS Bluetooth pairing dialog."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "No OS bond exists. End the application session; revoking the owner PIN itself is outside this spec."
+    notes: >
+      Authentication is EC-JPAKE above GATT, not a mandatory OS pairing/bond.
+      The one-connection limit is independent of that choice.
+
+  host_compatibility:
+    - stack: "bluez"
+      status: "degraded"
+      verification: "reported"
+      basis: "ha-easee-ble README: the tested Charge Max lacks descriptors Linux/BlueZ needs for notification subscription."
+      symptom: "other"
+      workaround: "host_config"
+      notes: >
+        A directly attached adapter commonly receives no notifications. Use an
+        active ESPHome Bluetooth proxy, not passive scanning; interval 320 ms
+        and window 30 ms avoid starving the charger. This is a host-path
+        caveat, not evidence that every BlueZ version must fail.
+
+  variants:
+    - model: "Charge Max"
+      notes: "Only model physically tested by the upstream integration; the scope of every protocol fact and control here."
+
+protocol_handler: "easee_charge_max_session"
+
+initialization:
+  - characteristic: "f4ef9f9e-540e-0497-1449-84fe940045be"
+    subscribe: true
+  - characteristic: "7d0b575a-5f58-cf9c-c442-2cacd56e4102"
+    subscribe: true
+  - characteristic: "992166b7-8cb3-fba7-9f4b-166fb352c50d"
+    subscribe: true
+  - characteristic: "2f7b83db-ae66-d0be-ae45-78ecf4509b3d"
+    description: "Run protocol_details.authentication.ec_jpake on every connection before any encrypted request. Raw handshake bytes only; no ASCII-hex wrapper."
+
+services:
+  - uuid: "be312306-9797-2ebc-c947-08eff95544bc"
+    name: "Easee local control service"
+    characteristics:
+      - uuid: "2f7b83db-ae66-d0be-ae45-78ecf4509b3d"
+        name: "HELLO"
+        properties: ["write", "notify"]
+        notes: "Raw EC-JPAKE round-one/round-two messages in both directions. Request advisory MTU 333."
+      - uuid: "f4ef9f9e-540e-0497-1449-84fe940045be"
+        name: "COMMAND"
+        properties: ["write", "notify"]
+        role: "command"
+        notes: >
+          Client plaintext is compact JSON, encrypted and hex-encoded as in
+          protocol_details.record_layer. Replies are UTF-8 JSON, not protobuf:
+          code 1 is accepted; any other code is refusal even when transport
+          succeeds. Check fresh State/Config after every accepted write.
+      - uuid: "7d0b575a-5f58-cf9c-c442-2cacd56e4102"
+        name: "CONFIG"
+        properties: ["write", "notify"]
+        role: "notify"
+        notes: "Encrypted poll request; plaintext six-byte-header schema-less protobuf response, message type 0x40."
+      - uuid: "992166b7-8cb3-fba7-9f4b-166fb352c50d"
+        name: "STATE"
+        properties: ["write", "notify"]
+        role: "notify"
+        notes: "Encrypted poll request; plaintext six-byte-header schema-less protobuf response, message type 0x41."
+      - uuid: "3368fdd0-d18a-61aa-034b-9abc497cbec1"
+        name: "STRUCTURE (sensitive; not polled)"
+        properties: ["write", "notify"]
+        notes: "Type 0x42. Can carry account and key material. Do not request, publish or log it from a general telemetry client."
+      - uuid: "2737ec9f-2dc1-7a8e-2048-de136057f9ab"
+        name: "DEBUG (unnamed fields; not polled)"
+        properties: ["write", "notify"]
+        notes: "Type 0x43. Decode generically if needed; no field meaning is established here."
+      - uuid: "fe14720f-d849-4f83-5144-d0f5b4f3689d"
+        name: "TIME (not exposed on tested Charge Max)"
+        properties: ["read"]
+        notes: "Present in the public protocol map but absent on the tested model; do not require it."
+
+commands:
+  poll_state:
+    description: "Encrypted STATE poll for electrical telemetry and dynamic current. Plaintext response is type 0x41 protobuf."
+    characteristic: "992166b7-8cb3-fba7-9f4b-166fb352c50d"
+    body: '{"uid":{uid},"sn":"{serial}"}'
+    parameters:
+      uid: &poll_uid
+        type: "integer"
+        auto: "sequence"
+        min: 1
+        max: 2147483647
+        description: "Fresh nonzero request ID; do not reuse within a session."
+      serial: &charger_serial
+        type: "string"
+        source: "credential:serial"
+        required: true
+    verification: "reported"
+  poll_config:
+    description: "Encrypted CONFIG poll for enable state, charger/circuit/cable maxima, Bluetooth mode and firmware. Read before current controls."
+    characteristic: "7d0b575a-5f58-cf9c-c442-2cacd56e4102"
+    body: '{"uid":{uid},"sn":"{serial}"}'
+    parameters:
+      uid: *poll_uid
+      serial: *charger_serial
+    verification: "reported"
+  set_charger_enabled:
+    description: "COMMAND 29 with Value string true. Confirm code 1 and Config isEnabled=1."
+    characteristic: "f4ef9f9e-540e-0497-1449-84fe940045be"
+    body: '{"Id":29,"Arguments":[{"Id":1,"Value":"true"}]}'
+    verification: "reported"
+  set_charger_disabled:
+    description: "COMMAND 29 with Value string false. Confirm code 1 and Config isEnabled absent/0. Does not replace emergency electrical isolation."
+    characteristic: "f4ef9f9e-540e-0497-1449-84fe940045be"
+    body: '{"Id":29,"Arguments":[{"Id":1,"Value":"false"}]}'
+    verification: "reported"
+  set_dynamic_charger_current:
+    description: "COMMAND 48 temporary current in whole amperes; 0 pauses, >0 resumes. Cleared by reboot and subordinate to every installer/cable/charger bound."
+    characteristic: "f4ef9f9e-540e-0497-1449-84fe940045be"
+    body: '{"Id":48,"Arguments":[{"Id":1,"Value":"{amperes}"}]}'
+    parameters:
+      amperes:
+        type: "integer"
+        required: true
+        min: 0
+        max: 40
+        unit: "A"
+        description: "Serializer bound only. Before sending, clamp to min(current Config circuit/charger maxima, State cable rating and owner continuous limit); never raise an installer setting."
+    advanced: true
+    advanced_reason: "Changes the current a vehicle may draw. 0 A pauses; a positive value resumes and can energize the vehicle. Read Config/State first and enforce the lowest installation limit, then verify command code 1 and the fresh dynamic current. This is not an emergency stop or protective interlock."
+    verification: "reported"
+  set_led_brightness:
+    description: "COMMAND 40, LED strip brightness 0-100 percent."
+    characteristic: "f4ef9f9e-540e-0497-1449-84fe940045be"
+    body: '{"Id":40,"Arguments":[{"Id":1,"Value":"{percent}"}]}'
+    parameters:
+      percent:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        unit: "%"
+    verification: "reported"
+  set_bt_button_only:
+    description: "COMMAND 96 mode 1: advertise only after the touch-button window. Confirm Config field 20=1."
+    characteristic: "f4ef9f9e-540e-0497-1449-84fe940045be"
+    body: '{"Id":96,"Arguments":[{"Id":1,"Value":"1"}]}'
+    verification: "reported"
+  set_bt_always:
+    description: "COMMAND 96 mode 3: advertise continuously so a client can reconnect without a site visit. Confirm Config field 20=3."
+    characteristic: "f4ef9f9e-540e-0497-1449-84fe940045be"
+    body: '{"Id":96,"Arguments":[{"Id":1,"Value":"3"}]}'
+    verification: "reported"
+
+payload_formats:
+  Response_Frame:
+    description: "CONFIG/STATE/STRUCTURE/DEBUG plaintext response: six-byte header followed by schema-less protobuf."
+    fields:
+      - {name: "zero", offset: 0, length: 1, type: "uint8", description: "Must be 0."}
+      - {name: "message_type", offset: 1, length: 1, type: "uint8", values: {"64": "config", "65": "state", "66": "structure", "67": "debug"}}
+      - {name: "header_marker", offset: 2, length: 2, type: "bytes", min_length: 2, max_length: 2, description: "01 01 in captured frames; do not reject a future marker merely because it is unknown."}
+      - {name: "declared_total_length", offset: 4, length: 2, type: "uint16", endianness: "big", unit: "B", description: "Includes the six-byte header."}
+      - {name: "protobuf", offset: 6, length: 0, type: "bytes", min_length: 0, max_length: 65529, description: "Exactly declared_total_length - 6 bytes."}
+    parse_rules:
+      - "Buffer until six bytes are available, read big-endian total length, require length >= 6, then wait for exactly that many bytes. Reject a nonzero first byte or extra bytes attached to a frame as a separate candidate."
+      - "When notifications coalesce, parse the first declared frame and feed the remainder through the same parser. Unknown message types are preserved numerically and are not errors."
+      - "COMMAND replies do not use this envelope: strict-UTF-8/JSON parse them on their own channel and require code 1 for acceptance."
+    example: "00 41 01 01 00 08 58 20  (STATE, 8 total bytes, field 11 varint 32 A)"
+  Protobuf:
+    description: "Minimal schema-less protobuf decoder for response bodies; field names come only from the confirmed maps in protocol_details.telemetry."
+    parse_rules:
+      - "Read a varint key; field number = key >> 3 and wire type = key & 7. Reject field 0, truncated/overlong-varint overflow, unsupported wire types 3/4/6/7 and all out-of-bounds reads."
+      - "Wire 0: unsigned varint, at most 64 bits. For signed fields such as localRSSI, if value >= 2^63 subtract 2^64."
+      - "Wire 1: exactly 8 bytes, IEEE-754 float64 little-endian. Wire 5: exactly 4 bytes, IEEE-754 float32 little-endian. Preserve NaN/Inf as invalid telemetry rather than clamping."
+      - "Wire 2: varint byte length then exactly that many bytes. Decode printable UTF-8 as text, otherwise attempt a bounded nested protobuf object; otherwise retain raw hex/bytes. Never mistake arbitrary bytes for text."
+      - "Keep repeated/unknown fields numerically and preserve raw data. Protobuf omits defaults: only protocol_details.telemetry.zero_when_absent may be filled with zero. An absent voltage or unknown field is unknown, not 0."
+  Command_Reply:
+    description: "JSON object on COMMAND. code 1 means accepted; any other/missing value means refusal."
+    fields:
+      - {name: "id", type: "integer", description: "COMMAND id echoed by charger."}
+      - {name: "code", type: "integer", values: {"1": "accepted", "0": "refused/other outcome"}}
+      - {name: "Comment", type: "string", description: "Optional refusal text or a string containing nested JSON; do not assume it is always JSON."}
+      - {name: "res.nws", type: "integer", values: {"0": "network_join_failed", "1": "connecting", "2": "disconnected", "3": "connected", "4": "unknown_transient"}}
+    parse_rules:
+      - "Transport/JSON success is not command success. Require code == 1 and then confirm with fresh Config/State."
+      - "If code != 1, show Comment when present; otherwise retain resultcode and other fields. res.nws alone is a network status, not a refusal explanation."
+
+protocol_details:
+  authentication:
+    ec_jpake:
+      curve:
+        name: "NIST P-256 / secp256r1"
+        field_prime_hex: "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff"
+        a: "-3 modulo field_prime"
+        b_hex: "5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b"
+        generator_x_hex: "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+        generator_y_hex: "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"
+        order_hex: "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"
+        cofactor: 1
+        tls_named_curve: {curve_type: 3, curve_id: 23}
+      secret: "Interpret the owner's PIN bytes as an unsigned big-endian integer s. Use cryptographically random scalars in [1, n-1]. Reject the point at infinity, malformed lengths and points not on the curve."
+      identities: {client: "client", server: "server"}
+      point_encoding: "Uncompressed 65 bytes: 04 || x32_be || y32_be. On the wire, prefix one byte length 0x41."
+      scalar_encoding: "Minimal unsigned big-endian, no leading zeros except scalar zero encoded as one zero byte; prefix one byte length. Proofs with zero-length r are invalid."
+      schnorr_proof:
+        generation: "For secret x and public X = x*G, choose v randomly; V = v*G. h = SHA256(uint32be(65)||G_bytes || uint32be(65)||V_bytes || uint32be(65)||X_bytes || uint32be(len(identity))||identity) interpreted big-endian mod n. r = (v - x*h) mod n. Send TLS_point(V) || len(r) || r."
+        verification: "Recompute h from the claimed G,V,X and peer identity, then require h*X + r*G == V on the curve and exact consumption of the message."
+      round_one:
+        message: "Two independent knowledge/key proofs under the sender's role identity. Client sends X1/X2; server sends X3/X4. Each is TLS_point(Xi) plus its Schnorr proof. Total normally 330 bytes (328-330 depending on minimal r)."
+        validation: "Parse both proofs in order, verify points and proofs, and reject trailing bytes. Do not treat a syntactically valid point as proof of the PIN."
+      round_two:
+        client_write: "G = X3 + X4 + X1; xm = (x2*s) mod n; X = xm*G. Send TLS_point(X) and proof(xm, G, X, 'client'), with no ECParameters prefix."
+        server_write: "G = X1 + X2 + X3; xm = (x4*s) mod n; X = xm*G. Prefix 03 00 17 (named_curve, secp256r1), then TLS_point(X) and proof(xm, G, X, 'server'). Total 168 bytes normally; client round two is 165."
+        validation: "Client requires the 03 00 17 prefix and rejects another curve. Verify the round-two proof with the corresponding generator and reject trailing bytes."
+      key_derivation:
+        client: "K = x2 * (X_server_round2 + (-(x2*s) mod n) * X4)."
+        server: "K = x4 * (X_client_round2 + (-(x4*s) mod n) * X2)."
+        session_key: "Take K's affine x coordinate as exactly 32 big-endian bytes and SHA-256 it. The result is the 32-byte AES key. A wrong PIN can complete messages but produces different/unusable keys; never proceed as if authenticated."
+      reference_vectors:
+        source: "Public mbedTLS EC-JPAKE reference values preserved by easee-ble tests; password is the standard test string, not an owner PIN. Client x1/x2 and server messages suffice to reproduce pms."
+        password_hex: "7468726561646a70616b6574657374"
+        x1_hex: "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
+        x2_hex: "6162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f81"
+        srv_one_hex: "41047ea6e3a4487037a9e0dbd79262b2cc273e779930fc18409ac5361c5fe669d702e147790aeb4ce7fd6575ab0f6c7fd1c335939aa863ba37ec91b7e32bb013bb2b410409f85b3d20ebd7885ce464c08d056d6428fe4dd9287aa365f131f4360ff386d846898bc4b41583c2a5197f65d78742746c12a5ec0a4ffe2f270a750a1d8fb51620934d74eb43e54df424fd96306c0117bf131afabf90a9d33d1198d905193735144104190a07700ffa4be6ae1d79ee0f06aeb544cd5addaabedf70f8623321332c54f355f0fbfec783ed359e5d0bf7377a0fc4ea7ace473c9c112b41ccd41ac56a56124104360a1cea33fce641156458e0a4eac219e96831e6aebc88b3f3752f93a0281d1bf1fb106051db9694a8d6e862a5ef1324a3d9e27894f1ee4f7c59199965a8dd4a2091847d2d22df3ee55faa2a3fb33fd2d1e055a07a7c61ecfb8d80ec00c2c9eb12"
+        srv_two_hex: "03001741040fb22b1d5d1123e0ef9feb9d8a2e590a1f4d7ced2c2b06586e8f2a16d4eb2fda4328a20b07d8fd667654ca18c54e32a333a0845451e926ee8804fd7af0aaa7a641045516ea3e54a0d5d8b2ce786b38d383370029a5dbe4459c9dd601b408a24ae6465c8ac905b9eb03b5d3691c139ef83f1cd4200f6c9cd4ec392218a59ed243d3c820ff724a9a70b88cb86f20b434c6865aa1cd7906dd7c9bce3525f508276f26836c"
+        expected_pms_hex: "f3d47f599844db92a569bbe7981e39d931fd743bf22e98f9b438f719d3c4f351"
+  record_layer:
+    algorithm: "AES-256-GCM with the 32-byte session key, empty additional-authenticated-data, a fresh cryptographically random 4-byte nonce and a 16-byte tag."
+    request_encoding: "Binary frame = nonce[4] || tag[16] || ciphertext[len(plaintext)]. Encode the entire frame as lowercase ASCII hex and write those ASCII bytes to COMMAND/STATE/CONFIG. GCM encrypts/authenticates the compact JSON plaintext; there is no outer length prefix."
+    validation: "Require key length 32 and binary frame length >=20. Split at 4/16, verify tag before using plaintext, and never reuse a nonce under one session key. Responses on protobuf channels are raw plaintext frames, not ASCII-hex ciphertext."
+    json: "Compact UTF-8 with no whitespace. Poll = {\"uid\":N,\"sn\":\"SERIAL\"}. Command = {\"Id\":N,\"Arguments\":[{\"Id\":1,\"Value\":\"...\"}]}. Argument values are strings, with booleans lowercase true/false."
+    reference_vector:
+      notes: "Public easee-ble captured-algorithm test with dummy serial; the key/nonce are ephemeral test material, not a reusable charger credential."
+      key_hex: "7809f2dd808b5cdd37be5be226ce9c2b15e5767f4b8192245cb2de216510a446"
+      plaintext: '{"uid":1000000,"sn":"EMX00000"}'
+      binary_frame_hex: "8b2f999c6cc14ec4eb09fd5536f098a9dbbaa3754f78f1cba93b7179fb977870d52305b89e608edd5c2e94be5ad23aa75976e1"
+      expected: "Decrypts and authenticates to plaintext. Re-encrypting with the frame's first four bytes as nonce reproduces the exact frame."
+  telemetry:
+    config_fields:
+      "1": {name: "isEnabled", wire: 0, absent_means: 0}
+      "2": {name: "maxChargerCurrent", unit: "A", absent_means: 0}
+      "3": {name: "fallbackCircuitCurrentP1", unit: "A"}
+      "4": {name: "fallbackCircuitCurrentP2", unit: "A"}
+      "5": {name: "fallbackCircuitCurrentP3", unit: "A"}
+      "7": {name: "phaseMode", values: {"1": "locked_1_phase", "2": "auto", "3": "locked_3_phase"}, notes: "Read-only here; changing it and required disable/enable is excluded."}
+      "8": {name: "circuitMaxCurrentP1", unit: "A"}
+      "9": {name: "circuitMaxCurrentP2", unit: "A"}
+      "10": {name: "circuitMaxCurrentP3", unit: "A"}
+      "11": {name: "wifiSSID", notes: "Configured SSID, not proof of connection; redact in diagnostics."}
+      "12": {name: "enableIdleCurrent", absent_means: 0}
+      "13": {name: "ledStripBrightness", unit: "%"}
+      "14": {name: "authorizationRequired", absent_means: 0}
+      "15": {name: "ocppEnabled", absent_means: 0}
+      "18": {name: "cableLocked", absent_means: 0}
+      "19": {name: "chargerFirmware"}
+      "20": {name: "btEnableMode", values: {"1": "button_press", "3": "always_on"}}
+      "21": {name: "ipAddress", notes: "Owner-private; redact."}
+      "22": {name: "macAddress", notes: "Owner-private; redact."}
+    state_fields:
+      "2": {name: "cableRating", unit: "A"}
+      "3": {name: "lifetimeEnergy", unit: "kWh", absent_means: 0}
+      "4": {name: "lifetimeHours", unit: "h"}
+      "5": {name: "reasonForNoCurrent", absent_means: 0, values: {"0": "ok", "1": "max_circuit_limit_too_low", "2": "max_dynamic_circuit_limit_too_low", "3": "max_dynamic_offline_limit_too_low", "4": "circuit_fuse_too_low", "5": "waiting_in_queue", "6": "waiting_fully_charged_queue", "7": "illegal_grid_type", "8": "no_current_request", "9": "not_connected_to_master", "10": "equalizer_current_too_low", "11": "phase_not_connected", "25": "limited_by_circuit_fuse", "26": "limited_by_circuit_max", "27": "limited_by_circuit_dynamic", "28": "limited_by_equalizer", "29": "limited_by_load_balancing", "30": "limited_by_offline", "50": "secondary_or_no_car", "51": "max_charger_limit_too_low", "52": "max_dynamic_charger_limit_too_low", "53": "charger_disabled", "54": "waiting_schedule_or_authorization", "55": "pending_authorization", "56": "charger_error", "57": "erratic_ev", "75": "limited_by_cable", "76": "limited_by_schedule", "77": "limited_by_charger_max", "78": "limited_by_charger_dynamic", "79": "ev_not_charging", "80": "limited_by_local_adjustment", "81": "limited_by_ev", "100": "undefined"}}
+      "11": {name: "dynamicChargerCurrent", unit: "A", absent_means: 0}
+      "12": {name: "chargerOpMode", values: {"0": "offline", "1": "disconnected", "2": "awaiting_start", "3": "charging", "4": "completed", "5": "error", "6": "ready_to_charge", "7": "awaiting_authorization", "8": "de_authorizing"}}
+      "14": {name: "dynamicCircuitCurrentP1", unit: "A"}
+      "15": {name: "dynamicCircuitCurrentP2", unit: "A"}
+      "16": {name: "dynamicCircuitCurrentP3", unit: "A"}
+      "18": {name: "totalPower", unit: "kW", absent_means: 0}
+      "19": {name: "sessionEnergy", unit: "kWh", absent_means: 0}
+      "20": {name: "energyPerHour", unit: "kWh", absent_means: 0}
+      "22": {name: "localRSSI", unit: "dBm", signed_varint: true}
+      "25": {name: "currentN", unit: "A", absent_means: 0}
+      "26": {name: "currentL1", unit: "A", absent_means: 0}
+      "27": {name: "currentL2", unit: "A", absent_means: 0}
+      "28": {name: "currentL3", unit: "A", absent_means: 0}
+      "33": {name: "voltageL1N", unit: "V"}
+      "34": {name: "voltageL2N", unit: "V"}
+      "35": {name: "voltageL3N", unit: "V"}
+      "36": {name: "voltageL1L2", unit: "V"}
+      "37": {name: "voltageL1L3", unit: "V"}
+      "38": {name: "voltageL2L3", unit: "V"}
+      "43": {name: "equalizerLimitL1", unit: "A"}
+      "44": {name: "equalizerLimitL2", unit: "A"}
+      "45": {name: "equalizerLimitL3", unit: "A"}
+      "46": {name: "ledMode", absent_means: 0, notes: "0 off, 16/17 error, 18 idle master, 21/22 smart not charging/charging, 23/24 normal not charging/charging, 25 awaiting authorization, 29 RFID pairing, 36-39 self-test, 46 Bluetooth connected; preserve other codes."}
+    zero_when_absent: ["currentN", "currentL1", "currentL2", "currentL3", "totalPower", "lifetimeEnergy", "reasonForNoCurrent", "sessionEnergy", "energyPerHour", "isEnabled", "ocppEnabled", "cableLocked", "enableIdleCurrent", "authorizationRequired", "ledMode", "dynamicChargerCurrent", "maxChargerCurrent"]
+    absent_rule: "Apply zero_when_absent only to those exact names. Missing voltage, cableRating, unknown fields and absent dynamic circuit fields remain unknown."
+    vectors:
+      dynamic_current_state: {hex: "00 41 01 01 00 08 58 20", expected: {field: 11, name: "dynamicChargerCurrent", value: 32, unit: "A"}}
+      config_phase_led: {hex: "00 40 01 01 00 0a 38 02 68 4b", expected: {phase_field: 7, phaseMode: 2, led_field: 13, ledStripBrightness: 75}}
+      command_accepted: '{"id":40,"code":1,"res":{"nws":3}}'
+      command_refused: '{"id":41,"code":0,"resultcode":0,"Comment":"command 41 not supported","res":{"nws":3}}'
+  control_policy:
+    required_before_current_write:
+      - "Poll Config/State and establish the lowest current allowed by circuit maxima (Config 8-10), charger max (Config 2), cable rating (State 2), existing dynamic limits and the owner's confirmed continuous-load rule."
+      - "Send only command 48 with the clamped whole-ampere value in [0,40]. The 40 is a serializer bound, not hardware qualification."
+      - "Require COMMAND code 1 and fresh State field 11 / Config as applicable. A refusal or a different readback is not success."
+    allowed_commands: [29, 40, 48, 96]
+    excluded:
+      installer: "Commands 21/22/24/47/50 and phase mode 38: fallback/dynamic/max circuit/charger limits, fuse and phase installation settings are not exposed."
+      provisioning_access: "Wi-Fi 7/53, local authorization/RFID 25/26/33/69/98/99/100/101/102 and cable lock 30 are excluded."
+      destructive_maintenance: "Reboot 1, self-test 16, factory reset 97, MID/display/maintenance operations and every firmware operation are excluded."
+      sensitive: "STRUCTURE is never polled; DEBUG has no named fields. Do not publish account/key material."
+      persistence: "Only command 48 temporary current is offered for power control. Do not replace it with persistent max-current writes."
+
+entities:
+  - platform: "switch"
+    name: "Charger Enabled"
+    commands:
+      turn_on: "set_charger_enabled"
+      turn_off: "set_charger_disabled"
+    notes: "Config field 1; absent means 0. Charger OpMode can remain Awaiting Start while disabled, so also inspect reasonForNoCurrent=53."
+  - platform: "number"
+    name: "Dynamic Charger Current"
+    min: 0
+    max: 40
+    step: 1
+    unit: "A"
+    commands:
+      set_value: "set_dynamic_charger_current"
+    notes: "Advanced temporary limit, State field 11. Clamp max dynamically to installation/cable/charger bounds before every send; 40 A is not a rating."
+  - platform: "number"
+    name: "LED Brightness"
+    min: 0
+    max: 100
+    step: 1
+    unit: "%"
+    commands:
+      set_value: "set_led_brightness"
+    notes: "Config field 13."
+  - platform: "button"
+    name: "Bluetooth Always-On"
+    commands:
+      press: "set_bt_always"
+    notes: "COMMAND 96 mode 3; confirm Config field 20=3. Not an OS pairing setting."
+  - platform: "button"
+    name: "Bluetooth Button-Only"
+    commands:
+      press: "set_bt_button_only"
+    notes: "COMMAND 96 mode 1; confirm Config field 20=1. Not an OS pairing setting."
+  - platform: "sensor"
+    name: "Charger Operating State"
+    notes: "State field 12 using payload_formats/protocol_details.telemetry.chargerOpMode; no fixed-offset binding because protobuf is schema-less."
+  - platform: "sensor"
+    name: "Charging Blocked By"
+    notes: "State field 5, a reason enum; preserve unknown values as unknown_N rather than inventing text."
+  - platform: "sensor"
+    name: "Total Power"
+    device_class: "power"
+    unit: "kW"
+    notes: "State field 18; absent means 0 only because it is in zero_when_absent."
+  - platform: "sensor"
+    name: "Session Energy"
+    device_class: "energy"
+    unit: "kWh"
+    notes: "State field 19."
+  - platform: "sensor"
+    name: "Lifetime Energy"
+    device_class: "energy"
+    unit: "kWh"
+    notes: "State field 3."
+  - platform: "sensor"
+    name: "Cable Rating"
+    device_class: "current"
+    unit: "A"
+    notes: "State field 2; absent is unknown, not zero."
+  - platform: "sensor"
+    name: "Current L1"
+    device_class: "current"
+    unit: "A"
+    notes: "State field 26; absent defaults to zero as captured."
+  - platform: "sensor"
+    name: "Current L2"
+    device_class: "current"
+    unit: "A"
+    notes: "State field 27."
+  - platform: "sensor"
+    name: "Current L3"
+    device_class: "current"
+    unit: "A"
+    notes: "State field 28."
+  - platform: "sensor"
+    name: "Voltage L1-N"
+    device_class: "voltage"
+    unit: "V"
+    notes: "State field 33; absent remains unknown."
+  - platform: "sensor"
+    name: "Voltage L2-N"
+    device_class: "voltage"
+    unit: "V"
+    notes: "State field 34."
+  - platform: "sensor"
+    name: "Voltage L3-N"
+    device_class: "voltage"
+    unit: "V"
+    notes: "State field 35."
+  - platform: "sensor"
+    name: "Dynamic Charger Current Reading"
+    device_class: "current"
+    unit: "A"
+    notes: "State field 11; absent means 0 (paused)."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "No image, entry or authenticity mechanism was investigated; no firmware control is offered."
+      enter:
+        how: "unknown"
+        notes: "The local BLE command set documented here contains no firmware entry or upload operation. Do not repurpose reboot/self-test as DFU."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+evidence:
+  documentation_review: >
+    parrel/easee-ble at bec7b061fc8199cd150dbb8bbce5ed5112145ede:
+    EC-JPAKE, AES-GCM record layer, command builders, schema-less protobuf,
+    captured frames and reference vectors. parrel/ha-easee-ble at
+    9973cec92660ecd791a9809eb06361bd5b535f1b: Charge Max model boundary,
+    one-connection behavior, proxy settings, controls and their readback.
+    Upstream reported 107 offline tests passing; those captured-byte tests are
+    evidence, not a new physical test here.
+  app_static_analysis: >
+    no.easee.apps.easee.users 3.1.1 (versionCode 22586) corroborates the
+    EC-JPAKE authentication family and offline local control. It was a partial
+    Flutter/AOT static review, not a charger session and not a source of owner
+    PINs, serials, account data or cloud calls.
+  open_questions: >
+    Exact Charge Max firmware/GATT tree and advertising shape; BlueZ versions
+    and proxy behavior; response fragmentation on other proxies; unknown
+    protobuf fields and schema changes; precise current clamp semantics under
+    every installation; other Easee models, factory reset, firmware and OCPP.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "parrel/easee-ble @ bec7b061fc8199cd150dbb8bbce5ed5112145ede"
+      url: "https://github.com/parrel/easee-ble/tree/bec7b061fc8199cd150dbb8bbce5ed5112145ede"
+      obtained_via: "Pinned public Git repository"
+      description: "Authentication, record layer, framing, commands, protobuf maps and captured-byte tests."
+    - type: "public_implementation"
+      artifact: "parrel/ha-easee-ble @ 9973cec92660ecd791a9809eb06361bd5b535f1b"
+      url: "https://github.com/parrel/ha-easee-ble/tree/9973cec92660ecd791a9809eb06361bd5b535f1b"
+      obtained_via: "Pinned public Git repository"
+      description: "Charge Max-only qualification, proxy and one-slot behavior, bounded controls and readback."
+    - type: "static_analysis"
+      artifact: "no.easee.apps.easee.users 3.1.1 (versionCode 22586)"
+      obtained_via: "Public app archive, 2026-11"
+      description: "Corroborates EC-JPAKE and local offline control only; no credentials or protocol test."
+
+remaining_unknowns:
+  - "No other Easee model, including Charge Max Eichrecht, Home, Charge/Core, Equalizer or another backplate, is qualified without a separate capture."
+  - "Real Charge Max advertisement/GATT properties and full read-only authenticated session; upstream captures are not this project's hardware test."
+  - "Direct BlueZ behavior by version and proxy notification fragmentation; active ESPHome proxy is the reported working route."
+  - "Unknown protobuf field meanings and future schema changes; absent unknowns must not be zero-filled."
+  - "Exact electrical-limit precedence across every installation/firmware; client-side clamping is mandatory and not a protective interlock."
+  - "Factory reset effect, installer operations, phase changes, RFID/Wi-Fi provisioning, OCPP, firmware image/entry/recovery and cloud schedules are deliberately unspecced."
+  - "The schema cannot execute EC-JPAKE/AES-GCM sessions or schema-less protobuf; protocol_handler and the supplied vectors are required."
+
+helpful_urls:
+  - title: "parrel/easee-ble"
+    url: "https://github.com/parrel/easee-ble/tree/bec7b061fc8199cd150dbb8bbce5ed5112145ede"
+    kind: "implementation"
+    description: "Pinned sans-I/O EC-JPAKE/AES-GCM client, protobuf and command maps, plus captured-byte/reference vectors."
+  - title: "parrel/ha-easee-ble"
+    url: "https://github.com/parrel/ha-easee-ble/tree/9973cec92660ecd791a9809eb06361bd5b535f1b"
+    kind: "implementation"
+    description: "Pinned Charge Max integration: setup, one-connection and proxy caveats, bounded controls and state readback."

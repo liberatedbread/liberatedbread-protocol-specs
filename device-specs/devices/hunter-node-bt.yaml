@@ -1,0 +1,564 @@
+# Hunter NODE-BT irrigation controllers — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: two pinned public implementations and their protocol documents,
+# vendor product/support pages, and static app review. No irrigation was run.
+
+device:
+  name: "Hunter NODE-BT (two-station core)"
+  manufacturer: "Hunter Industries"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against a controller by this project. The two-station core is
+      reported from jpmeijers' physical NODE-BT tests on controller firmware
+      2.2A, bootloader 1.00 and Bluetooth firmware 1.02, including manual
+      runs, stop, timed shutoff after disconnect and schedule readback.
+      One- and four-station compatibility and every write remain unverified
+      here. No owner PIN, address or serial is reproduced.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "irrigation"
+  type: "battery-irrigation-controller"
+  notes: >
+    Phone-direct BLE control of NODE-BT valve controllers, with owner-PIN
+    application authentication and no hub, Wi-Fi or cloud requirement. The
+    qualified core is two stations: state/config/log reads, bounded timed
+    starts, stored-program starts and stop-all. The legacy HunterBTT app and
+    device family are not covered.
+
+    Requests are compact UTF-8 JSON split into 20-byte writes; replies are
+    JSON fragments ended by NUL. The PIN packet transform is obfuscation, not
+    session encryption. Do not treat the Nordic UART UUID as permission to use
+    a generic unauthenticated NUS client.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/jpmeijers/home-assistant-hunter-node-bt"
+    license: "MIT"
+    notes: >
+      Two independent public clients agree on GATT, PIN transform and JSON
+      framing. jpmeijers' two-station hardware results are upstream evidence,
+      not this project's verification.
+
+  identification:
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    notes: >
+      Filter on the advertised message service, not a cached address or an
+      assumed fixed name. Advertisements can be intermittent; rediscover on
+      each bounded connection attempt.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        notes: "Connect using the current scan result. Do not reuse a stale address after a timeout."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: "Address persistence is not established; rediscovery is authoritative. Serials and owner names are diagnostics to redact."
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      There is nothing to provision on a network. Application authentication
+      is separate: the client needs the controller's four-digit owner PIN and
+      must authenticate on every connection. An unconfigured controller uses
+      numeric PIN 0 (entered as 0000). Confidence is high because the public
+      implementation ran this flow on a two-station unit; this project did not.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Discover, connect, subscribe to PIN and message responses, then
+          authenticate. Run one JSON transaction at a time and disconnect
+          when idle to reduce contention and battery use.
+        ble:
+          service_uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+          write_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          read_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          pairing_required: false
+          pin_source: "user_chosen"
+        issues_credentials:
+          pin:
+            user_entered: true
+            notes: "The controller's four-digit owner PIN. Default numeric 0 when no user passcode was set; do not log the PIN or challenge response."
+        steps:
+          - action: "Obtain the owner PIN from the controller's existing owner; use 0000 only if no passcode was configured."
+            actor: "user"
+          - action: "Perform a fresh service-filtered scan and connect to the current result within 15 seconds."
+            actor: "client"
+            timeout_seconds: 15
+          - action: "Enable indications on the message response and notifications on the PIN characteristic."
+            actor: "client"
+          - action: "Write PIN login request ad 00 00 00 00 00 00 without response."
+            actor: "client"
+            expect: "A six-byte type-2 challenge arrives within 15 seconds."
+            timeout_seconds: 15
+          - action: "Copy the random challenge and set response = numeric_pin XOR random, then apply the nonzero-byte transform and write type 3 without response."
+            actor: "client"
+            expect: "Type 4 with result 0 accepts. Any nonzero result, malformed packet or timeout is an authentication failure, not permission to issue JSON."
+            timeout_seconds: 15
+          - action: "Read All for configuration and Section_State separately for live state, then disconnect when finished."
+            actor: "client"
+        timing:
+          connect_timeout_seconds: 15
+          pin_timeout_seconds: 15
+          transaction_rule: "One request/response at a time under a per-controller lock; bound retries and rediscover."
+        troubleshooting:
+          - symptom: "No advertisement or a cached-address connection times out."
+            causes:
+              - "Advertisements are intermittent. Repeat a fresh service-filtered scan with bounded retries."
+              - "The vendor app or another integration holds the controller. Close it and serialize access."
+          - symptom: "Authentication succeeds but a later session fails."
+            causes:
+              - "Two overlapping client sessions. Share one connection lock across polling, writes and integration reloads."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. The app contains a factory-reset request, but its
+        effect on schedules, PIN, logs and other configuration was deliberately
+        not tested by the source and is not offered as a safe procedure here.
+      description: >
+        Do not send HunterCustom.FactoryReset as an onboarding step. A normal
+        client migration needs only the existing owner PIN and must not erase
+        irrigation configuration.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        NODE-BT has no Wi-Fi membership or OS bond. A new central needs the
+        same owner PIN and a fresh advertisement; close the old central first.
+      steps:
+        - action: "Close the previous app/client, rediscover by message-service UUID, and repeat PIN authentication."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Owner-selected four-digit PIN (numeric 0 by default)"
+        - "Programs, station names, controller clock, logs and sensor settings"
+      issued_to_client: []
+      notes: >
+        The owner supplies the PIN; the device issues no session token. Keep
+        it in the client's secret store. The PIN response is reversible
+        obfuscation, so protect logs as if they contained the PIN.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      length: 4
+      notes: "Four decimal digits in the UI, stored numerically as uint16 LE. Unconfigured units use numeric 0 (0000)."
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Close the official app and other integrations, rediscover, and authenticate again. No OS pairing/bond is involved."
+      notes: "Overlapping app/integration sessions caused authentication and response timeouts upstream; enforce a per-controller lock."
+    enter_pairing_mode:
+      required: false
+      notes: "The controller advertises for ordinary BLE connections; PIN authentication follows the connection and subscriptions."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "There is no OS bond to remove. PIN change exists in the app protocol but wrong-PIN and PIN-change behavior were not tested and are not specified here."
+    notes: >
+      No operating-system pairing or bonding was needed on the tested
+      two-station controller. Security is the application PIN exchange in
+      protocol_details.pin_authentication, not encrypted JSON.
+
+  variants:
+    - model: "NODE-BT-200"
+      station_count: 2
+      notes: "The only hardware-qualified model/firmware family in the public source: controller 2.2A, bootloader 1.00, Bluetooth 1.02."
+    - model: "NODE-BT-100"
+      station_count: 1
+      notes: "Product model listed by Hunter, with solenoid. Protocol compatibility is not established here."
+    - model: "NODE-BT-100-LS"
+      station_count: 1
+      notes: "Less-solenoid retail variant; unverified."
+    - model: "NODE-BT-100-VALVE"
+      station_count: 1
+      notes: "PGV valve assembly variant; unverified."
+    - model: "NODE-BT-400"
+      station_count: 4
+      notes: "Product model listed by Hunter. The firmware can return four station objects even on a two-station unit; use Controller.StationCount, not array length or model guesses."
+
+protocol_handler: "hunter_node_bt_json_nus"
+
+initialization:
+  - characteristic: "4c9dbe52-3566-4dfc-a299-4ea1353970e2"
+    subscribe: true
+    notes: "Enable before the PIN login request. Retain only the expected six-byte packet at each step."
+  - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    subscribe: true
+    notes: "Enable indications before authentication; accumulate one JSON response through its first NUL."
+  - characteristic: "4c9dbe52-3566-4dfc-a299-4ea1353970e2"
+    description: "Run protocol_details.pin_authentication before every application transaction. This is a per-connection app-layer login, not BLE pairing."
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Message service (advertised)"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Message request"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Acknowledged writes on the tested controller. Serialize compact
+          UTF-8 JSON with no spaces and split it into consecutive writes of at
+          most 20 bytes. There is no request checksum, sequence number or NUL
+          after the last chunk. Use top-level commands; the dedicated handler
+          applies this fragmenter.
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Message response"
+        properties: ["read", "indicate"]
+        role: "notify"
+        notes: >
+          Accumulate bytes until the first 00, then require exactly one JSON
+          object and no trailing non-NUL data. Cap a response at 65536 bytes
+          including terminator as a client resource limit. Write responses are
+          {"Status":0}; only zero is known success.
+  - uuid: "0ed3e3d3-8cd8-4f29-8fec-a7d3a2c5443e"
+    name: "PIN authentication"
+    characteristics:
+      - uuid: "4c9dbe52-3566-4dfc-a299-4ea1353970e2"
+        name: "PIN challenge/response"
+        properties: ["read", "write_without_response", "notify"]
+        notes: "Six-byte packets with the nonzero-byte transform in protocol_details.pin_authentication. Writes are without response."
+      - uuid: "5ddbae59-d9d1-40ed-8023-7b6ae95b04e6"
+        name: "Secondary PIN characteristic (role unknown)"
+        properties: ["read", "notify"]
+        notes: "Enumerated upstream but unused by the normal login flow; do not write it."
+
+commands:
+  read_all:
+    description: "Read full stored configuration. Tested firmware 2.2A does not include live State, so also call read_state."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Read":"All"}'
+    verification: "reported"
+  read_controller:
+    description: "Read controller settings, including StationCount, CurrentTime, SeasonAdjust and clock/date fields."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Read":"Section_Controller"}'
+    verification: "reported"
+  read_state:
+    description: "Read live controller/station state separately; do not infer it from Read All."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Read":"Section_State"}'
+    verification: "reported"
+  read_sensor:
+    description: "Read battery and moisture sensor fields."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Read":"Section_Sensor"}'
+    verification: "reported"
+  read_log:
+    description: "Read controller event log entries. Full 255-entry download was not exercised upstream."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Read":"Log"}'
+    verification: "reported"
+  read_last_run:
+    description: "Read the most recent LastRun record, a top-level object with StartEvent, StartTime, Station, RunTime and StopEvent."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Read":"LastRun"}'
+    verification: "reported"
+  start_station_1:
+    description: "Start one-based station 1 for a bounded number of seconds. The controller owns the timer after disconnect."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Manual":{"StationNumber":1,"RunTime":{seconds}}}'
+    parameters:
+      seconds: &runtime_seconds
+        type: "integer"
+        required: true
+        default: 60
+        min: 1
+        max: 300
+        unit: "s"
+        description: "Positive finite run time. 300 s is a client safety bound, not a discovered device maximum."
+    advanced: true
+    advanced_reason: "Opens a physical irrigation valve. Confirm station mapping and duration. If the acknowledgement is lost after transmission, read live state before deciding anything; never blindly repeat the start. Stop-all is available and the controller closes at the deadline even after disconnect."
+    verification: "reported"
+  start_station_2:
+    description: "Start one-based station 2 for a bounded number of seconds, with the same rules as station 1."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Manual":{"StationNumber":2,"RunTime":{seconds}}}'
+    parameters:
+      seconds: *runtime_seconds
+    advanced: true
+    advanced_reason: "Opens a physical irrigation valve. Confirm station mapping and duration; inspect live state after an ambiguous acknowledgement instead of retransmitting. Stop-all or the controller's own deadline ends the run."
+    verification: "reported"
+  run_program_a:
+    description: "Run stored Program A manually. App-derived, not run by this project."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Manual":{"ProgramLetter":"A"}}'
+    advanced: true
+    advanced_reason: "Starts every enabled station in stored Program A. Verify its starts and runtimes first; stop-all ends the manual run."
+    verification: "reported"
+  run_program_b:
+    description: "Run stored Program B manually. App-derived, not run by this project."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Manual":{"ProgramLetter":"B"}}'
+    advanced: true
+    advanced_reason: "Starts every enabled station in stored Program B. Verify its starts and runtimes first; stop-all ends the manual run."
+    verification: "reported"
+  run_program_c:
+    description: "Run stored Program C manually. App-derived, not run by this project."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Manual":{"ProgramLetter":"C"}}'
+    advanced: true
+    advanced_reason: "Starts every enabled station in stored Program C. Verify its starts and runtimes first; stop-all ends the manual run."
+    verification: "reported"
+  stop_all:
+    description: "Stop all stations. Tested on the two-station controller; safe to send without cached state."
+    characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    body: '{"Manual":{"StopAll":true}}'
+    verification: "reported"
+
+payload_formats:
+  PIN_Packet:
+    description: "Six-byte little-endian authentication packet, transformed bytewise before transmission and after reception."
+    fields:
+      - {name: "packet_type", offset: 0, length: 1, type: "uint8", values: {"0": "none", "1": "login_request", "2": "login_challenge", "3": "login_response", "4": "login_result", "5": "change_pin_request", "6": "change_pin_challenge", "7": "change_pin_response", "8": "change_pin_result"}}
+      - {name: "result", offset: 1, length: 1, type: "uint8", notes: "Only zero is known success."}
+      - {name: "random_challenge", offset: 2, length: 2, type: "uint16", endianness: "little"}
+      - {name: "pin_response", offset: 4, length: 2, type: "uint16", endianness: "little", notes: "numeric PIN XOR random challenge for login type 3."}
+    parse_rules:
+      - "transform(byte) = byte XOR 0xac when byte != 0, otherwise 0. Apply independently to all six bytes in both directions; this is not ordinary XOR because zero stays zero."
+      - "Login request plaintext is 01 00 00 00 00 00. Challenge is type 2. Response is type 3 with the same random and pin_response = pin XOR random. Result type 4 with result 0 accepts."
+      - "Require exactly six bytes and the expected packet type at each step. Discard unsolicited packets rather than queueing them for a later exchange."
+    example: "PIN 0 / challenge 0x1234 response plaintext 03 00 34 12 34 12 becomes af 00 98 be 98 be on the wire."
+  JSON_Response:
+    description: "One response object terminated by the first NUL; request chunks have no terminator."
+    parse_rules:
+      - "Append raw indication fragments until byte 00. Limit accumulated input to 65536 bytes including the terminator and reject overflow."
+      - "Decode UTF-8 strictly and parse one JSON object. Reject malformed JSON, trailing bytes after NUL, embedded NUL before the object ends, arrays/scalars and nonzero write Status."
+      - "The vendor app drops an identical fragment repeated within 100 ms and clears a partial buffer if a new fragment starts with '{'. Those are defensive behaviors, not established firmware requirements."
+      - "A start acknowledgement can be lost after the valve command was accepted. Read Section_State before any retry; never blind-retry watering."
+    example: "7b 22 53 74 61 74 75 73 22 3a 30 7d 00 = {\"Status\":0} NUL."
+  Read_All_Response:
+    description: "Stored configuration; on firmware 2.2A it omits State."
+    fields:
+      - {name: "Controller.StationCount", type: "integer", description: "Physical station count; expose only these stations even if Station_1..Station_4 and four runtimes exist."}
+      - {name: "Controller.CurrentTime", type: "integer", unit: "s", description: "Local wall-clock fields encoded as seconds since naive 1970-01-01, not a UTC Unix timestamp."}
+      - {name: "Controller.SeasonAdjust", type: "integer", unit: "%"}
+      - {name: "Controller.SeasonAdjustByMonth", type: "array", description: "Twelve monthly percentages."}
+      - {name: "Controller.StationDelay", type: "integer", unit: "s"}
+      - {name: "Controller.ManualRunTime", type: "integer", unit: "s"}
+      - {name: "Sensor.Battery", type: "integer", unit: "%"}
+      - {name: "Sensor.MoistureSensor", type: "integer", unit: "%"}
+      - {name: "Sensor.MoistureADC", type: "integer", description: "Raw ADC count, no physical unit established."}
+      - {name: "Program_A/B/C", type: "object", description: "Three resident program objects; preserve every field not being edited."}
+  State_Response:
+    description: "Separate live-state response required because Read All omits it on the tested firmware."
+    fields:
+      - {name: "State.ControllerState", type: "integer", values: {"0": "idle", "1": "manual_station", "2": "system_off", "3": "programmable_off", "4": "rain_off", "5": "rain_delay", "6": "soil_off", "7": "program_a", "8": "program_b", "9": "program_c", "10": "manual_all", "11": "manual_a", "12": "manual_b", "13": "manual_c"}}
+      - {name: "State.NextWaterTime", type: "integer", unit: "min", description: "Minutes after local midnight; 810 = 13:30."}
+      - {name: "State.DailyRunTime", type: "integer", unit: "s", description: "Counter, not the sum of configured program durations."}
+      - {name: "State.Station_N.State", type: "integer", values: {"0": "idle", "1": "waiting", "2": "suspended", "3": "running", "4": "soaking", "5": "delay", "6": "complete"}}
+      - {name: "State.Station_N.Remaining", type: "integer", unit: "s"}
+  LastRun_Response:
+    description: "Top-level record, not wrapped in LastRun. Event/timestamp semantics beyond one captured scheduled run remain open."
+    fields:
+      - {name: "StartEvent", type: "integer", notes: "Value 2 accompanied Program B in the capture; other meanings unverified."}
+      - {name: "StartTime", type: "integer", unit: "s", notes: "Was 31 seconds after programmed start in the capture; do not assume exact start instant or ordinary UTC conversion."}
+      - {name: "Station", type: "integer", description: "One-based station."}
+      - {name: "RunTime", type: "integer", unit: "s"}
+      - {name: "StopEvent", type: "integer", notes: "Value 1 accompanied a completed run in the capture."}
+  Log_Response:
+    description: "App-derived entries with numeric Time and integer Event list; full log retrieval was not performed."
+    fields:
+      - {name: "Time", type: "integer", unit: "s", notes: "Exact timestamp semantics unverified."}
+      - {name: "Event", type: "array", description: "Integer event codes; preserve unknown codes."}
+
+protocol_details:
+  pin_authentication:
+    transform: "For every byte b, emit b ^ 0xac if b != 0 else 0. The same operation decodes."
+    sequence:
+      - "Write type 1 plaintext 01 00 00 00 00 00; wire ad 00 00 00 00 00 00."
+      - "Read type 2 and decode its random uint16 LE challenge."
+      - "Write type 3 with the same random and uint16 LE (numeric_pin XOR random), transformed again."
+      - "Read type 4 and require result 0. Other result meanings are unknown; fail rather than sending application messages."
+    security: "Reversible obfuscation only; it does not encrypt the JSON session or prove a captured response safe to publish."
+    test_vectors:
+      login_request: {plain: "01 00 00 00 00 00", wire: "ad 00 00 00 00 00 00"}
+      challenge_0x1234: {plain: "02 00 34 12 00 00", wire: "ae 00 98 be 00 00"}
+      response_pin_0_challenge_0x1234: {plain: "03 00 34 12 34 12", wire: "af 00 98 be 98 be"}
+      response_pin_1234_challenge_0x1234: {plain: "03 00 34 12 e6 16", wire: "af 00 98 be 4a ba"}
+      success: {plain: "04 00 00 00 00 00", wire: "a8 00 00 00 00 00"}
+  json_fragmentation:
+    request: "json.dumps(object, separators=(',', ':'), ensure_ascii=False), UTF-8 encode, split every 20 bytes, no trailing NUL. Multi-byte UTF-8 characters may cross writes; split bytes, not characters."
+    response: "Collect raw bytes through first NUL, cap 65536 including NUL, require one object. One transaction at a time."
+    examples:
+      start_station_1_60_seconds: '{"Manual":{"StationNumber":1,"RunTime":60}}'
+      stop_all: '{"Manual":{"StopAll":true}}'
+      read_state: '{"Read":"Section_State"}'
+  schedules:
+    program_fields:
+      Name: "UTF-8 display name; cap new names at 14 UTF-8 bytes because tested firmware truncated longer values despite Status 0. Non-ASCII behavior is unverified."
+      ScheduleType: {values: {"0": "weekdays", "1": "odd_even_dates", "2": "interval"}}
+      ScheduleDays: "Type 0: low seven bits Monday..Sunday (1,2,4,8,16,32,64), 127 every day. Type 1: <256 odd, >=256 even."
+      IntervalDayCount: "Days in type-2 interval."
+      IntervalDayNext: "Next interval run at local midnight, but the app uses a timezone-aware Unix conversion here, unlike CurrentTime. Do not write without model-specific validation."
+      StartTimes: "Exactly eight entries in the stored form, minutes after local midnight; 65535 disables. Enabled values are sorted/compacted by the controller and are not persistent slot identities."
+      RunTime: "Per-station seconds, indexed from station 1. Preserve the array shape returned by that controller; tested firmware used four entries even with two physical stations."
+    runnable_rule: "A program is non-runnable if all eight StartTimes are 65535 OR all RunTime entries sum to zero; there is no separate enabled boolean."
+    read_modify_verify:
+      - "Under one per-controller lock, Read All and save the complete original program, including unknown fields and array shapes."
+      - "Validate one-based physical stations against Controller.StationCount. Reject duplicate start times because execution is unverified; sort enabled starts and pad to eight 65535 entries."
+      - "Send a narrow patch containing only intended fields. NEVER put StartTimes and RunTime in one write. The tested firmware acknowledged a combined clear/write but returned two midnight starts instead of eight disabled entries."
+      - "When replacing both arrays, first write RunTime zeros and verify, then edit StartTimes/days/name and verify, then write desired RunTime in a separate transaction and verify. Finish well before the next scheduled start."
+      - "Require JSON Status exactly integer 0, then Read All again and compare the complete expected merged object, including unchanged/unknown fields. Nonzero, missing or malformed status is failure."
+      - "A lost ack or failed readback is UNVERIFIED, not failure and not success. Refresh before deciding whether to retry; keep the prewrite backup and do not auto-rollback over newer edits."
+    combined_write_defect:
+      evidence: "Reported on two-station firmware 2.2A by jpmeijers on 2026-09-08. A full object restoring disabled starts and zero runtimes returned two 0 (midnight) starts; a separate narrow StartTimes clear worked."
+      rule: "Reject any schedule write that contains both StartTimes and RunTime, even if a complete-object write previously appeared to work."
+    examples:
+      start_patch: '{"Program_A":{"StartTimes":[810,65535,65535,65535,65535,65535,65535,65535]}}'
+      runtime_patch: '{"Program_A":{"RunTime":[180,60,0,0]}}'
+      disable_runtimes_first: '{"Program_B":{"RunTime":[0,0,0,0]}}'
+      disable_starts_second: '{"Program_B":{"StartTimes":[65535,65535,65535,65535,65535,65535,65535,65535]}}'
+  clock:
+    current_time: "Encode the controller's local calendar fields as floor(local_wall_datetime - naive 1970-01-01 00:00:00), clamped to >=0. Example 2026-09-08 19:21:00 local = 1788895260, NOT the true UTC timestamp 1788888060 at UTC+2."
+    rule: "Use the configured controller timezone explicitly, never the host/container timezone implicitly. Read back after writing. A correction across a scheduled start, DST transitions and power-loss persistence are unverified."
+    other_dates: "ProgrammableDaysOff and BatteryChangeDate use the same naive wall-clock helper. IntervalDayNext uses a different timezone-aware conversion in the app. LastRun/log/device-generated dates need separate validation."
+  connection:
+    duplicate_fragments: "Optionally drop a byte-identical response fragment repeated within 100 ms; never treat duplicate suppression as protocol framing."
+    disconnect: "Timed watering continues after disconnect and the controller closes at the deadline. Disconnect when idle and poll sparingly because the controller is battery powered."
+    ambiguity: "After a transmitted start times out, read Section_State; do not retransmit until observed state proves no run was accepted."
+
+entities:
+  - platform: "button"
+    name: "Start Station 1 (timed)"
+    commands:
+      press: "start_station_1"
+    notes: "Duration parameter defaults to 60 s and is capped at 300 s as client policy; command is advanced."
+  - platform: "button"
+    name: "Start Station 2 (timed)"
+    commands:
+      press: "start_station_2"
+    notes: "Duration parameter defaults to 60 s and is capped at 300 s as client policy; command is advanced."
+  - platform: "button"
+    name: "Stop All Stations"
+    commands:
+      press: "stop_all"
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_command: "read_all"
+    state_mapping:
+      value: "Sensor.Battery"
+  - platform: "sensor"
+    name: "Controller State"
+    state_command: "read_state"
+    state_mapping:
+      value: "State.ControllerState"
+    notes: "Enum in payload_formats.State_Response; only idle was captured directly, other labels are app-derived."
+  - platform: "sensor"
+    name: "Next Water Time"
+    unit: "min"
+    state_command: "read_state"
+    state_mapping:
+      value: "State.NextWaterTime"
+    notes: "Minutes after local midnight, not a timestamp."
+  - platform: "sensor"
+    name: "Daily Run Time"
+    unit: "s"
+    state_command: "read_state"
+    state_mapping:
+      value: "State.DailyRunTime"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: "Hunter support says files can be downloaded on demand and deployed onsite. No image was fetched or inspected."
+      enter:
+        how: "unknown"
+        notes: "Controller, bootloader and Bluetooth OTA services were enumerated only. No update or bootloader write is specified."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+evidence:
+  documentation_review: >
+    jpmeijers/home-assistant-hunter-node-bt at
+    2d5460d1218c642c4dc169f42af22f67d5554bac: protocol document, fixtures,
+    two-station hardware results and schedule defect report.
+    filipejrcorreia/hunter-node-bt at
+    bc24f23119bc1642e723ae000b7029b854d60117 supplies an independent client
+    and schedule/settings cross-check. Hunter's product page establishes the
+    five model names and Bluetooth 5.0 BLE; its support page establishes
+    offline schedule editing and on-demand firmware downloads.
+  app_static_analysis: >
+    com.hunter.nodev2 6.0.611246 (versionCode 611246) was reviewed without
+    running it. Its base APK SHA-256 exactly matches the binary analyzed in
+    the public protocol document. Derived UUIDs, PIN transform, JSON messages
+    and clock behavior are reported, never hardware-confirmed by this project.
+  open_questions: >
+    One-/four-station units and other firmware; non-default/wrong PIN,
+    nonzero statuses, address rotation and live enum values; proxy operation,
+    polling cost, interval-date/log/LastRun timestamp semantics, factory reset
+    and OTA. The exact firmware cause of the combined schedule-write defect
+    is unknown, so the prohibition is categorical.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "jpmeijers/home-assistant-hunter-node-bt @ 2d5460d1218c642c4dc169f42af22f67d5554bac"
+      url: "https://github.com/jpmeijers/home-assistant-hunter-node-bt/tree/2d5460d1218c642c4dc169f42af22f67d5554bac"
+      obtained_via: "Pinned public Git repository"
+      description: "Primary two-station protocol, hardware observations, fixtures and schedule defect."
+    - type: "public_implementation"
+      artifact: "filipejrcorreia/hunter-node-bt @ bc24f23119bc1642e723ae000b7029b854d60117"
+      url: "https://github.com/filipejrcorreia/hunter-node-bt/tree/bc24f23119bc1642e723ae000b7029b854d60117"
+      obtained_via: "Pinned public Git repository"
+      description: "Independent client and settings/schedule cross-check."
+    - type: "static_analysis"
+      artifact: "com.hunter.nodev2 6.0.611246 (versionCode 611246), base APK"
+      sha256: "748773ccb6aeb61518f279206b6e706ebfbf1377f68154730b68d7b73d982a2d"
+      obtained_via: "Public app archive, 2026-11"
+      description: "Cross-checks protocol constants and command shapes; no internal symbols are carried into the spec."
+
+remaining_unknowns:
+  - "NODE-BT-100/100-LS/100-VALVE and NODE-BT-400 behavior is unverified; only NODE-BT-200 on the cited firmware is qualified."
+  - "Wrong/non-default PIN results, PIN change, address rotation, nonzero Status values and most non-idle state captures."
+  - "Factory-reset procedure/effect and all OTA entry, image and recovery behavior; no destructive write is supplied."
+  - "ESPHome proxy support, safe polling cadence and connection contention beyond a shared lock/fresh discovery."
+  - "IntervalDayNext conversion, LastRun/log timestamps, DailyRunTime accounting, suspension expiry and clock jumps/DST."
+  - "Program T/run-all and manual program behavior beyond the app-derived fixed commands; cycle/soak and master-valve behavior."
+  - "The schema cannot express the PIN exchange, JSON fragment reassembly or schedule transaction guard; a dedicated handler is required."
+
+helpful_urls:
+  - title: "Hunter NODE-BT product and model page"
+    url: "https://www.hunterindustries.com/irrigation-product/controllers/node-bt"
+    kind: "vendor_support"
+    description: "Official NODE-BT-100/100-LS/100-VALVE/200/400 model list and Bluetooth 5.0 BLE specifications."
+  - title: "Hunter NODE-BT installation and app support"
+    url: "https://hunter.direct/nodebthelp"
+    kind: "vendor_support"
+    description: "Official connection, offline schedule, manual operation, clock, sensor and firmware-update guidance."
+  - title: "Hunter US catalog, NODE-BT models on catalog page 116 (PDF)"
+    url: "https://d7.hunterindustries.com/sites/default/files/Hunter_Catalog_US.pdf"
+    kind: "manual"
+    description: "Official 2021 Hunter catalog covering NODE-BT-100, 100-LS, 100-VALVE, 200 and 400, valve assemblies and Bluetooth specifications."
+  - title: "jpmeijers/home-assistant-hunter-node-bt"
+    url: "https://github.com/jpmeijers/home-assistant-hunter-node-bt/tree/2d5460d1218c642c4dc169f42af22f67d5554bac"
+    kind: "implementation"
+    description: "Primary two-station protocol, fixtures, timed operations and the combined schedule-write defect."
+  - title: "filipejrcorreia/hunter-node-bt"
+    url: "https://github.com/filipejrcorreia/hunter-node-bt/tree/bc24f23119bc1642e723ae000b7029b854d60117"
+    kind: "implementation"
+    description: "Independent NODE-BT client and schedule/settings implementation."
