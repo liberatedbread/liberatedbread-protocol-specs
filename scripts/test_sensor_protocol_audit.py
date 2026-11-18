@@ -292,7 +292,17 @@ def test_tuya_soil_protocol_specific_gatt_and_sgs01b_boundary():
     assert "A201" in manual_discovery
     assert "0x07D0" in manual_discovery
     assert "Neither is an advertised GATT service UUID" in manual_discovery
-    assert "service_uuids" not in document["device"]["identification"]
+    identification = document["device"]["identification"]
+    assert set(identification) == {"notes"}
+    for invisible_matcher in (
+        "manufacturer_data",
+        "service_uuids",
+        "local_name_prefix",
+        "local_name_prefixes",
+        "local_names",
+    ):
+        assert invisible_matcher not in identification
+    assert "No manufacturer, service or local-name matcher" in identification["notes"]
 
     advertising = document["protocol_details"]["tuya_ble_protocol"]["advertising"]
     assert advertising["classic_le_3"]["service_data_uuid"] == "0xA201"
