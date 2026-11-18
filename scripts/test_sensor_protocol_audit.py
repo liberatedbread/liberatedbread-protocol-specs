@@ -7,6 +7,8 @@ import math
 import struct
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -254,3 +256,139 @@ def test_pvvx_custom_widths_and_vector_without_losing_newer_firmware_facts():
     assert "release 5.9" in text
     assert "Telink Flasher" in text
     assert "12 bytes for MiBeacon v2/v3" in text
+
+
+def test_tuya_soil_protocol_specific_gatt_and_sgs01b_boundary():
+    document = yaml.safe_load(spec("tuya-bt-soil-tester"))
+    assert document["device"]["integration"] == "identify_only"
+    assert document["device"]["testing"]["status"] == "untested"
+    services = {service["uuid"]: service for service in document["services"]}
+    assert set(services) == {
+        "00001910-0000-1000-8000-00805f9b34fb",
+        "0000fd50-0000-1000-8000-00805f9b34fb",
+    }
+
+    def characteristic_ids(service):
+        return {item["uuid"] for item in service["characteristics"]}
+
+    legacy = services["00001910-0000-1000-8000-00805f9b34fb"]
+    current = services["0000fd50-0000-1000-8000-00805f9b34fb"]
+    assert characteristic_ids(legacy) == {
+        "00002b11-0000-1000-8000-00805f9b34fb",
+        "00002b10-0000-1000-8000-00805f9b34fb",
+    }
+    assert characteristic_ids(current) == {
+        "00000001-0000-1001-8001-00805f9b07d0",
+        "00000002-0000-1001-8001-00805f9b07d0",
+    }
+    for characteristic in current["characteristics"]:
+        assert "commands" not in characteristic
+
+    discovery = document["device"]["discovery"]
+    assert "methods" not in discovery
+    manual_discovery = " ".join(discovery["none"].split())
+    assert "Manual selection is required" in manual_discovery
+    assert "FD50 service data" in manual_discovery
+    assert "A201" in manual_discovery
+    assert "0x07D0" in manual_discovery
+    assert "Neither is an advertised GATT service UUID" in manual_discovery
+    identification = document["device"]["identification"]
+    assert set(identification) == {"notes"}
+    for invisible_matcher in (
+        "manufacturer_data",
+        "service_uuids",
+        "local_name_prefix",
+        "local_name_prefixes",
+        "local_names",
+    ):
+        assert invisible_matcher not in identification
+    assert "No manufacturer, service or local-name matcher" in identification["notes"]
+
+    advertising = document["protocol_details"]["tuya_ble_protocol"]["advertising"]
+    assert advertising["classic_le_3"]["service_data_uuid"] == "0xA201"
+    assert advertising["protocol_4"]["service_data_uuid"] == "0xFD50"
+    assert advertising["manufacturer_company_id"] == "0x07D0 (Tuya)"
+    assert advertising["service_data_matching_supported"] is False
+    assert "FD50 before the classic fallback" in advertising["protocol_4"]["role"]
+
+    mappings = document["protocol_details"]["tuya_ble_protocol"]["gatt"]
+    assert mappings["protocol_le_3"] == {
+        "service": "0x1910",
+        "write_characteristic": "0x2B11",
+        "notify_characteristic": "0x2B10",
+    }
+    assert mappings["protocol_4"] == {
+        "service": "0xFD50",
+        "write_characteristic": "00000001-0000-1001-8001-00805f9b07d0",
+        "notify_characteristic": "00000002-0000-1001-8001-00805f9b07d0",
+    }
+    ota_notes = document["features"][0]["dfu"]["enter"]["notes"]
+    assert "0x2B11 within service 0x1910" in ota_notes
+    assert "00000001-0000-1001-8001-00805f9b07d0" in ota_notes
+    assert "exact OTA exchange is not established" in " ".join(ota_notes.split())
+
+    variants = {
+        variant["identification"]["product_id"]: variant
+        for variant in document["device"]["variants"]
+        if "identification" in variant
+    }
+    sgs01b = variants["gpkyrocn"]
+    sgs01b_notes = " ".join(sgs01b["notes"].split())
+    assert "BTU" in sgs01b_notes
+    assert "TLSR8250" in sgs01b_notes
+    assert "V1.1Pre2 development image" in sgs01b_notes
+    assert "not a production-ready release" in sgs01b_notes
+    assert "per-model reported boundary" in sgs01b_notes
+    assert "NOT support" not in sgs01b["notes"]
+
+    page = doc("tuya-bt-soil-tester")
+    assert "`gpkyrocn`" in page
+    assert "Tuya BTU" in page
+    assert "V1.1Pre2 development image" in page
+    assert "not production-ready" in page
+    assert "it does NOT support the 2026 SGS01B" not in page
+    for uuid in (
+        "00001910-0000-1000-8000-00805f9b34fb",
+        "00002b11-0000-1000-8000-00805f9b34fb",
+        "00002b10-0000-1000-8000-00805f9b34fb",
+        "0000fd50-0000-1000-8000-00805f9b34fb",
+        "00000001-0000-1001-8001-00805f9b07d0",
+        "00000002-0000-1001-8001-00805f9b07d0",
+    ):
+        assert uuid in page
+
+
+def test_tuya_soil_fd50_evidence_has_no_invisible_service_data_matcher():
+    document = yaml.safe_load(spec("tuya-bt-soil-tester"))
+    schema = yaml.safe_load((ROOT / "device-specs" / "schema.json").read_text())
+    branches = schema["properties"]["device"]["properties"]["discovery"][
+        "properties"
+    ]["methods"]["items"]["oneOf"]
+    ble_branch = next(
+        branch
+        for branch in branches
+        if branch["properties"]["type"].get("const") == "ble_scan"
+    )
+    matcher_keys = set(ble_branch["properties"]["ble"]["properties"])
+    assert "service_data" not in matcher_keys
+    assert {"local_name", "service_uuids", "manufacturer_data"} <= matcher_keys
+
+    def assert_no_invisible_key(node, path="device.discovery"):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert key != "service_data", f"invisible matcher at {path}.{key}"
+                assert_no_invisible_key(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                assert_no_invisible_key(value, f"{path}[{index}]")
+
+    assert_no_invisible_key(document["device"]["discovery"])
+    assert "methods" not in document["device"]["discovery"]
+    advertising = document["protocol_details"]["tuya_ble_protocol"]["advertising"]
+    assert advertising["protocol_4"]["service_data_uuid"] == "0xFD50"
+    assert advertising["classic_le_3"]["service_data_uuid"] == "0xA201"
+    page = " ".join(doc("tuya-bt-soil-tester").split())
+    assert "Manual product selection is required" in page
+    assert "`0xFD50` service data for protocol 4" in page
+    assert "falls back to `0xA201` for classic ≤3" in page
+    assert "Discovery requires service data" not in page

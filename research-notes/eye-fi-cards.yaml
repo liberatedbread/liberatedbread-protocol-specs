@@ -35,7 +35,7 @@ credentials:
   x2_start_session: MD5_bytes(mac + cnonce + upload_key)
   x2_photo_status: MD5_bytes(mac + upload_key + snonce)
   reviewed_mobi_placeholder: 32 ASCII zeroes, decoded as 16 zero bytes
-  mobi_pro_infrastructure: real upload key may replace placeholder; export from configured card token 0xfd
+  mobi_pro_infrastructure: real existing key may replace placeholder; direct o 0xfd only on Mobi Pro 5.3008 (or X2 5.2010/5.2011 for X2), never generic SetToken
   test_vectors:
     mac: "00005e005301"
     cnonce: "0102030405060708090a0b0c0d0e0f10"
@@ -81,14 +81,18 @@ direct_mode:
   reset_card_upload_key_creation: unsolved
 
 configuration:
+  verification: reported
   channel: mounted FAT EyeFi/reqm, reqc, rspm, rspc records
   buffer_bytes: 16384
   padding: zero
   information_request: ASCII o + one-byte subcommand
-  one_byte_write: ASCII O + subcommand + 01 + value
+  one_byte_write: ASCII O + subcommand + 01 + value; shape only, not generic SetToken evidence
   sequence:
-    seed_if_zero: 0x1234
+    reseed_values: [0x00000000, 0xffffffff]
+    reseed_to: 0x1234
     increment_before_use: true
+    never_wrap_to_zero: true
+    zero_means_no_request: true
     reference_endianness: native_u32_little_endian_on_reference_linux
     poll_count: 50
     poll_interval_ms: 300
@@ -101,11 +105,42 @@ configuration:
     "0x23": direct_mode_passphrase_private
     "0x24": direct_mode_wait_for_connection
     "0x25": direct_mode_wait_after_transfer
-    "0xfd": owner_only_upload_key_export
+    "0xfd": existing_key_read_only_on_exact_direct_query_firmware_not_generic_set_token
+  firmware_key_recovery:
+    x2_5_0018:
+      direct_o_0xfd: empty
+      dump_recovery: reboot_saves_board_data_and_recovers_existing_key
+    x2_5_0019:
+      direct_o_0xfd: empty
+      dump_recovery: reboot_saves_board_data_and_recovers_existing_key
+    x2_5_2010:
+      direct_o_0xfd: returns_existing_key
+      dump_recovery: also_reported_via_0x01
+    x2_5_2011:
+      direct_o_0xfd: returns_existing_key
+      dump_recovery: also_reported_via_0x01
+    mobi_pro_5_3008:
+      direct_o_0xfd: returns_existing_key
+      dump_recovery: no_dump_obtainable
+    firmware_4_5166:
+      direct_o_0xfd: not_established
+      dump_recovery: existing_dump_and_question_trigger_static_analysis_only_no_live_4x_test
+    firmware_5_0020:
+      direct_o_0xfd: no_lowercase_key_read
+      write_O_0xfd: uppercase_rejected
+      generic_set_token: false
+      offline_activation: not_established
+      dump_recovery: not_established
+  mailbox_recreation:
+    operation: recreate_EyeFi_and_four_zero_filled_16KiB_control_files_after_format
+    effect: restores_channel_to_recover_existing_key
+    creates_upload_key: false
+    activates_reset_card: false
   cautions:
     - backup_and_owner_consent_before_any_write
     - compiler_reported_possible_use_after_free_in_mount_path_handling
-    - network_change_ap_start_and_reboot_unverified
+    - network_change_ap_start_reboot_and_command_sweeps_unverified_beyond_exact_source_reports
+    - do_not_generalize_to_pro_x2_plain_mobi_or_unlisted_firmware
 
 status:
   evidence: three community implementations plus historical vendor app and desktop analysis

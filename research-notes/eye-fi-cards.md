@@ -55,8 +55,9 @@ address is 12 hex characters without colons in the reviewed implementations.
 
 The Mobi placeholder represents 16 zero bytes after decoding; it is legacy
 behavior, not a recommended new credential. Mobi Pro infrastructure mode can
-instead use its real upload key, recoverable from an already-configured
-mounted card through token `0xfd`.
+instead use its real existing upload key. Direct lowercase `o 0xfd` recovery is
+reported only for Mobi Pro 5.3008 (and X2 5.2010/5.2011 for X2 profiles), not
+as a generic mounted-card or offline-activation operation.
 
 StartSession alone does not authenticate the card. A replacement should verify
 the second credential in constant time for both profiles, bind nonce state to
@@ -108,26 +109,57 @@ hardware-verified recipe. Reset-card upload-key creation remains unsolved.
 Legacy Eye-Fi Center contains multicast/UDP configuration, but no proven
 Bonjour service or card-discovery exchange.
 
-## Mounted-card configuration
+## Mounted-card configuration and firmware-specific key recovery
 
 `eyefi-config` uses files under `EyeFi/` on a mounted FAT card, not one XML
 settings file: `reqm`, `reqc`, `rspm`, `rspc`. Records are 16,384-byte
-zero-padded buffers.
+zero-padded buffers. An information request is ASCII `o` plus a one-byte
+subcommand. The one-byte write shape is ASCII `O`, subcommand, length `01`,
+value, but that shape is **not** evidence of a generic key-writing SetToken
+operation.
 
-- Information request: ASCII `o`, one-byte subcommand.
-- One-byte configuration write: ASCII `O`, subcommand, length `01`, value.
-- Increment the previous response sequence (seed `0x1234` if zero), write it
-  to `reqc`, then poll `rspc` up to 50 times at 300 ms intervals.
-- The reference utility treats sequence values as native unsigned 32-bit,
-  little-endian on its Linux host. Do not generalize that without checking.
+Sequence handling has a reset trap. Read `RSPC`; when it is `0x00000000` or
+`0xffffffff`, the next `REQC` is `0x1234`. Otherwise increment the previous
+response as u32. In particular, **never wrap `0xffffffff` to sequence zero**:
+firmware treats zero as “no request” and the card looks dead. Poll `rspc` up to
+50 times at 300 ms intervals and accept only a matching fresh nonzero response.
+The reference utility treats sequence values as native unsigned 32-bit,
+little-endian on its Linux host; do not generalize that representation without
+checking the card.
 
 Read-side tokens include MAC `0x01`, firmware `0x02`, upload API `0x04`,
 transfer mode `0x11`, direct-mode SSID/passphrase `0x22`/`0x23`, direct-mode
-timers `0x24`/`0x25`, and owner-only upload-key export `0xfd`. Network scans,
-network changes, AP start and reboot are writes with no hardware validation
-here. Back up the card and obtain owner consent before using them. The utility
-built, but GCC warned about a possible use-after-free in its mount-path
-handling; that is another reason not to run it blindly.
+timers `0x24`/`0x25`, and the heavily firmware-qualified `0xfd`. Read the exact
+firmware first. The recovery matrix below is **reported**, not replayed by this
+project:
+
+| Firmware / card | Lowercase `o 0xfd` | Existing-key dump route |
+|---|---|---|
+| X2 5.0018 | Empty | Ordinary reboot saves board data; recover the existing key |
+| X2 5.0019 | Empty | Same reported reboot-dump route |
+| X2 5.2010 | Returns existing key | Also reported through `0x01`, unnecessary when direct read works |
+| X2 5.2011 | Returns existing key | Same boundary as 5.2010 |
+| Mobi Pro 5.3008 | Returns existing key | No dump obtained in the reported command/reboot/slot tests |
+| 4.5166 | Not established | Existing-dump extraction and `?` trigger are static-analysis-derived only; no live 4.x card tested |
+| 5.0020 | No key/read | Uppercase `O 0xfd` is rejected; no generic SetToken, dump or offline-activation route is established |
+
+Do not generalize these results to Pro X2, plain Mobi or any unlisted build.
+In particular, 5.0020 rejects the uppercase write and offers no lowercase key
+read, so neither the generic write shape nor a guessed SetToken invocation is
+an offline activation answer.
+
+Formatting can remove `EyeFi/` and its control files. Recreating the mailbox
+(directory plus four zero-filled 16 KiB files) restores the mounted-card request
+channel, allowing direct/dump operations to recover an **existing** key. It does
+not create or assign an upload key, activate a reset card, restore erased
+photos, or replace retired activation services.
+
+Network scans, network changes, AP start, reboot and command sweeps are writes
+with no project hardware validation beyond the exact upstream reports cited.
+Back up the card and obtain owner consent before using them. The original
+utility also has a compiler-reported mount-path lifetime warning; do not run it
+blindly. See [RamSet/eyefi-recovery](https://github.com/RamSet/eyefi-recovery)
+for the upstream live-hardware matrix and its explicit per-firmware caveats.
 
 ## Deployment boundary
 
