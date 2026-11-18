@@ -39,6 +39,18 @@ def pin_packet(packet_type: int, result: int, challenge: int, response: int) -> 
     return transform(plain)
 
 
+def encode_login_response(pin: int, challenge: int) -> bytes:
+    """Guard both challenge and the computed response before a type-3 write."""
+    if not 0 <= pin <= 0xFFFF or not 0 <= challenge <= 0xFFFF:
+        raise ValueError("PIN and challenge must be uint16")
+    if any(value in (0x00, 0xAC) for value in challenge.to_bytes(2, "little")):
+        raise ValueError("ambiguous PIN challenge; restart with a fresh challenge")
+    response = pin ^ challenge
+    if any(value in (0x00, 0xAC) for value in response.to_bytes(2, "little")):
+        raise ValueError("ambiguous PIN response; restart with a fresh challenge")
+    return pin_packet(3, 0, challenge, response)
+
+
 def decode_pin_packet(wire: bytes) -> tuple[int, int, int, int]:
     if len(wire) != 6:
         raise ValueError("PIN packet must be exactly six bytes")
@@ -241,3 +253,27 @@ def test_ac_transform_is_not_involution_and_ambiguous_challenge_is_rejected():
     for challenge in (0xAC00, 0x00AC, 0x0000):
         with pytest.raises(ValueError, match="ambiguous PIN challenge"):
             decode_pin_packet(pin_packet(2, 0, challenge, 0))
+
+
+
+def test_outgoing_type3_response_collision_is_rejected_before_write():
+    # PIN 0001 / challenge 0x01ad produces response 0x01ac. The unguarded
+    # packet is valid on the wire but decodes to response 0x0100, not 0x01ac.
+    response = 1 ^ 0x01AD
+    assert response == 0x01AC
+    unguarded = pin_packet(3, 0, 0x01AD, response)
+    assert unguarded.hex() == "af0001ad00ad"
+    decoded = transform(unguarded)
+    assert decoded.hex() == "0300ad010001"
+    assert int.from_bytes(decoded[4:6], "little") == 0x0100
+    assert int.from_bytes(decoded[4:6], "little") != response
+    with pytest.raises(ValueError, match="ambiguous PIN response"):
+        encode_login_response(1, 0x01AD)
+
+
+def test_guarded_type3_encoder_accepts_unambiguous_response():
+    assert encode_login_response(0, 0x1234).hex() == "af0098be98be"
+    with pytest.raises(ValueError, match="ambiguous PIN response"):
+        encode_login_response(0x0202, 0x0302)
+    with pytest.raises(ValueError, match="ambiguous PIN challenge"):
+        encode_login_response(0, 0xAC00)

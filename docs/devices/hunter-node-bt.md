@@ -80,7 +80,12 @@ The login sequence is:
 
 For an invented challenge `0x1234` and default numeric PIN 0, plaintext
 `03 00 34 12 34 12` becomes `af 00 98 be 98 be`. This vector is synthetic and
-contains no owner credential.
+contains no owner credential. Before writing type 3, compute the response and
+reject it if **any response byte is `00` or `ac`**, restarting login for a
+fresh challenge. The guard is necessary in both directions: PIN `0001` with
+challenge `0x01ad` gives response `0x01ac`. Unguarded plaintext
+`03 00 ad 01 ac 01` becomes `af 00 01 ad 00 ad`, but the documented decode
+returns response `0x0100`, not `0x01ac`. That packet must not be written.
 
 ## Protocol Summary
 
@@ -88,7 +93,7 @@ contains no owner credential.
 
 | UUID | Name | Description |
 |------|------|-------------|
-| `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | Message service | Advertised scan filter |
+| `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | Message service | Shared NUS container; post-connect requirement, not an identity matcher |
 | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | Message request | Acknowledged writes on tested firmware |
 | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | Message response | Read/indicate JSON fragments |
 | `0ed3e3d3-8cd8-4f29-8fec-a7d3a2c5443e` | PIN service | Application authentication |

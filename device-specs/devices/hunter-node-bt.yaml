@@ -105,9 +105,9 @@ device:
             actor: "client"
             expect: "A six-byte type-2 challenge arrives within 15 seconds. If either random byte is 00 or ac, reject the ambiguous challenge and restart login instead of proceeding."
             timeout_seconds: 15
-          - action: "Copy the random challenge and set response = numeric_pin XOR random, then apply the nonzero-byte transform and write type 3 without response."
+          - action: "Copy the random challenge and compute response = numeric_pin XOR random. If any response byte is 00 or ac, restart login for a fresh challenge instead of writing. Otherwise apply the nonzero-byte transform and write type 3 without response."
             actor: "client"
-            expect: "Type 4 with result 0 accepts. Any nonzero result, malformed packet, ambiguous challenge or timeout is an authentication failure, not permission to issue JSON."
+            expect: "Type 4 with result 0 accepts. Any nonzero result, malformed packet, ambiguous challenge/response or timeout is an authentication failure, not permission to issue JSON."
             timeout_seconds: 15
           - action: "Read All for configuration and Section_State separately for live state, then disconnect when finished."
             actor: "client"
@@ -338,7 +338,8 @@ payload_formats:
     parse_rules:
       - "transform(byte) = byte XOR 0xac when byte != 0, otherwise 0. Apply this literal vendor transform to each byte; zero stays zero and this is not ordinary XOR."
       - "The transform is NOT an involution at 0xac: plaintext 00 and ac both emit 00. Applying it twice to ac yields 00, not ac. No alternate vendor decode for ac is established. If any byte of a type-2 random challenge is 00 or ac, reject it as ambiguous and restart login for a fresh challenge rather than guessing or authenticating with the wrong value. Validate expected type/result fields separately."
-      - "Login request plaintext is 01 00 00 00 00 00. Challenge is type 2. Response is type 3 with the same random and pin_response = pin XOR random. Result type 4 with result 0 accepts."
+      - "Login request plaintext is 01 00 00 00 00 00. Challenge is type 2. Before writing type 3, compute response = pin XOR random and reject it if ANY response byte is 00 or ac; restart login for a fresh challenge rather than sending a response the documented decode can change. Result type 4 with result 0 accepts."
+      - "Outgoing collision example: PIN 0001 / challenge 0x01ad gives response 0x01ac. Type-3 plaintext 03 00 ad 01 ac 01 becomes af 00 01 ad 00 ad on the wire, whose documented decode yields response 0x0100, not 0x01ac. The guarded encoder must reject this before writing."
       - "Require exactly six bytes and the expected packet type at each step. Discard unsolicited packets rather than queueing them for a later exchange."
     example: "PIN 0 / challenge 0x1234 response plaintext 03 00 34 12 34 12 becomes af 00 98 be 98 be on the wire."
   JSON_Response:
@@ -390,7 +391,7 @@ protocol_details:
     sequence:
       - "Write type 1 plaintext 01 00 00 00 00 00; wire ad 00 00 00 00 00 00."
       - "Read type 2. If either random-challenge byte is 00 or ac, reject the packet as ambiguous and restart login for a fresh challenge instead of guessing. Otherwise decode its random uint16 LE challenge."
-      - "Write type 3 with the same random and uint16 LE (numeric_pin XOR random), transformed again."
+      - "Before writing type 3, compute response = numeric_pin XOR random. If any response byte is 00 or ac, reject it and restart login for a fresh challenge. Only then write type 3 with the same random and response, transformed again."
       - "Read type 4 and require result 0. Other result meanings are unknown; fail rather than sending application messages."
     security: "Obfuscation, not encryption. The ac collision makes challenge validation mandatory; never treat the transform as a proof that an ambiguous packet authenticated correctly. Do not publish PINs or challenge responses."
     test_vectors:
@@ -400,6 +401,7 @@ protocol_details:
       response_pin_1234_challenge_0x1234: {plain: "03 00 34 12 e6 16", wire: "af 00 98 be 4a ba"}
       success: {plain: "04 00 00 00 00 00", wire: "a8 00 00 00 00 00"}
       ambiguous_ac: {plain: "ac", wire: "00", second_transform: "00 (not ac)", handling: "Reject an ambiguous type-2 challenge and restart login; do not use ordinary XOR."}
+      outgoing_pin_0001_challenge_0x01ad: {response: "0x01ac", plaintext: "03 00 ad 01 ac 01", wire: "af 00 01 ad 00 ad", decoded_response: "0x0100 (NOT 0x01ac)", handling: "Reject before writing type 3 and restart with a fresh challenge."}
   json_fragmentation:
     request: "json.dumps(object, separators=(',', ':'), ensure_ascii=False), UTF-8 encode, split every 20 bytes, no trailing NUL. Multi-byte UTF-8 characters may cross writes; split bytes, not characters."
     response: "Collect raw bytes through first NUL, cap 65536 including NUL, require one object. One transaction at a time."

@@ -27,6 +27,7 @@ DEVICE_INFO_HEX = (
     "7ea1126c02203234424800000000000000000000000032344248554230302d32313130323641"
     "5796ff0b000041f2aa55"
 )
+DEVICE_INFO_CRC55AA_HEX = "7ea1126c020244d0aa55ff0b000041f2aa55"
 
 
 def crc_modbus(data: bytes) -> int:
@@ -92,7 +93,7 @@ def parse_new_stream(chunks) -> list[dict]:
             if len(buffer) < total:
                 break
             candidate_end = total
-            if buffer[2] == 0x12 and buffer[total - 4 : total - 2] != b"\xaa\x55":
+            if buffer[2] == 0x12 and buffer[total - 2 : total] != b"\xaa\x55":
                 final = buffer.find(b"\xaa\x55", total - 2)
                 if final < 0:
                     break
@@ -367,3 +368,19 @@ def test_real_device_info_fixture_fragmented_and_coalesced_stream():
     assert [frame["function"] for frame in combined] == [0x12, 0x11]
     assert combined[0]["trailing"] == bytes.fromhex("ff 0b 00 00 41 f2")
     assert parse_new_stream([data[:-1]]) == []
+
+
+
+def test_crc55aa_is_not_mistaken_for_declared_trailer_in_stream():
+    data = bytes.fromhex(DEVICE_INFO_CRC55AA_HEX)
+    assert len(data) == 18
+    assert data[5] + 10 == 12
+    assert data[8:10] == b"\xaa\x55"  # CRC 0x55aa, not the final trailer.
+    direct = parse_new_frame(data, expected_function=0x12)
+    assert direct["data"] == bytes.fromhex("44 d0")
+    assert direct["trailing"] == bytes.fromhex("ff 0b 00 00 41 f2")
+    assert len(parse_new_stream([data])) == 1
+    assert len(parse_new_stream([bytes([value]) for value in data])) == 1
+    combined = parse_new_stream([data + bytes.fromhex(NEW_HEX)])
+    assert [frame["function"] for frame in combined] == [0x12, 0x11]
+    assert combined[0]["trailing"] == bytes.fromhex("ff 0b 00 00 41 f2")

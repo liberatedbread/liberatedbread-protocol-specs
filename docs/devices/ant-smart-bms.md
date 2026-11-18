@@ -117,7 +117,9 @@ declared span, bytes 40–41 are `ff 0b` rather than a trailer, and the actual
 `AA 55` appears only at offsets 46–47. Validate the declared CRC, require the
 final trailer, and preserve the six intervening bytes. A stream reader must
 not slice at 42 before finding the final trailer; fragmented and coalesced
-fixtures exercise this exact path.
+fixtures exercise this exact path. When the CRC itself is `0x55aa` (stored
+`AA 55`), it must not be mistaken for the declared trailer: compare the
+trailer positions, then continue through the final `AA 55`.
 
 For status, `temp_count` is at 8 (clamp 6), `cell_count` at 9 (clamp 32), and
 cells begin at 34 as little-endian millivolts. Temperatures follow the cells:
