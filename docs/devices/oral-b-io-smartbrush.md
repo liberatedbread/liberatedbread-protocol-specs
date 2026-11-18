@@ -101,6 +101,15 @@ Do not decode absent fields from shorter packets. The spec binds percentage,
 runtime, voltage, current and temperature entities only with those version and
 sentinel rules.
 
+## Clock, timezone and GATT access
+
+FF22 RTC is little-endian u32 seconds since 2000-01-01 UTC: decoded Unix time
+is the raw value plus 946684800. FF23 is a signed quarter-hour byte, so
+UTC+05:30 is `0x16` and UTC−08:00 is `0xe0`. Capture-tested read/notify access
+is declared for FF04–FF0D where applicable; FF21 is read/write/notify, FF22
+read/write, and FF2B/FF2D read/write. These property declarations do not add
+write commands.
+
 ## Retained session FF29
 
 Protocol 7/8 uses a 21-byte little-endian retained-session record. Protocol 9

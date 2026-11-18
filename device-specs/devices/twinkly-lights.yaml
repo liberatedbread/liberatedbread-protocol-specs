@@ -32,8 +32,11 @@ device:
     base64 authentication_token (8 bytes), a challenge-response and an expiry
     (typ. 14400s). The client must then POST /xled/v1/verify. The token goes in
     the X-Auth-Token header; a new login invalidates the previous token. The
-    challenge-response is derived RC4-style from a key = device MAC XOR the
-    16-byte constant "evenmoresecret!!", then SHA1.
+    To verify the returned challenge-response, repeat the six-byte device MAC
+    to 16 bytes, XOR it with the 16-byte constant "evenmoresecret!!", use that
+    key to RC4-encrypt the raw challenge, and compare the SHA1 hex digest of
+    the ciphertext with the returned challenge-response. The MAC-derived key
+    is obfuscation based on public identity, not client access control.
 
     UNAUTHENTICATED reads: GET /xled/v1/gestalt (device details), /status,
     /fw/version.
@@ -157,18 +160,21 @@ device:
         Wi-Fi can be rewritten through the /xled/v1/network endpoints while the
         device is reachable.
     credentials:
-      wifi_passphrase_protection: "plaintext"
+      wifi_passphrase_protection: "device_encrypted"
       stored_on_device:
         - "Wi-Fi credentials"
       issued_to_client:
         - "Short-lived auth token (from /xled/v1/login + /verify, ~14400s)"
       notes: >
-        Provisioning passes the home SSID/passphrase to /xled/v1/network/status
-        over plain HTTP on the device AP. Control requires the per-session token,
-        but that token is obtainable by any client that can reach port 80: the
-        client only echoes the device's challenge-response back to /verify.
-        The device MAC is needed only by a client that wants to check that
-        response itself, i.e. to authenticate the device.
+        Provisioning uses HTTP on the device AP, but the credential fields are
+        not plaintext on the wire. Through firmware 2.4.22 only the password is
+        RC4-encrypted with the older 16-byte key schedule. Since firmware
+        2.4.25 both SSID and password are RC4-encrypted with the newer 48-byte
+        key schedule and Base64-encoded; see protocol_details.wifi_provisioning.
+        Both schedules repeat and XOR the public device MAC, so this is
+        obfuscation rather than access control. Control requires a per-session
+        token obtainable by any client that can reach port 80. The optional
+        challenge-response check authenticates the device, not the client.
 
   pairing:
     required: false
@@ -236,19 +242,87 @@ http_endpoints:
     request_body:
       content_type: "application/json"
   - method: "POST"
+    path: "/xled/v1/led/color"
+    name: "Set static RGB color"
+    description: "Body {red:0-255,green:0-255,blue:0-255}; the color used by color mode. Requires X-Auth-Token."
+    request_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/xled/v1/led/effects/current"
+    name: "Select current effect"
+    description: "Body {effect_id:N}; selects an available effect. The set_effect command instead combines effect_id with mode:effect on /led/mode so the lights enter effect mode directly."
+    request_body:
+      content_type: "application/json"
+  - method: "POST"
     path: "/xled/v1/led/out/brightness"
     name: "Set brightness"
     description: "Body {\"mode\":\"enabled\",\"value\":0-100}. Requires X-Auth-Token."
     request_body:
       content_type: "application/json"
 
+protocol_details:
+  realtime:
+    verification: "reported"
+    udp_port: 7777
+    pixel_channel_order:
+      rgb: [red, green, blue]
+      rgbw: [white, red, green, blue]
+    versions:
+      v1:
+        applies_to: "Generation I"
+        header: "01 || eight-byte raw authentication token || LED count u8"
+      v2:
+        applies_to: "Generation II through firmware 2.4.6"
+        header: "02 || eight-byte raw authentication token || 00"
+        header_bytes_before_body: 10
+      v3:
+        applies_to: "Generation II from firmware 2.4.14"
+        header: "03 || eight-byte raw authentication token || 00 00 || fragment_number u8"
+        header_bytes_before_body: 12
+        fragment_number_offset: 11
+        first_fragment_number: 0
+        maximum_fragment_body_bytes: 900
+        fragmentation: "Split the raw pixel frame into consecutive fragments of at most 900 bytes, number them from zero, and send each in its own datagram."
+  challenge_verification:
+    verification: "reported"
+    steps:
+      - "Use the six-byte AP-mode MAC, or the gestalt mac value, repeated to 16 bytes."
+      - "XOR those 16 bytes with the ASCII key evenmoresecret!!."
+      - "RC4-encrypt the raw 32-byte challenge with the resulting key."
+      - "Compare the lowercase SHA1 hex digest of the ciphertext with the returned challenge-response."
+    synthetic_vector:
+      mac: "02:00:00:00:00:01"
+      challenge_hex: "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f"
+      expected_sha1: "5f18f4182fa8d9bb955fdef25595e4574f56730f"
+  wifi_provisioning:
+    verification: "reported"
+    common_steps:
+      - "Repeat the six-byte AP-mode MAC, or gestalt mac value, to the key-schedule length and XOR it with the schedule."
+      - "Right-pad the SSID or password with zero bytes to 64 bytes."
+      - "RC4-encrypt the padded field and Base64-encode the ciphertext."
+      - "The MAC is public, so this protects the wire representation only; it is not authentication or secret key management."
+    legacy_through_2_4_22:
+      fields: [password]
+      key_schedule_ascii: "supersecretkey!!"
+      key_schedule_bytes: 16
+    current_from_2_4_25:
+      fields: [ssid, password]
+      key_schedule_bytes: 48
+      key_schedule_hex: "26 80 f5 87 9f ee 2c 75 11 aa 08 15 47 44 8e 04 99 cd 68 07 6e 09 32 62 5d c4 de 7c 38 98 9e 88 80 ee 2a b7 33 67 8f a2 0d cc 85 d8 94 cd 94 4f"
+    synthetic_vector:
+      mac: "02:00:00:00:00:01"
+      plaintext: "synthetic-password"
+      padded_bytes: 64
+      legacy_base64: "t8XWDiPMkolno0pznGkfnh0eSoMnDsuDpVVugSrnwrAgBK3jqhiUUKd0HZHH4x8N+ljnnBCCtxoA2YuPOugrQg=="
+      current_base64: "O2BlZzO+L+QHc+YpmP8ludB9C7y02T5x86mrL1Q2kyC4/MUV8JEqdNooXQFZ1s9hPi689gGk0AsmXc3/neAr/A=="
+
 commands:
   turn_on:
-    description: "Set mode to a lit state (e.g. movie/effect)."
+    description: "Set color mode, a lit state that does not depend on an uploaded movie existing."
     transport: "http"
     method: "POST"
     path: "/xled/v1/led/mode"
-    body: '{"mode":"movie"}'
+    body: '{"mode":"color"}'
     verification: "reported"
   turn_off:
     description: "Set mode off."
@@ -270,15 +344,40 @@ commands:
         max: 100
         description: "Brightness percent."
     verification: "reported"
+  set_color:
+    description: "Set the static RGB color used by color mode."
+    transport: "http"
+    method: "POST"
+    path: "/xled/v1/led/color"
+    body: '{"red":{red},"green":{green},"blue":{blue}}'
+    parameters:
+      red: {type: "uint8", min: 0, max: 255}
+      green: {type: "uint8", min: 0, max: 255}
+      blue: {type: "uint8", min: 0, max: 255}
+    verification: "reported"
+  set_effect:
+    description: "Enter effect mode with a firmware-provided numeric effect ID; query /xled/v1/led/effects for availability."
+    transport: "http"
+    method: "POST"
+    path: "/xled/v1/led/mode"
+    body: '{"mode":"effect","effect_id":{effect_id}}'
+    parameters:
+      effect_id:
+        type: "integer"
+        min: 0
+        description: "Numeric effect identifier; 0 is a documented example, not a universal default."
+    verification: "reported"
 
 entities:
   - platform: "light"
     name: "Twinkly"
-    features: ["brightness", "effect"]
+    features: ["brightness", "rgb", "effect"]
     commands:
       turn_on: "turn_on"
       turn_off: "turn_off"
       set_brightness: "set_brightness"
+      set_color: "set_color"
+      set_effect: "set_effect"
 
 helpful_urls:
   - title: "scrool/xled"

@@ -27,6 +27,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   identity, Enphase's phase-4 nonce slices, and JBD's operation-status offset.
   Two standard-library modules carry 21 independent fixture and regression
   checks; verification levels are unchanged.
+- **Lighting and health protocol audit corrections.** ELK-BLEDOM effect and
+  microphone frames, LOY BLE length-prefix boundaries and subscriptions,
+  Twinkly RGB/effect/realtime/provisioning behavior, WLED segment-zero color
+  and info fields, and SPOTLED's captured Version/BufferSize vectors are now
+  implementable. Also corrects iLEDColor display power, Aurora power roles,
+  Seeblue matching/subscription, XKGlow readback, ProGLOW password width,
+  Govee H6001 BLE-only scope, and Magic Display's phantom multi-frame command.
+  Chef iQ, INKBIRD, iKettle, Hyperice, Silk'n, Oral-B, openScale, Etekcity
+  ESN00 and Mi Scale layouts/discovery receive corresponding corrections.
+  New independent standard-library vectors cover every meaningful codec and
+  frame change. Source-derived findings stay reported/untested; existing
+  capture-confirmed SPOTLED, AUTOBABA, iLEDColor and Oral-B work is preserved.
 
 ### Added
 

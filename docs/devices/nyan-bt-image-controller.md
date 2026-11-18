@@ -46,7 +46,7 @@ See [AUTOBABA LED Backpack](autobaba-led-backpack.md) for the full protocol spec
 
 ### Packet Format, Commands, and Image Upload
 
-Identical to [AUTOBABA LED Backpack](autobaba-led-backpack.md). Same 0xAA55 header, JSON commands, BMP image encoding, and sliding window ACK protocol.
+Identical to [AUTOBABA LED Backpack](autobaba-led-backpack.md). Same 0xAA55 header, JSON commands, BMP image encoding, and sliding window ACK protocol. Subscribe to FFF1 before commands. Ordinary BLE writes carry the inner AA55 frame directly with no outer record-length prefix; that prefix belongs only to raw-GIF logical stream records. Fixed brightness is 1–15, with zero mapped to 15; this variant is source-derived and not independently capture-verified.
 
 ## Tools Used
 

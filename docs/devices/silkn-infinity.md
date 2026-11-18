@@ -137,12 +137,12 @@ the scan-result name, not just the address.
 | 1 | 4 | u32 BE | max_pulses (lamp/cartridge lifetime capacity) |
 | 5 | 4 | u32 BE | total_counter (lifetime flashes fired) |
 | 9 | 1 | u8 | current_level (set by the physical button, never over BLE) |
-| 10–18 | 5 × 2 | u16 BE | per-level counters, levels 1–5 |
+| 10–19 | 5 × 2 | u16 BE | per-level counters, levels 1–5; byte 19 is the level-5 high byte |
 
 **`Silkn7_App` — little-endian variant:** same header fields, little-endian,
 with the per-level counters omitted from the payload; the app increments its
 own per-level tallies on each opcode==1 notification, and a replacement
-client must do the same. Byte 19 is unused/unknown in both layouts.
+client must do the same. Only byte 19's role on Silkn7 remains unknown.
 
 ### Commands
 

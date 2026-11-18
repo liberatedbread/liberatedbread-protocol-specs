@@ -46,8 +46,11 @@ device:
       0x14 (20)   kettle status (flag byte, temperature, water level)
       0x65 (101)  device info reply, e.g. 65 01 13 7e = device type 0x01
                   (kettle), firmware 0x13 (19)
-    Water-level quirk: the first level byte reads 7 with the kettle OFF its
-    base, 8 when ON the base.
+    Water level is an unsigned big-endian u16 raw sensor value requiring a
+    per-unit off-base calibration baseline, not a Boolean first byte. The
+    earlier 7-off/8-on observation belongs to one client/unit. Temperature
+    0x7f means off-base/unavailable. Status and ACK layouts are declared
+    under protocol_details.smarter_protocol.
 
     DISCOVERY: the device-info command 0x64 (100) is used over UDP broadcast after
     setup — but this fails on routers that do not forward UDP broadcasts, so a
@@ -218,7 +221,26 @@ protocol_details:
       "0x03 (3)": "command status (ack)"
       "0x14 (20)": "kettle status (flag, temperature, water level)"
       "0x65 (101)": "device info reply, e.g. 65 01 13 7e = kettle, firmware 0x13 (19)"
-    water_level_quirk: "level byte reads 7 off the base, 8 on the base"
+    status_frame:
+      verification: "reported"
+      layout: "[0x14][flag][temperature][water_hi][water_lo][unknown][0x7e]"
+      full_frame_bytes: 7
+      flags: {0: "ready", 1: "boiling", 2: "keep_warm", 3: "finished", 4: "cooling"}
+      temperature: "Unsigned byte in C; 0x7f means off-base/unavailable, not 127 C."
+      water: "Unsigned big-endian u16 raw sensor value at bytes 3-4. Calibrated level = raw minus the per-unit off-base baseline recorded by calibration command 44. The earlier 7-off/8-on observation describes one client/unit and is not a Boolean encoding or a safety threshold."
+      synthetic_off_base_vector:
+        frame_hex: "14 00 7f 07 d7 00 7e"
+        expected_flag: "ready"
+        expected_temperature: null
+        expected_water_raw: 2007
+        expected_unknown: 0
+    command_ack:
+      verification: "reported"
+      layout: "[0x03][result][0x7e]"
+      full_frame_bytes: 3
+      result_offset: 1
+      results: {0: "success", 1: "busy", 4: "failed", 105: "invalid"}
+      note: "Result 0x69 (105 decimal) is invalid; do not confuse it with the separate device-info response ID 0x65 (101)."
 
 http_endpoints:
   - method: "GET"

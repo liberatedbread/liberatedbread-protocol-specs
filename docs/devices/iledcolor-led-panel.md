@@ -78,6 +78,11 @@ The checksum is the simple sum of every preceding packet byte. Known handles inc
 Continue `0x00`, EndStream `0x01`, program item `0x03`, StartStream `0x06`, brightness
 `0x09`, LedEnable `0x0a`, Connect `0x0d`, SetPass `0x0e` and TestPass `0x0f`.
 EndStream's fixed frame is `54 01 00 03 01 00 59`; payload status 1 is success.
+The source-derived Display Power switch uses LedEnable with eight zero padding
+bytes: on is `54 0a 00 0b 01 00 00 00 00 00 00 00 00 00 6a`; off is
+`54 0a 00 0b 00 00 00 00 00 00 00 00 00 00 69`. Both are 15 bytes with a valid
+big-endian sum16. This control was not exercised on hardware, and neither A951
+nor A952 gains a write-with-response property.
 
 StartStream's 11-byte payload is `[item CRC32C:4][logical transfer length:u32 BE][00 00 00]`, framed with handle 0x06, the normal u16 packet length and checksum. The complete worked request is `54 06 00 0d b8 a8 bd 77 00 00 48 4c 00 00 00 03 8f` (17 bytes): CRC32C `b8a8bd77`, transfer length `0x484c` = 18,508, then three reserved zero bytes and checksum `0x038f`.
 

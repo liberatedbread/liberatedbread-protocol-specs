@@ -111,3 +111,25 @@ def test_guide_default_password_checksum_matches_spec():
     expected = " ".join(f"{byte:02x}" for byte in packet)
     assert expected in guide
     assert "54 0f 00 08 00 00 00 00 00 00 00 6f" not in guide
+
+
+def test_display_power_frames_and_switch_preserve_write_properties():
+    commands = _commands()
+    for name, enable in (("display_power_on", 1), ("display_power_off", 0)):
+        packet = commands[name]["value"]
+        assert len(packet) == 15
+        assert packet[:4] == [0x54, 0x0A, 0x00, 0x0B]
+        assert packet[4] == enable
+        assert packet[5:13] == [0] * 8
+        assert commands[name]["verification"] == "reported"
+        _assert_big_endian_sum(packet)
+
+    switch = next(entity for entity in SPEC["entities"] if entity["name"] == "Display Power")
+    assert switch["platform"] == "switch"
+    assert switch["commands"] == {
+        "turn_on": "display_power_on",
+        "turn_off": "display_power_off",
+    }
+    service = SPEC["services"][0]
+    assert service["characteristics"][0]["properties"] == ["write_without_response"]
+    assert service["characteristics"][1]["properties"] == ["write_without_response"]

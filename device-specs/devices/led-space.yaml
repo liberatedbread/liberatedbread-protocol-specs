@@ -37,7 +37,7 @@ device:
     carries an outer u16-LE length prefix (the app's packet builder), and large
     payloads are split into 180-byte chunks (120 on the app's other send
     path) with a ~5 ms inter-packet interval.
-    Command vocabulary matches the AUTOBABA / NYAN specs (power, light 0-15,
+    Command vocabulary matches the AUTOBABA / NYAN specs (power, light 1-15,
     get dev_info/param_dev/param_wifi, delete del_all, rotate, pgm_play) and
     adds platform commands seen only in this app: dispatch, show_dev,
     pgm_flicker, bluetooth (radio control), timing (RTC set), delete del_ids,
@@ -345,13 +345,15 @@ services:
         name: "Write"
         properties: ["write_without_response"]
         framing:
-          length_prefix: true
+          length_prefix: false
           max_chunk_size: 180
         notes: >
-          Write characteristic (WRITE_ATTRIBUTE in the app's constants).
-          Same wire frame and checksum rules as the AUTOBABA spec; commands
-          are the JSON vocabulary documented there and in
-          popled_wifi_protocol above, serialized to binary TLV before send.
+          Ordinary BLE command writes carry the inner AA55 frame directly,
+          with no outer u16-LE record-length prefix. The outer record length
+          belongs only to raw-GIF logical stream records and to the UDP path,
+          whose datagram prefix remains declared above. Commands are the JSON
+          vocabulary documented there and in popled_wifi_protocol above,
+          serialized to binary TLV before send.
         commands:
           power_toggle:
             description: 'Toggle screen power. JSON: {"cmd":{"power":{"type":0}},"ids_dev":"<id_dev>","sno":N} (this app also emits {"type":1}).'
@@ -360,8 +362,9 @@ services:
               key: "cmd.power.type"
               value_type: "int"
           set_brightness:
-            description: 'Set brightness 0-15. JSON: {"cmd":{"light":{"type":0,"value_fix":N}},"ids_dev":"<id_dev>","sno":N}'
+            description: 'Set brightness 1-15. JSON: {"cmd":{"light":{"type":0,"value_fix":N}},"ids_dev":"<id_dev>","sno":N}. The shared app maps zero to 15; this BLE variant is source-derived and not independently capture-verified.'
             encoding: "json"
+            verification: "reported"
             payload:
               key: "cmd.light.value_fix"
               value_type: "int"
@@ -414,6 +417,11 @@ services:
             payload:
               key: "cmd.pgm_play.ids_pro"
               value_type: "object"
+
+initialization:
+  - characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Open display acknowledgements before any BLE query or command."
 
 entities:
   - platform: "light"
