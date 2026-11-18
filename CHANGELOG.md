@@ -73,6 +73,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Wi-Fi/firmware operations, WBS06 composition, v551/WBS05S patches and
   YourOwnWeigh replacement services stay excluded. The missing-device and
   keeping-alive claims are narrowed to these actual local paths.
+- **November 17 lock and valve protocol research: four new specs and guides.**
+  LeakSmart's Zigbee valve gains exact HA On/Off open/close and readback,
+  0.1 V battery decoding, obstruction alerts and monthly-cycle suppression.
+  Wyze Lock Bolt v1 (WLCKB1 only) gains manual-only NUS transport, ARC-framed
+  legacy/ID2 TLVs, marker-validated AES status and a cloud-export boundary;
+  ID2 actuation remains unresolved. Danalock V3 gains DMI escaping, reliable
+  sequencing, encrypted broadcasts, TLS/AFI session semantics, mandatory
+  certificate validation and cached-token offline operation, with BTZE-only
+  live-evidence scope and Zigbee/Z-Wave survival notes. FC SmartHome gains
+  v1/v2 encrypted frames, identity/session keys, read-only model/user/history
+  queries and the corrected advanced unlock opcode. All four include lifecycle
+  and remaining-unknown boundaries plus independent standard-library vectors;
+  encrypted/session-based entries are identify-only and all actuation stays
+  advanced, attended and outside generic one-tap consumers. No hardware was
+  driven, and no owner keys, tokens, serials or MACs are included.
 - **November 15 audit follow-up: Anova Mini and Nano protocols.** Separate,
   model-scoped specs and owner guides cover the Mini's JSON/Base64 GATT commands
   and the Nano's distinct COBS/proto2 TX/RX transport, with independent

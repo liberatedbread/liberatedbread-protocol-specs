@@ -1,0 +1,578 @@
+# Danalock V3 DMI BLE protocol and credential boundary
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Public app analysis plus pydanalock-ble 0.10.0 at ec3bec0c. No lock,
+# account, real token/certificate/key or live operation was used here.
+
+device:
+  name: "Danalock V3 (DMI BLE)"
+  manufacturer: "Danalock / Salto Home Solution ApS (formerly Poly-Control)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No Danalock hardware, account, owner token, broadcast key or certificate
+      operation was used by this project. Frame/RPD/broadcast fixtures below
+      are synthetic. The public implementation author reports live verification
+      on BTZE only; BT, BTZB/BTZBE and dual-mode BTHK DMI compatibility are
+      extrapolations, not independently verified. Public implementation tests
+      and firmware analysis do not change this spec's untested status.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "lock"
+  type: "electronic_door_lock"
+  integration: "identify_only"
+  aliases: ["Danalock V3-BT", "Danalock V3-BTZE", "Danalock V3-BTZU", "Danalock V3-BTZB", "Danalock V3-BTZBE", "Danalock V3 HomeKit"]
+  companion_apps:
+    - name: "Danalock"
+      package: "com.danalock.wormhole"
+      role: "primary"
+      platform: "android"
+      notes: "Enrollment, credential issuance/renewal and vendor operation. A cached unexpired AFI token can later be used offline by a dedicated client."
+    - name: "Keaper"
+      package: "com.danalock.v3"
+      role: "alternative"
+      platform: "android"
+      notes: "Companion for locks already set up; not an independent offline enrollment route."
+  variants:
+    - model: "BT"
+      notes: "Plain Bluetooth variant. Cached-token DMI is the only documented local route; community live compatibility is not independently verified."
+      verification: "reported"
+    - model: "BTZE / BTZU"
+      notes: "Z-Wave + BLE. BTZE is EU and the only variant on which the community author reports DMI live verification; BTZU is US. Z-Wave JS is a separate local survival route."
+      verification: "reported"
+    - model: "BTZB / BTZBE"
+      notes: "Zigbee + BLE. Zigbee2MQTT supports V3-BTZB/V3-BTZBE independently of the vendor cloud. DMI BLE compatibility is unverified here."
+      verification: "reported"
+    - model: "BTHK dual-mode"
+      notes: "HomeKit variant; preserve HomeKit pairing material and use local HomeKit. Dual-mode firmware 2.7.5 additionally enables account-based DMI, but community DMI compatibility is unverified."
+      verification: "reported"
+  notes: >
+    Danalock V3's DMI BLE interface is a framed reliable stream carrying TLS
+    1.2 and AFI application messages. The GATT service is
+    bce90001-c6eb-4ff8-bb6b-91cf6443c685, with writes to bce90002 and
+    notifications from bce90003. Manufacturer company ID 0x01C8 identifies the
+    broader DMI family, not a lock model by itself.
+
+    Consumer integration is identify_only: this project does not ship the
+    dedicated frame/RPD/TLS/certificate/AFI session handler. There are no
+    generic lock entities or plaintext commands. LockOperate is documented as
+    advanced and attended only after a validated session and explicit owner
+    confirmation; discovery or an automatic scan must never invoke it.
+
+    Two separate cloud-issued credentials have different jobs. The opaque AFI
+    login token authorizes a TLS application session and has a validity window;
+    the 16-byte broadcast key decrypts passive advertisements. One cannot
+    substitute for the other. A cached, unexpired login token, lock serial and
+    local DMI address can operate without a live cloud session. Passive state
+    additionally needs the broadcast key. Initial enrollment, fresh token
+    issuance, rotation and renewal still depend on the vendor signing service.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/buggy-shep/pydanalock-ble/tree/ec3bec0c2da580c08d69d33bc923063222db60cf"
+    notes: "No official DMI wire specification was found. The pinned public Python implementation supersedes older static-only guesses about CRC reflection and mandatory client certificates."
+  safety_advisory:
+    severity: "warning"
+    summary: "AFI LockOperate physically moves a deadbolt. Never expose it to generic consumers, automatic discovery or unattended replay."
+    detail: >
+      Require manual model selection, full server-certificate validation, a
+      cached unexpired token, successful AuthorityLogin and an attending person
+      with an independent entry method. Send one intentional operation and wait
+      for its result/state. A failed TLS session, expired token, timeout or
+      absent result is not permission to retry actuation or disable validation.
+  identification:
+    manufacturer_data:
+      description: >
+        DMI advertisements use Bluetooth company ID 456 (0x01C8, bytes C8 01
+        in the AD structure). Payload version 2 is normal DMI and version 3 is
+        DFU. This is family evidence, not a safe automatic V3-lock matcher:
+        Danapad and Universal Module share DMI. No executable company-ID
+        matcher is declared; manually select the exact lock/radio variant.
+    notes: "The six-byte DMI serial in manufacturer payload bytes 1..6, not the possibly rotating BLE address, is the device identity. Redact it in shared captures."
+  discovery:
+    none: >
+      Manual exact-model selection required. Do not auto-activate lock control
+      from company 0x01C8, the DMI UART service or an encrypted broadcast.
+      Version-2 advertisements and the six-byte serial are validated only after
+      the user selects a Danalock V3 and supplies the independent broadcast key.
+    identity:
+      stable_keys: ["dmi_serial"]
+      display: "manual Danalock V3 variant selection"
+      notes: "DMI serial is six bytes from the advertisement/device record. Do not infer or retain it from the BLE address and never publish a real serial in examples."
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Normal enrollment is cloud-signed; there is no general local PIN pairing
+      or unauthenticated self-keying path. A replacement client needs an
+      owner-authorized export of a currently valid AFI login token, serial and
+      local DMI address, plus the separate broadcast key for passive state and
+      the public DMI trust anchor for certificate validation. Cached-token
+      runtime is established by the public library and vendor cache design;
+      token TTL/rotation behavior remains unknown.
+    methods:
+      - type: "cloud_account"
+        name: "Cloud-signed enrollment/export, then cached offline DMI"
+        role: "primary"
+        verified: false
+        description: >
+          Use official enrollment or an owner-authorized token API export once,
+          persist the token securely with its absolute validity interval, then
+          use a dedicated local DMI client while it remains accepted. This does
+          not export CA ownership or create permanent authority.
+        cloud:
+          provider: "Danalock account and ekey/token service"
+          local_alternative: "No local initial enrollment is known. A cached unexpired AFI token works offline; Zigbee/Z-Wave/HomeKit radio-specific routes are noted separately and are not DMI self-enrollment."
+        steps:
+          - action: "Identify the exact V3 radio variant and preserve any existing Zigbee/Z-Wave/HomeKit pairing before changing app or hub enrollment."
+            actor: "user"
+          - action: "Complete official cloud-signed enrollment or an owner-authorized AFI-token export; record serial, opaque login blob, valid_from/valid_to and permissions in a secret store."
+            actor: "user"
+            expect: "A currently valid login grant exists. Do not log its bytes or confuse it with the broadcast key."
+          - action: "For passive advertisements, separately store the 16-byte broadcast key; for every TLS session, configure the public DMI trust anchor and require full certificate validation."
+            actor: "client"
+          - action: "Connect manually, subscribe to bce90003, establish frame/RPD/TLS, require an empty TLS client-certificate list followed by AFI AuthorityLogin status zero, then use read-only information/state/power requests first."
+            actor: "client"
+            expect: "Read-only AFI responses succeed without cloud access. Stop on certificate, token, sequencing or dialect failure; no actuation follows automatically."
+        troubleshooting:
+          - symptom: "The lock requests a client certificate during TLS."
+            causes:
+              - "This is expected, but the public-compatible client sends an empty certificate list. Authentication is the later AFI login token, not mandatory mutual-certificate TLS."
+          - symptom: "A session works online but fails after restart offline."
+            causes:
+              - "Persist the actual device login grant and validity, not only OAuth tokens. The current public HA integration does not persist device keys and requires cloud setup; that is not evidence cached DMI cannot work."
+          - symptom: "Certificate validation succeeds only with insecure mode."
+            causes:
+              - "Do not connect. Check the exact DMI trust anchor, full chain/signature, serial/CN match and validity/constraints. Public certificate CN/serial alone is spoofable and is not authentication."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        The official ten-click reset deletes all user settings. Treat DMI login
+        grants, enrollment and client access as requiring re-provisioning; do
+        not assume an old token survives. Radio-specific network/calibration
+        effects must be checked before resetting a dual-radio lock.
+      description: >
+        Salto's click-command guide assigns ten pinhole-button clicks to reset.
+        This is destructive and not a way to obtain a new independent DMI token.
+        Re-enrollment still needs the vendor signing service or a supported
+        radio-specific controller.
+      procedures:
+        - name: "Ten clicks on the lock pinhole button"
+          verified: false
+          basis: "Official Salto Danalock click-command documentation and installation guide 226565; not executed here."
+          press_count: 10
+          power_state: "on"
+          steps:
+            - action: "Keep the door attended, preserve any required radio pairing material, and access the lock's pinhole button as shown by the official guide."
+              actor: "user"
+            - action: "Activate the pinhole button ten times for factory reset."
+              actor: "user"
+              expect: "User settings are deleted. Re-enroll through the official service or the chosen supported radio controller; old DMI credentials are not assumed valid."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A client with an accepted unexpired login token reconnects without cloud
+        access. Expiry/revocation/rotation requires a fresh owner-authorized
+        grant, not a reset workaround. Z-Wave/Zigbee network moves use their
+        own exclude/include processes; HomeKit needs its preserved pairing code.
+      steps:
+        - action: "Check the token's absolute validity and the exact serial/variant before reconnecting; close any other central."
+          actor: "user"
+        - action: "Establish a newly sequenced RPD/TLS session with full certificate validation and repeat AuthorityLogin plus read-only checks."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "DMI certificate/enrollment authority state"
+        - "Accepted AFI login grants and validity/permission state"
+        - "Per-device broadcast key and lock/broadcast state"
+      issued_to_client:
+        - "Opaque AFI login token with valid_from/valid_to and permissions; required for control"
+        - "Separate 16-byte AES broadcast key; required only for passive advertisement decode"
+        - "Six-byte DMI lock serial and a local six-byte controller DMI address"
+        - "Public DMI trust anchor, obtained out of band; public validation material, not a private key"
+      notes: >
+        No Wi-Fi exists on the lock itself. Tokens are time/permission-limited
+        bearer grants, not CA/exported ownership. The 12-hour refresh default in
+        one integration is not a 12-hour TTL. No authoritative default/max TTL,
+        predecessor invalidation or revocation-after-rotation rule is known.
+        Never commit real login tokens, broadcast keys, serials or owner certs.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: "Close the other central and start a fresh RPD/TLS session with a valid cached grant; do not use reset as a connection-troubleshooting shortcut."
+    enter_pairing_mode:
+      required: true
+      notes: "Enrollment is an official cloud-signed flow, not an always-open local pairing window or a general PIN-pairing procedure."
+      procedures:
+        - name: "Official cloud-signed Danalock enrollment"
+          verified: false
+          basis: "Vendor enrollment flow and public token/API documentation; not run by this project."
+          power_state: "on"
+          steps:
+            - action: "Use the official app/account to enroll the exact lock and obtain an owner-authorized AFI grant."
+              actor: "user"
+              expect: "The lock accepts the issued grant during its validity interval; no independent CA authority is created."
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      clears: "Local user settings/enrollment; old grants are not assumed valid after the destructive ten-click reset."
+      notes: "Targeted token revocation is cloud/permission management, not a demonstrated local self-keying/unpair operation."
+    notes: >
+      Security is application-layer DMI enrollment plus TLS server
+      authentication and AFI token login. The TLS CertificateRequest does not
+      imply mandatory client certificates: the compatible client returns an
+      empty list and authenticates inside the encrypted AFI channel.
+
+initialization:
+  - characteristic: "bce90003-c6eb-4ff8-bb6b-91cf6443c685"
+    subscribe: true
+    notes: "Subscribe before any DMI write and reassemble arbitrary notification chunks into C0..C1 frames. Use write-without-response chunks of at most 20 bytes on bce90002; no larger MTU is required."
+
+services:
+  - uuid: "bce90001-c6eb-4ff8-bb6b-91cf6443c685"
+    name: "DMI BLE UART service"
+    verification: "reported"
+    notes: "Custom framed reliable byte stream carrying TLS and AFI. Not an identity signal and not a plaintext UART. No characteristic commands are declared for generic consumers."
+    characteristics:
+      - uuid: "bce90002-c6eb-4ff8-bb6b-91cf6443c685"
+        name: "DMI framed write"
+        properties: ["write_without_response"]
+        verification: "reported"
+        notes: "C0..C1 escaped DMI frames split into <=20-byte chunks. Only a dedicated validated session handler may write."
+      - uuid: "bce90003-c6eb-4ff8-bb6b-91cf6443c685"
+        name: "DMI framed notify"
+        properties: ["notify"]
+        verification: "reported"
+        notes: "Arbitrary stream fragments; reassemble before frame CRC and RPD processing. CCCD is the standard 00002902-0000-1000-8000-00805f9b34fb."
+
+protocol_details:
+  consumer_limitations:
+    integration: "identify_only"
+    generic_commands: false
+    generic_entities: false
+    required_handler: "Manual variant selection + DMI frame/RPD + TLS 1.2 + full certificate validation + AFI token login + advanced attended actuation gate."
+    insecure_tls_permitted: false
+  broadcast:
+    company_id: 456
+    company_id_hex: "0x01C8"
+    ad_company_byte_order: "little-endian (C8 01), excluded from the 24-byte manufacturer payload below"
+    payload_length: 24
+    fields:
+      - {offset: 0, length: 1, name: "version", values: {2: "DMI state broadcast", 3: "DFU/bootloader; no normal controls"}}
+      - {offset: 1, length: 6, name: "dmi_serial", type: "bytes", description: "Authoritative six-byte serial; BLE address is unrelated/rotating"}
+      - {offset: 7, length: 1, name: "reserved", type: "uint8"}
+      - {offset: 8, length: 16, name: "encrypted_status", type: "bytes", description: "AES-128-CBC zero IV under the separate broadcast key"}
+    plaintext:
+      crc: "CRC-16/CCITT-FALSE over plaintext bytes 2..15, stored little-endian at 0..1; validate before publishing"
+      fields:
+        - {offset: 0, length: 2, name: "crc16", type: "uint16", endianness: "little"}
+        - {offset: 2, length: 2, name: "update_counter", type: "uint16", endianness: "little"}
+        - {offset: 4, length: 2, name: "device_flags", type: "uint16", endianness: "little", bits: {0: "UTC reliable", 1: "local time reliable", 2: "battery powered", 3: "extension board present", 4: "extension board online"}}
+        - {offset: 6, length: 1, name: "battery_raw", type: "uint8", scale: 1, description: "Raw device-defined level, not a percent; no unit or conversion is asserted"}
+        - {offset: 7, length: 3, name: "reserved", type: "bytes"}
+        - {offset: 10, length: 2, name: "lock_flags", type: "uint16", endianness: "little", bits: {0: "locked", 1: "auto calibrated", 2: "point calibrated", 3: "blocked", 4: "brake and go back", 5: "auto lock", 6: "blocked to blocked", 7: "twist assist"}}
+        - {offset: 12, length: 4, name: "reserved", type: "bytes"}
+      authentication_note: "CBC has no authentication tag; the inner CRC catches corruption/wrong keys but is not a cryptographic authenticity boundary."
+    synthetic_vector:
+      provenance: "Public synthetic pydanalock-ble fixture; invented key/serial/plaintext, not a capture."
+      broadcast_key_hex: "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f"
+      payload_hex: "02 00 11 22 33 44 55 00 3d 77 eb 8b 90 65 03 9a 73 5f 5d 50 47 17 b2 f7"
+      expected: {serial_hex: "001122334455", counter: 4660, battery_raw: 137, locked: true, device_flags: ["utc_reliable", "local_time_reliable", "battery_powered", "ext_board_present", "ext_board_online"], lock_flags: ["locked", "point_calibrated", "brake_and_go_back"]}
+    malformed: "Reject wrong total length, unknown version (including treating DFU 3 as ordinary state), wrong key length, decryption/CRC failure or truncated fields."
+  dmi_frame:
+    wire: "0xC0 <escaped logical frame> 0xC1"
+    escaping:
+      encode: "C0 -> C2 40; C1 -> C2 41; C2 -> C2 42. No other byte is escaped."
+      decode: "The public codec accepts C2 B as B|0x80 and preserves a trailing lone C2 for resync tolerance; canonical writers emit only the three pairs above."
+    logical_layout:
+      - {name: "magic", offset: 0, length: 2, required_hex: "00 F1"}
+      - {name: "destination", offset: 2, length: 6, type: "bytes", description: "Lock serial or local controller DMI address"}
+      - {name: "source", offset: 8, length: 6, type: "bytes"}
+      - {name: "frame_type", offset: 14, length: 1, values: {0: "data/empty ACK", 1: "SYN", 2: "FIN"}}
+      - {name: "ports", offset: 15, length: 1, description: "High nibble receiver port, low nibble sender port; lock port 2, client chooses random 4-bit port"}
+      - {name: "seq_ack", offset: 16, length: 1, description: "Low nibble sender sequence, high nibble next expected peer sequence; both modulo 16"}
+      - {name: "payload", offset: 17, length: "frame_length - 19", type: "bytes"}
+      - {name: "crc16", offset: "last two bytes", length: 2, type: "uint16", endianness: "little", coverage: "All logical bytes before CRC"}
+    crc:
+      name: "CRC-16/CCITT-FALSE"
+      polynomial: "0x1021"
+      init: "0xFFFF"
+      reflect_input: false
+      reflect_output: false
+      xor_out: "0x0000"
+      stored_endianness: "little"
+      known_answer: {input_ascii: "123456789", output: "0x29B1"}
+    validation: "Minimum logical length 19 and magic 00 F1; validate CRC before delivery. Stream decoder discards noise before C0, buffers incomplete trailing frames, emits glued frames in order and drops malformed/bad-CRC frames."
+    vectors:
+      - name: "SYN without escaping"
+        logical_hex: "00 f1 01 02 03 04 05 06 0a 0b 0c 0d 0e 0f 01 24 05 9f 7d"
+        wire_hex: "c0 00 f1 01 02 03 04 05 06 0a 0b 0c 0d 0e 0f 01 24 05 9f 7d c1"
+        expected: {destination_hex: "010203040506", source_hex: "0a0b0c0d0e0f", frame_type: 1, ports: "0x24", seq_ack: "0x05"}
+      - name: "escaped header/payload"
+        logical_hex: "00 f1 0a 0b 0c 0d 0e 0f 01 02 03 04 05 06 00 42 70 c0 01 c1 02 c2 03 41 73 7c"
+        wire_hex: "c0 00 f1 0a 0b 0c 0d 0e 0f 01 02 03 04 05 06 00 42 70 c2 40 01 c2 41 02 c2 42 03 41 73 7c c1"
+        expected: {payload_hex: "c0 01 c1 02 c2 03 41", crc_ok: true}
+      - name: "escaped destination address"
+        logical_hex: "00 f1 c0 01 c1 02 c2 c3 0a 0b 0c 0d 0e 0f 00 24 0c 65 73 63 2d 61 64 64 72 d0 e5"
+        wire_hex: "c0 00 f1 c2 40 01 c2 41 02 c2 42 c3 0a 0b 0c 0d 0e 0f 00 24 0c 65 73 63 2d 61 64 64 72 d0 e5 c1"
+    provenance: "Public synthetic pydanalock-ble fixtures. Addresses and payload are invented; no captured traffic or owner identifiers."
+  rpd:
+    sequence: "Four-bit modulo-16 counters with random initial sequence numbers. Low seq_ack nibble is sender sequence; high nibble is next expected peer."
+    rules:
+      - "SYN consumes the sender sequence immediately. Peer SYN carries its own initial sequence and ack=initiator ISN+1."
+      - "Sending data does not advance the sender sequence. Only a data-path frame (data or empty ACK, type 0) whose ack equals current own sequence+1 advances it."
+      - "Empty ACK frames never consume a sequence number. SYN/FIN ack nibbles are handshake bookkeeping and never advance data acknowledgement state."
+      - "Deliver non-empty data only when seq equals receiver expected; then increment expected. Drop duplicate/out-of-order data silently without re-acknowledgement."
+      - "An in-order FIN consumes the receiver sequence, so the response ack is fin_seq+1. FIN does not consume the sender's own sequence at construction."
+      - "Window one: retain and retransmit the identical unacknowledged frame up to 3 retries 2000 ms apart. SYN-ACK window 4500 ms; post-FIN teardown window 6000 ms."
+    session_vector:
+      phone: {isn: 5, port: 4}
+      lock: {isn: 0, port: 2}
+      steps:
+        - {direction: "phone_to_lock", kind: "SYN", ports: "0x24", seq_ack: "0x05", phone_next: 6, lock_next: 0}
+        - {direction: "lock_to_phone", kind: "SYN", ports: "0x42", seq_ack: "0x60", phone_next: 6, lock_next: 1}
+        - {direction: "phone_to_lock", kind: "empty ACK", ports: "0x24", seq_ack: "0x16", phone_next: 6, lock_next: 1}
+        - {direction: "phone_to_lock", kind: "data", ports: "0x24", seq_ack: "0x16", payload_ascii: "x", phone_next: 6, lock_next: 1}
+        - {direction: "lock_to_phone", kind: "empty ACK", ports: "0x42", seq_ack: "0x71", phone_next: 7, lock_next: 1}
+        - {direction: "lock_to_phone", kind: "data", ports: "0x42", seq_ack: "0x71", payload_ascii: "y", phone_next: 7, lock_next: 1, phone_peer_next: 2}
+        - {direction: "phone_to_lock", kind: "empty ACK", ports: "0x24", seq_ack: "0x27", phone_next: 7, phone_peer_next: 2}
+      negative_cases:
+        - "Repeating lock data seq=1 is a duplicate: phone_peer_next stays 2 and no new ACK is generated."
+        - "Lock data seq=3 while expecting 2 is out of order: drop silently."
+        - "An empty ACK with ack unequal to own_seq+1 does not advance own_seq."
+        - "An in-order FIN at peer seq=2 changes phone_peer_next to 3; its final ACK carries high nibble 3."
+  tls_12:
+    profile: "TLS 1.2 over the reliable byte stream; phone is client, lock is server"
+    cipher_suite: {name: "ECDHE-ECDSA-AES-256-GCM-SHA384", id: "0xC02C"}
+    offered_suite_ids_hex: "cc a9 c0 2c c0 ad c0 24 c0 0a c0 af c0 2b c0 ac c0 23 c0 09 c0 ae c0 2e c0 26 c0 05 c0 2d c0 25 c0 04 00 ff"
+    groups: "Offer X25519 and secp256r1 plus the public profile's other groups; require secp256r1 selection"
+    extensions: "Extended master secret required; signature algorithms ecdsa/sha512/sha384/sha256; uncompressed EC point; encrypt-then-mac offered"
+    server_key_exchange: "P-256 uncompressed 65-byte point; ECDSA SHA-512 signature over ClientHello.random || ServerHello.random || params, verified against the certified server key"
+    empty_client_certificate:
+      requirement: "The lock sends CertificateRequest; client returns an empty Certificate message, then authenticates with AFI AuthorityLogin. No TLS client private key/certificate is required."
+      handshake_message_hex: "0b 00 00 03 00 00 00"
+    extended_master_secret: "SHA-384 over handshake messages ClientHello through ClientKeyExchange inclusive, including each handshake header. Wrong transcript boundaries cause Finished failure."
+    records:
+      types: {handshake: "0x16", change_cipher_spec: "0x14", application_data: "0x17"}
+      version_hex: "03 03"
+      protection: "AES-256-GCM; 8-byte explicit nonce equal to the per-direction record counter starting at 1 for application data; AAD is the 5-byte TLS record header"
+      client_finished: "Handshake type 0x16 record, explicit nonce 0, plaintext 14 00 00 0c plus 12-byte verify_data"
+      lock_finished: "Accept the lock Finished in an application-data 0x17 record with nonce 0; do not require record type 0x16"
+      malformed: "Reject unexpected cipher/group, missing EMS, invalid ECDSA proof, wrong certificate, bad GCM tag or unexpected handshake order."
+    certificate_validation:
+      insecure_mode: "forbidden; never disable certificate-chain or serial-equivalent identity checks"
+      trust_anchor: "Caller-supplied public DMI intermediate; this is not a public-web-CA hostname validation problem"
+      expected_metadata: {sha256_fingerprint: "f6e1b0c175d9d971acc18d94117a237515adee39c6d02c0a013523093b500d64", x509_serial: "0x1000", algorithm: "P-256 ECDSA-SHA256"}
+      required_checks:
+        - "Require the exact trusted DMI anchor by fingerprint and verify every certificate signature/chain cryptographically; CN or serial alone is not authentication."
+        - "Require the leaf subject CN and X.509 serial to match the connected six-byte lock serial and validate the leaf ECDSA P-256 key/proof."
+        - "Check leaf and anchor validity intervals, Basic Constraints (anchor is a CA), and key usage. Reject expired/not-yet-valid leaves and non-CA anchors."
+        - "Handle the public anchor's year-zero-to-9999 validity with a DMI-aware X.509 parser rather than weakening checks because a general-purpose library cannot represent year zero."
+        - "Document the absence of an established revocation mechanism instead of silently treating it as successful revocation checking. CT/public-web roots are separate and do not replace the DMI anchor."
+      public_client_warning: "The reviewed HA integration disables verification and the library's optional secure mode misses validity/constraints; neither behavior meets this spec's required profile."
+    prf_sha384_test_vector:
+      provenance: "Synthetic RFC 5246 PRF vector from the public implementation; no session secret."
+      secret_hex: "00 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff"
+      label_ascii: "master secret"
+      seed_hex: "de ad be ef 01 02 03 04 05 06 07 08 09 0a 0b 0c"
+      output_length: 48
+      expected_hex: "47 93 1e 7f df e3 70 67 ad 1d 5c 0c 53 dd d5 a2 e9 aa 02 f4 fe df f2 b9 88 0d 41 a6 34 09 39 b5 3a 78 1a cb 50 2d b1 c0 c6 e0 2e 85 51 75 8c bf"
+  afi:
+    messages:
+      request: "01 | class u8 | function u8 | payload"
+      result: "02 | class u8 | function u8 | status u8 | payload; match strictly in request order (no request id)"
+      event: "03 | class u8 | event u8 | payload"
+    primitives:
+      varint: "Unsigned LEB128, 7 data bits per byte, high bit continuation; reject truncation and negative input"
+      fixed_integers: "uint16/uint32 little-endian where explicitly stated"
+      strings: "Varint byte length followed by bytes"
+      tlv: "Varint tag, varint length, value; unsigned integers inside values are shortest big-endian (zero is one 00 byte)"
+    session:
+      - "After RPD+TLS, send AuthorityLogin class 1 function 1 with the opaque login token appended directly; require result status 0 before any other feature."
+      - "Set UTC with class 3 function 1 payload uint32 LE epoch seconds, then perform read-only information/state/power requests. Requests are sequential, one pending at a time."
+      - "Pre-check valid_from/valid_to locally but still require the lock's acceptance. Expiry, token status 0x5E..0x73 or not-logged-in 0x41 requires a fresh grant, not insecure/replay fallback."
+    commands:
+      authority_login: {class: 1, function: 1, direction: "request", payload: "opaque token blob", verification: "reported"}
+      device_get_information: {class: 2, function: 2, direction: "read", request_hex: "01 02 02", response: "Seven varints: product, hardware major/minor/revision, firmware major/minor/revision; then NUL-terminated UTF-8 firmware identifier", verification: "reported"}
+      time_set_utc: {class: 3, function: 1, direction: "session maintenance", example_epoch: "0x6483ABCD", request_hex: "01 03 01 cd ab 83 64", verification: "reported"}
+      lock_get_state: {class: 4, function: 5, direction: "read", request_hex: "01 04 05", response: "varint state, varint operation, bool", verification: "reported"}
+      lock_get_settings: {class: 4, function: 6, direction: "read", request_hex: "01 04 06 01 01 00 02 01 00 03 01 00 04 01 00 05 01 00", response: "TLV settings; member 4 is unsupported and must not be written", verification: "reported"}
+      power_source_get_information: {class: 10, function: 1, direction: "read", request_hex: "01 0a 01", response: "TLV members: 1 power type, 2 level, 3 battery percent, 4 uint16; validate actual members before exposing units", verification: "reported"}
+      lock_operate:
+        class: 4
+        function: 1
+        direction: "physical actuation"
+        operations: {unlock: "varint 2 -> request 01 04 01 02", lock: "varint 3 -> request 01 04 01 03"}
+        advanced: true
+        attended: true
+        generic_binding: false
+        verification: "reported"
+        advanced_reason: "Moves a real lock. Only after manual selection, full certificate validation, valid login and an attending person; send once and require result/state, never auto-replay."
+    statuses: {0: "OK", 5: "busy", 6: "argument error", 7: "nothing changed", 9: "unsupported argument", 11: "critical battery", 21: "bad state", 22: "invalid data", 23: "blocked", 24: "hardware failure", 25: "timeout", 64: "not permitted", 65: "not logged in", "94..115": "login token validity failures"}
+    primitive_vectors:
+      varints: [{"value": 0, "hex": "00"}, {"value": 127, "hex": "7f"}, {"value": 128, "hex": "80 01"}, {"value": 300, "hex": "ac 02"}, {"value": 16384, "hex": "80 80 01"}]
+      tlv_uint: [{"tag": 4, "value": 4660, "hex": "04 02 12 34"}, {"tag": 3, "value": 65536, "hex": "03 03 01 00 00"}]
+      malformed_hex: ["80", "01 05 00"]
+  radio_survival_notes:
+    scope: "Alternative local routes for owners, not extra specs or evidence that DMI works on every variant."
+    btze_btzu: "Z-Wave JS supports Danalock V3-BTZE with manufacturer 0x010E, product type/id 0x0009/0x0001. Enroll in the app first if BLE is also wanted; hub-first disables BLE. BTZE is EU, BTZU US."
+    btzb_btzbe: "Zigbee2MQTT supports V3-BTZB/V3-BTZBE with lock/state, battery, PIN users, action events and OTA. BTZB is pre-2020 Zigbee 1.2 and cannot be Zigbee-updated; BTZBE is Zigbee 3.0/updateable. No Danabridge/cloud is needed for that Zigbee path."
+    bthk: "Use Apple Home or Home Assistant HomeKit Device locally and preserve the pairing code. Single-controller pairing and RF quality matter. Dual-mode firmware 2.7.5 adds account-based DMI but does not prove community DMI compatibility."
+    danapad: "App-less Danapad pairing is not general DMI self-keying: it deletes existing PIN codes and prevents later addition to the Danalock app. It can preserve PIN operation with a supported hub."
+    danabridge: "Only needed for out-of-range vendor-cloud relay, not for direct in-range BLE. No local replacement for its cloud router is established."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "signed"
+        algorithm: "ecdsa_p256"
+        source: "public_url"
+        format: "nrfutil secure-DFU ZIP with signed manifest; public main/HomeKit/Danabridge packages inspected"
+        notes: >
+          Public vendor packages declare ECDSA-P256-SHA256 signatures and their
+          init hashes match the images. Vendor signature verification, target
+          bootloader enforcement and anti-downgrade policy were not established.
+          Public sources include the official firmware/update pages linked below
+          and the public vendor archives described in evidence; no image is
+          bundled here and no image is asserted suitable for every serial/PCB.
+      enter:
+        how: "unknown"
+        notes: "DFU advertising uses manufacturer payload version 3 with the same six-byte serial. No buttonless command is declared by this spec."
+      dfu_mode:
+        advertisement_flag: "DMI manufacturer payload byte 0 = 0x03; serial remains bytes 1..6"
+        notes: "Treat version 3 as update mode with no normal controls. Nordic address/name behavior is not asserted."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: "Nordic packages parsed offline with nrfutil in the public research; no device was updated and vendor signature verification was not independently performed."
+
+cloud:
+  required: true
+  vendor_service: "Danalock account/ekey service for enrollment and AFI-token issuance/renewal"
+  hosts: ["https://api.danalock.com"]
+  auth:
+    type: "other"
+    notes: "OAuth account flow for official enrollment/token APIs. The opaque AFI login token and broadcast key are separate per-lock credentials. No endpoint or real token is reproduced."
+    verification: "reported"
+  failure_mode: >
+    Fresh enrollment, new grants, renewal after expiry/revocation and vendor
+    firmware lookup need the service. A locally cached unexpired AFI grant can
+    still complete direct BLE without contacting it; passive state also works
+    offline with the separate broadcast key. Current HA's failure to persist
+    device keys is an implementation limitation, not a protocol requirement.
+  notes: "A replacement cloud can cache/redistribute an existing grant but cannot mint lock-accepted tokens or complete signed enrollment without an authority the lock already trusts."
+
+local_access:
+  status: "native"
+  summary: "Direct DMI BLE with cached credentials and a dedicated secure session handler. identify_only in this catalogue because that handler and full X.509 validation are not shipped."
+  covers:
+    - "Company-0x01C8 advertisement parsing with separate broadcast-key decryption and CRC"
+    - "C0/C1 framing, CCITT-FALSE, escaping and arbitrary GATT reassembly"
+    - "RPD sequence/ack/retry state machine"
+    - "TLS 1.2 with empty client-certificate list, EMS and mandatory DMI chain validation"
+    - "AFI login, read-only device/state/settings/power requests and documentary advanced LockOperate"
+    - "Z-Wave/Zigbee/HomeKit survival-route notes, without claiming additional implementations"
+  not_covered:
+    - "Generic discovery/actuation, insecure TLS, token minting, enrollment or a replacement signing authority"
+    - "Default/max token TTL, predecessor revocation, long-term offline acceptance and all non-BTZE DMI variants"
+    - "Full AFI management/enrollment, PIN/fingerprint administration and cloud Danabridge replacement"
+    - "A firmware uploader, bootloader anti-rollback proof or interrupted-update recovery"
+
+helpful_urls:
+  - title: "pydanalock-ble 0.10.0 (pinned)"
+    url: "https://github.com/buggy-shep/pydanalock-ble/tree/ec3bec0c2da580c08d69d33bc923063222db60cf"
+    kind: "implementation"
+    description: "Public DMI frame/RPD/TLS/AFI/broadcast implementation and synthetic fixtures. Its optional TLS validation is not sufficient by itself for this spec's mandatory profile."
+  - title: "Danalock BLE Home Assistant integration 0.10.0 (pinned)"
+    url: "https://github.com/buggy-shep/danalock-ble-ha-integration/tree/9d12d7f1f961c4ac36d6417e6dbee15d838d6ce2"
+    kind: "implementation"
+    description: "Community integration; author live evidence is BTZE-only. Current device-key persistence and insecure TLS limitations are documented rather than copied."
+  - title: "Salto Danalock general information and DFU guidance"
+    url: "https://support.saltosystems.com/danalock/danalock/general-information/"
+    kind: "vendor_support"
+    description: "Official serial-location, firmware and pinhole-button information; HTTP 200 verified 2026-11-18."
+  - title: "Salto Danalock click-command installation guide 226565"
+    url: "https://support.saltosystems.com/installation-guides/226565.pdf"
+    kind: "manual"
+    description: "Official V3 pinhole/click installation guide covering reset/calibration controls; HTTP 200 verified 2026-11-18. Not represented as a complete protocol manual."
+  - title: "Official Danalock Bluetooth variant guidance"
+    url: "https://support.saltosystems.com/danalock/danalock/bluetooth/"
+    kind: "vendor_support"
+    description: "BT/BTZE/BTZU/BTZB/HomeKit scope and dual-mode firmware boundary."
+  - title: "Official Danalock Z-Wave and Zigbee local routes"
+    url: "https://support.saltosystems.com/danalock/danalock/zwave/"
+    kind: "vendor_support"
+    description: "Z-Wave enrollment/app-first boundary; the sibling /zigbee/ page covers app-less Zigbee and BTZB versus BTZBE."
+  - title: "Z-Wave JS Danalock V3-BTZE configuration (pinned)"
+    url: "https://github.com/zwave-js/node-zwave-js/blob/b00e8e35ad67b3f2b6ac53bee74c38709782d154/packages/config/config/devices/0x010e/danalock_v3-btze.json"
+    kind: "implementation"
+    description: "Independent Z-Wave survival-route identifiers; not a DMI BLE implementation."
+  - title: "Zigbee2MQTT Danalock V3-BTZB/BTZBE converter (pinned)"
+    url: "https://github.com/Koenkk/zigbee-herdsman-converters/blob/89ab46f435273bee930cec78e2f2d050e6fa5af8/src/devices/danalock.ts"
+    kind: "implementation"
+    description: "Independent Zigbee lock/state/battery/PIN/action/OTA route; no extra unimplemented spec is added here."
+
+remaining_unknowns:
+  - "Default/custom token TTL, maximum lifetime, predecessor invalidation/revocation and long-term cached-token acceptance."
+  - "DMI compatibility on BT, BTZB/BTZBE and dual-mode BTHK; only BTZE has author-reported live evidence."
+  - "Full offline enrollment/self-keying and any authority accepted for owner-independent token issuance."
+  - "Production certificate revocation behavior and a maintained reference implementation with complete X.509 checks."
+  - "Exact battery_raw scaling and all Power Source TLV member semantics across variants."
+  - "Bootloader signature enforcement, anti-downgrade policy, interrupted-update recovery and Danabridge trust enforcement."
+
+evidence:
+  public_implementation: >
+    buggy-shep/pydanalock-ble 0.10.0 at
+    ec3bec0c2da580c08d69d33bc923063222db60cf supplied the final DMI frame,
+    CCITT-FALSE, RPD, TLS, AFI and advertisement layouts and their synthetic
+    fixtures. Its public tests passed in the research environment (238 tests);
+    this project did not run them against hardware. The companion HA
+    integration at 9d12d7f1f961c4ac36d6417e6dbee15d838d6ce2 establishes the
+    BTZE-only live-evidence boundary and the current persistence/insecure-mode
+    limitations.
+  app_and_firmware_analysis: >
+    The two vendor apps and native protocol library established GATT/company
+    IDs, enrollment and credential roles. Public firmware packages established
+    Nordic DFU metadata and the shared DMI trust-anchor fingerprint. No owner
+    blob, CA private key, token or certificate signing was used.
+  documentation_review: >
+    Official Salto Bluetooth, click-command, Z-Wave, Zigbee, HomeKit and Danapad
+    pages supplied variant/reset/survival boundaries. Z-Wave JS and Zigbee2MQTT
+    pinned configs corroborate those alternative routes; they are notes, not
+    extra unimplemented specs.
+  open_questions: >
+    Authorized BT/BTZB/BTHK DMI sessions, full-validation interoperability,
+    token TTL/rotation and safe owner export remain unresolved. Public RPD and
+    DMI JSON fixtures used here are explicitly synthetic, not raw captures.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "buggy-shep/pydanalock-ble 0.10.0 @ ec3bec0c2da580c08d69d33bc923063222db60cf"
+      url: "https://github.com/buggy-shep/pydanalock-ble/tree/ec3bec0c2da580c08d69d33bc923063222db60cf"
+      description: "Pinned public protocol source and synthetic DMI/RPD/broadcast vectors. No real serial, token or capture is reproduced."
+    - type: "public_implementation"
+      artifact: "buggy-shep/danalock-ble-ha-integration 0.10.0 @ 9d12d7f1f961c4ac36d6417e6dbee15d838d6ce2"
+      url: "https://github.com/buggy-shep/danalock-ble-ha-integration/tree/9d12d7f1f961c4ac36d6417e6dbee15d838d6ce2"
+      description: "Public HA integration and BTZE-only author evidence; its insecure TLS/device-key persistence choices are explicitly rejected here."
+    - type: "static_analysis"
+      artifact: "Danalock com.danalock.wormhole 3.5.1 and com.danalock.v3 2.4.0 native DMI library"
+      sha256: "351ce047247d62249c36b71544832371a47717156c06f679a37503ae37b44b5f"
+      obtained_via: "third-party app mirrors, 2026-09"
+      description: "Identical native DMI library in both apps, used for enrollment/GATT/credential roles; no binary or internal symbols are committed."
+    - type: "vendor_documentation"
+      artifact: "Salto Danalock click-command installation guide 226565 and online radio guides"
+      url: "https://support.saltosystems.com/installation-guides/226565.pdf"
+      description: "Physical reset and radio survival boundaries; installation-guide URL returned HTTP 200 on 2026-11-18."

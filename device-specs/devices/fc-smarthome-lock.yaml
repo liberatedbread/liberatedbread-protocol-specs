@@ -1,0 +1,529 @@
+# FC SmartHome / Fingerchip (Fingercrystal) local BLE lock protocol
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Public implementation at e2f66d54 plus its offline fixtures. No lock,
+# account, real initial/session key, bind identity or live command was used.
+
+device:
+  name: "FC SmartHome / Fingerchip BLE Locks"
+  manufacturer: "Shenzhen Fingerchip / Fingercrystal"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No lock, account, owner record, real key or live operation was used by
+      this project. Protocol facts and the author's L5 live results are reported
+      by the pinned public implementation; all vectors below are newly generated
+      with invented keys/identities. A fixed public app-bundle frame corroborates
+      only outer v2 framing/checksum and is not an over-the-air capture or a
+      hardware run by this project.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "lock"
+  type: "electronic_door_lock"
+  integration: "identify_only"
+  aliases: ["FC SmartHome", "Fingerchip", "Fingercrystal", "Yi-Lock", "eApartment", "L5-WIFI-QINGKE"]
+  companion_apps:
+    - name: "FC SmartHome"
+      package: "com.fingercrystal.smarthome"
+      role: "primary"
+      platform: "android"
+      notes: "Cloud device record supplies the initial bluetoothKey and deviceBindUserId. Later BLE sessions can be local."
+    - name: "Yi-Lock"
+      package: "com.fingercrystal.xiaoyi"
+      role: "variant"
+      platform: "android"
+      notes: "Sibling app identity only; credential/model cross-compatibility is not asserted."
+    - name: "eApartment"
+      package: "com.fingercrystal.apartment"
+      role: "variant"
+      platform: "android"
+      notes: "Sibling app identity only; no independent protocol or owner-export route is claimed."
+  variants:
+    - model: "L5-class"
+      notes: "The public author's live handshake/read/unlock evidence is L5-class. Other model names are discovery hints only, not protocol proof."
+      verification: "reported"
+    - model: "E202Pro (manual scope only)"
+      notes: "Depicted in the official app manual for account/factory-reset flow, not used to assert L5 protocol or credentials."
+      verification: "reported"
+  notes: >
+    FC/Fingercrystal locks support local BLE after owner provisioning. The
+    initial 16-byte bluetoothKey and 32-byte deviceBindUserId come from the
+    owner's cloud device record. VERIFY_IDENTITY returns a per-session AES key
+    used after the handshake. No general offline method for issuing the initial
+    key or bind identity was found, and a MAC address is not a substitute.
+
+    The reliable initial surface is read-only: identity handshake, model,
+    firmware, wake source, users and history. Device-information opcode 0x03
+    versus 0x04 and battery item types are unresolved, so no battery entity or
+    information query is exposed. USER/0x04 command 0x10 data 0x01 is documented
+    only as advanced attended unlock; the conflicting stale target form
+    SYSTEM/0x02 command 0x0E must not be sent. Latch/beep and a generic lock
+    action are not implemented by the active FC BLE client.
+
+    Consumer integration is identify_only: a custom encrypted/session handler
+    is required. There are no generic commands or entities. Advertised names
+    and the 0x01FA/FFE0 services are candidate filters, not model identity.
+    Manual selection and a successful identity handshake are required before
+    any later operation. No wake-prime heartbeat precedes that handshake.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/JuanmanDev/fc-smart-home-assistant/tree/e2f66d547e40fd4cfb9544f52bbc8eb98a5ac21c"
+    license: "MIT"
+    notes: "Only one independent end-to-end FC implementation was found. This is not TTLock and no Tuya/TTLock provisioning or protocol compatibility is inferred."
+  safety_advisory:
+    severity: "warning"
+    summary: "The only supported actuation is advanced attended USER/0x04 command 0x10. Never send the stale SYSTEM/0x02 command 0x0E form or a generic unlock."
+    detail: >
+      Complete identity verification and read-only checks first, wake the lock
+      without repeatedly polling it, and keep a person at the door with an
+      independent entry method. Send one intentional unlock only while awake
+      and require its result/event. Never automate, replay after timeout or use
+      discovery as authorization. User enrollment, fingerprint/card/password
+      management and BLE factory reset are outside this spec.
+  identification:
+    notes: >
+      No safe automatic model matcher is declared. Name evidence includes
+      Smart Lock, FC, Yi, EL, DX, K3, DZ, SL and L5; these are candidates only.
+      Advertised scan service 000001fa-0000-1000-8000-00805f9b34fb and main
+      service 0000ffe0-0000-1000-8000-00805f9b34fb are not unique proof of an
+      L5 or of credential compatibility. Manual selection is mandatory.
+  discovery:
+    none: >
+      Manual exact-model selection. Scan service 000001fa and the name hints
+      only reduce the list a user inspects; they never activate commands.
+      Require the configured 0000ffe0/0000ffe1 endpoints or a validated
+      notifiable alternative, then perform VERIFY_IDENTITY as the first write.
+    identity:
+      stable_keys: ["owner_supplied_device_record"]
+      display: "manual FC model selection followed by handshake model text"
+      notes: "The BLE address and handshake MAC text are locators/identifiers, not proof of ownership or a substitute for deviceBindUserId; redact them in exports."
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Official setup uses an account and, for Wi-Fi models, a 2.4 GHz network.
+      The owner's device record supplies bluetoothKey as 32 hex characters and
+      deviceBindUserId as a 32-byte identity. Current research corrects older
+      comments that called the latter deviceuuid. The active integration also
+      has a built-in initial-key fallback that matched one tested L5, but that
+      is one observation, not general offline issuance; deviceBindUserId still
+      has no verified offline source. Do not rely on the fallback by default.
+    methods:
+      - type: "cloud_account"
+        name: "Cloud device record once, then local session keys"
+        role: "primary"
+        verified: false
+        description: >
+          Use official account setup and an owner-authorized private export of
+          bluetoothKey and deviceBindUserId, then perform local BLE handshakes.
+          There is no dedicated redacted offline export/importer in the public
+          client, and Android backup is disabled in the reviewed release.
+        cloud:
+          provider: "FC SmartHome account/device service"
+          local_alternative: "No verified offline first-time issuance of bluetoothKey/deviceBindUserId. Once both are cached, later session keys are negotiated locally."
+        steps:
+          - action: "Complete official FC SmartHome account/admin setup; for a Wi-Fi model use its required 2.4 GHz network and preserve the owner device record privately."
+            actor: "user"
+          - action: "Store bluetoothKey (32 hex chars) and deviceBindUserId (32 ASCII bytes) in a secret store; do not print, derive from a MAC, or substitute zeros/deviceuuid."
+            actor: "user"
+          - action: "Manually select the lock, wake it with 4 then # for an approximately 60-second window when needed, subscribe to notifications and retry service discovery if the sleeping GATT table is partial."
+            actor: "client"
+          - action: "Send VERIFY_IDENTITY at sequence 1 with the bind identity and current local time, accept only result 0 or 0xF1, and switch to the returned 16-byte session key."
+            actor: "client"
+            expect: "Read-only model, firmware, protocol and wake-source fields validate before user/history queries. No heartbeat or actuation precedes this step."
+        troubleshooting:
+          - symptom: "The GATT table is empty or FFE1 is missing."
+            causes:
+              - "The lock is asleep. Wake it and retry discovery; require a notifiable characteristic before sending anything."
+          - symptom: "The identity attempt is ignored or rejected."
+            causes:
+              - "Use the actual 32-byte deviceBindUserId, not zeros or the older deviceuuid label. Retry on a fresh connection with sequence 1 rather than advancing as if it succeeded."
+              - "Check whether the record's bluetoothKey differs from the public client's one-device fallback; do not assume every model shares that fallback."
+          - symptom: "Commands time out after a short idle period."
+            causes:
+              - "The lock sleeps. Use 4 then # for the longer window and complete one read-only transaction at a time; do not repeatedly wake for polling."
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        The official app manual says factory settings delete the device and
+        clear passwords, fingerprints, cards and message history. Treat local
+        initial/session credentials and cached owner access as invalid;
+        re-provision through the account. Reset is not an offline recovery path.
+      description: >
+        Use the official app's destructive factory-settings route for the exact
+        model. The reviewed manual depicts E202Pro, not the community-tested L5,
+        so it supports the app-flow consequence rather than a universal button
+        or BLE reset command. No BLE reset command is recovered or recommended.
+      procedures:
+        - name: "Official app factory settings (model-specific)"
+          verified: false
+          basis: "FC SmartHome app manual for the depicted E202Pro; not executed and not generalized to L5."
+          power_state: "on"
+          steps:
+            - action: "Keep the door attended, preserve any still-valid owner record if appropriate, and confirm the exact model in the official app."
+              actor: "user"
+            - action: "Choose the official factory-settings action and confirm deletion of device credentials/history as the manual describes."
+              actor: "user"
+              expect: "Passwords, fingerprints, cards and message history are cleared; complete account/admin provisioning again. Do not expect old BLE credentials to work."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A cached bluetoothKey/deviceBindUserId can negotiate a fresh session
+        without cloud contact while accepted. Rebinding a new independent
+        client still needs an owner-authorized device record. Reset is not a
+        routine recovery step and its credential-rotation behavior is unknown.
+      steps:
+        - action: "Wake the lock and connect with the cached owner record on a fresh BLE connection."
+          actor: "client"
+        - action: "Start at sequence 1, verify identity and require read-only model/firmware data before any further operation."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Initial bluetoothKey and expected deviceBindUserId, with model-specific rotation behavior unknown"
+        - "Per-session AES keys negotiated during VERIFY_IDENTITY"
+        - "Users, access credentials and history, outside this spec's management scope"
+      issued_to_client:
+        - "Initial bluetoothKey: 32 hex characters decoded to 16 bytes"
+        - "deviceBindUserId: 32 ASCII bytes, truncated/padded with NUL on the wire"
+        - "Per-session AES key: 16 raw bytes returned by the handshake and never logged"
+      notes: >
+        Wi-Fi provisioning protection is not established by the BLE research;
+        no Wi-Fi credential is sent by this spec. Initial and session keys are
+        owner secrets. The public cloud client can export raw sensitive records
+        after login but offers no redacted offline importer; ordinary Android
+        backup is disabled in FC SmartHome 4.6.6.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: "Close the other central, wake the lock and start a fresh connection; do not factory reset to resolve a busy link."
+    enter_pairing_mode:
+      required: true
+      notes: "Official account/admin provisioning is required; there is no demonstrated unauthenticated local bind or pairing window for a replacement client."
+      procedures:
+        - name: "Official FC account and administrator setup"
+          verified: false
+          basis: "Official FC app manual and the public client's provisioning boundary; not run here."
+          power_state: "on"
+          steps:
+            - action: "Use the official app's QR/back-panel or nearby/manual addition flow and complete administrator setup."
+              actor: "user"
+              expect: "The owner device record contains the bluetoothKey and deviceBindUserId required by the first independent BLE session."
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      clears: "Official factory settings clears device credentials/history; no targeted local unpair operation is established."
+      notes: "Do not treat OS Bluetooth forget, another lock ecosystem or an unused bind constant as a working unpair/bind route."
+    notes: "Application-layer identity/key verification replaces an established OS BLE bond. Link-layer bonding behavior is not asserted."
+
+initialization:
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Require notifications and reassemble by outer little-endian total length, not ATT notification boundaries. Retry service discovery on a freshly woken lock if the table is partial."
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    description: "Custom first write: VERIFY_IDENTITY at sequence 1 using the owner record. Accept only result 0/0xF1, install the returned session key, then validate read-only model/firmware/wake data. No generic client can execute this dynamic step."
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "FC encrypted BLE service"
+    verification: "reported"
+    notes: >
+      Main service; advertised scan filter 000001fa-0000-1000-8000-00805f9b34fb
+      is separate. Neither is automatic model identity. Some sleeping units
+      expose a partial table, and a dedicated client may learn a compatible
+      notifiable alternative rather than assuming FFE1 exists.
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "FC encrypted write and notify"
+        properties: ["write_without_response", "notify"]
+        verification: "reported"
+        notes: "Whole FC/FD frames are split into <=20-byte writes without response, paced about 20 ms. No plaintext commands are declared."
+
+protocol_details:
+  consumer_limitations:
+    integration: "identify_only"
+    generic_commands: false
+    generic_entities: false
+    automatic_model_identity: false
+    required_handler: "Manual selection + wake/GATT negotiation + initial/session AES + strict FC/FD reassembly + identity/session sequencing + read-only-first safety gate."
+  transport:
+    advertised_scan_service_uuid: "000001fa-0000-1000-8000-00805f9b34fb"
+    main_service_uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    characteristic_uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    write_chunk_max_bytes: 20
+    inter_chunk_delay_ms: 20
+    wake:
+      long_window: "Press 4 then # on the keypad for approximately 60 seconds of BLE/Wi-Fi activity (reported on L5)."
+      short_window: "Keypad touch/bell or normal fingerprint/handle use wakes for a few seconds."
+      polling: "Do not repeatedly wake for polling. Complete advanced operations only while awake and attended."
+    discovery_retry: "A sleeping lock can expose an empty/partial GATT table. Retry service discovery, require a notifiable characteristic, and use configured FFE0/FFE1 or a validated compatible alternative."
+  outer_frame:
+    versions:
+      v1: {start: "0xFC", end: "0xFE", inner_length_formula: "8 + data_length"}
+      v2: {start: "0xFD", end: "0xFE", inner_length_formula: "9 + data_length, including inner XOR"}
+    layout:
+      - {offset: 0, length: 1, name: "start", values: "FC or FD"}
+      - {offset: 1, length: 1, name: "pid", description: "Package index; users/history pagination continues until response pid is zero"}
+      - {offset: 2, length: 2, name: "total_length", type: "uint16", endianness: "little", description: "Start through end inclusive"}
+      - {offset: 4, length: "total_length - 6", name: "encrypted_payload", type: "bytes", description: "AES-128-ECB, nonzero multiple of 16"}
+      - {offset: "total_length - 2", length: 1, name: "outer_checksum", formula: "pid XOR length_low XOR length_high XOR every encrypted byte"}
+      - {offset: "total_length - 1", length: 1, name: "end", required: "0xFE"}
+    crypto:
+      algorithm: "AES-128-ECB with zero-fill, not PKCS#7"
+      initial_key: "bytes.fromhex(owner bluetoothKey), exactly 16 bytes"
+      session_key: "16 raw bytes returned by VERIFY_IDENTITY; use for every subsequent message and never log"
+      padding: "Append zero bytes only to the next 16-byte boundary. An already aligned inner message gets no extra block."
+      length_rule: "Use the inner length to find real data and require every zero-fill byte after it to be zero; padding alone is not a length delimiter."
+    reassembly: "Scan to FC/FD, wait for total_length, require total length >=22, ciphertext multiple of 16, FE terminator and valid outer checksum before decrypting. Drop malformed/corrupt frames and rescan; one ATT notification is not necessarily one frame."
+    implementation_bound: "The public parser uses a 1024-byte frame ceiling as a defensive input bound; do not allocate unbounded buffers for hostile lengths."
+  inner_message:
+    common:
+      - {offset: 0, length: 2, name: "inner_length", type: "uint16", endianness: "little"}
+      - {offset: 2, length: 4, name: "sequence", type: "uint32", endianness: "little"}
+      - {offset: 6, length: 1, name: "category", values: {2: "SYSTEM", 4: "USER", 8: "RECORD", 16: "WARN", 240: "SPECIAL"}}
+      - {offset: 7, length: 1, name: "command", type: "uint8"}
+      - {offset: 8, length: "inner_length - 8 (v1) or inner_length - 9 (v2)", name: "data", type: "bytes"}
+    v1: "No trailing inner XOR; inner_length = 8 + data length."
+    v2: "One trailing inner XOR; inner_length = 9 + data length including that XOR."
+    v2_xor_normal: "length_low XOR length_high XOR category XOR command XOR every data byte"
+    v2_xor_android_heartbeat: "The special Android heartbeat additionally XORs all four little-endian sequence bytes. Do not apply this variant to every message."
+    validation: "Require minimum inner lengths (8/9), exact inner length within decrypted data, valid v2 XOR, and all zero-fill bytes after inner_length."
+    session_sequencing:
+      first: "Sequence 1 on each fresh connection, always for the identity handshake."
+      after_response: "Next request sequence = response.sequence + 1 modulo 2^32, not simply local_previous + 1. Full uint32 is retained."
+      failed_handshake: "Reconnect and send sequence 1 again; do not advance as if the failed handshake succeeded."
+      retransmission: "Read-only retries resend the identical frame/sequence. An unlock is never automatically retried after timeout."
+  verify_identity:
+    category: "0x02"
+    command: "0x08"
+    request:
+      sequence: 1
+      data_length: 39
+      fields:
+        - {offset: 0, length: 32, name: "deviceBindUserId", encoding: "ASCII truncated/padded NUL", description: "Owner cloud-record identity, not zeros and not the stale deviceuuid label"}
+        - {offset: 32, length: 1, name: "year", encoding: "year - 2000"}
+        - {offset: 33, length: 1, name: "month", type: "uint8"}
+        - {offset: 34, length: 1, name: "day", type: "uint8"}
+        - {offset: 35, length: 1, name: "hour", type: "uint8"}
+        - {offset: 36, length: 1, name: "minute", type: "uint8"}
+        - {offset: 37, length: 1, name: "second", type: "uint8"}
+        - {offset: 38, length: 1, name: "timezone_hours", type: "int8", description: "Signed hours in client convention, positive for UTC+N; negative values use two's complement"}
+    response:
+      accepted_result_codes: [0, 241]
+      key_handling: "Install response bytes 1..16 as the new session key only after accepting the result and validating the complete response; do not log it or the MAC/identity."
+      fields:
+        - {offset: 0, length: 1, name: "result", values: {0: "accepted", 241: "accepted"}}
+        - {offset: 1, length: 16, name: "session_aes_key", type: "bytes"}
+        - {offset: 17, length: 12, name: "mac_text", encoding: "ASCII", privacy: "redact in shared data"}
+        - {offset: 29, length: 3, name: "protocol_version", encoding: "ASCII"}
+        - {offset: 32, length: 8, name: "model", encoding: "ASCII padded"}
+        - {offset: 40, length: 15, name: "firmware", encoding: "ASCII padded"}
+        - {offset: 55, length: 2, name: "wake_source", type: "uint16", endianness: "big"}
+        - {offset: 57, length: 15, name: "fingerprint_module_version", encoding: "optional ASCII padded"}
+      malformed: "Reject short responses, non-accepted result, bad text encoding or truncated required fields rather than switching keys or publishing model data."
+  read_only_queries:
+    device_information:
+      status: "excluded pending capture"
+      conflict: "Active HA method uses SYSTEM command 0x03; older protocol library labels READ_INFO 0x04. No captured proof resolves the difference."
+      response_items: "Three-byte type,value-low,value-high. Types 18/19 display second.third; other types are uint16 LE. Item/battery meanings still need a real response."
+      guidance: "Do not issue either opcode in the minimal subset and do not expose a battery sensor. Handshake already supplies model/firmware/wake."
+    users:
+      category: "0x04"
+      command: "0x01"
+      request_data_hex: ""
+      response: "First data byte must be zero/status; following bytes are 22-byte records. Continue with response pid until zero."
+      record:
+        - {offset: 0, length: 2, name: "user_id", type: "uint16", endianness: "little"}
+        - {offset: 2, length: 1, name: "enabled", type: "uint8", values: "1 means enabled; preserve other raw values"}
+        - {offset: 3, length: 1, name: "user_type", type: "uint8", semantics: "unresolved"}
+        - {offset: 4, length: 1, name: "attributes", type: "uint8", semantics: "unresolved"}
+        - {offset: 5, length: 4, name: "start_time_raw", type: "uint32", endianness: "little", semantics: "epoch/unit unresolved; preserve raw"}
+        - {offset: 9, length: 4, name: "end_time_raw", type: "uint32", endianness: "little", semantics: "epoch/unit unresolved; preserve raw"}
+        - {offset: 13, length: 9, name: "undecoded", type: "bytes"}
+      malformed: "Reject trailing partial records and nonzero status; do not silently floor a malformed payload into plausible users."
+      synthetic_record_hex: "07 00 01 02 03 04 03 02 01 08 07 06 05 00 01 02 03 04 05 06 07 08"
+      synthetic_expected: {user_id: 7, enabled: true, user_type: 2, attributes: 3, start_time_raw: 16909060, end_time_raw: 84281096}
+    history:
+      category: "0x04"
+      command: "0x12"
+      request_data_hex: "01"
+      response: "First data byte must be zero/status; following bytes are unlock/alarm records. Continue while response pid is nonzero and retain raw history privately."
+      record_layout:
+        - {offset: 0, length: 4, name: "timestamp_raw", type: "uint32", endianness: "little", semantics: "epoch/unit unresolved"}
+        - {offset: 4, length: 1, name: "model_value_1", type: "uint8"}
+        - {offset: 5, length: 1, name: "model_value_2", type: "uint8"}
+        - {offset: 6, length: 1, name: "record_type", type: "uint8"}
+        - {offset: 7, length: 1, name: "user_id_low", type: "uint8"}
+        - {offset: 8, length: 1, name: "user_id_high_optional", type: "uint8", present: "only in 9-byte form"}
+      record_size_heuristic: "Choose 9 bytes when remaining length is divisible by 9 and at most 54, otherwise 8. This is a client heuristic, not a universal model guarantee; reject leftover partial records."
+      eight_byte_example: {raw_hex: "78 56 34 12 01 02 03 07", expected: {timestamp_raw: 305419896, model_value_1: 1, model_value_2: 2, record_type: 3, user_id: 7}}
+      nine_byte_example: {raw_hex: "79 56 34 12 04 05 06 02 01", expected: {timestamp_raw: 305419897, model_value_1: 4, model_value_2: 5, record_type: 6, user_id: 258}}
+      privacy: "User types, attributes, timestamps and record semantics are not asserted. Redact user identities/history in exported research."
+  advanced_unlock_documentary:
+    status: "not a generic command and not offered by this catalogue entry"
+    category: "0x04"
+    command: "0x10"
+    data_hex: "01"
+    accepted_result_codes_reported: [0, 241]
+    advanced: true
+    attended: true
+    generic_binding: false
+    verification: "reported"
+    requirements: "Only after successful identity and read-only checks, while awake, with a person attending the door. Send once and validate result/event; never auto-replay."
+    user_credited_variant: "USER/0x04 command 0x18 with uint16 LE user id exists in the public client but is outside the minimal safe scope and is not offered."
+    stale_target_correction:
+      category: "0x02"
+      command: "0x0e"
+      data_hex: "01"
+      action: "DO NOT SEND. The active source/protocol tests support 0x04/0x10, not this conflicting target-stub form."
+    unsupported: "Latch, beep, generic lock alias, unattended automation, enrollment, fingerprint/card/password management and factory reset."
+    synthetic_vector:
+      provenance: "Documentary frame only, newly generated with invented key/sequence; not sent to a lock."
+      inner_hex: "0a 00 06 00 00 00 04 10 01 1f"
+      outer_frame_hex: "fd 00 16 00 f5 80 14 30 15 f5 4b ae 32 c2 c9 bd f2 1e d2 04 fc fe"
+  frame_test_vectors:
+    provenance: "Newly generated with invented initial key 000102030405060708090a0b0c0d0e0f, identity, records and sequence values. No owner data or public fallback key is used."
+    initial_key_hex: "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f"
+    vectors:
+      - name: "v1 users query"
+        version: 1
+        pid: 0
+        inner_hex: "08 00 02 00 00 00 04 01"
+        outer_frame_hex: "fc 00 16 00 bb 34 0c ac 96 c9 09 1f 68 98 06 80 c1 c9 b5 87 3c fe"
+        expected: {sequence: 2, category: 4, command: 1, data_hex: ""}
+      - name: "v2 normal heartbeat"
+        version: 2
+        pid: 255
+        xor_variant: "normal"
+        inner_hex: "09 00 02 00 00 00 f0 30 c9"
+        outer_frame_hex: "fd ff 16 00 ae 0e fe a4 e3 d0 d5 1f e8 0e d8 0e de 3a 6d b2 e1 fe"
+        expected: {sequence: 2, category: 240, command: 48, data_hex: ""}
+      - name: "v2 Android heartbeat"
+        version: 2
+        pid: 255
+        xor_variant: "android"
+        inner_hex: "09 00 02 00 00 00 f0 30 cb"
+        outer_frame_hex: "fd ff 16 00 6b 36 f6 32 9e 59 e5 f5 87 6b c5 25 fa eb b7 98 95 fe"
+        expected: {sequence: 2, category: 240, command: 48, data_hex: ""}
+      - name: "v1 identity handshake"
+        version: 1
+        pid: 0
+        identity_ascii: "0123456789abcdef0123456789abcdef"
+        local_time: "2026-11-18 12:34:56, UTC+2"
+        inner_hex: "2f 00 01 00 00 00 02 08 30 31 32 33 34 35 36 37 38 39 61 62 63 64 65 66 30 31 32 33 34 35 36 37 38 39 61 62 63 64 65 66 1a 0b 12 0c 22 38 02"
+        outer_frame_hex: "fc 00 36 00 4c e3 8b ab f4 19 d2 e1 e1 a6 a7 71 33 3d f9 ba c7 3d 63 06 32 ef 80 00 ac ab 11 95 7f ba 5a fc 0e d5 86 d8 6d 04 7b 58 5f 9e 1b 4d 00 e7 0f aa 83 fe"
+        expected: {sequence: 1, category: 2, command: 8, data_length: 39}
+      - name: "v2 history query"
+        version: 2
+        pid: 1
+        inner_hex: "0a 00 05 00 00 00 04 12 01 1d"
+        outer_frame_hex: "fd 01 16 00 19 46 f6 15 b9 92 3f ac 0f 40 51 6b fd 3c d9 e6 98 fe"
+        expected: {sequence: 5, category: 4, command: 18, data_hex: "01"}
+  handshake_response_vector:
+    provenance: "Synthetic result/session key/MAC/model/firmware, no owner data."
+    data_hex: "00 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 30 32 30 30 30 30 30 30 30 30 30 31 36 2e 35 4c 35 2d 54 45 53 54 00 42 30 2e 30 2e 30 2d 74 65 73 74 31 32 33 34 00 04 66 70 2d 74 65 73 74 2d 31 2e 30 20 20 20 20"
+    expected: {result: 0, session_key_hex: "000102030405060708090a0b0c0d0e0f", mac_text: "020000000001", protocol_version: "6.5", model: "L5-TEST", firmware: "B0.0.0-test1234", wake_source: 4, fingerprint_module_version: "fp-test-1.0"}
+  out_of_scope_transports:
+    raw_tcp_4067: "Reported cloud socket/NAT-DNS redirect not evaluated end-to-end; do not present it as a working local unlock path or reuse the BLE framing there."
+    alink_coap_udp_5683: "Gateway/LAN registration and CoAP are documented by the public client but not evaluated in this packet; no local actuation is claimed."
+
+cloud:
+  required: true
+  vendor_service: "FC SmartHome account/device service for initial bluetoothKey and deviceBindUserId"
+  hosts: []
+  auth:
+    type: "other"
+    notes: "Owner account and raw device record. No cloud endpoint, key or credential is reproduced. Replacement clients must use ordinary CA/hostname validation and currently supported TLS rather than copying the public Python client's disabled verification or legacy cipher choices."
+    verification: "reported"
+  failure_mode: >
+    Initial owner record acquisition and fresh provisioning stop without the
+    service. Once bluetoothKey/deviceBindUserId are cached, local BLE session
+    negotiation and read-only queries need no cloud. There is no supported
+    redacted offline export/import workflow, and reset does not guarantee a new
+    independent client can be provisioned offline.
+  notes: "Official Wi-Fi onboarding requirements do not make later BLE traffic cloud-dependent. Raw TCP 4067 and Alink/CoAP are separate unevaluated channels."
+
+local_access:
+  status: "native"
+  summary: "Local encrypted BLE after owner-record provisioning. identify_only in this catalogue until a dedicated strict session handler exists; read-only operations come first."
+  covers:
+    - "VERIFY_IDENTITY with deviceBindUserId and per-session AES keys"
+    - "v1 FC and v2 FD frame construction, zero-fill, XOR and fragmented reassembly"
+    - "Read-only model/firmware/wake metadata"
+    - "Users and history with pagination and unresolved semantics preserved"
+    - "Documentary advanced attended USER/0x04 command 0x10 unlock"
+  not_covered:
+    - "Offline initial credential issuance or a MAC-only provisioning route"
+    - "Generic unlock/lock/latch/beep, unattended actuation, stale SYSTEM/0x02 command 0x0E"
+    - "Battery/device-information query until 0x03 versus 0x04 and item types are captured"
+    - "User/credential enrollment, reset, raw TCP 4067, Alink/CoAP and firmware upload"
+
+helpful_urls:
+  - title: "FC SmartHome public local client and protocol tests (pinned)"
+    url: "https://github.com/JuanmanDev/fc-smart-home-assistant/tree/e2f66d547e40fd4cfb9544f52bbc8eb98a5ac21c"
+    kind: "implementation"
+    description: "Only located end-to-end FC implementation: v1/v2 framing, handshake, users/history, wake handling and offline golden tests. Its L5 live results remain third-party evidence."
+  - title: "FC SmartHome app user manual (E202Pro depicted)"
+    url: "https://m.media-amazon.com/images/I/A1m9Nhsf74L.pdf"
+    kind: "manual"
+    description: "Official app-flow manual covering account/admin setup, 2.4 GHz Wi-Fi, 4+# wake and destructive factory settings; model depicted is E202Pro, not the community-tested L5. HTTP 200 verified 2026-11-18."
+  - title: "FC SmartHome Home Assistant origin discussion"
+    url: "https://community.home-assistant.io/t/custom-integration-fc-smarthome-fingerchip-fingercrystal-yi-lock-eapartment-full-reverse-engineering-hacs-release/1025721"
+    kind: "forum"
+    description: "Community origin for the public local client; pinned source/tests, rather than forum recollection, are the protocol basis."
+
+remaining_unknowns:
+  - "Offline issuance/recovery of deviceBindUserId and initial bluetoothKey on other models; one L5 fallback match is not a general answer."
+  - "Model/firmware matrix for v1 versus v2, initial-key uniqueness and credential rotation after reset."
+  - "Device-information command 0x03 versus 0x04 and battery/item-type semantics; no battery reading is exposed."
+  - "History/user timestamp epoch/unit, user types/attributes, record-size heuristic across models and wake-source enum."
+  - "Safe characteristic fallback identity and bonding/central limits across models."
+  - "Raw TCP 4067 redirect, Alink/CoAP, Android effective trust/pinning, firmware artifacts/update behavior and Tuya/TTLock cross-compatibility (not claimed)."
+
+evidence:
+  public_implementation: >
+    JuanmanDev/fc-smart-home-assistant at
+    e2f66d547e40fd4cfb9544f52bbc8eb98a5ac21c supplied v1/v2 framing, AES,
+    handshake, sequencing, wake behavior, users/history and advanced unlock.
+    Its offline protocol tests passed in the research packet; its author's L5
+    live results are third-party reported evidence, not this project's run.
+  public_capture_boundary: >
+    A fixed public app-bundle frame independently corroborates outer FD/FE,
+    little-endian total length and XOR checksum. It is not treated as an
+    over-the-air capture, and no public fallback/initial key, real identity,
+    session key, MAC or owner history is copied into this spec or its vectors.
+  documentation_review: >
+    The official app manual supplies account/admin flow, 4+# wake and the
+    destructive factory-settings consequence for the depicted E202Pro. The
+    2026-11-11 research supplement supplies the cloud-export, fallback,
+    backup, TLS and no-public-firmware boundaries. No TTLock evidence exists.
+  open_questions: >
+    Owner-hardware read-only captures should establish dialect, response
+    sequencing, model-specific records, info/battery opcodes and reset effects
+    before any advanced unlock is considered. Raw TCP/CoAP and firmware remain
+    outside the proven local BLE surface.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "JuanmanDev/fc-smart-home-assistant @ e2f66d547e40fd4cfb9544f52bbc8eb98a5ac21c"
+      url: "https://github.com/JuanmanDev/fc-smart-home-assistant/tree/e2f66d547e40fd4cfb9544f52bbc8eb98a5ac21c"
+      description: "Pinned public client, active transport and offline protocol fixtures used for final protocol and provisioning corrections."
+    - type: "static_analysis"
+      artifact: "FC SmartHome com.fingercrystal.smarthome 4.6.6 (versionCode 228)"
+      sha256: "8ae29b777f22590998062d28c49fe498d16912bec736f50b5637e6ec529fc124"
+      obtained_via: "public APK mirror, 2026-11"
+      description: "Preserved packed app used for identity/backup/trust/resource boundaries only; no plaintext protocol recovery is claimed and no binary is committed."
+    - type: "vendor_documentation"
+      artifact: "FC SmartHome app user manual, E202Pro depicted"
+      url: "https://m.media-amazon.com/images/I/A1m9Nhsf74L.pdf"
+      description: "Account/admin, wake and factory-settings evidence; URL returned HTTP 200 on 2026-11-18."

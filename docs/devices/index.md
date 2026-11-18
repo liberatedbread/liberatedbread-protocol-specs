@@ -309,6 +309,10 @@ spec's `device.setup` block; the patterns are explained in
 | [VanMoof S3 / X3 (legacy 6acc55)](vanmoof-s3-x3.md) | BLE (encrypted GATT) | Identify-only (untested) | Existing owner key + dedicated encrypted/attended-control handler | VanMoof |
 | [Withings Body Smart WBS13 / Body Comp WBS12](withings-body-smart-comp-ble.md) | BLE (WPP) | Identify-only (untested) | Existing kl + six-digit bond + dedicated WPP handler | Withings |
 | [Withings Body / Nokia Body WBS06](withings-body-wbs06-classic.md) | Bluetooth Classic (incoming RFCOMM) | Identify-only (untested) | Existing kl + Just Works bond + local BlueZ listener | Withings |
+| [LeakSmart Zigbee Water Valve](leaksmart-valve-zigbee.md) | Zigbee HA 1.2 | Spec Available (untested) | Replacement coordinator + five-press join (medium) | Waxman Consumer Products Group |
+| [Wyze Lock Bolt v1 (WLCKB1)](wyze-lock-bolt.md) | BLE (encrypted L1/L2) | Identify-only (untested) | Manual v1 selection + exported credentials + dedicated legacy handler | Wyze Labs |
+| [Danalock V3 (DMI BLE)](danalock-v3-ble.md) | BLE (DMI/RPD/TLS/AFI) | Identify-only (untested; BTZE author evidence only) | Cached unexpired token + dedicated validated-session handler | Danalock / Salto |
+| [FC SmartHome / Fingerchip BLE Locks](fc-smarthome-lock.md) | BLE (encrypted FC/FD) | Identify-only (untested) | Owner device record + dedicated session handler; read-only first | Fingerchip / Fingercrystal |
 
 ## Not everything here was liberated
 
