@@ -235,6 +235,8 @@ spec's `device.setup` block; the patterns are explained in
 | [AC Infinity UIS Controller (BLE)](acinfinity-uis-controller.md) | BLE | Spec Available (untested) | ble_direct (medium) | AC Infinity Inc. |
 | [Anker soundcore Earbuds, Headphones and Speakers](anker-soundcore.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Anker Innovations Limited |
 | [Anova Precision Cooker (original)](anova-precision-cooker.md) | BLE | Spec Available (untested) | ble_direct (medium) | Anova Applied Electronics |
+| [Anova Precision Cooker Mini](anova-precision-cooker-mini.md) | BLE | Spec Available (untested) | ble_direct (medium) | Anova Applied Electronics |
+| [Anova Precision Cooker Nano](anova-precision-cooker-nano.md) | BLE | Spec Available (untested) | ble_direct (medium) | Anova Applied Electronics |
 | [Beddit Sleep Tracker (Bluetooth Classic generation)](beddit-2-sleep-tracker.md) | Bluetooth Classic | Spec Available (untested) | none (low) | Beddit (Apple) |
 | [Beddit Sleep Monitor 3 / 3.5](beddit-sleep-monitor.md) | BLE | Spec Available (untested) | ble_direct (low) | Beddit (Apple) |
 | [Big Ass Fans i6 / es6 / Haiku (firmware 3.x)](big-ass-fans-i6.md) | WiFi | Spec Available (untested) | ble_provisioning (low) | Big Ass Fans (Delta T LLC) |

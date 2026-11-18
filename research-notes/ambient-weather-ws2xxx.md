@@ -16,10 +16,34 @@ ambientweather.net cloud by default.
 - Console then HTTP-GETs readings to the LAN host — same wire formats as the
   Ecowitt gateways (these ARE Fine Offset consoles; the Ecowitt/Froggit custom
   server docs apply).
-- Configuration via the **awnet app** (Android `com.ambientweather.awnet`,
-  iOS) — works over local Wi-Fi AP mode; no cloud account needed to set the
-  custom server. AmbientTool / WS View Plus apps also configure these
-  consoles (they are FO clones).
+- Configuration via the **awnet app** (held Android package
+  `com.dtston.ambienttoolplus` 1.1.29, versionCode 42; iOS) — works over local
+  Wi-Fi AP mode; no cloud account needed to set the custom server. AmbientTool /
+  WS View Plus apps also configure these consoles (they are FO clones). The old
+  `com.ambientweather.awnet` package identifier in this note was not present in
+  the held artifact and has been removed rather than treated as a second app.
+
+## BLE onboarding evidence (app-derived, not hardware-verified)
+The held awnet APK also contains a BLE provisioning path. Its GATT constants and
+call sites establish this map:
+
+| Role | UUID | App behavior |
+|---|---|---|
+| Service | `0000aaaa-0000-1000-8000-00805f9b34fb` | BLE connection and provisioning |
+| TX | `0000bbb0-0000-1000-8000-00805f9b34fb` | Writes Wi-Fi connection requests |
+| RX | `0000bbb1-0000-1000-8000-00805f9b34fb` | Subscribes to notifications |
+
+This is a second local onboarding route beside the console's Wi-Fi AP flow, not
+evidence that the sensor array uses BLE (its sensor RF remains sub-GHz), and not
+a claim that every listed console supports this service. The static decompile has
+no completion marker in its log, so these facts are deliberately limited to the
+UUIDs and observed call roles.
+
+**Unknown before a client can be implemented:** provisioning packet framing and
+response schemas, credential encoding/protection, pairing and bonding, actual
+GATT properties, fragmentation/MTU behavior, and model/firmware coverage. No
+completed provisioning client or live provisioning success is claimed. An
+owner-authorized GATT capture is still needed.
 
 ## Receivers for the push (community)
 - [dancwilliams/awnet_to_hass](https://github.com/dancwilliams) HA add-on +
@@ -39,23 +63,33 @@ Older hub has NO custom server, but serves a local web UI on port 80 with a
 - Cloud-only extras: derived fields (dew point, feels-like) are computed
   server-side, not sent in the local push — receivers must compute them.
 - WS-2902A (oldest hw rev) may lack the custom-server option; B/C/D confirmed.
+- BLE provisioning is only statically mapped as above; it is not an alternative
+  data-reading API and its payload format remains unknown.
 
 ## Cloud dependency
-None once custom server is set. Initial Wi-Fi provisioning is local (console
-broadcasts its own AP; awnet app joins it). ambientweather.net optional.
+None once custom server is set. Local onboarding includes the documented console
+Wi-Fi AP flow and the app-derived BLE path above. ambientweather.net is optional
+for local push. Whether BLE setup can complete with every cloud host blocked has
+not been tested.
 
 ## Company status (checked 2026-08-07)
 Active. ambientweather.net and store live; WS-2902D/WS-5000 still sold.
 
 ## APK
-Not needed — local behavior is community-documented and matches Ecowitt
-formats. awnet is `com.ambientweather.awnet` if ever wanted.
+The held awnet artifact identifies itself as `com.dtston.ambienttoolplus`
+1.1.29 (versionCode 42), with the `awnet` application label. Its acquisition
+record and package identity agree. Static analysis supplements, but does not
+replace, the community-documented custom-server evidence.
 
 ## Rating
-**Confirmed** — vendor feature, multiple community receivers in production.
+**Confirmed** for the custom-server push — vendor feature, multiple community
+receivers in production. **Reported** for BLE onboarding — static app evidence
+only, with no hardware capture or complete provisioning client.
 
 ## Spec-work notes
 - Document the Ambient-protocol GET field set (`MAC`, `dateutc`, `tempf`,
   `humidity`, `windspeedmph`, `baromin`, `rainin`, `solarradiation`, `UV`,
   `aqin_*` for indoor AQ, …) vs the Wunderground variant.
 - Note derived-field gap (compute dewpoint/feels-like client-side).
+- Capture BLE onboarding before declaring provisioning commands or credential
+  protection in a validated spec.
