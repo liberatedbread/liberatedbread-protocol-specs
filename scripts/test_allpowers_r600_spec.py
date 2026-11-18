@@ -101,11 +101,14 @@ class StreamDecoder:
             if len(self.buffer) < total:
                 break
             candidate = bytes(self.buffer[:total])
-            del self.buffer[:total]
             try:
-                packets.append(decode_notification(candidate))
+                packet = decode_notification(candidate)
             except ValueError:
                 self.discarded_frames += 1
+                del self.buffer[0]
+            else:
+                del self.buffer[:total]
+                packets.append(packet)
         return packets
 
 
@@ -156,6 +159,15 @@ def test_bad_checksum_oversize_and_invalid_payload_recover() -> None:
     packets = decoder.feed(bytes(bad_status) + oversize + bad_battery + STATUS)
     assert packets == [decode_notification(STATUS)]
     assert decoder.discarded_frames == 3
+
+
+def test_invalid_outer_candidate_rescans_valid_inner_status() -> None:
+    outer = bytearray(build_notification(0x35, b"\x00" + STATUS))
+    outer[-1] ^= 0x80
+    decoder = StreamDecoder()
+    assert decoder.feed(outer) == [decode_notification(STATUS)]
+    assert decoder.discarded_frames == 1
+    assert not decoder.buffer
 
 
 def test_short_long_and_checksum_validation() -> None:

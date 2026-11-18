@@ -44,7 +44,7 @@ def parse_indoor_bike(data: bytes) -> dict:
     if flags & 0x0020:
         if offset + 2 > len(data):
             raise ValueError("truncated resistance")
-        raw = int.from_bytes(data[offset : offset + 2], "little")
+        raw = int.from_bytes(data[offset : offset + 2], "little", signed=True)
         result["resistance_raw"] = raw
         result["resistance"] = raw / 2
         offset += 2
@@ -73,12 +73,12 @@ def parse_indoor_bike(data: bytes) -> dict:
 
 
 def parse_csc(data: bytes) -> dict:
-    if len(data) < 2:
+    if not data:
         raise ValueError("missing CSC flags")
-    flags = int.from_bytes(data[:2], "little")
-    if flags & ~0x0003:
+    flags = data[0]
+    if flags & ~0x03:
         raise ValueError("unsupported CSC flags")
-    offset = 2
+    offset = 1
     result = {}
     if flags & 1:
         if offset + 6 > len(data):
@@ -146,8 +146,19 @@ def test_unknown_flags_and_trailing_bytes_are_rejected() -> None:
             raise AssertionError("invalid payload accepted")
 
 
+def test_negative_signed_resistance_preserves_half_scale() -> None:
+    payload = struct.pack("<HHHhh", 0x0064, 360, 106, -3, 73)
+    assert payload == bytes.fromhex("64 00 68 01 6a 00 fd ff 49 00")
+    parsed = parse_indoor_bike(payload)
+    assert parsed["resistance_raw"] == -3
+    assert parsed["resistance"] == -1.5
+    assert parsed["instantaneous_power"] == 73
+
+
 def test_csc_wheel_crank_groups_and_truncation() -> None:
-    payload = struct.pack("<HIHHH", 3, 0x12345678, 1024, 512, 2048)
+    payload = struct.pack("<BIHHH", 3, 0x12345678, 1024, 512, 2048)
+    assert payload[0] == 3
+    assert len(payload) == 11
     parsed = parse_csc(payload)
     assert parsed == {
         "wheel_revolutions": 0x12345678,

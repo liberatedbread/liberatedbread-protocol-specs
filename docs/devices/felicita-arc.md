@@ -1,6 +1,6 @@
 # Felicita Arc
 
-> **Status**: Spec Available — source-derived, untested on hardware
+> **Status**: Identify-only — source-derived, untested; dedicated consumer handler pending
 > **Protocol**: BLE GATT
 > **Manufacturer**: Felicita Coffee (active)
 
@@ -23,11 +23,13 @@ asserted compatible, and Acaia's separate protocol is not reused.
 | Credentials | None |
 | Connection recovery | Close the other app, wake and reconnect |
 
-Match a case-insensitive `Felicita` name prefix, then require service
-`0000ffe0-0000-1000-8000-00805f9b34fb` after connecting; that 16-bit service is
-not unique discovery proof. Subscribe to
-`0000ffe1-0000-1000-8000-00805f9b34fb` and wait for one valid frame before
-marking the scale ready.
+Automatic discovery uses only a case-insensitive `Felicita` name prefix. FFE0 is
+not an identification/discovery axis: name and service matchers are OR-combined,
+so a service-only match could select an unrelated device. For a name candidate,
+require service `0000ffe0-0000-1000-8000-00805f9b34fb` after connecting.
+Subscribe to `0000ffe1-0000-1000-8000-00805f9b34fb` and wait for one valid
+18-byte frame before marking the scale ready or issuing any tare/timer command.
+Only a future dedicated handler may send those commands after all three gates.
 
 **Factory reset**: unknown. Display sleep/disconnect, tare, timer reset and
 power-cycling are not established factory resets.

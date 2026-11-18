@@ -1,6 +1,6 @@
 # Ozobot Evo — native RPC, memory and watchers
 
-> **Status**: Spec Available — official-source-derived, untested on hardware
+> **Status**: Identify-only — official-source-derived, untested; dedicated consumer handler pending
 > **Protocol**: BLE GATT, current native RPC; separate legacy negotiation
 > **Manufacturer**: Ozobot / Ozo Edu Inc. (active)
 
@@ -25,10 +25,11 @@ table and firmware evidence, not just the `OzoEvo` name. Ari (advertised product
 | Credentials | None |
 | MTU / direct packet | 23 / 20-byte ATT payload |
 
-For current units, enable notifications, follow the official stop-on-open
-boundary and read `watchersInfo` before allocating watchers. Stop-execution with
-request ID 0 stops current programs and is an **advanced recovery action**, not
-a hidden read or factory reset.
+For current units, enable notifications and validate a bounded `watchersInfo`
+MemRead response before allocating watchers or staging RPC. Normal setup does
+not send stop-execution. Request ID 0 stops current programs and is only an
+**optional advanced recovery action after explicit owner confirmation**, never
+a mandatory open step, hidden read or factory reset.
 
 **Factory reset**: unknown. Stop-execution, watcher teardown, disconnecting and
 the legacy stop-file sequence are not factory resets.
@@ -39,8 +40,10 @@ Legacy addresses may change. No bond or Wi-Fi credential is involved.
 
 ## Discovery
 
-Manufacturer company ID is `0x03eb` (decimal 1003). The payload after the
-company-ID bytes is:
+Manufacturer company ID is `0x03eb` (decimal 1003), but a bare company match is
+not sufficient because it also matches Ari. The schema's masked matcher checks
+packet ID 0 at payload offset 0 and product 0/4 at offset 22; product 5 is
+rejected. The payload after the company-ID bytes is:
 
 | Offset | Meaning |
 |--------|---------|
@@ -81,14 +84,17 @@ Long RPC uses the staging algorithm below instead.
 | WatcherDirty event | 260 | Watcher ID then region data in ascending region ID |
 
 Result zero means success for memory I/O and calls. Require exact lengths before
-using a response or event.
+using a response or event. A future dedicated handler must validate a bounded
+`watchersInfo` MemRead response before any watcher setup or long-RPC staging;
+timeout, malformed data or a failed result stops further commands.
 
 ### Request IDs
 
 The logical request ID has source 2 (BLE) in its high byte and a three-byte
 big-endian counter below it, but the whole `uint32` is serialized little-endian.
 Counter 1 is therefore integer `0x02000001` and wire bytes `01 00 00 02`.
-Request ID zero is the special stop-all value.
+Request ID zero is the special stop-all value, reserved here for optional
+owner-confirmed recovery rather than mandatory setup.
 
 ### Read-only memory
 
@@ -106,25 +112,28 @@ region with `DoNotSetDirty`, configure watched regions, then enable with flags
 `Enabled | DisableWhenDisconnected` (3), minimum 40 ms and maximum zero. At MTU
 23 all regions in one watcher must fit the 17-byte `WatcherDirty` data budget.
 
-On every exit, clear each region with address/size zero and region flags 3,
-then disable the watcher with setup flags zero and periods zero. Disconnect
-cleanup is a backstop, not a substitute for explicit teardown.
+On every exit **and partial setup failure**, clear each configured region with
+address 0, size 0 and region flags 3, then disable the watcher with setup flags
+zero and periods zero. For watcher 0/region 0 the exact teardown sequence is
+`7c 00 00 00 00 00 00 03` followed by `7a 00 00 00 00 00 00 00`.
+Disconnect cleanup is a backstop, not a substitute for explicit teardown.
 
 ### Long RPC and CRC32
 
-Serialize the request once. Stage it at `0x6000` in chunks of at most
-`20-8 = 12` bytes with MemWrite. Send message 126 with total length and standard
-CRC32 (`binascii.crc32`/`zlib.crc32` compatible). After a successful response,
-read the result from `0x6000` in chunks of at most `20-5 = 15` bytes and require
-the returned length and CRC32 to match before decoding. These staging writes
-are transport operations, not motion commands.
+Message 126 is not a generic command: arbitrary staged RPC could execute motion
+or other writes. Only a future dedicated handler may construct, stage and execute
+a whitelist of safe serialized requests. For that handler, stage at `0x6000` in
+chunks of at most `20-8 = 12` bytes with MemWrite, send length and standard CRC32
+(`binascii.crc32`/`zlib.crc32` compatible), then read the result in chunks of at
+most `20-5 = 15` bytes. Require returned length and CRC32 to match before
+decoding. Synthetic CRC vectors never authorize arbitrary caller payloads.
 
 ## Validation and omissions
 
-`scripts/test_ozobot_evo_spec.py` independently checks advertisement parsing,
-request IDs, MemRead, watcher vectors, malformed/truncated packets, long-RPC
-chunks and CRC failures. It includes only an inert stop-all encoding and no
-movement operation.
+`scripts/test_ozobot_evo_spec.py` independently checks masked Evo/Ari discovery,
+advertisement parsing, request IDs, MemRead, exact region-clear/watcher-disable
+teardown after partial setup failure, malformed packets and long-RPC CRC
+integrity. All payloads are synthetic; no movement operation is included.
 
 Factory reset, battery voltage unit, current/legacy auto-negotiation, legacy
 read-only commands, firmware update, calibration, file execution, LED/tone and

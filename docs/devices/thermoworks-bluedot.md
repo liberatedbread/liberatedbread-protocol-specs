@@ -1,6 +1,6 @@
 # ThermoWorks BlueDOT (read-only)
 
-> **Status**: Spec Available — source-derived, untested on hardware
+> **Status**: Identify-only — source-derived, untested; dedicated consumer handler pending
 > **Protocol**: BLE GATT
 > **Manufacturer**: ThermoWorks, Inc (active)
 
@@ -60,10 +60,15 @@ exactly 20 bytes.
 | 13–18 | 6 | bytes | Device address identifier; sanitize, display order unasserted |
 | 19 | 1 | flag | Alarm active, nonzero true |
 
-When byte 11 is 0, values are already Celsius. When it is 1, convert with
-`(F - 32) * 5 / 9`. Other unit codes must not silently select Celsius. The
-signed fields preserve negative temperatures. Unknown probe statuses are not
-connected.
+Only probe status 0 publishes current temperature and alarm threshold. For every
+nonzero status—including disconnected 3 and unknown values—both are unavailable
+and stale/cached values must not be published. Raw probe status, units and alarm
+flags may remain diagnostic metadata, never evidence of a current temperature.
+
+For connected frames, when byte 11 is 0 values are already Celsius; when it is 1,
+convert with `(F - 32) * 5 / 9`. Other unit codes on a connected frame reject the
+reading rather than silently selecting Celsius. The signed fields preserve
+negative temperatures.
 
 The public integration's 30-second minimum advertisement-triggered poll and
 60-second fallback are host policies, not device timing requirements. Always

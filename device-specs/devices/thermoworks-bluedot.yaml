@@ -21,6 +21,7 @@ device:
   category: "sensor"
   category_hierarchy: ["measurement", "temperature"]
   type: "bluetooth-cooking-thermometer"
+  integration: "identify_only"
   safety_advisory:
     severity: "warning"
     summary: "Do not use an unverified community decode as the only check that food is safely cooked."
@@ -41,7 +42,15 @@ device:
     connected or 3 disconnected. Alarm flags are byte 9 silenced, byte 10
     disabled and byte 19 active. Byte 12 is unknown and preserved. Bytes 13-18
     contain the device address as an identifier; never log or publish an
-    owner's address and do not assume a display byte order.
+    owner's address and do not assume a display byte order. For EVERY nonzero
+    probe status, both current temperature and alarm threshold are unavailable
+    and must not be published as current values; status and alarm flags may be
+    retained only as diagnostic metadata.
+
+    Consumer integration is identify_only: no dedicated BlueDOT handler ships
+    here. The protocol blocks and stdlib vectors preserve implementation facts,
+    not live app telemetry; supported status requires a handler that enforces
+    this availability gate.
 
     SCOPE IS BLUEDOT ONLY. Signals, Billows, RFX GATEWAY, RFX MEAT, RFX MEAT
     Mini and RFX THERMOCOUPLE are not covered. In particular, an RFX probe's RF
@@ -88,7 +97,7 @@ device:
             expect: "Notifications are enabled without resolving or assuming the parent service UUID."
           - action: "Wait up to 10 seconds for one notification; accept it only at exactly 20 bytes and decode with protocol_details.bluedot_frame."
             actor: "client"
-            expect: "Temperature, threshold, units, probe and alarm state are available; no stale value is published after a disconnect."
+            expect: "Only status 0 publishes current temperature and alarm threshold. Every nonzero status makes both unavailable and suppresses stale values while retaining diagnostic status/alarm metadata."
             timeout_seconds: 10
           - action: "Stop notifications and disconnect."
             actor: "client"
@@ -214,12 +223,13 @@ protocol_details:
       Exact 20-byte notification. Reject any other length before reading fields.
       Integer fields are signed little-endian with scale 1 (whole degrees).
     decoding:
-      - "probe_connected = (frame[0] == 0). Status 3 means disconnected; retain unknown statuses as unknown rather than connected."
-      - "Read current temperature at 1 and alarm threshold at 5 as int32 LE in the unit selected by frame[11]."
-      - "When frame[11] == 1, convert each value to Celsius with (F-32)*5/9; when 0, values are already Celsius. Other unit codes are unsupported and must not silently select Celsius."
-      - "alarm_silenced = frame[9] != 0; alarm_disabled = frame[10] != 0; alarm_active = frame[19] != 0."
+      - "probe_connected = (frame[0] == 0). Status 3 means disconnected; retain every other nonzero status as unknown rather than connected, and preserve raw probe_status diagnostically."
+      - "ONLY when frame[0] == 0, read current temperature at 1 and alarm threshold at 5 as int32 LE in the unit selected by frame[11], then publish those readings."
+      - "For EVERY nonzero status, including 3 and unknown values, current temperature AND alarm threshold are unavailable: omit both from the current-state result and suppress publication of prior cached values. Retain raw status, units and alarm flags only as diagnostic metadata."
+      - "For connected frames, when frame[11] == 1 convert each value to Celsius with (F-32)*5/9; when 0, values are already Celsius. Other unit codes on a connected frame are unsupported and must reject the reading rather than silently select Celsius."
+      - "alarm_silenced = frame[9] != 0; alarm_disabled = frame[10] != 0; alarm_active = frame[19] != 0. These flags can remain diagnostic when the probe is disconnected/unknown; they never make temperatures current."
       - "Preserve frame[12] and frame[13:19] only as unknown/identifier data. Never publish a real device address in examples or logs."
-      - "On disconnect or malformed input, mark readings unavailable rather than displaying stale values as current."
+      - "On disconnect, unknown status or malformed input, mark readings unavailable rather than displaying stale values as current."
     vectors:
       - hex: "00 f6 ff ff ff 64 00 00 00 01 00 00 a5 01 53 00 5e 00 00 01"
         decoded: {probe: "connected", temperature_c: -10.0, alarm_temperature_c: 100.0, alarm_silenced: true, alarm_disabled: false, units: "C", unknown: "0xa5", alarm_active: true}
@@ -234,21 +244,21 @@ entities:
     device_class: "temperature"
     state_characteristic: "783f2991-23e0-4bdc-ac16-78601bd84b39"
     state_mapping: {value: "current_temperature"}
-    notes: "Signed whole degrees in device-selected C/F; convert to Celsius for normalized display."
+    notes: "Publish only for probe status 0 as signed whole device-selected degrees, normalized to Celsius. Every nonzero status makes this unavailable and suppresses stale values."
   - platform: "sensor"
     name: "Alarm Temperature"
     device_class: "temperature"
     state_characteristic: "783f2991-23e0-4bdc-ac16-78601bd84b39"
     state_mapping: {value: "alarm_temperature"}
-    notes: "Read-only threshold in the same device-selected unit; never written by this spec."
+    notes: "Read-only threshold published only for probe status 0; every nonzero status makes it unavailable too. Never written by this spec."
   - platform: "binary_sensor"
     name: "Probe Connected"
     device_class: "connectivity"
-    notes: "True only when byte 0 is 0; status 3 is disconnected and stale temperatures must not remain current."
+    notes: "True only when byte 0 is 0; status 3 is disconnected and other nonzero statuses are unknown. Preserve raw status diagnostically."
   - platform: "binary_sensor"
     name: "Alarm Active"
     device_class: "problem"
-    notes: "Byte 19 nonzero. Silenced/disabled states remain separately available from bytes 9/10."
+    notes: "Byte 19 nonzero. Silenced/disabled states remain separately available from bytes 9/10 as diagnostic metadata, never as proof of current temperatures."
 
 evidence:
   public_implementation: >

@@ -1,6 +1,6 @@
 # Sportstech F15 / F31 treadmill (read-only)
 
-> **Status**: Spec Available — public-capture evidence, untested on hardware
+> **Status**: Identify-only — public-capture evidence, untested; dedicated consumer handler pending
 > **Protocol**: BLE GATT, delimited XOR telemetry
 > **Manufacturer**: Sportstech (active)
 
@@ -71,10 +71,14 @@ terminator before expected length and checksum checks pass.
 | 15 | `uint8` | XOR |
 | 16 | `0x03` | End delimiter |
 
-Five-byte stopped and six-byte starting fixtures are valid short frames. They
-carry delimiter, marker, mode, XOR and end only. Publish mode and the public
-decoder's compatibility zeroes for speed/heart rate; leave full-frame-only
-elapsed/distance unavailable and never read beyond the payload.
+Accept only the exact pairs `(stopped, 5)`, `(starting, 6)`, `(running, 17)` and
+`(stopping, 17)`; reject cross-combinations and truncation even with valid XOR.
+The five-byte stopped frame carries delimiter, marker, mode, XOR and end only.
+The six-byte starting frame additionally has unresolved raw byte `0x05` at
+offset 3; preserve it rather than decoding it as speed. Publish mode and the
+public decoder's compatibility zeroes for speed/heart rate on valid short
+frames; leave full-frame-only elapsed/distance unavailable and never read beyond
+the payload.
 
 Public running vector
 `02 51 03 0d 00 20 00 09 00 03 00 00 00 53 00 26 03`

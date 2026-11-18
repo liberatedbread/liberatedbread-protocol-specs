@@ -21,11 +21,17 @@ device:
   category: "scale"
   category_hierarchy: ["measurement", "other"]
   type: "coffee-scale"
+  integration: "identify_only"
   notes: >
     Phone-direct BLE weight and battery telemetry plus tare and timer commands.
     No account, cloud brew history or Wi-Fi path is required. Scope is Arc only:
     Parallel, non-S Pearl and other Felicita models are not claimed compatible,
     and Acaia's different protocol is not reused.
+
+    Consumer integration is identify_only: no dedicated Arc handler ships here.
+    The protocol blocks and stdlib vectors are implementation evidence, not live
+    app telemetry or controls. Supported status requires a handler that enforces
+    the name, post-connect service and first-frame gates before tare/timer.
 
     Notifications on FFE1 are exactly 18 bytes. Byte 2 is ASCII '-' (0x2d) for
     a negative weight; any other value leaves the magnitude positive. Bytes 3-8
@@ -43,10 +49,11 @@ device:
     notes: "Protocol recovered in a public open client and checked against public app behavior; no vendor wire specification was found."
   identification:
     local_name_prefixes: ["FELICITA", "Felicita", "felicita"]
-    service_uuids: ["0000ffe0-0000-1000-8000-00805f9b34fb"]
     notes: >
-      Match a case-insensitive Felicita name prefix, then require FFE0 after
-      connection. FFE0 is widely reused and is not unique discovery proof.
+      Automatic identity uses only a case-insensitive Felicita name prefix.
+      FFE0 is deliberately absent from identification/discovery because matcher
+      axes are OR-combined and this widely reused UUID would match unrelated
+      devices without the name. Require FFE0/FFE1 after connection instead.
   discovery:
     methods:
       - type: "ble_scan"
@@ -54,8 +61,7 @@ device:
           local_name:
             match: "prefix"
             values: ["FELICITA", "Felicita", "felicita"]
-          service_uuids: ["0000ffe0-0000-1000-8000-00805f9b34fb"]
-        notes: "Vendor exact-name auto-connect can miss Arc name variants accepted by the open prefix matcher."
+        notes: "Only Felicita name candidates enter the post-connect service and first-frame checks; vendor exact-name matching can miss Arc variants."
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -63,13 +69,13 @@ device:
   setup:
     required: false
     confidence: "medium"
-    notes: "No provisioning, account, bond or application key. Connect, verify FFE0, subscribe and wait for one valid frame before exposing readings."
+    notes: "No provisioning, account, bond or application key. Connect a name candidate, verify FFE0, subscribe and wait for one valid frame before exposing readings or commands."
     methods:
       - type: "ble_direct"
         name: "Direct BLE with service and first-frame validation"
         role: "primary"
         verified: false
-        description: "Connect without pairing, verify FFE0/FFE1 and wait for a valid 18-byte notification."
+        description: "Connect a Felicita name candidate without pairing, verify FFE0/FFE1 and wait for a valid 18-byte notification before any tare/timer write."
         ble:
           pairing_required: false
           service_uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
@@ -78,14 +84,14 @@ device:
         steps:
           - action: "Wake the scale and close any other app connected to it."
             actor: "user"
-          - action: "Connect and enumerate services; continue only if 0000ffe0-0000-1000-8000-00805f9b34fb and FFE1 exist."
+          - action: "Connect only a Felicita name candidate and enumerate services; continue only if 0000ffe0-0000-1000-8000-00805f9b34fb and FFE1 exist."
             actor: "client"
           - action: "Subscribe to FFE1 notifications and discard malformed packets until one valid 18-byte frame arrives."
             actor: "client"
             expect: "A weight and a valid or explicitly unknown battery state; readiness must not depend on clamping an invalid battery byte."
-          - action: "Use write-with-response for any user-invoked tare or timer command."
+          - action: "Only a future dedicated handler may issue a user-invoked tare/timer write, and only after the name, post-connect service and valid-first-frame gates all pass; use write-with-response."
             actor: "client"
-            expect: "The one-byte command is acknowledged at GATT level. No timer response payload is assumed."
+            expect: "No command is sent to a service-only match or before first-frame validation. The one-byte command is acknowledged at GATT level; no timer response payload is assumed."
         troubleshooting:
           - symptom: "Weight never becomes ready or repeatedly disconnects."
             causes:
@@ -199,6 +205,10 @@ protocol_details:
     units:
       weight: {wire: "integer hundredths of a gram", scale: 0.01, decoded_unit: "g", ascii_digits: 6}
       battery: {raw_min: 129, raw_max: 158, decoded_unit: "%", formula: "round((raw-129)*100/29)"}
+    command_gate:
+      automatic_identity: "Case-insensitive Felicita local-name prefix only; FFE0 is never an automatic discovery/identification axis."
+      required_before_tare_or_timer: ["Felicita name candidate", "post-connect FFE0/FFE1 enumeration", "one valid exact-18-byte notification"]
+      handler: "Future dedicated Arc handler only; generic consumers remain identify_only and send no command."
     vectors:
       - hex: "aa 55 2b 30 31 32 33 34 35 00 00 00 00 00 00 81 00 00"
         decoded: {weight_g: 123.45, battery_percent: 0}

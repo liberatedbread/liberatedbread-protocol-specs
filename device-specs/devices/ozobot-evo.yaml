@@ -23,6 +23,7 @@ device:
   transport: "ble-gatt"
   category: "robot"
   type: "educational-coding-robot"
+  integration: "identify_only"
   notes: >
     Current Evo uses one bidirectional native RPC characteristic for direct
     read-only virtual-memory access and sensor watchers. No Ozobot account or
@@ -38,13 +39,20 @@ device:
     characteristics or legacy command bytes to native ones. The legacy service
     is listed without commands to preserve that boundary, not to claim a client.
 
+    Consumer integration is identify_only: no dedicated native Evo handler ships
+    here. The protocol blocks and stdlib vectors preserve implementation facts,
+    not live app telemetry/control. Supported status requires a handler that
+    validates Evo identity, native generation and a bounded read-only response
+    before watcher or staging operations.
+
     The official native open sequence issues stop-execution with request ID 0
-    before starting watchers. That is a stop/recovery operation, not a memory
-    read and not a factory reset; it is declared advanced. No move, rotate,
-    velocity, tone, LED, file execution, calibration, rename or firmware
-    operation is declared. Long RPC uses memory-staging writes at 0x6000 for
-    transport, then length + CRC32 execution/readback; those writes are not
-    motor commands and must stay within the staging region.
+    before starting watchers. This profile does NOT make that a mandatory setup
+    step: it is only an optional advanced recovery action after explicit owner
+    confirmation, not a memory read or factory reset. No move, rotate, velocity,
+    tone, LED, file execution, calibration, rename or firmware operation is
+    declared. Message 126 is deliberately absent from generic commands. Only a
+    future dedicated handler may stage and execute a whitelist of safe serialized
+    RPC requests at 0x6000; arbitrary caller-supplied RPC is never allowed.
   openness:
     status: "documented_api"
     reverse_engineered: false
@@ -60,20 +68,12 @@ device:
   identification:
     local_name_prefixes: ["OzoEvo"]
     service_uuids: ["8903136c-5f13-4548-a885-c58779136801"]
-    manufacturer_data:
-      company_id: 1003
-      company_id_hex: "0x03EB"
-      description: >
-        Current advertisement payload after company ID: byte 0 packet id 0;
-        bytes 1-16 device ID; bytes 17-21 reserved/unparsed; byte 22 product
-        (0 or 4 Evo, 5 Ari); byte 23 major with high bit masked; byte 24 minor;
-        optional bytes 25-26 patch uint16 little-endian. Require at least 25
-        bytes for product/major/minor, 27 for the full version.
     notes: >
-      Prefer manufacturer product fields or current native service over the
-      legacy OzoEvo name. Legacy addresses may change, so the 16-byte
-      manufacturer device ID is the stable identity when available. Ari is
-      excluded even though the same official library supports it.
+      Prefer the masked Evo product match or current native service over the
+      legacy OzoEvo name. Parse company-0x03eb payloads with
+      protocol_details.advertisement: byte 0 is packet id, bytes 1-16 the stable
+      device ID and byte 22 the product (0/4 Evo, 5 Ari). Legacy addresses may
+      change. Ari is excluded even though the same official library supports it.
   discovery:
     methods:
       - type: "ble_scan"
@@ -84,7 +84,10 @@ device:
           service_uuids: ["8903136c-5f13-4548-a885-c58779136801"]
           manufacturer_data:
             company_id: 1003
-            description: "Parse packet id/product/version with protocol_details.advertisement; accept only product 0 or 4 and packet id 0."
+            match: "masked"
+            pattern: "0000000000000000000000000000000000000000000000"
+            mask: "ff000000000000000000000000000000000000000000fb"
+            description: "Over 23 payload bytes after company ID, require packet id 0 at offset 0 and product 0 or 4 at offset 22 (mask fb ignores only product bit 2). Bare company 1003 is not sufficient; product 5 Ari and nonzero packet IDs fail."
         notes: >
           A name-only hit may be a legacy unit. After connecting, enumerate
           native ...6801/...6802 versus legacy ...6701/...6702/...6703 before
@@ -97,29 +100,27 @@ device:
   setup:
     required: false
     confidence: "medium"
-    notes: "No provisioning, account or bond. The protocol generation is selected by GATT evidence rather than name alone."
+    notes: "No provisioning, account or bond. The protocol generation is selected by masked Evo identity, GATT evidence and a validated native response rather than name alone. Normal setup sends no stop-execution."
     methods:
       - type: "ble_direct"
         name: "Current native ...6802 RPC and read-only watchers"
         role: "variant"
         verified: false
-        description: "For units with current native service ...6801 and characteristic ...6802. Subscribe, apply the official stop-on-open boundary, read memory and manage watchers."
+        description: "For units with current native service ...6801 and characteristic ...6802. A future dedicated handler must validate a bounded read-only response before watcher or staging operations; stop-on-open is not performed."
         ble:
           pairing_required: false
           service_uuid: "8903136c-5f13-4548-a885-c58779136801"
           write_characteristic: "8903136c-5f13-4548-a885-c58779136802"
           read_characteristic: "8903136c-5f13-4548-a885-c58779136802"
         steps:
-          - action: "Confirm packet id 0 and Evo product 0/4 in the advertisement when available, then enumerate the native endpoints."
+          - action: "Confirm packet id 0 and Evo product 0/4 in the advertisement when available, reject Ari/product 5, then enumerate the native endpoints."
             actor: "client"
-          - action: "Force/retain MTU 23, enable native notifications, and do not coalesce or split an RPC packet except through long-RPC staging."
+          - action: "Force/retain MTU 23, enable native notifications, and do not coalesce or split an RPC packet except through future handler-managed long-RPC staging."
             actor: "client"
-          - action: "For parity with the official driver, issue only stop-execution request ID 0 and require response 121 with request ID 0 before watchers."
+          - action: "A future dedicated handler must read watchersInfo at 0x10073 for two bytes and validate response 2 result, exact length and data before any watcher region/setup or long-RPC staging. On timeout or malformed/failed response, send no further command and disconnect."
             actor: "client"
-            expect: "Current execution stops. This is the advanced stop_all_execution command, not a reset and not part of memory decoding."
-          - action: "Read watchersInfo at 0x10073 for two bytes, then allocate watcher/region IDs without exceeding 17 data bytes per watcher at MTU 23."
-            actor: "client"
-          - action: "Use MemRead for the read-only memory map, configure watcher regions/setup, and disable every watcher and region on exit."
+            expect: "The first native response proves the expected read-only dialect; no watcher or arbitrary RPC is attempted on an unvalidated candidate."
+          - action: "Only after that validation, allocate watcher/region IDs without exceeding 17 data bytes per watcher at MTU 23; use MemRead for the read-only memory map and disable every configured region and watcher on exit or partial setup failure."
             actor: "client"
             expect: "Validated response/event IDs and exact lengths; no persistent watcher is left active."
       - type: "ble_direct"
@@ -218,19 +219,12 @@ services:
               address: {type: "uint16", endianness: "little", min: 0, max: 16383, description: "Watchers observe only the first 16 KiB; use 0 when tearing down."}
               size: {type: "uint8", min: 0, max: 255, description: "Region bytes; all regions in one watcher must total <=17 bytes at MTU 23. Use 0 when tearing down."}
               flags: {type: "uint8", min: 0, max: 3, labels: ["normal", "DoNotSetDirty", "DoNotSendInNotify", "teardown/disable both"]}
-          long_rpc_execute:
-            description: "LongRPCExtensionExecute message 126 after staging the complete serialized RPC at 0x6000. CRC is standard CRC32 over the staged bytes."
-            verification: "reported"
-            template: [0x7E, 0x00, "{data_length}", "{data_crc32}"]
-            parameters:
-              data_length: {type: "uint16", endianness: "little", min: 21, description: "Serialized RPC length; direct packets longer than 20 bytes use this path."}
-              data_crc32: {type: "uint32", endianness: "little", description: "CRC32 (binascii/zlib compatible) of the complete staged request, computed by the encoder; not a UI parameter."}
           stop_all_execution:
-            description: "StopExecution message 120 with request ID 0, used by the official driver before watchers. Response 121 echoes request ID 0."
+            description: "Optional StopExecution recovery with request ID 0. It is NOT required for normal open, memory reads or watchers; invoke only after explicit owner confirmation. Response 121 echoes request ID 0."
             verification: "reported"
             value: [0x78, 0x00, 0x00, 0x00, 0x00, 0x00]
             advanced: true
-            advanced_reason: "Stops any current robot program, motion or audio. It changes runtime behavior and must be a deliberate recovery action, never a hidden telemetry poll."
+            advanced_reason: "Stops any current robot program, motion or audio. Confirm this deliberate recovery action with the owner; never use it as mandatory setup or a hidden telemetry poll."
   - uuid: "8903136c-5f13-4548-a885-c58779136701"
     name: "Legacy Evo service (negotiation boundary only)"
     notes: >
@@ -277,8 +271,10 @@ protocol_details:
         RequestID is a uint32 LE scalar whose logical integer has source 2 (BLE)
         in its high byte and a three-byte BIG-endian counter in the low bytes.
         For counter 1 the integer is 0x02000001 and wire bytes are 01 00 00 02.
-        Increment the 24-bit counter for movement/cancellation-style requests;
-        request ID 0 is the special stop-all value used on open.
+        Increment the 24-bit counter for movement/cancellation-style requests.
+        Request ID 0 is the special stop-all value used by the official driver
+        on open; this profile reserves it for optional owner-confirmed recovery
+        and never requires it for normal setup.
       vectors:
         - {counter: 1, integer: "0x02000001", wire_hex: "01 00 00 02"}
         - {counter: 2, integer: "0x02000002", wire_hex: "02 00 00 02"}
@@ -290,17 +286,18 @@ protocol_details:
       stop_execution: {request_id: 120, response_id: 121, length: 6, fields: "0 u16le id; 2 RequestID (four bytes)"}
       watcher_setup: {request_id: 122, response_id: 123, request_length: 8, response_length: 3, response_fields: "u8 CallStatus; success 0"}
       watcher_region_setup: {request_id: 124, response_id: 125, request_length: 8, response_length: 3, response_fields: "u8 CallStatus; success 0"}
-      long_rpc_execute: {request_id: 126, response_id: 127, request_length: 8, response_length: 9, response_fields: "u8 CallStatus; u16le dataLength; u32le dataCRC; success 0"}
+      long_rpc_execute: {request_id: 126, response_id: 127, request_length: 8, response_length: 9, response_fields: "u8 CallStatus; u16le dataLength; u32le dataCRC; success 0; documentary layout only, not a generic command"}
       watcher_dirty: {event_id: 260, length: "3+N", fields: "0 u16le id; 2 u8 watcherID; 3 concatenated region data ordered by regionID"}
       io_result: {0: "Success", 1: "ErrorUnknown", 2: "ErrorReadOnly", 3: "ErrorPermissionDenied", 4: "ErrorOutOfRange", 5: "ErrorRangeToLarge", 6: "ErrorMisaligned", 7: "ErrorPartialWrite", 8: "ErrorInvalidData"}
       call_status: {0: "CallSuccess", 1: "InvalidParameters", 2: "CallError", 3: "Unsupported"}
     long_rpc:
       staging_address: 24576
       staging_address_hex: "0x6000"
+      execution_policy: "Future dedicated handler only. It must construct and whitelist safe serialized RPC requests internally; no generic message-126 command or arbitrary caller payload is exposed."
       crc: "Standard CRC32 as exposed by Python binascii.crc32/zlib.crc32 over the complete serialized request or response; uint32 little-endian in message 126/127."
       request_steps:
-        - "Serialize the complete request once. Stage it at 0x6000 in chunks of at most packet_size-8 = 12 bytes using MemWrite message 3; each response 4 must be Success."
-        - "Send message 126 with total length and CRC32. Response 127 must be CallSuccess and carries returned dataLength/dataCRC."
+        - "A future dedicated handler selects a whitelisted safe request and serializes it once. Stage it at 0x6000 in chunks of at most packet_size-8 = 12 bytes using MemWrite message 3; each response 4 must be Success."
+        - "The handler sends message 126 with total length and CRC32. Response 127 must be CallSuccess and carries returned dataLength/dataCRC."
         - "Read returned data from 0x6000 in chunks of at most packet_size-5 = 15 bytes using MemRead message 1; each response 2 must be Success and exact length."
         - "Reassemble to exactly dataLength and require CRC32(reassembled) == dataCRC before deserializing the response. Reject overflow, short reads and mismatches."
       synthetic_vector:
@@ -308,17 +305,18 @@ protocol_details:
         length: 25
         crc32_hex: "d880d40c"
         execute_hex: "7e 00 19 00 0c d4 80 d8"
-        note: "Arbitrary synthetic bytes exercise chunking and CRC only; they are not an RPC command and are never sent to hardware."
+        note: "Arbitrary synthetic bytes exercise chunking and CRC only; they are not an RPC command and are never sent to hardware or exposed to a generic caller."
     watcher_lifecycle:
       flags: {0: "disable", 1: "Enabled", 2: "DisableWhenDisconnected", 4: "SendInitialValue"}
       region_flags: {0: "normal", 1: "DoNotSetDirty", 2: "DoNotSendInNotify", 3: "disable both / teardown"}
       steps:
-        - "MemRead watchersInfo (0x10073, 2 bytes): watcherCount u8, watcherRegionCount u8."
+        - "MemRead watchersInfo (0x10073, 2 bytes): watcherCount u8, watcherRegionCount u8; validate the first response before any setup."
         - "Reserve an update-counter region at 0x0400 + watcherID, one byte, region flag DoNotSetDirty. Place it in regionID order with watched regions."
         - "Configure each region with message 124; total watched+counter bytes in a watcher must fit the 17-byte WatcherDirty data budget at MTU 23."
         - "Enable with message 122 flags 3, minimum 40 ms and maximum 0. Event 260 concatenates region bytes in ascending regionID."
         - "Track the one-byte update counter and validate event length before slicing; use each region's memory type to decode."
-        - "On every exit, send message 124 address 0, size 0, flags 3 for each region, then message 122 flags 0, periods 0. Do not leave watchers running after a client crash; DisableWhenDisconnected is a backstop, not teardown."
+        - "On every exit AND partial setup failure, clear every configured region with exact message 124 address 0, size 0, flags 3 (watcher 0/region 0 vector 7c 00 00 00 00 00 00 03), then send message 122 flags 0, periods 0 (7a 00 00 00 00 00 00 00). Region clears precede watcher disable."
+        - "Do not leave watchers running after a client crash; DisableWhenDisconnected is a backstop, not teardown."
   memory_map:
     description: "Read-only entries used by the official native driver. Addresses are uint32 LE in MemRead; all multibyte struct scalars are little-endian. Do not issue MemWrite to these entries."
     entries:
@@ -339,7 +337,9 @@ protocol_details:
     synthetic_watcher_vectors:
       battery_region: "7c 00 00 00 bc 00 08 00"
       enable: "7a 00 00 03 28 00 00 00"
+      region_clear: "7c 00 00 00 00 00 00 03"
       disable: "7a 00 00 00 00 00 00 00"
+      partial_setup_failure_teardown: ["7c 00 00 00 00 00 00 03", "7a 00 00 00 00 00 00 00"]
       stop_all: "78 00 00 00 00 00 00"
 
 entities:

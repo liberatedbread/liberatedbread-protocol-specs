@@ -1,6 +1,6 @@
 # Remootio 2 / 3 — WebSocket API v3
 
-> **Status**: Spec Available — documented local API, untested on hardware
+> **Status**: Identify-only — documented local API, untested; dedicated consumer handler pending
 > **Protocol**: Wi-Fi, WebSocket on port 8080; separate BLE boundary
 > **Manufacturer**: Remootio / Assemblabs Ltd. (active)
 

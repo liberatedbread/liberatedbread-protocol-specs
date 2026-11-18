@@ -292,13 +292,13 @@ spec's `device.setup` block; the patterns are explained in
 | [MyKronoz ZeTime](mykronoz-zetime.md) | BLE | Identify-only (untested) | Dedicated session handler required | MyKronoz |
 | [Espruino Bangle.js 1 and 2](banglejs-watches.md) | BLE Nordic UART | Identify-only (untested) | Manual selection + read-only ver gate, then dedicated multi-write handler | Espruino / Pur3 Ltd |
 | [YUNMAI Mini / SE / X / Mini 2S](yunmai-scales.md) | BLE GATT or passive broadcast | Spec Available (untested; sanitized capture) | Configuration commands; dedicated measurement handler | YUNMAI |
-| [ALLPOWERS R600 (hardware 0.3, read-only)](allpowers-r600.md) | BLE | Spec Available (untested) | ble_direct + current-session revision check (medium) | ALLPOWERS |
-| [RENPHO R-Q002 N exercise bike](renpho-r-q002-n.md) | BLE FTMS + Cycling Power / conditional CSC | Spec Available (untested; public capture) | ble_direct (medium) | RENPHO / Joicom |
-| [Remootio 2 / 3 (WebSocket API v3)](remootio-garage-door.md) | WiFi WebSocket 8080 + BLE setup | Spec Available (untested) | Owner app provisioning + API keys (medium) | Remootio / Assemblabs |
-| [Ozobot Evo (native RPC)](ozobot-evo.md) | BLE | Spec Available (untested) | ble_direct; current/legacy endpoint negotiation (medium) | Ozobot / Ozo Edu |
-| [Felicita Arc](felicita-arc.md) | BLE | Spec Available (untested) | ble_direct (medium) | Felicita Coffee |
-| [ThermoWorks BlueDOT](thermoworks-bluedot.md) | BLE | Spec Available (untested) | ble_direct + one-notification read (medium) | ThermoWorks |
-| [Sportstech F15 / F31](sportstech-f15-f31.md) | BLE | Spec Available (untested; public capture) | ble_direct (medium) | Sportstech |
+| [ALLPOWERS R600 (hardware 0.3, read-only)](allpowers-r600.md) | BLE | Identify-only (untested) | Dedicated handler required; current-session revision check | ALLPOWERS |
+| [RENPHO R-Q002 N exercise bike](renpho-r-q002-n.md) | BLE FTMS + Cycling Power / conditional CSC | Identify-only (untested; public capture) | Dedicated FTMS/CSC handler required | RENPHO / Joicom |
+| [Remootio 2 / 3 (WebSocket API v3)](remootio-garage-door.md) | WiFi WebSocket 8080 + BLE setup | Identify-only (untested) | Dedicated encrypted-session handler + owner API keys required | Remootio / Assemblabs |
+| [Ozobot Evo (native RPC)](ozobot-evo.md) | BLE | Identify-only (untested) | Dedicated native-RPC handler and generation validation required | Ozobot / Ozo Edu |
+| [Felicita Arc](felicita-arc.md) | BLE | Identify-only (untested) | Dedicated Arc handler and first-frame validation required | Felicita Coffee |
+| [ThermoWorks BlueDOT](thermoworks-bluedot.md) | BLE | Identify-only (untested) | Dedicated BlueDOT handler and status-gated readings required | ThermoWorks |
+| [Sportstech F15 / F31](sportstech-f15-f31.md) | BLE | Identify-only (untested; public capture) | Dedicated frame handler required | Sportstech |
 
 ## Not everything here was liberated
 

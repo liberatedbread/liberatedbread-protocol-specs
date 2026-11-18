@@ -31,10 +31,9 @@ def parse_notification(data: bytes) -> dict:
     else:
         connected = None
     unit = data[11]
-    return {
+    result = {
+        "probe_status": status,
         "probe_connected": connected,
-        "temperature_c": to_celsius(struct.unpack_from("<i", data, 1)[0], unit),
-        "alarm_temperature_c": to_celsius(struct.unpack_from("<i", data, 5)[0], unit),
         "alarm_silenced": data[9] != 0,
         "alarm_disabled": data[10] != 0,
         "unit": unit,
@@ -42,6 +41,10 @@ def parse_notification(data: bytes) -> dict:
         "address_bytes": data[13:19],
         "alarm_active": data[19] != 0,
     }
+    if status == 0:
+        result["temperature_c"] = to_celsius(struct.unpack_from("<i", data, 1)[0], unit)
+        result["alarm_temperature_c"] = to_celsius(struct.unpack_from("<i", data, 5)[0], unit)
+    return result
 
 
 def test_celsius_signed_temperature_and_flags() -> None:
@@ -70,10 +73,23 @@ def test_fahrenheit_conversion_for_both_temperatures() -> None:
 def test_disconnected_and_unknown_probe_states_are_not_current() -> None:
     disconnected = bytearray(CELSIUS)
     disconnected[0] = 3
-    assert parse_notification(disconnected)["probe_connected"] is False
+    disconnected_reading = parse_notification(disconnected)
+    assert disconnected_reading["probe_connected"] is False
+    assert disconnected_reading["probe_status"] == 3
+    assert "temperature_c" not in disconnected_reading
+    assert "alarm_temperature_c" not in disconnected_reading
+    assert disconnected_reading["alarm_silenced"] is True
+    assert disconnected_reading["alarm_active"] is True
+
     unknown = bytearray(CELSIUS)
     unknown[0] = 1
-    assert parse_notification(unknown)["probe_connected"] is None
+    unknown_reading = parse_notification(unknown)
+    assert unknown_reading["probe_connected"] is None
+    assert unknown_reading["probe_status"] == 1
+    assert "temperature_c" not in unknown_reading
+    assert "alarm_temperature_c" not in unknown_reading
+    assert unknown_reading["alarm_disabled"] is False
+    assert unknown_reading["unknown"] == 0xA5
 
 
 def test_wrong_lengths_and_units_are_rejected() -> None:

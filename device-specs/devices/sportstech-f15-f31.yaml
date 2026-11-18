@@ -23,6 +23,7 @@ device:
   transport: "ble-gatt"
   category: "fitness"
   type: "treadmill"
+  integration: "identify_only"
   safety_advisory:
     severity: "warning"
     summary: "The physical console and safety key remain authoritative; this spec never starts, stops or changes the belt."
@@ -38,10 +39,15 @@ device:
     four-byte status poll on FFF2 is documented; no belt-control command is.
 
     Full 17-byte status frames report operation mode, speed, elapsed time,
-    distance and heart rate. Short frames (including the five-byte stopped
-    fixture) are valid and carry mode only; the public decoder publishes speed
-    and heart rate zero for short frames, which is compatibility behavior and
-    not proof of a physical measurement.
+    distance and heart rate. The five-byte stopped fixture carries mode only.
+    The six-byte starting fixture also carries unresolved raw byte 0x05 at
+    offset 3; it is preserved, not interpreted as speed. The public decoder
+    publishes speed and heart rate zero for short frames, which is compatibility
+    behavior and not proof of a physical measurement.
+
+    Consumer integration is identify_only: no dedicated F15/F31 frame handler
+    ships here. The protocol blocks and stdlib vectors preserve implementation
+    facts, not live app telemetry; supported status requires that handler.
 
     INCLINE/CALORIE UNITS ARE UNRESOLVED. Byte 4 and bytes 9-10 are preserved as
     raw bytes only and deliberately have no calibrated entities, units or scale
@@ -184,13 +190,17 @@ protocol_details:
       - {offset: 13, length: 2, name: "heart_rate", type: "uint16", endianness: "little", scale: 1, unit: "bpm"}
       - {offset: 15, length: 1, name: "xor_checksum", type: "uint8"}
       - {offset: 16, length: 1, name: "end", type: "uint8", values: {0x03: "end delimiter"}}
+    mode_length_pairs: {stopped: 5, starting: 6, running: 17, stopping: 17}
     short_frames: >
-      Five-byte stopped and six-byte starting fixtures contain only delimiter,
-      marker, mode, XOR and end. Accept those exact lengths/modes. For any short
-      valid status frame, publish mode and compatibility zeroes for speed and
-      heart rate, leave full-frame-only distance/elapsed state unavailable, and
-      never read beyond the payload. Longer partial telemetry layouts are not
-      guessed.
+      Enforce exactly (stopped, 5), (starting, 6), (running, 17) and
+      (stopping, 17); reject every cross-combination and truncation even when
+      delimiters and XOR are valid. The five-byte stopped fixture contains only
+      delimiter, marker, mode, XOR and end. The six-byte starting fixture has an
+      additional unresolved byte 0x05 at offset 3: preserve it explicitly and
+      do not decode it as speed. For either valid short frame, publish mode and
+      compatibility zeroes for speed and heart rate, leave full-frame-only
+      distance/elapsed state unavailable, and never read beyond the payload.
+      Longer partial telemetry layouts are not guessed.
     stream_reassembly: >
       Notification callbacks may split or coalesce frames. Buffer from 0x02,
       validate a complete candidate against its expected known length and XOR,
@@ -205,7 +215,7 @@ protocol_details:
           decoded: {mode: "stopped", speed_kmh: 0.0, heart_rate_bpm: 0}
         - name: "starting"
           hex: "02 51 02 05 56 03"
-          decoded: {mode: "starting", speed_kmh: 0.0, heart_rate_bpm: 0}
+          decoded: {mode: "starting", offset_3_raw: "0x05 (unresolved)", speed_kmh: 0.0, heart_rate_bpm: 0}
         - name: "running"
           hex: "02 51 03 0d 00 20 00 09 00 03 00 00 00 53 00 26 03"
           decoded: {mode: "running", speed_kmh: 1.3, elapsed_s: 32, distance_km: 0.009, heart_rate_bpm: 83, incline: "omitted", energy: "omitted"}
@@ -254,6 +264,7 @@ evidence:
     continuous telemetry on each firmware revision.
 
 remaining_unknowns:
+  - "The six-byte starting fixture's offset-3 value 0x05 is unresolved and preserved raw; it is not a speed field."
   - "Incline and energy units/scales are deliberately omitted pending console-labelled evidence."
   - "F31 is supported by the public implementation but has no separate public capture in this research."
   - "Long/fragmented frame variants beyond the public full and short fixtures and actual notification cadence."

@@ -123,8 +123,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   cover state/order/plan races, explicit refusals, URL rejection, version
   negotiation, units and sanitized fixtures. No hardware operations or Socket
   writes are claimed.
-- **November mobility, kitchen and local-control discovery: seven new protocol
-  specs.** ALLPOWERS R600 hardware 0.3 gains read-only XOR-framed telemetry;
+- **November mobility, kitchen and local-control discovery: seven new identify-only
+  protocol specs.** ALLPOWERS R600 hardware 0.3 gains read-only XOR-framed telemetry;
   RENPHO R-Q002 N gains standard FTMS/CSC parsing with a capture-backed Cycling
   Power distinction, signed power, resistance `/2` and five-byte energy group;
   Sportstech F15/F31 gains strict full/short-frame telemetry with unresolved

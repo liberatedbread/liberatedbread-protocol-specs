@@ -29,6 +29,9 @@ def decode_frame(data: bytes) -> dict:
     if mode not in (0, 2, 3, 4):
         raise ValueError("unknown operation mode")
     names = {0: "stopped", 2: "starting", 3: "running", 4: "stopping"}
+    expected_lengths = {0: 5, 2: 6, 3: 17, 4: 17}
+    if len(data) != expected_lengths[mode]:
+        raise ValueError("operation mode and frame length do not match")
     result = {
         "mode": names[mode],
         "speed": 0.0,
@@ -80,6 +83,31 @@ class StreamDecoder:
                 continue
             del self.buffer[:length]
         return output
+
+
+def test_exact_mode_length_pairs_and_starting_reserved_byte() -> None:
+    assert STARTING[3] == 0x05
+    valid_lengths = {0: 5, 2: 6, 3: 17, 4: 17}
+    for frame in (STOPPED, STARTING, RUNNING, STOPPING):
+        for mode in (0, 2, 3, 4):
+            if valid_lengths[mode] == len(frame):
+                continue
+            cross_combination = bytearray(frame)
+            cross_combination[2] = mode
+            cross_combination[-2] = checksum(cross_combination[1:-2])
+            try:
+                decode_frame(cross_combination)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("mode/length cross-combination accepted")
+    for truncated in (STOPPED[:-1], STARTING[:-1], RUNNING[:-1], STOPPING[:-1]):
+        try:
+            decode_frame(truncated)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("truncated mode frame accepted")
 
 
 def test_all_public_frame_vectors() -> None:

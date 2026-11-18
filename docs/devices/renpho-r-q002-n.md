@@ -1,6 +1,6 @@
 # RENPHO R-Q002 N exercise bike (read-only)
 
-> **Status**: Spec Available — public-capture evidence, untested on hardware
+> **Status**: Identify-only — public-capture evidence, untested; dedicated consumer handler pending
 > **Protocol**: BLE FTMS + Cycling Power; conditional CSC
 > **Manufacturer**: RENPHO / Joicom corporation (active)
 
@@ -65,7 +65,7 @@ bytes.
 | 2 | Instantaneous cadence `uint16 / 2 rpm` |
 | 3 | Average cadence `uint16 / 2 rpm` |
 | 4 | Total distance `uint24` metres |
-| 5 | Resistance raw `uint16`; R-Q002 normalized value is **raw / 2** |
+| 5 | Resistance raw **signed** `int16`; R-Q002 normalized value is **raw / 2** |
 | 6 | Instantaneous power **signed** `int16` watts |
 | 7 | Average power **signed** `int16` watts |
 | 8 | Five-byte energy group: total `uint16` kcal, hourly `uint16` kcal/h, per-minute `uint8` kcal/min |
@@ -75,9 +75,11 @@ bytes.
 | 12 | Remaining time `uint16` seconds |
 
 The capture vector `64 00 68 01 6a 00 83 00 49 00` decodes to 3.60 km/h,
-53 rpm, raw resistance 131 (65.5 normalized) and 73 W. A separate synthetic
-vector checks `-2 W`, every optional field and the energy group. The energy
-group must consume all five bytes before heart rate is read.
+53 rpm, raw resistance 131 (65.5 normalized) and 73 W. Separate synthetic vectors
+check `-2 W`, signed resistance `-3` (normalized `-1.5`), every optional field
+and the energy group. Negative resistance is a type test, not an observed
+physical value. The energy group must consume all five bytes before heart rate
+is read.
 
 Accept device distance only when bit 4 is present. Any speed-integrated
 replacement is host-estimated and must be labelled as such. Do not implement the
@@ -90,10 +92,11 @@ Cycling Power Measurement always starts with flags followed by signed
 little-endian `int16` instantaneous power at offset 2. One captured measurement
 has a still-unexplained trailing byte, which is not decoded.
 
-When CSC is genuinely enumerated, its standard flags add wheel revolution data
-(`uint32` plus `uint16` event time) for bit 0 and crank revolution data (`uint16`
-plus `uint16` event time) for bit 1, all little-endian. Event times are in
-1/1024-second units. Validate those groups before accepting their values.
+When CSC is genuinely enumerated, its flags are `uint8` at offset 0 and optional
+data starts at offset 1. Bit 0 adds wheel revolution data (`uint32` plus `uint16`
+event time); bit 1 adds crank revolution data (`uint16` plus `uint16` event time),
+all little-endian. Event times are in 1/1024-second units. Reject unsupported
+flags, trailing bytes and truncated groups before accepting any values.
 
 ## Validation and omissions
 

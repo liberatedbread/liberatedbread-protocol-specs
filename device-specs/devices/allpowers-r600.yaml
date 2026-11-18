@@ -22,6 +22,7 @@ device:
   transport: "ble-gatt"
   category: "energy"
   type: "portable-power-station"
+  integration: "identify_only"
   pictogram: "power-station"
   aliases: ["AP-SS-005-Pro"]
   notes: >
@@ -30,6 +31,11 @@ device:
     client subscribes to FFF1, sends the fixed status request on FFF2, and
     validates status, settings and optional name notifications. No cloud,
     account, Wi-Fi module or application-layer credential is needed.
+
+    Consumer integration is identify_only: this project does not ship the
+    dedicated R600 stream/revision handler. The protocol blocks and stdlib
+    vectors preserve implementation facts, not live app telemetry; supported
+    status requires that handler and its bounded validation gates.
 
     SCOPE IS DELIBERATELY NARROW. R1500 LITE moves fields, R2500 V2 uses a
     different packet interpretation and output masks, and VOLIX/P1800 identity
@@ -104,9 +110,13 @@ device:
           - action: "Enable FFF1 notifications and send only the 12-byte status request A5 65 B1 00 01 06 01 00 00 00 00 00 on FFF2."
             actor: "client"
             expect: "A checksum-valid command-0x01 status frame arrives, possibly fragmented or coalesced with another frame."
-          - action: "Decode command-0x03 settings from this same GATT session and require payload byte 4 to equal 0x03."
+          - action: "Wait up to 10 seconds for a checksum-valid command-0x03 settings frame from this same GATT session and require payload byte 4 to equal 0x03. Do not assume the status request elicits settings."
             actor: "client"
-            expect: "Hardware is 0.3. Keep the profile read-only even if another revision answers."
+            expect: "Hardware 0.3 is proven by a fresh settings frame. The 10-second bound is client policy, not a measured device timeout; status alone never qualifies the profile."
+            timeout_seconds: 10
+          - action: "On settings timeout, malformed settings or another hardware revision, fail candidate validation, publish no R600 telemetry and disconnect. Never substitute cached settings or emit a settings write/keepalive."
+            actor: "client"
+            expect: "The candidate remains unidentified and unavailable rather than waiting indefinitely or presenting unqualified data."
         troubleshooting:
           - symptom: "The station has a similar name or FFF0 but no valid telemetry."
             causes:
@@ -285,9 +295,10 @@ protocol_details:
     algorithm:
       - "Scan for A5 65, retaining a trailing single A5 between callbacks."
       - "Once at least seven bytes are buffered, read N at offset 5 and wait until 8+N bytes are present."
-      - "Reject a candidate if its XOR over all bytes is nonzero; discard it and resume scanning at the next A5 65."
+      - "After a successful decode, delete exactly the decoded candidate's total 8+N bytes."
+      - "On checksum OR payload-validation failure, discard only the first buffered byte and rescan from the next A5 65; never delete the whole failed candidate, which may contain a valid inner frame. Oversize N likewise discards only the first byte."
       - "Process callbacks in chunks of at most 1024 bytes and cap retained data at 4096 bytes, dropping oldest noise while preserving a partial header."
-      - "A callback may contain several frames, a frame fragment, noise, or a bad candidate followed by a valid frame."
+      - "A callback may contain several frames, a frame fragment, noise, or a bad outer candidate containing a valid inner STATUS frame."
     command_types:
       0x01: "status; requires at least eight payload bytes"
       0x03: "settings; requires at least six payload bytes"
@@ -304,10 +315,15 @@ protocol_details:
       - {offset: 4, length: 1, name: "raw_hardware_version", type: "uint8", values: {0x03: "R600 hardware 0.3"}}
       - {offset: 5, length: 1, name: "raw_firmware_version", type: "uint8"}
     work_modes: {0: "mute", 1: "standard", 2: "fast", 3: "reserved/unknown"}
+    settings_wait:
+      timeout_seconds: 10
+      basis: "Bounded client policy, not a measured device timeout. A status request is not assumed to elicit a settings response."
+      on_timeout_or_invalid: "Fail candidate validation, publish no R600 telemetry and disconnect; never reuse cached settings or send settings writes/keepalives."
     revision_gate: >
-      This spec requires raw_hardware_version 0x03 in the current session.
-      Cached settings cannot establish the profile. Revision checks are for
-      identity only; they do not authorize any write in this read-only spec.
+      This spec requires raw_hardware_version 0x03 in a fresh settings frame in
+      the current session. Cached settings and status-only exchanges cannot
+      establish the profile. Revision checks are for identity only; they do not
+      authorize any write in this read-only spec.
   vectors:
     status_request: "a5 65 b1 00 01 06 01 00 00 00 00 00"
     status_frame: "a5 65 00 00 00 08 01 13 49 01 2c 00 96 00 78 50"

@@ -1,6 +1,6 @@
 # ALLPOWERS R600 (hardware 0.3, read-only)
 
-> **Status**: Spec Available — source-derived, untested on hardware
+> **Status**: Identify-only — source-derived, untested; dedicated consumer handler pending
 > **Protocol**: BLE GATT
 > **Manufacturer**: ALLPOWERS (active)
 > **Model**: R600 / AP-SS-005-Pro, hardware revision 0.3 only
@@ -28,9 +28,13 @@ is not proof of an R600.
 | Connection recovery | Close the vendor app/other central and reconnect |
 
 Connect and verify the service and both characteristics below. Subscribe to
-notifications, then send only the 12-byte status request. Require raw hardware
+notifications, then send only the 12-byte status request. Wait at most 10
+seconds (a bounded client policy, not a measured device timeout) for raw hardware
 byte `0x03` in a command-`0x03` settings notification from the **same GATT
-session**. A cached setting or an R600-looking name is not enough.
+session**. Do not assume the status request elicits settings. A cached setting,
+status-only exchange or R600-looking name is not enough. On timeout, malformed
+settings or another revision, fail validation, publish no R600 telemetry and
+disconnect; never send a settings write or keepalive.
 
 **Factory reset**: unknown. The manual identifies the model but this research
 did not establish a reset sequence or what it clears. Do not invent a button
@@ -57,7 +61,9 @@ Notifications have `A5 65`, three vendor-envelope bytes, payload length `N` at
 offset 5, command at 6, payload at 7 and one XOR byte. Total response length is
 `8+N`, and XOR over the complete frame is zero. Reject lengths above 128 and
 malformed frames. Notifications can split or coalesce frames, so retain partial
-headers and resynchronize after noise or a bad candidate. The status request is
+headers. Delete `8+N` bytes only after a successful decode; on checksum or
+payload failure discard only the first buffered byte and rescan, because a bad
+outer candidate can contain a valid inner STATUS frame. The status request is
 not a response and does not follow that length rule.
 
 ### Status (`0x01`)

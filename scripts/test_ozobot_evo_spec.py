@@ -12,6 +12,8 @@ ADVERTISEMENT = bytes.fromhex(
 BATTERY_REQUEST = bytes.fromhex("01 00 bc 00 00 00 08 00")
 BATTERY_RESPONSE = bytes.fromhex("02 00 00 08 00 00 00 50 01 20 4e 00 00")
 LONG_PAYLOAD = bytes(range(25))
+DISCOVERY_PATTERN = bytes(23)
+DISCOVERY_MASK = bytes.fromhex("ff000000000000000000000000000000000000000000fb")
 
 
 def parse_advertisement(data: bytes, require_patch: bool = False) -> dict:
@@ -24,6 +26,30 @@ def parse_advertisement(data: bytes, require_patch: bool = False) -> dict:
         "product": data[22],
         "version": (data[23] & 0x7F, data[24], int.from_bytes(data[25:27], "little") if len(data) >= 27 else 0),
     }
+
+
+def matches_discovery(company_id: int, data: bytes) -> bool:
+    if company_id != 1003 or len(data) < len(DISCOVERY_PATTERN):
+        return False
+    candidate = data[: len(DISCOVERY_PATTERN)]
+    return all(
+        (value & mask) == (pattern & mask)
+        for value, pattern, mask in zip(candidate, DISCOVERY_PATTERN, DISCOVERY_MASK, strict=True)
+    )
+
+
+def test_masked_discovery_accepts_only_evo_products() -> None:
+    assert len(DISCOVERY_PATTERN) == len(DISCOVERY_MASK) == 23
+    assert matches_discovery(1003, ADVERTISEMENT)
+    evo_zero = bytearray(ADVERTISEMENT)
+    evo_zero[22] = 0
+    assert matches_discovery(1003, evo_zero)
+    ari = bytearray(ADVERTISEMENT)
+    ari[22] = 5
+    assert not matches_discovery(1003, ari)
+    assert not matches_discovery(1003, b"\x01" + ADVERTISEMENT[1:])
+    assert not matches_discovery(1003, ADVERTISEMENT[:22])
+    assert not matches_discovery(0, ADVERTISEMENT)
 
 
 def request_id(counter: int) -> tuple[int, bytes]:
@@ -72,6 +98,25 @@ def parse_watcher_dirty(data: bytes, region_sizes: list[int]) -> list[bytes]:
         output.append(payload[offset : offset + size])
         offset += size
     return output
+
+
+def teardown_watcher(watcher_id: int, configured_region_ids: list[int]) -> list[bytes]:
+    operations = [
+        struct.pack("<HBBHBB", 124, watcher_id, region_id, 0, 0, 3)
+        for region_id in configured_region_ids
+    ]
+    operations.append(struct.pack("<HBBHH", 122, watcher_id, 0, 0, 0))
+    return operations
+
+
+def test_partial_watcher_setup_failure_clears_regions_then_disables() -> None:
+    configured_region_ids = [0]
+    watcher_enabled = False
+    operations = teardown_watcher(0, configured_region_ids) if not watcher_enabled else []
+    assert operations == [
+        bytes.fromhex("7c 00 00 00 00 00 00 03"),
+        bytes.fromhex("7a 00 00 00 00 00 00 00"),
+    ]
 
 
 def long_execute(data: bytes) -> bytes:

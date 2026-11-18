@@ -22,14 +22,19 @@ device:
   transport: "ble-gatt"
   category: "fitness"
   type: "exercise-bike"
+  integration: "identify_only"
   aliases: ["RENPHO R-Q002N", "RENPHO AI-powered exercise bike R-Q002 N"]
   notes: >
     Phone-direct standard BLE telemetry, with no proprietary UART requirement,
     account, cloud ride session or provisioning exchange. The main stream is
     standard FTMS Indoor Bike Data with a model-specific resistance profile:
-    raw resistance is read as uint16 and divided by two. Instantaneous and
+    raw resistance is read as SIGNED int16 and divided by two. Instantaneous and
     average power remain SIGNED int16 values in watts, even though the reviewed
     open driver reads instantaneous power unsigned.
+
+    Consumer integration is identify_only: no dedicated R-Q002 FTMS/CSC handler
+    ships here. The protocol blocks and stdlib vectors preserve implementation
+    facts, not live app telemetry; supported status requires that handler.
 
     FTMS fields are flag-driven and little-endian. Instantaneous speed is
     present when More Data (flag bit 0) is clear. The expended-energy group is
@@ -230,7 +235,7 @@ protocol_details:
       - {flag_bit: 2, present_when: "set", name: "instantaneous_cadence", type: "uint16", endianness: "little", scale: 0.5, unit: "rpm"}
       - {flag_bit: 3, present_when: "set", name: "average_cadence", type: "uint16", endianness: "little", scale: 0.5, unit: "rpm"}
       - {flag_bit: 4, present_when: "set", name: "total_distance", type: "uint24", endianness: "little", scale: 1, unit: "m"}
-      - {flag_bit: 5, present_when: "set", name: "resistance_raw", type: "uint16", endianness: "little", scale: 0.5, unit: "RENPHO resistance level"}
+      - {flag_bit: 5, present_when: "set", name: "resistance_raw", type: "int16", endianness: "little", scale: 0.5, unit: "RENPHO resistance level"}
       - {flag_bit: 6, present_when: "set", name: "instantaneous_power", type: "int16", endianness: "little", scale: 1, unit: "W"}
       - {flag_bit: 7, present_when: "set", name: "average_power", type: "int16", endianness: "little", scale: 1, unit: "W"}
       - {flag_bit: 8, present_when: "set", name: "expended_energy_group", type: "bytes", length: 5, fields: "total_energy u16 LE kcal; energy_per_hour u16 LE kcal/h; energy_per_minute u8 kcal/min"}
@@ -239,9 +244,10 @@ protocol_details:
       - {flag_bit: 11, present_when: "set", name: "elapsed_time", type: "uint16", endianness: "little", scale: 1, unit: "s"}
       - {flag_bit: 12, present_when: "set", name: "remaining_time", type: "uint16", endianness: "little", scale: 1, unit: "s"}
     resistance_profile: >
-      resistance_raw is retained as an integer and the R-Q002 normalized value
-      is raw / 2. Do not apply the optional user-interface doubling in the open
-      driver, and do not reconcile physical knob changes into automatic writes.
+      resistance_raw is retained as a signed int16 and the R-Q002 normalized
+      value is raw / 2, including negative synthetic values. Do not apply the
+      optional user-interface doubling in the open driver, and do not reconcile
+      physical knob changes into automatic writes.
     missing_distance: >
       Accept device distance only when flag bit 4 is present. A host may
       integrate speed locally when absent, but must label that value as host-
@@ -255,12 +261,17 @@ protocol_details:
       hex: "fe 1f d2 04 58 02 6e 00 64 00 40 0d 03 83 00 fe ff 49 00 c8 00 f4 01 05 53 35 20 00 0a 00"
       decoded: {speed_kmh: 12.34, average_speed_kmh: 6.0, cadence_rpm: 55.0, average_cadence_rpm: 50.0, distance_m: 200000, resistance_raw: 131, resistance_normalized: 65.5, instantaneous_power_w: -2, average_power_w: 73, total_energy_kcal: 200, energy_per_hour_kcal_h: 500, energy_per_minute_kcal_min: 5, heart_rate_bpm: 83, metabolic_equivalent: 5.3, elapsed_s: 32, remaining_s: 10}
       provenance: "Computed to prove signed power, the five-byte energy group and every optional-field offset; not represented as a capture."
+    synthetic_negative_resistance_vector:
+      hex: "64 00 68 01 6a 00 fd ff 49 00"
+      decoded: {speed_kmh: 3.60, cadence_rpm: 53.0, resistance_raw: -3, resistance_normalized: -1.5, instantaneous_power_w: 73}
+      provenance: "Synthetic standards-type check for signed int16 resistance; not a claimed observed physical resistance."
   csc_measurement:
     description: >
-      Conditional standard CSC decode. Flags u16 LE; bit 0 adds cumulative
-      wheel revolutions u32 LE and last wheel event time u16 LE; bit 1 adds
-      cumulative crank revolutions u16 LE and last crank event time u16 LE.
-      Event-time scale is 1/1024 second. Reject a payload truncated in either group.
+      Conditional standard CSC decode. Flags are uint8 at offset 0 and optional
+      data begins at offset 1. Bit 0 adds cumulative wheel revolutions u32 LE
+      and last wheel event time u16 LE; bit 1 adds cumulative crank revolutions
+      u16 LE and last crank event time u16 LE. Event-time scale is 1/1024 second.
+      Reject unsupported flag bits, trailing bytes and truncation in either group.
 
 entities:
   - platform: "sensor"
@@ -274,7 +285,7 @@ entities:
     notes: "Instantaneous cadence, raw uint16 / 2."
   - platform: "sensor"
     name: "RENPHO Resistance"
-    notes: "Dimensionless R-Q002 profile value: raw uint16 / 2; raw value is retained beside it."
+    notes: "Dimensionless R-Q002 profile value: signed int16 raw / 2; raw value is retained beside it, including negative synthetic vectors."
   - platform: "sensor"
     name: "FTMS Power"
     device_class: "power"
@@ -327,7 +338,7 @@ evidence:
 remaining_unknowns:
   - "CSC 0x1816 is source-reported but absent from the public R-Q002 capture; whether another firmware provides it is unknown."
   - "The single captured Cycling Power Measurement has 15 bytes with flags 0x30 and all zero fields; one trailing byte is unexplained and not decoded."
-  - "Negative power was not observed in the public stream; the signed type is standards-based and covered by a synthetic vector."
+  - "Negative power and negative resistance were not observed in the public stream; their signed int16 types are standards-based and covered by synthetic vectors, not claims about physical ranges."
   - "Exact advertised local name, factory reset, bonding behavior and manual-specific setup instructions."
   - "Control Point behavior, resistance ranges, calibration, firmware update and all writes remain unimplemented."
 
