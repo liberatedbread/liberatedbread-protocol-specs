@@ -95,6 +95,10 @@ spec's `device.setup` block; the patterns are explained in
 | [LIFX Z](lifx-z.md) | WiFi | Complete | SoftAP, uncaptured (low) | LIFX |
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
 | [TP-Link Kasa Smart Plug](tplink-kasa.md) | WiFi (JSON over TCP 9999) | Complete | SoftAP, uncaptured (low) | TP-Link |
+| [TP-Link Tapo / KLAP-era plugs](tplink-tapo-klap.md) | WiFi (TDP + encrypted HTTP) | Identify-only (untested) | Bound account credential (medium) | TP-Link |
+| [Meross plugs, switches and MSG100](meross-wifi-appliances.md) | WiFi (signed/encrypted `/config`) | Identify-only (untested) | Stock or owner-provisioned key (medium) | Meross |
+| [Sonoff / eWeLink LAN relays](sonoff-ewelink-lan.md) | WiFi (mDNS + `/zeroconf/*`) | Identify-only (untested) | Stock devicekey or documented DIY (medium) | ITEAD / Sonoff |
+| [Somfy TaHoma Developer Mode](somfy-tahoma-developer-mode.md) | LAN (bearer HTTPS 8443) | Identify-only (untested) | App Developer Mode + owner token (medium) | Somfy |
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Uncaptured (low) | Rachio |
 | [Snapmaker U1 3D Printer](snapmaker-u1.md) | WiFi | Complete | None needed (Moonraker) | Snapmaker |
 | [PurpleAir Air Quality Sensor](purpleair-sensor.md) | WiFi | Complete | None needed | PurpleAir |

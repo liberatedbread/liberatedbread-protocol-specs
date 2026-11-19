@@ -86,7 +86,19 @@ badge's speed nibble shares a byte with `mode`), and a raw-byte-stream
 transport arm for top-level `commands` (Brother's raster opcodes stay
 `payload_hex` prose).
 
-## Validation: 325/325 passing (324 device specs + 1 example)
+## November 17 LAN consumer handlers
+
+The protocol documents are no longer missing, but four generic-consumer
+integration gaps remain explicit. `tplink-tapo-klap` needs TDP plus cookie-bound
+KLAP/RSA session handling, `meross-wifi-appliances` needs signed/Encrypt.Suite
+handling, and `sonoff-ewelink-lan` needs stock TXT/AES/per-UIID dispatch.
+`somfy-tahoma-developer-mode` needs bearer auth-scheme, vendor-CA, advanced
+network-action, DELETE and named-cover-state handlers. All four are
+`identify_only`, not fake plaintext-HTTP integrations. Per-protocol open
+questions and hardware verification gaps remain in the specs rather than being
+flattened into this file.
+
+## Validation: 329/329 passing (328 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after
