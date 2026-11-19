@@ -22,6 +22,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Finished/application-data vectors. LeakSmart recovery advances a fault epoch
   on every failure and rejects stale or pre-clear in-flight reads. FC unlock
   confirms only result 0; 0xF1 remains handshake-only and never triggers replay.
+- **Wyze bridge coverage and stream contracts.** The docker-wyze-bridge spec now
+  uses only its documented TUTK model allowlist, manual bridge/NVR host
+  discovery, lowercase camera slugs, the actual HLS playlist URL, default-on
+  `WB_AUTH`/`WB_API` and `STREAM_AUTH` alternatives, and product-scoped reset
+  instructions. TUTK P2P/relay/LAN modes and continuing cloud dependence are
+  explicit, including that relayed upstream media does not move the local
+  bridge endpoints. The stock-firmware no-local-API statement now names the
+  narrow legacy RTSP exception instead of overgeneralizing.
 - **Sensor, energy, mobility and diagnostic protocol correctness.** Aranet
   Radiation, SensorPush generations, Ruuvi DF3/DF5, b-parasite/BTHome,
   Mopeka and pvvx layouts now use their actual widths, offsets, signedness and
@@ -122,6 +130,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vectors, plus all relevant Classic full-session golden vectors and malformed
   cases. No owner keys, private topology or hardware operations are included;
   bespoke consumers remain necessary for `supported` integration.
+- **Two bounded Wyze local-protocol specs.** Bulb Color `WLPA19C`/MeshLight and
+  original Light Strip `HL_LSL`/LightStrip gain their encrypted port-88 request
+  format, cloud model/type/firmware gates, ordinary attended property writes,
+  exact model resets and independent OpenSSL/stdlib vectors using invented
+  credentials. HTTP 200 is acknowledgement only: no local state read or generic
+  consumer handler is claimed. Legacy official RTSP is restricted to Cam v2
+  `4.28.4.49`, standalone Cam v3 `4.61.0.1` and Pan v1 `4.29.4.49`, with an
+  advanced microSD route, feature-loss/maintenance warnings, official archive
+  and inner-binary SHA-256 values, and opaque app-generated full URLs rather
+  than invented ports or paths. Both remain reported/untested and identify-only.
 - **November 15 audit follow-up: Anova Mini and Nano protocols.** Separate,
   model-scoped specs and owner guides cover the Mini's JSON/Base64 GATT commands
   and the Nano's distinct COBS/proto2 TX/RX transport, with independent

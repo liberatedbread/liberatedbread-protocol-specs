@@ -139,7 +139,10 @@ and the H5074/H5179 family is in [`govee-h5075-thermo`](../devices/govee-h5075-t
 Replacement-firmware follow-up adds [Spotify Car Thing with Bridgething](../devices/spotify-car-thing-bridgething.md)
 and [Nabaztag/tag with ServerlessNabaztag](../devices/nabaztag-tag-serverless.md);
 [PicoStill direct telemetry](../devices/picobrew-picostill.md) is now documented
-read-only with unknown units and no appliance actuation.
+read-only with unknown units and no appliance actuation. The November Wyze
+follow-up adds bounded [Bulb Color / Light Strip encrypted LAN](../devices/wyze-mesh-light-lan.md)
+and [legacy official RTSP](../devices/wyze-legacy-rtsp.md) specs, and corrects
+the existing bridge's model, host, authentication and reset boundaries.
 
 Still missing from the July list, and carried forward below with a *July list*
 tag: AM43 blind motors, Insteon and Echelon (old firmware only) in
