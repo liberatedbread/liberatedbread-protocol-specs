@@ -1,0 +1,916 @@
+{
+  "cloud": {
+    "failure_mode": "Cached stock keys support LAN control after WAN loss. Initial setup, unknown keys and any older DIY OTA unlock service can fail. A bounded setup AP may expose stock credentials only before/during setup.",
+    "required": false,
+    "vendor_service": "eWeLink account supplies normal stock onboarding/devicekey and remote access; local requests use cached credentials. Official DIY needs no cloud for control."
+  },
+  "commands": {
+    "diy_ota_flash": {
+      "advanced": true,
+      "advanced_reason": "Downloads and flashes firmware. A wrong/interrupted image can brick the device; checksum integrity is not proof of model compatibility or recovery.",
+      "body": "{\"deviceid\":\"{deviceid}\",\"data\":{\"downloadUrl\":\"{download_url}\",\"sha256sum\":\"{sha256}\"}}",
+      "description": "Official DIY OTA pull from an owner HTTP Range server with expected SHA-256.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        },
+        "download_url": {
+          "description": "HTTP URL whose server supports Range.",
+          "required": true,
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Lowercase SHA-256 of the exact intended image.",
+          "required": true,
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/ota_flash",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "diy_ota_unlock": {
+      "advanced": true,
+      "advanced_reason": "Starts the firmware-update workflow and may contact a vendor unlock service. Do not continue unless the exact image/model/recovery plan is verified.",
+      "body": "{\"deviceid\":\"{deviceid}\",\"data\":{}}",
+      "description": "Official DIY OTA unlock; older firmware may need the vendor unlock service.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/ota_unlock",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "diy_switch_off": {
+      "advanced": true,
+      "advanced_reason": "Attended mains relay write on a verified type=diy_plug device; confirm the attached load before removing power.",
+      "body": "{\"deviceid\":\"{deviceid}\",\"data\":{\"switch\":\"off\"}}",
+      "description": "Official DIY Basic R3/RFR3/Mini keyless switch=off with data object.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/switch",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "diy_switch_on": {
+      "advanced": true,
+      "advanced_reason": "Attended mains relay write on a verified type=diy_plug device; do not route stock devices to this command.",
+      "body": "{\"deviceid\":\"{deviceid}\",\"data\":{\"switch\":\"on\"}}",
+      "description": "Official DIY Basic R3/RFR3/Mini keyless switch=on with data object, never stock metadata.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/switch",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "stock_get_state": {
+      "body": "{}",
+      "body_transform": "stock_envelope and stock_crypto when TXT encrypt is true; data remains a string in plaintext stock mode.",
+      "description": "Read stock state through stock envelope with empty params; tolerate the documented text/html no-state answer.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        },
+        "devicekey": {
+          "required": true,
+          "source": "credential:devicekey",
+          "type": "string"
+        },
+        "self_apikey": {
+          "required": true,
+          "source": "credential:self_apikey",
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/getState",
+      "returns": [
+        {
+          "name": "error",
+          "type": "integer"
+        },
+        {
+          "name": "seq",
+          "type": "integer"
+        },
+        {
+          "description": "Base64 ciphertext when encrypted; decrypt before reading switch fields.",
+          "name": "data",
+          "type": "string"
+        }
+      ],
+      "transport": "http",
+      "verification": "reported"
+    },
+    "stock_pulse": {
+      "advanced": true,
+      "advanced_reason": "Configures automatic energize/de-energize behavior on a mains load. Confirm the width and equipment before enabling.",
+      "body": "{\"pulse\":\"{pulse}\",\"pulseWidth\":{pulse_width}}",
+      "body_transform": "stock_envelope and stock_crypto; stock per-UIID limits may be narrower than DIY.",
+      "description": "Set stock inching pulse and width in milliseconds; automatic relay action follows.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        },
+        "devicekey": {
+          "required": true,
+          "source": "credential:devicekey",
+          "type": "string"
+        },
+        "pulse": {
+          "required": true,
+          "type": "string",
+          "values": {
+            "off": "disable inching",
+            "on": "enable inching"
+          }
+        },
+        "pulse_width": {
+          "description": "DIY-documented range, multiples of 500; verify stock UIID limits.",
+          "max": 36000000,
+          "min": 500,
+          "required": true,
+          "type": "integer",
+          "unit": "ms"
+        },
+        "self_apikey": {
+          "required": true,
+          "source": "credential:self_apikey",
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/pulse",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "stock_startup": {
+      "advanced": true,
+      "advanced_reason": "Changes what the mains load does after a later power cut; on/stay can energize it without anyone present.",
+      "body": "{\"startup\":\"{startup}\"}",
+      "body_transform": "stock_envelope and stock_crypto.",
+      "description": "Set stock power-recovery behavior on/off/stay, not an immediate relay toggle.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        },
+        "devicekey": {
+          "required": true,
+          "source": "credential:devicekey",
+          "type": "string"
+        },
+        "self_apikey": {
+          "required": true,
+          "source": "credential:self_apikey",
+          "type": "string"
+        },
+        "startup": {
+          "required": true,
+          "type": "string",
+          "values": {
+            "off": "off after power recovery",
+            "on": "on after power recovery",
+            "stay": "restore prior state"
+          }
+        }
+      },
+      "path": "/zeroconf/startup",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "stock_switch_off": {
+      "advanced": true,
+      "advanced_reason": "Attended mains relay write: removing power can interrupt the attached appliance; confirm identity and read back state.",
+      "body": "{\"switch\":\"off\"}",
+      "body_transform": "stock_envelope and stock_crypto; never use the DIY object envelope.",
+      "description": "Stock single-channel switch=off; attended mains write.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        },
+        "devicekey": {
+          "required": true,
+          "source": "credential:devicekey",
+          "type": "string"
+        },
+        "self_apikey": {
+          "required": true,
+          "source": "credential:self_apikey",
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/switch",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "stock_switch_on": {
+      "advanced": true,
+      "advanced_reason": "Attended mains relay write: confirms the intended stock device and load before energizing it, then reconcile actual state/TXT.",
+      "body": "{\"switch\":\"on\"}",
+      "body_transform": "stock_envelope and stock_crypto; never use the DIY object envelope.",
+      "description": "Stock single-channel switch=on; attended mains write.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        },
+        "devicekey": {
+          "required": true,
+          "source": "credential:devicekey",
+          "type": "string"
+        },
+        "self_apikey": {
+          "required": true,
+          "source": "credential:self_apikey",
+          "type": "string"
+        }
+      },
+      "path": "/zeroconf/switch",
+      "transport": "http",
+      "verification": "reported"
+    },
+    "stock_switches_set": {
+      "advanced": true,
+      "advanced_reason": "Changes a selected mains channel. Require attended selection and confirm outlet/state to avoid actuating a different load.",
+      "body": "{\"switches\":[{\"switch\":\"{state}\",\"outlet\":{outlet}}]}",
+      "body_transform": "stock_envelope and stock_crypto; outlet is an integer, not a string.",
+      "description": "Set one outlet in a stock multi-channel switches array.",
+      "method": "POST",
+      "parameters": {
+        "deviceid": {
+          "required": true,
+          "source": "credential:deviceid",
+          "type": "string"
+        },
+        "devicekey": {
+          "required": true,
+          "source": "credential:devicekey",
+          "type": "string"
+        },
+        "outlet": {
+          "description": "Zero-based channel index from the device template.",
+          "max": 31,
+          "min": 0,
+          "required": true,
+          "type": "integer"
+        },
+        "self_apikey": {
+          "required": true,
+          "source": "credential:self_apikey",
+          "type": "string"
+        },
+        "state": {
+          "required": true,
+          "type": "string",
+          "values": {
+            "off": "de-energize",
+            "on": "energize"
+          }
+        }
+      },
+      "path": "/zeroconf/switches",
+      "transport": "http",
+      "verification": "reported"
+    }
+  },
+  "device": {
+    "category": "switch",
+    "discovery": {
+      "identity": {
+        "display": "name",
+        "stable_keys": [
+          "deviceid",
+          "id"
+        ]
+      },
+      "methods": [
+        {
+          "mdns": {
+            "identity_mapping": {
+              "display": {
+                "source": "name"
+              },
+              "stable_keys": [
+                {
+                  "key": "deviceid",
+                  "source": "instance:deviceid"
+                },
+                {
+                  "key": "id",
+                  "source": "txt:id"
+                }
+              ]
+            },
+            "port": 8081,
+            "service_type": "_ewelink._tcp.local.",
+            "txt_match": [
+              {
+                "description": "Required by the stock app; use type=diy_plug plus apivers=1 to select official DIY.",
+                "key": "type",
+                "match": "present"
+              }
+            ],
+            "txt_record_keys": [
+              "txtvers",
+              "id",
+              "type",
+              "apivers",
+              "seq",
+              "encrypt",
+              "iv",
+              "data1",
+              "data2",
+              "data3",
+              "data4"
+            ]
+          },
+          "notes": "Accept eWeLink_ and eWelink_ case variants and take deviceid after the first eight instance characters. Use resolved IPv4 and SRV port; append 8081 only if no SRV port is available. Concatenate present data1..data4 in order before Base64/JSON decoding. TXT id can name a bridge child and differ from the instance deviceid.\n",
+          "type": "mdns"
+        }
+      ],
+      "static_ip_required": false
+    },
+    "identification": {
+      "default_port": 8081,
+      "mdns_service_type": "_ewelink._tcp.local.",
+      "mdns_txt_match": [
+        {
+          "description": "The app requires a TXT type; type=diy_plug selects the documented DIY variant rather than stock.",
+          "key": "type",
+          "match": "present"
+        }
+      ],
+      "notes": "Instance eWeLink_<deviceid> or eWelink_<deviceid>; SRV port is authoritative. 8081 is only a missing-port fallback, never an override."
+    },
+    "integration": "identify_only",
+    "manufacturer": "ITEAD / Shenzhen Sonoff Technologies",
+    "manufacturer_status": "active",
+    "name": "Sonoff / eWeLink LAN Relays",
+    "notes": "SCOPE: stock eWeLink LAN relays using /zeroconf/switch, switches, startup, pulse and getState, plus the explicitly documented Basic R3/RFR3/Mini DIY variant. Other UIIDs, lights, fans, RF bridges and metering are not asserted.\nSTOCK IS NOT DIY. Stock requests carry sequence, deviceid, selfApikey, iv, encrypt and a STRING data field; encrypted stock uses raw-MD5(devicekey) AES-128-CBC. Official DIY uses only deviceid and an OBJECT data field with no stock encryption metadata. A plaintext stock response must never be treated as proof of DIY support, and the stock envelope must not be sent to DIY mode.\nIntegration is identify_only because stock needs a dedicated TXT/SRV, devicekey, Base64-IV, AES envelope and per-UIID dispatcher. The DIY commands are separated explicitly; generic consumers must not route every _ewelink service to them by default.\n",
+    "openness": {
+      "license": "MIT",
+      "notes": "DIY is officially documented. Stock encrypted LAN is not the DIY protocol and is recovered from the vendor app and public clients.",
+      "reverse_engineered": true,
+      "source_code": "https://github.com/AlexxIT/SonoffLAN",
+      "status": "documented_api",
+      "upstream_docs": [
+        {
+          "covers": "Only the documented Basic R3/RFR3/Mini DIY discovery, plaintext objects and local endpoints; stock encryption is separately recovered.",
+          "title": "ITEAD SONOFF DIY MODE API protocol v1.4/v2.0",
+          "url": "https://github.com/itead/Sonoff_Devices_DIY_Tools"
+        }
+      ]
+    },
+    "pairing": {
+      "bonding": "none",
+      "confidence": "medium",
+      "enter_pairing_mode": {
+        "notes": "Steady-state LAN control needs no button. Setup AP is needed only for provisioning or the bounded devicekey read.",
+        "required": false
+      },
+      "exclusivity": {
+        "recovery": "The small HTTP server is effectively single-threaded; serialize requests and briefly retry ECONNRESET rather than opening concurrent posts.",
+        "single_bond": false,
+        "single_connection": true
+      },
+      "notes": "Stock and DIY have different authorization answers. Do not downgrade stock encrypt=true to plaintext, and do not require a devicekey from documented DIY.\n",
+      "pin": {
+        "notes": "Stock needs deviceid/devicekey normally supplied by the eWeLink account or bounded setup AP. Documented DIY has no pairing credential.",
+        "source": "vendor_app"
+      },
+      "required": true,
+      "security_mode": "app_layer",
+      "unpair": {
+        "clears": "No per-client stock bond or DIY bond is created. Account unbinding/reset is not a per-client revoke.",
+        "notes": "Delete cached credentials to retire a client; changing network/account state may require re-provisioning.",
+        "requires_factory_reset": false,
+        "supported": false
+      }
+    },
+    "protocol": "wifi",
+    "setup": {
+      "confidence": "medium",
+      "credentials": {
+        "issued_to_client": [
+          "Stock deviceid and 36-character devicekey from cloud or bounded setup AP",
+          "Account selfApikey for stock envelopes; no credential is issued in DIY"
+        ],
+        "notes": "AP /ap and DIY /zeroconf/wifi use HTTP JSON without transport encryption. Stock AES-CBC has no MAC and its IV is Base64 transport, not a password. Protect the setup AP/LAN and never log devicekey, selfApikey or Wi-Fi secrets.\n",
+        "stored_on_device": [
+          "Wi-Fi credentials and regional dispatch settings",
+          "Stock devicekey/account binding or DIY mode state"
+        ],
+        "wifi_passphrase_protection": "plaintext"
+      },
+      "factory_reset": {
+        "applicable": true,
+        "confidence": "medium",
+        "effect": "On BASICR2/RFR2 the documented five-second reset restores pairing state and enters quick pairing. Other models and whether stock devicekey changes are not generalized. DIY enable/disable state and RF learning are separate facts.\n",
+        "procedures": [
+          {
+            "applies_to": [
+              "BASICR2",
+              "RFR2"
+            ],
+            "basis": "SONOFF BASICR2/RFR2 Wi-Fi Smart Switch user manual V1.0, Factory Reset.",
+            "hold_seconds": 5,
+            "indicator": "Wi-Fi LED cycles two short flashes and one long flash, then quick pairing (Touch) starts.",
+            "name": "BASICR2/RFR2 pairing-button factory reset",
+            "steps": [
+              {
+                "action": "Hold the BASICR2/RFR2 pairing button for about 5 seconds until the Wi-Fi LED shows two short flashes and one long flash, then release.",
+                "actor": "user",
+                "expect": "Factory reset succeeds and quick pairing starts; reconnect Wi-Fi before LAN use."
+              }
+            ],
+            "verified": false
+          }
+        ]
+      },
+      "methods": [
+        {
+          "cloud": {
+            "local_alternative": "Cached stock devicekey works locally afterward. Bounded setup-AP /device exposure may supply it before setup; DIY on the three documented models needs no account/key.",
+            "provider": "eWeLink account onboarding and device list"
+          },
+          "description": "Provision stock firmware in eWeLink, then cache deviceid/devicekey for local requests. Where the stock setup AP exposes apikey, the bounded pre-setup /device read is an alternative owner source.",
+          "issues_credentials": {
+            "deviceid": {
+              "notes": "Ten-hex-character stock device ID from the account list, eWeLink_<id> instance suffix, or bounded setup-AP /device response.",
+              "user_entered": true
+            },
+            "devicekey": {
+              "notes": "Stock per-device key from the owner's account device list, or apikey exposed by a supported setup-AP /device response; never a universal/default recovery value.",
+              "user_entered": true
+            },
+            "self_apikey": {
+              "notes": "The owner's eWeLink account API key used in stock envelopes. DIY commands do not consume it.",
+              "user_entered": true
+            }
+          },
+          "name": "Stock eWeLink setup and devicekey",
+          "role": "primary",
+          "softap": {
+            "gateway_ip": "10.10.7.1",
+            "open_network": true,
+            "ssid_prefix": "ITEAD-"
+          },
+          "steps": [
+            {
+              "action": "Put the stock device in its documented pairing mode and join its ITEAD-... AP if using the bounded owner-provisioning route.",
+              "actor": "user",
+              "expect": "The client can reach 10.10.7.1; this AP source is attempted only on models/firmware documented to expose the fields."
+            },
+            {
+              "action": "GET http://10.10.7.1/device and check for deviceid and apikey (the devicekey). Do not infer success from HTTP 200 or unrelated metadata.",
+              "actor": "client",
+              "expect": "Required deviceid/apikey fields are present; otherwise stop and use normal account setup rather than claiming universal recovery.",
+              "request": {
+                "action": "GET /device",
+                "protocol": "http"
+              }
+            },
+            {
+              "action": "POST /ap with ssid, password, serverName and port for the intended region, or complete official eWeLink setup.",
+              "actor": "client",
+              "expect": "The device joins Wi-Fi; deviceid/devicekey are cached for stock LAN use.",
+              "request": {
+                "action": "POST /ap with JSON station/dispatch settings",
+                "protocol": "http"
+              }
+            },
+            {
+              "action": "Resolve _ewelink._tcp and use its SRV port; select stock encryption from TXT encrypt rather than assuming DIY.",
+              "actor": "client",
+              "expect": "A stock request decrypts successfully, or a plaintext stock data string is parsed without changing envelope shape."
+            }
+          ],
+          "type": "cloud_account",
+          "verified": false
+        },
+        {
+          "description": "Only Basic R3, RFR3 and Mini on DIY-capable firmware (3.3.0+; 3.5.0 uses the device AP web page). Enable DIY by the model/document-specific procedure and use keyless deviceid/data-object requests.",
+          "name": "Official DIY mode on Basic R3/RFR3/Mini",
+          "role": "variant",
+          "softap": {
+            "gateway_ip": "10.10.7.1",
+            "open_network": true,
+            "ssid_prefix": "ITEAD-"
+          },
+          "steps": [
+            {
+              "action": "Confirm the exact model/firmware is in ITEAD's published DIY scope and enable DIY using that document's AP/jumper procedure.",
+              "actor": "user",
+              "expect": "TXT advertises type=diy_plug and apivers=1; no stock encrypt flag is required."
+            },
+            {
+              "action": "Use the resolved SRV port and POST only {deviceid, data:{...}}; no sequence, selfApikey, iv or encrypt field is added.",
+              "actor": "client",
+              "expect": "Keyless local control works without eWeLink cloud or a devicekey."
+            }
+          ],
+          "type": "softap_http",
+          "verified": false
+        }
+      ],
+      "notes": "Stock setup uses eWeLink account binding. Its devicekey normally comes from the account device list; on bounded stock setup-AP flows that expose it, GET 10.10.7.1/device can supply deviceid/apikey before normal app setup. That is not universal recovery or a promise for an already configured unit. Official DIY applies only to Basic R3/RFR3/Mini on supported firmware.\n",
+      "rejoin": {
+        "in_place_supported": true,
+        "notes": "The top-level default records that an in-place route exists where the exact model/mode supports one; it is not a universal stock no-reset promise. The consumer selects the model-specific path below. BASICR2/RFR2 stock still requires its already model-scoped reset procedure above. Verified DIY is the explicit in-place exception; other stock models use their own setup flow rather than inheriting either a universal reset or no-reset rule.\n",
+        "requires_factory_reset": false,
+        "steps": [
+          {
+            "action": "Select the rejoin path from the exact advertised model and stock-versus-DIY mode instead of applying the top-level default to every stock unit.",
+            "actor": "client",
+            "expect": "The BASICR2/RFR2 reset path, another stock model's documented setup path, or the verified DIY in-place path is selected deliberately."
+          },
+          {
+            "action": "For BASICR2/RFR2 stock, use factory_reset.procedures[0], the model-scoped five-second reset, before provisioning the new network; do not apply that hold to other models.",
+            "actor": "user",
+            "expect": "BASICR2/RFR2 enters quick pairing as its own manual requires."
+          },
+          {
+            "action": "For verified DIY only, POST /zeroconf/wifi with the new SSID/password without a factory reset, then rediscover.",
+            "actor": "client",
+            "expect": "The DIY device joins the new network; instance deviceid and SRV port are rechecked."
+          },
+          {
+            "action": "Retry the cached stock devicekey but do not assume it survived re-pairing; retrieve it through the legitimate account/bounded setup source if changed.",
+            "actor": "client"
+          }
+        ]
+      },
+      "required": true
+    },
+    "testing": {
+      "notes": "No relay, mDNS browse, setup AP, encrypted request or DIY operation was run by this project. Facts are reported from eWeLink 5.27.0 static analysis, ITEAD DIY protocol v1.4/v2.0 and SonoffLAN 73690b7. Vectors use an invented devicekey and IV; no stock account or physical relay was used.\n",
+      "status": "untested"
+    },
+    "transport": "http",
+    "type": "ewelink-lan-relay-platform",
+    "variants": [
+      {
+        "model": "Stock single-channel relay",
+        "notes": "UIID/model-specific stock LAN; switch/startup/pulse only where advertised. BASICR2/RFR2 reset procedure is not proof of stock protocol support on every model."
+      },
+      {
+        "model": "Stock multi-channel relay",
+        "notes": "switches/configure/pulses arrays use zero-based outlet indices; exact channel count comes from the device/account template."
+      },
+      {
+        "model": "DIY Basic R3/RFR3/Mini",
+        "notes": "Only ITEAD-documented DIY firmware, discovered as type=diy_plug apivers=1. This is the sole keyless object-body variant."
+      }
+    ]
+  },
+  "entities": [
+    {
+      "commands": {
+        "turn_off": "stock_switch_off",
+        "turn_on": "stock_switch_on"
+      },
+      "name": "Stock Relay (documentary)",
+      "notes": "identify_only and advanced: stock custom envelope/decryption and attended gate required.",
+      "platform": "switch",
+      "state_command": "stock_get_state",
+      "state_mapping": {
+        "is_on": "switch",
+        "on_when": "on"
+      },
+      "variants": [
+        "Stock single-channel relay"
+      ]
+    },
+    {
+      "commands": {
+        "turn_off": {
+          "command": "stock_switches_set",
+          "values": {
+            "state": "off"
+          }
+        },
+        "turn_on": {
+          "command": "stock_switches_set",
+          "values": {
+            "state": "on"
+          }
+        }
+      },
+      "instances": {
+        "keyed_by": "outlet",
+        "label_path": "name"
+      },
+      "name": "Stock Outlets (documentary)",
+      "notes": "outlet remains a required instance parameter; no universal channel count is inferred.",
+      "platform": "switch",
+      "state_command": "stock_get_state",
+      "state_mapping": {
+        "is_on": "switch",
+        "on_when": "on"
+      },
+      "variants": [
+        "Stock multi-channel relay"
+      ]
+    },
+    {
+      "commands": {
+        "turn_off": "diy_switch_off",
+        "turn_on": "diy_switch_on"
+      },
+      "name": "DIY Relay (documentary)",
+      "notes": "Use only after type=diy_plug and apivers=1. No state_command is bound: DIY uses /zeroconf/info, not stock getState, and needs a dedicated state decoder.",
+      "platform": "switch",
+      "variants": [
+        "DIY Basic R3/RFR3/Mini"
+      ]
+    }
+  ],
+  "evidence": {
+    "app_static_analysis": "eWeLink 5.27.0 established instance/TXT/SRV behavior, stock request fields, raw-MD5 AES-128-CBC key, Base64 IV/ciphertext and command path shapes.\n",
+    "artifacts": [
+      {
+        "artifact": "com.coolkit eWeLink 5.27.0 (versionCode 2026071416)",
+        "description": "Derived stock protocol facts only; no Hermes bundle, app strings or account values included.",
+        "type": "static_analysis"
+      },
+      {
+        "artifact": "itead/Sonoff_Devices_DIY_Tools cb05718, DIY protocol v1.4/v2.0",
+        "description": "Official DIY model scope, plaintext object envelope, discovery and OTA.",
+        "type": "vendor_documentation"
+      },
+      {
+        "artifact": "AlexxIT/SonoffLAN 73690b7afae758ce2ab131a43f5f87fac103670a",
+        "description": "Stock crypto/SRV/serialization and bounded setup-AP devicekey cross-check.",
+        "type": "public_implementation"
+      },
+      {
+        "artifact": "SONOFF BASICR2/RFR2 Wi-Fi Smart Switch user manual V1.0",
+        "description": "Exact model-scoped factory reset and router-change procedure.",
+        "type": "vendor_documentation"
+      }
+    ],
+    "documentation_review": "ITEAD DIY v1.4/v2.0 supplies the Basic R3/RFR3/Mini-only keyless object API, 249-byte TXT splitting, 200 ms request spacing and OTA. SonoffLAN 73690b7 cross-checks stock crypto, SRV fallback and bounded setup-AP credential source. BASICR2/RFR2 manual V1.0 supplies its exact five-second reset.\n",
+    "open_questions": "No stock encrypted response/TXT capture exists here. Device validation of selfApikey and replayed sequence, long-term WAN-off behavior, per-UIID pulse limits and whether re-pairing changes devicekey remain unresolved.\n"
+  },
+  "features": [
+    {
+      "dfu": {
+        "dfu_mode": {
+          "notes": "No separate bootloader advertisement is established; the running DIY HTTP API performs the update."
+        },
+        "enter": {
+          "command": "diy_ota_unlock",
+          "how": "command",
+          "notes": "After unlock, diy_ota_flash performs the pull; both are advanced. Older documented firmware may require a vendor OTA unlock service."
+        },
+        "image": {
+          "notes": "DIY ota_flash requires an HTTP Range URL and SHA-256 integrity digest. Signature/model verification beyond that digest is unknown.",
+          "signing": "unknown",
+          "source": "device_pulls"
+        },
+        "mechanisms": [
+          "custom"
+        ],
+        "recovery": {
+          "interrupted": "unknown"
+        },
+        "transport": "http",
+        "verification": "reported"
+      },
+      "type": "firmware_update",
+      "variants": [
+        "DIY Basic R3/RFR3/Mini"
+      ]
+    }
+  ],
+  "helpful_urls": [
+    {
+      "description": "Official DIY documentation, limited to Basic R3/RFR3/Mini; do not confuse with stock encrypted LAN.",
+      "title": "ITEAD SONOFF DIY MODE protocol v1.4/v2.0",
+      "url": "https://github.com/itead/Sonoff_Devices_DIY_Tools"
+    },
+    {
+      "description": "Maintained stock/DIY client reference and documented bounded setup-AP devicekey source.",
+      "title": "AlexxIT SonoffLAN",
+      "url": "https://github.com/AlexxIT/SonoffLAN"
+    },
+    {
+      "description": "Official BASICR2/RFR2 manual with the five-second factory reset and Wi-Fi network-change instructions.",
+      "kind": "manual",
+      "title": "SONOFF BASICR2/RFR2 Wi-Fi Smart Switch user manual (FCC PDF)",
+      "url": "https://fccid.co/api/files/s1/2apn5basicr2_usersmanual_4642809_0c68b950d2.pdf"
+    },
+    {
+      "description": "Vendor MINIR3 setup/safety guide; DIY protocol support comes separately from ITEAD's DIY document.",
+      "kind": "manual",
+      "title": "SONOFF MINIR3 quick guide (PDF)",
+      "url": "https://cdn.shopify.com/s/files/1/0742/9963/8001/files/Quick_Guide_MINIR3_V1.3.pdf?v=1758190969"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "description": "Stock envelope with encrypted Base64 data or plaintext JSON string; never a DIY data object in stock mode.",
+      "method": "POST",
+      "name": "Stock single relay",
+      "path": "/zeroconf/switch",
+      "request_body": {
+        "content_type": "application/json;charset=UTF-8",
+        "example": "{\"sequence\":\"1700000000000\",\"deviceid\":\"10000000d0\",\"selfApikey\":\"00000000-0000-4000-8000-020000000002\",\"iv\":\"MDAwMTAyMDMwNDA1MDYwNw==\",\"encrypt\":true,\"data\":\"tUOIrBZ+KEED0usmFbA12g==\"}"
+      },
+      "verification": "reported"
+    },
+    {
+      "description": "Stock envelope around switches array with outlet index.",
+      "method": "POST",
+      "name": "Stock multi-channel relay",
+      "path": "/zeroconf/switches",
+      "verification": "reported"
+    },
+    {
+      "description": "Stock or DIY startup on/off/stay, using the variant's distinct envelope.",
+      "method": "POST",
+      "name": "Power-on startup state",
+      "path": "/zeroconf/startup",
+      "verification": "reported"
+    },
+    {
+      "advanced": true,
+      "advanced_reason": "Pulse mode energizes then de-energizes a real load after the configured delay; verify attached equipment and pulse width.",
+      "description": "Attended relay pulse with pulseWidth in milliseconds; advanced because it changes output automatically.",
+      "method": "POST",
+      "name": "Pulse / inching",
+      "path": "/zeroconf/pulse",
+      "verification": "reported"
+    },
+    {
+      "description": "Empty params through stock envelope; text/html is a documented no-state response on some models.",
+      "method": "POST",
+      "name": "Stock state",
+      "path": "/zeroconf/getState",
+      "verification": "reported"
+    },
+    {
+      "description": "Official DIY only: {deviceid,data:{switch:on|off}} with no stock fields.",
+      "method": "POST",
+      "name": "DIY single relay",
+      "path": "/zeroconf/switch",
+      "request_body": {
+        "content_type": "application/json",
+        "example": "{\"deviceid\":\"10000000d0\",\"data\":{\"switch\":\"on\"}}"
+      },
+      "verification": "reported"
+    },
+    {
+      "description": "On 10.10.7.1 in setup mode; only some stock flows expose deviceid/apikey, never a universal recovery endpoint.",
+      "method": "GET",
+      "name": "Bounded setup-AP device metadata",
+      "path": "/device",
+      "verification": "reported"
+    },
+    {
+      "description": "JSON ssid/password/serverName/port to 10.10.7.1; credentials cross HTTP plaintext.",
+      "method": "POST",
+      "name": "Setup-AP Wi-Fi provisioning",
+      "path": "/ap",
+      "verification": "reported"
+    }
+  ],
+  "local_access": {
+    "covers": [
+      "TXT data1..4 state, SRV-port selection and stock AES/IV envelope",
+      "Stock switch/switches/startup/pulse/getState",
+      "Official DIY switch/startup/pulse/wifi and advanced local OTA on documented models"
+    ],
+    "not_covered": [
+      "Universal stock-key recovery, universal getState or every Sonoff UIID",
+      "Using DIY object bodies on stock firmware or removing stock encryption",
+      "Cloud remote access, lights/fans/bridges/metering and unattended relay automation"
+    ],
+    "status": "native",
+    "summary": "Stock devices with a legitimate cached devicekey work over mDNS/HTTP locally; the three documented DIY models work keylessly with the simpler object API."
+  },
+  "protocol_details": {
+    "commands": {
+      "getState": "Read with empty params at /zeroconf/getState; not universal and may answer text/html.",
+      "pulse": "Inching: {pulse:'on'|'off',pulseWidth:n} at /zeroconf/pulse. DIY documents 500..36000000 ms in multiples of 500; stock per-UIID limits may differ.",
+      "response_quirks": [
+        "SPM-Main can send empty data; ZBBridge-U can omit data.",
+        "RF Bridge can contain a malformed '=' where ':' belongs; repair only that exact reported prefix pattern.",
+        "Some plaintext retains trailing 0x02 bytes from a firmware padding bug. CBC decryption is unauthenticated; after normal PKCS#7 validation/removal, strip only those exact trailing 0x02 bytes. Never strip arbitrary JSON bytes or call a successful decode authenticated."
+      ],
+      "startup": "Power recovery behavior: {startup:'on'|'off'|'stay'} at /zeroconf/startup; multi-channel uses configure/startups arrays.",
+      "switch": "Single stock relay: data {switch:'on'|'off'} at /zeroconf/switch.",
+      "switches": "Multi-channel stock: data {switches:[{switch:'on'|'off',outlet:n}]} at /zeroconf/switches."
+    },
+    "diy_mode": {
+      "discovery": "_ewelink._tcp with type=diy_plug and apivers=1; use SRV port (8081 is only its common default).",
+      "endpoints": [
+        "switch",
+        "startup",
+        "pulse",
+        "info",
+        "signal_strength",
+        "wifi",
+        "ota_unlock",
+        "ota_flash"
+      ],
+      "envelope": "{\"deviceid\":\"<deviceid>\",\"data\":{...}} where data is an object. No sequence, selfApikey, iv or encrypt field and no AES.",
+      "local_ota": "ota_unlock then ota_flash {downloadUrl,sha256sum}; HTTP server must support Range. Older DIY documentation can require a vendor unlock service. Both commands are advanced.",
+      "request_interval_ms": 200,
+      "scope": "Official Basic R3, RFR3 and Mini on DIY firmware 3.3.0+; firmware 3.5.0 enables from AP web page. No other stock model is implied.",
+      "verification": "reported"
+    },
+    "mdns": {
+      "diy_state": "type=diy_plug apivers=1 with plaintext JSON data and no devicekey.",
+      "instance_regex": "^eWelink_[0-9a-fA-F]{10}$ (case-insensitive eWeLink/eWelink prefix; preserve the deviceid suffix case as published).",
+      "port_rule": "Use SRV port and resolved IPv4. Use 8081 only when SRV supplies no usable port; never replace a present non-8081 SRV port.",
+      "service": "_ewelink._tcp.local.",
+      "stock_state": "If encrypt is true/'true', Base64-decode iv and the joined ciphertext then AES-decrypt. Otherwise parse the joined JSON directly. Missing/empty data is not a JSON document; some models omit it.",
+      "txt_rule": "Concatenate data1, data2, data3, data4 in numeric order while present. Each chunk is at most 249 bytes. seq orders state updates and can reset on reboot.",
+      "verification": "reported"
+    },
+    "setup_ap": {
+      "address": "10.10.7.1",
+      "credential_boundary": "Use the bounded AP read only while the device is in setup mode and only when the response actually exposes both fields. It is not universal recovery for configured devices.",
+      "get_device": "GET /device returns metadata and, only on bounded stock flows that expose them, deviceid and apikey/devicekey.",
+      "post_ap": "POST /ap JSON {ssid,password,serverName,port}. serverName/port select the intended dispatch service; this is not a local-only cloud bypass.",
+      "verification": "reported"
+    },
+    "stock_crypto": {
+      "algorithm": "AES-128-CBC with PKCS#7. key = raw 16-byte MD5(UTF-8 devicekey), not MD5 hex ASCII and not the UUID text directly.",
+      "ciphertext": "Standard Base64 of AES(JSON.stringify(params) UTF-8 with PKCS#7). No MAC or replay authentication is provided: successful CBC decryption, valid padding or a valid JSON parse proves decodability only, never sender authenticity or message integrity.",
+      "iv": "16 raw bytes on the wire as Base64. The app generates 16 decimal digits; public clients use arbitrary random 16 bytes. Base64-decode inbound iv before CBC.",
+      "test_vector": {
+        "ciphertext_base64": "tUOIrBZ+KEED0usmFbA12g==",
+        "devicekey": "00000000-0000-4000-8000-020000000001",
+        "iv_ascii": "0001020304050607",
+        "iv_base64": "MDAwMTAyMDMwNDA1MDYwNw==",
+        "key_md5_hex": "9dd99823659f8aa1966a32a414ee2f20",
+        "plaintext_data_json": "{\"switch\":\"on\"}",
+        "request_example": "{\"sequence\":\"1700000000000\",\"deviceid\":\"10000000d0\",\"selfApikey\":\"00000000-0000-4000-8000-020000000002\",\"iv\":\"MDAwMTAyMDMwNDA1MDYwNw==\",\"encrypt\":true,\"data\":\"tUOIrBZ+KEED0usmFbA12g==\"}"
+      },
+      "verification": "reported"
+    },
+    "stock_envelope": {
+      "error_codes": {
+        "0": "OK",
+        "400": "bad JSON",
+        "401": "encryption required/unauthorized",
+        "404": "unknown deviceid",
+        "422": "bad parameters",
+        "471": "OTA checksum mismatch"
+      },
+      "fields": {
+        "data": "STRING. Encrypted mode: Base64 AES ciphertext. Plaintext stock mode: JSON.stringify(params), not a nested object.",
+        "deviceid": "Ten-hex-character device id from the instance/account, not necessarily TXT id for a child.",
+        "encrypt": "Boolean copied from TXT encrypt true/'true'; never force false on encrypted stock.",
+        "iv": "Base64 of 16 raw IV bytes, sent in encrypted and plaintext stock modes.",
+        "selfApikey": "Logged-in account API key; device-side validation is unverified, so it is not a substitute for devicekey.",
+        "sequence": "String epoch milliseconds truncated to 13 characters; unique/monotonic per sender."
+      },
+      "response": "Require error=0 and sequence/seq correlation where supplied. Encrypted response data is Base64 AES with its own Base64 iv; plaintext quirks are listed below.",
+      "serialization": "One request at a time; the reviewed app timeout is 15 s. SonoffLAN briefly retries ECONNRESET. getState is not universal: text/html means the device is online but supplied no JSON state.",
+      "url": "POST http://<ipv4>:<srv-port>/zeroconf/<cmd>; Accept application/json, Content-Type application/json;charset=UTF-8, Connection close, minimal headers.",
+      "verification": "reported"
+    }
+  },
+  "remaining_unknowns": [
+    "Stock encrypted response envelope details across models, literal TXT encrypt/iv rotation and sequence/selfApikey validation.",
+    "Whether stock devicekey changes on reset/re-pairing and which exact setup-AP models expose apikey at /device.",
+    "Per-UIID support and pulse-width limits, multi-channel startup/configure arrays and universal getState behavior.",
+    "Long-term stock LAN behavior with WAN blocked and model/firmware availability of DIY mode beyond the three documented products.",
+    "Factory-reset procedures and state survival outside BASICR2/RFR2; no cross-family hold is invented."
+  ]
+}
