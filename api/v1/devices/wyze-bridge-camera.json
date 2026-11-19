@@ -1,78 +1,72 @@
 {
   "camera": {
-    "enable_notes": "Requires running docker-wyze-bridge with Wyze cloud credentials (API Key + ID). Stock Wyze cameras expose no local API on their own.\n",
+    "enable_notes": "Run docker-wyze-bridge with the Wyze account and developer API Key/ID. Select a supported cloud product/model and manually supply the bridge/NVR host. These streams are not served by the camera's own address.\n",
     "enable_required": true,
-    "feed_host_source": "device",
+    "feed_host_source": "nvr",
     "streams": [
       {
-        "auth": "none",
+        "auth": "WB_AUTH/WB_API or STREAM_AUTH; see protocol_details.bridge_authentication",
         "default_port": 8554,
         "name": "Local RTSP (via bridge)",
-        "notes": "Served by docker-wyze-bridge on the LAN; {bridge_address} is the host running the bridge.",
-        "served_by": "device",
+        "notes": "{address} is the bridge/NVR host; {camera_name} is the bridge slug.",
+        "served_by": "nvr",
         "transport": "rtsp",
-        "url_template": "rtsp://{bridge_address}:8554/{camera_name}"
+        "url_template": "rtsp://{address}:8554/{camera_name}"
       },
       {
-        "auth": "none",
-        "default_port": 8889,
-        "name": "Local WebRTC (via bridge)",
-        "notes": "Low-latency WebRTC endpoint from the bridge.",
-        "served_by": "device",
-        "transport": "webrtc",
-        "url_template": "http://{bridge_address}:8889/{camera_name}"
+        "auth": "WB_AUTH/WB_API or STREAM_AUTH; see protocol_details.bridge_authentication",
+        "default_port": 8888,
+        "name": "Local HLS (via bridge)",
+        "notes": "Actual MediaMTX HLS playlist path on the bridge/NVR host.",
+        "served_by": "nvr",
+        "transport": "hls",
+        "url_template": "http://{address}:8888/{camera_name}/stream.m3u8"
       }
     ]
   },
   "device": {
+    "admin_url": "http://{address}:5000/",
     "category": "camera",
     "discovery": {
       "identity": {
         "display": "camera_name",
         "stable_keys": [
-          "mac"
+          "bridge_host",
+          "camera_name"
         ]
       },
-      "methods": [
-        {
-          "mdns": {
-            "identity_mapping": {
-              "display": {
-                "source": "cloud:wyze#nickname"
-              },
-              "stable_keys": [
-                {
-                  "key": "mac",
-                  "source": "cloud:wyze#mac"
-                }
-              ]
-            },
-            "port": 8554,
-            "service_type": "_http._tcp.local."
-          },
-          "notes": "Cameras are enumerated from the Wyze cloud account (not on-LAN); the bridge then re-serves each as rtsp://{bridge-ip}:8554/{camera-name}.\n",
-          "type": "mdns"
-        }
-      ],
+      "none": "No automatic bridge discovery is documented. Cameras are enumerated from the owner's Wyze cloud account, not through an on-LAN _http8554 service. Ask the user for the bridge/NVR hostname or address and the camera's bridge slug; do not substitute the camera's own IP for {address}.\n",
       "static_ip_required": false
     },
     "identification": {
-      "default_port": 8554
+      "default_port": 8554,
+      "notes": "There is no camera-discovery matcher in this spec. Select a supported cloud product/model and manually supply the bridge/NVR host. In particular, the bridge does not advertise _http._tcp on port 8554.\n"
     },
+    "integration": "identify_only",
     "manufacturer": "Wyze Labs",
     "manufacturer_status": "active",
     "name": "Wyze Cam (via docker-wyze-bridge)",
-    "notes": "Wyze cameras have NO first-party local API — control is cloud-app only. The community docker-wyze-bridge fills the gap: it authenticates to the Wyze cloud once (to enumerate cameras), connects to each camera over Wyze's TUTK peer-to-peer transport, and re-serves the video LOCALLY as RTSP/RTMP/HLS/ WebRTC. This is a \"cloud token to bootstrap, local stream thereafter\" case, not fully cloud-free.\nBRIDGE PORTS (what the bridge exposes on the LAN): RTSP 8554, HLS/HTTP 8888, WebRTC 8889, web UI 5000. Local stream URL: rtsp://{bridge-ip}:8554/{camera-name}.\nAUTH: Wyze cloud credentials required — email/password plus (since May 2024) an API Key + API ID from Wyze — to fetch camera info; media then streams locally via P2P. No special camera firmware is required; some newer firmware degrades remote P2P (local LAN usually still works).\n",
+    "notes": "On stock firmware these cameras have no first-party general-purpose local API. The exception is the separate, model- and firmware-specific official RTSP branch documented in wyze-legacy-rtsp.yaml; that exception must not be generalized to other firmware or models.\nThe community docker-wyze-bridge authenticates to the Wyze cloud and uses each camera's cloud-issued TUTK values, then serves media on the bridge/NVR host. This spec declares the generic RTSP and HLS endpoints only. WebRTC is omitted because six allowed models are in the pinned NO_WEBRTC set and the stream schema cannot scope a template by variant. A Wyze account and developer API Key/ID are required; this is not an account-free or permanently cloud-isolated path. The bridge prefers a LAN upstream connection but can fall back to P2P or relay. The RTSP/HLS endpoints below are still local to the bridge host even when that upstream path is relayed.\nidentify_only reflects this project's missing video-player integration, not the bridge's capabilities. {address} is always the manually configured bridge/NVR host, never the camera address. A consumer with a player can use the opaque per-camera slug and authentication facts below.\n",
     "openness": {
-      "notes": "Wyze publishes no local API; the bridge reverse-engineers Wyze's TUTK P2P transport and re-emits local streams. A one-time cloud login (API Key + ID) is required to enumerate cameras — the one target here that is not fully cloud-free.\n",
+      "notes": "Wyze publishes no general local API for stock firmware. The bridge is an independent implementation of the TUTK transport and a local media server.\n",
       "reverse_engineered": true,
       "source_code": "https://github.com/mrlt8/docker-wyze-bridge",
       "status": "hostile",
       "upstream_docs": [
         {
-          "covers": "The exposed ports, the local RTSP URL and the cloud API-key requirement.",
-          "title": "mrlt8/docker-wyze-bridge",
-          "url": "https://github.com/mrlt8/docker-wyze-bridge"
+          "covers": "The exact TUTK-supported product/model allowlist used here.",
+          "title": "docker-wyze-bridge supported-camera table",
+          "url": "https://github.com/mrlt8/docker-wyze-bridge/blob/bf893749b748f142199c9bce14fac44f8a661d6e/README.md#supported-cameras"
+        },
+        {
+          "covers": "Default WB_AUTH, WB_API stream credentials and STREAM_AUTH alternatives.",
+          "title": "docker-wyze-bridge authentication",
+          "url": "https://github.com/mrlt8/docker-wyze-bridge/wiki/Authentication"
+        },
+        {
+          "covers": "LAN preference, P2P/relay fallback and NET_MODE=LAN.",
+          "title": "docker-wyze-bridge network connection modes",
+          "url": "https://github.com/mrlt8/docker-wyze-bridge/wiki/Network-Connection-Modes"
         }
       ]
     },
@@ -83,20 +77,20 @@
         "required": false
       },
       "exclusivity": {
-        "recovery": "A camera belongs to one Wyze account, and the bridge must log in to that account; a camera on someone else's account has to be removed there, or reset, and added to yours in the Wyze app. If the bridge cannot connect while the Wyze app is showing live view, close the app: the TUTK layer has an explicit \"device exceeded max sessions\" error, so the camera caps concurrent P2P sessions, though the number is not established.\n",
+        "recovery": "A camera belongs to one Wyze account. Remove it from the old account or use its exact reset procedure before adding it elsewhere. Close other TUTK clients if the bridge reports that the camera's session limit was reached; the numeric limit is not established here.\n",
         "single_bond": true,
         "single_connection": "unknown"
       },
-      "notes": "Two gates, both above the transport. Bridge to camera: the per-camera P2P keys from the Wyze cloud, above. Consumer to bridge: by default (WB_AUTH, on unless turned off) the bridge's web UI and API need the user wbadmin and a password that, unless WB_PASSWORD is set, is the part of the Wyze account email before the @. The RTSP, HLS and WebRTC streams are open unless STREAM_AUTH lists per-user credentials. The camera has no LAN service a client could log in to directly. Source: mrlt8/docker-wyze-bridge's README and code.\n",
+      "notes": "No Bluetooth-style pairing window exists. Cloud-issued camera values and local bridge credentials are separate app-layer gates.\n",
       "pin": {
-        "notes": "The camera answers a P2P client only if it can prove it holds that camera's keys: a p2p_id and an \"enr\" value, which docker-wyze-bridge's camera model uses to sign the camera's challenge. Both come from the Wyze cloud's device list, fetched with the owner's account (email, password, optional 2FA, and since May 2024 an API Key and API ID from Wyze). Nothing is entered at the camera. The bridge keeps the account tokens and the camera list on disk (its tokens directory), so a restart does not always need the cloud. Whether streaming survives the cloud going away for good has not been established.\n",
+        "notes": "There is no camera PIN. The cloud supplies the per-camera TUTK identity and secret to the bridge after account/developer-API authentication. Consumer-to-bridge authorization is independently controlled by WB_AUTH/WB_API and STREAM_AUTH as declared in protocol_details.bridge_authentication.\n",
         "source": "vendor_app"
       },
       "required": true,
       "security_mode": "app_layer",
       "unpair": {
-        "clears": "The bridge's ability to fetch keys; or, removed in the app, the camera's account binding.",
-        "notes": "To cut off a bridge, delete its API key in Wyze's developer console or change the account password, then clear the bridge's tokens directory. Removing the camera from the account in the Wyze app releases the binding without the button. A camera's keys do not change on their own, so a copied p2p_id/enr pair keeps working until the camera is reset and re-added.\n",
+        "clears": "The bridge's cloud/API authorization, or the camera's account binding when removed in the vendor app.",
+        "notes": "Revoke the Wyze developer API key and clear cached bridge credentials to cut off that bridge. Remove the camera in the vendor app to release its account binding. Also rotate WB_API/STREAM_AUTH secrets when a stream consumer must lose access; revoking cloud access alone does not change credentials already configured on the local media server.\n",
         "requires_factory_reset": false,
         "supported": true
       }
@@ -104,55 +98,108 @@
     "pictogram": "ip-camera",
     "protocol": "wifi",
     "setup": {
-      "confidence": "low",
+      "confidence": "medium",
       "credentials": {
         "issued_to_client": [
-          "Wyze API Key + API ID (used by the bridge to enumerate cameras)"
+          "Wyze account session and developer API Key/ID for the bridge",
+          "Bridge WB_PASSWORD and unique WB_API key",
+          "Optional STREAM_AUTH per-user credentials"
         ],
-        "notes": "Onboarding is app-mediated (not documented here). The bridge needs a Wyze API Key/ID to bootstrap; media then flows locally.\n",
+        "notes": "The bridge obtains per-camera TUTK values from the cloud device list. WB_API and stream credentials are separate from the Wyze developer API Key/ID. Keep all of them secret and never expose the media ports to an untrusted network.\n",
         "stored_on_device": [
-          "Wi-Fi credentials (on the camera)"
+          "Wi-Fi credentials on the camera",
+          "Per-camera TUTK values issued through the Wyze account"
         ],
         "wifi_passphrase_protection": "unknown"
       },
       "factory_reset": {
         "applicable": true,
         "confidence": "medium",
-        "description": "One button, two meanings, separated only by how long it is held — which is exactly the shape that catches people out. Three to five seconds is setup mode, which is what someone changing WiFi networks actually wants and which keeps the camera's identity. Ten seconds is the factory reset. Overshooting the first turns a five-minute job into re-adding the camera from scratch.\n",
-        "effect": "Clears the camera's WiFi credentials and its account binding, putting it back to first-run state. Footage on the microSD card is not affected; anything in the vendor cloud is a separate matter.\n",
+        "description": "Wyze gives Cam v1 a 20-second hold and the other three covered cameras a 10-second hold. Do not apply a generic hold to every bridge variant, and do not use a factory reset as a routine bridge reconnect step.\n",
+        "effect": "Deletes the camera's settings file and returns it to setup. Remove the microSD card first; cloud recordings are outside this procedure. These procedures cover only standalone Cam v1, v2, v3 and Pan v1, not the other supported bridge products and not Floodlight v1 despite its shared WYZE_CAKP2JFUS model code.\n",
         "procedures": [
           {
-            "basis": "Wyze's own support documentation for the Cam v3 and Pan v3.",
+            "applies_to": [
+              "WYZEC1"
+            ],
+            "basis": "Wyze's factory-reset article for Cam v1/v2/v3/Pan v1 and the Cam v1 QSG.",
             "glyph": "generic/hold-button.svg",
-            "hold_seconds": 3,
-            "indicator": "The camera announces that it is ready to connect and the status light flashes.",
+            "hold_seconds": 20,
+            "indicator": "Solid yellow changes to blinking yellow.",
             "indicator_glyph": "generic/led-flashing.svg",
-            "name": "Setup button held for 3-5 seconds (setup mode, not a reset)",
+            "name": "Cam v1 Setup button held for 20 seconds",
             "power_state": "on",
+            "product_names": [
+              "Wyze Cam v1 (HD only)"
+            ],
             "steps": [
               {
-                "action": "With the camera powered, press and hold the setup button on its base for three to five seconds.",
-                "actor": "user",
-                "expect": "A spoken \"ready to connect\" prompt and a flashing status light."
+                "action": "Remove any microSD card. With the Cam v1 powered, hold its bottom Setup button for 20 seconds.",
+                "actor": "user"
+              },
+              {
+                "action": "Release and wait at least 30 seconds, allowing up to five minutes, until the light changes from solid yellow to blinking yellow.",
+                "actor": "device",
+                "timeout_seconds": 300
               }
             ],
             "verified": false
           },
           {
-            "basis": "Wyze's support article on factory resetting the Cam v1/v2/v3 and Pan v1.",
+            "applies_to": [
+              "WYZEC1-JZ",
+              "WYZECP1_JEF"
+            ],
+            "basis": "Wyze's factory-reset article for Cam v1/v2/v3/Pan v1 and the Cam v2/Pan v1 QSGs.",
             "glyph": "generic/hold-button.svg",
             "hold_seconds": 10,
-            "name": "Setup button held for ten seconds (factory reset)",
+            "indicator": "Solid yellow changes to blinking yellow.",
+            "indicator_glyph": "generic/led-flashing.svg",
+            "name": "Cam v2 or Pan v1 Setup button held for 10 seconds",
             "power_state": "on",
+            "product_names": [
+              "Wyze Cam v2",
+              "Wyze Cam Pan v1"
+            ],
             "steps": [
               {
-                "action": "With the camera plugged in, press and hold the setup button on its base for ten seconds.",
+                "action": "Remove any microSD card. With the Cam v2 or Pan v1 powered, hold its bottom Setup button for 10 seconds.",
                 "actor": "user"
               },
               {
-                "action": "Release and wait at least thirty seconds for the camera to come back.",
+                "action": "Release and wait at least 30 seconds, allowing up to five minutes, until the light changes from solid yellow to blinking yellow.",
                 "actor": "device",
-                "timeout_seconds": 60
+                "timeout_seconds": 300
+              }
+            ],
+            "verified": false
+          },
+          {
+            "applies_to": [
+              "WYZE_CAKP2JFUS"
+            ],
+            "basis": "Wyze's factory-reset article for Cam v1/v2/v3/Pan v1 and the standalone Cam v3 QSG.",
+            "excluded_product_names": [
+              "Wyze Cam Floodlight v1"
+            ],
+            "glyph": "generic/hold-button.svg",
+            "hold_seconds": 10,
+            "indicator": "The status light turns red.",
+            "indicator_glyph": "generic/led-flashing.svg",
+            "name": "Standalone Cam v3 Setup button held for 10 seconds",
+            "power_state": "on",
+            "product_names": [
+              "Wyze Cam v3"
+            ],
+            "steps": [
+              {
+                "action": "Confirm this is a standalone Cam v3, not Floodlight v1. Remove any microSD card and hold the powered camera's bottom Setup button for 10 seconds.",
+                "actor": "user"
+              },
+              {
+                "action": "Release and wait at least 30 seconds, allowing up to five minutes, until the status light turns red and the camera is ready to set up again.",
+                "actor": "device",
+                "timeout_seconds": 300
               }
             ],
             "verified": false
@@ -162,52 +209,391 @@
       "methods": [
         {
           "cloud": {
-            "local_alternative": "Partial — media streams locally (the bridge prefers a LAN connection) once running, but enumerating the cameras requires a one-time Wyze cloud login (email/password + API Key/ID). There is no fully cloud-free path with stock firmware.\n"
+            "local_alternative": "Partial only: LAN mode keeps the upstream media on the LAN when it succeeds, and every re-served endpoint is on the bridge host. Wyze account/API access remains required and permanent isolation is not supported. NET_MODE=LAN rejects non-LAN upstream sessions rather than making the camera independent of the cloud.\n",
+            "provider": "Wyze cloud and Wyze developer API"
           },
-          "description": "Onboard the camera in the Wyze app, obtain a Wyze API Key + API ID, and run docker-wyze-bridge with them; it connects P2P and serves local RTSP/HLS/WebRTC.\n",
+          "description": "Onboard a listed camera in the Wyze app, configure the bridge with the same account's email/password and developer API Key/ID, then consume streams on the bridge host. There is no account-free alternative.\n",
+          "name": "Wyze cloud credentials and a community bridge",
+          "role": "primary",
           "steps": [
             {
-              "action": "Onboard the camera in the Wyze app.",
+              "action": "Confirm that the exact product and model code appear in device.variants; do not try an excluded Gwell, Meari, Battery Cam Pro, Floodlight Pro, Doorbell Pro or HL_PAN4 product.",
               "actor": "user"
             },
             {
-              "action": "Get a Wyze API Key + API ID and run docker-wyze-bridge with them.",
+              "action": "Onboard the camera to a Wyze account in the vendor app.",
               "actor": "user"
             },
             {
-              "action": "Consume the local stream at rtsp://{bridge-ip}:8554/{camera-name}.",
-              "actor": "client"
+              "action": "Create a Wyze developer API Key and API ID and configure docker-wyze-bridge with those values and the account email/password.",
+              "actor": "user"
+            },
+            {
+              "action": "Leave the default LAN preference, or set NET_MODE=LAN to reject P2P and relay sessions; do not describe either choice as permanent offline support.",
+              "actor": "user"
+            },
+            {
+              "action": "Manually configure the bridge/NVR host as {address}, derive {camera_name} with protocol_details.camera_slug, and use the selected local stream URL with the configured authentication.",
+              "actor": "client",
+              "expect": "The bridge serves the camera on RTSP 8554 or HLS 8888, subject to its authentication configuration. No generic WebRTC endpoint is offered; see protocol_details.webrtc_scope."
             }
           ],
           "type": "cloud_account",
           "verified": false
         }
       ],
-      "notes": "The camera is onboarded through the Wyze app (cloud) as normal. Then run docker-wyze-bridge with the account's API Key + API ID + email to expose local streams. There is no account-free path — cloud login bootstraps the camera list.\n",
+      "notes": "Camera onboarding, camera enumeration and TUTK credentials all depend on the Wyze account/cloud. Cached bridge tokens may survive a restart, but permanent cloud isolation is explicitly unsupported upstream.\n",
       "rejoin": {
         "in_place_supported": true,
-        "notes": "Wi-Fi is reconfigured via the Wyze app; the bridge reconnects P2P afterward.",
+        "notes": "Use the exact model's Wyze app setup/reconnect flow, then let the bridge rediscover the account device. A factory reset is not the default network-change procedure; if one becomes necessary, use only the matching procedure above. The bridge/NVR host may also need its own address updated in the client.\n",
         "requires_factory_reset": false
       },
       "required": true
     },
     "testing": {
-      "notes": "Not driven against hardware by this project. The bridge ports, the local RTSP URL and the cloud-credential requirement are from the docker-wyze-bridge README.\n",
+      "notes": "No camera or bridge was driven by this project. Supported models, TUTK session modes, stream URLs, slug construction and authentication are reported from docker-wyze-bridge; reset procedures come from Wyze support.\n",
       "status": "untested"
     },
-    "transport": "rtsp"
+    "transport": "rtsp",
+    "variants": [
+      {
+        "model": "WYZEC1",
+        "products": [
+          "Wyze Cam v1 (HD only)"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "WYZEC1-JZ",
+        "products": [
+          "Wyze Cam v2"
+        ],
+        "verification": "reported"
+      },
+      {
+        "accessory_identities": {
+          "Wyze Cam Floodlight v1": "HL_CFL"
+        },
+        "model": "WYZE_CAKP2JFUS",
+        "notes": "The model code is shared. HL_CFL is only the Floodlight v1 accessory identity that distinguishes it from standalone Cam v3; it is not a standalone cloud camera model or variant. Use the cloud product and accessory identity, especially for reset, and do not infer Floodlight Pro from either code.\n",
+        "products": [
+          "Wyze Cam v3",
+          "Wyze Cam Floodlight v1"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_CAM3P",
+        "products": [
+          "Wyze Cam v3 Pro (2K)"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_CAM4",
+        "products": [
+          "Wyze Cam v4 (2K)"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "WYZECP1_JEF",
+        "products": [
+          "Wyze Cam Pan v1"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_PAN2",
+        "products": [
+          "Wyze Cam Pan v2"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_PAN3",
+        "products": [
+          "Wyze Cam Pan v3"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_PANP",
+        "products": [
+          "Wyze Cam Pan Pro (2K)"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "WVOD1",
+        "products": [
+          "Wyze Cam Outdoor v1"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_WCO2",
+        "products": [
+          "Wyze Cam Outdoor v2"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "WYZEDB3",
+        "products": [
+          "Wyze Cam Doorbell v1"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_DB2",
+        "products": [
+          "Wyze Cam Doorbell v2 (2K)"
+        ],
+        "verification": "reported"
+      },
+      {
+        "model": "HL_CFL2",
+        "products": [
+          "Wyze Cam Floodlight v2 (2K)"
+        ],
+        "verification": "reported"
+      }
+    ]
+  },
+  "evidence": {
+    "artifacts": [
+      {
+        "artifact": "mrlt8/docker-wyze-bridge",
+        "description": "Source for models, stream behavior, slugs and authentication; the SHA is the reviewed Git commit, not a file digest.",
+        "obtained_via": "Public Git repository, reviewed 2026-11-18",
+        "sha256": "bf893749b748f142199c9bce14fac44f8a661d6e",
+        "type": "community_repo",
+        "url": "https://github.com/mrlt8/docker-wyze-bridge"
+      }
+    ],
+    "documentation_review": "The supported-camera allowlist is transcribed from README lines 161-188 at the pinned bridge revision. Authentication and network-mode behavior were checked against the project wikis and public implementation. Wyze's current factory-reset article supplies the v1-specific 20-second hold and the 10-second hold for the other three covered products.\n",
+    "open_questions": "Exact per-firmware TUTK reliability, maximum concurrent camera sessions and how long cached credentials can survive without cloud access remain unverified. Additional WebRTC/ICE and host/network behavior also remains unverified; the six NO_WEBRTC model exclusions are known and declared.\n"
   },
   "helpful_urls": [
     {
-      "description": "Community bridge: exposes Wyze cameras as local RTSP/RTMP/HLS/WebRTC; needs a Wyze API Key/ID.",
-      "title": "mrlt8/docker-wyze-bridge",
-      "url": "https://github.com/mrlt8/docker-wyze-bridge"
+      "description": "Pinned community bridge documentation for the exact supported TUTK models, cloud API requirement and stream setup.",
+      "kind": "implementation",
+      "title": "mrlt8/docker-wyze-bridge supported cameras and setup",
+      "url": "https://github.com/mrlt8/docker-wyze-bridge/blob/bf893749b748f142199c9bce14fac44f8a661d6e/README.md#supported-cameras"
     },
     {
-      "description": "Source for the 3-5 second setup mode versus 10 second factory reset in this spec. Archived because Wyze's live support site refuses automated requests.\n",
+      "description": "Default WB_AUTH/WB_API credentials, credentialed and anonymous STREAM_AUTH grants, and the whole-stream default-anonymous configuration.",
+      "kind": "implementation",
+      "title": "docker-wyze-bridge Authentication",
+      "url": "https://github.com/mrlt8/docker-wyze-bridge/wiki/Authentication"
+    },
+    {
+      "description": "LAN preference, P2P/relay fallback and NET_MODE=LAN.",
+      "kind": "implementation",
+      "title": "docker-wyze-bridge Network Connection Modes",
+      "url": "https://github.com/mrlt8/docker-wyze-bridge/wiki/Network-Connection-Modes"
+    },
+    {
+      "description": "Vendor reset timing and LED outcomes for exactly the four camera products covered by device.setup.factory_reset.",
       "kind": "vendor_support",
-      "title": "Wyze: factory reset for Cam v1/v2/v3 and Pan v1 (Internet Archive)",
-      "url": "https://web.archive.org/web/20260109203023/https://support.wyze.com/hc/en-us/articles/360031484511-How-to-factory-reset-your-Wyze-Cam-v1-v2-v3-or-Pan-v1"
+      "title": "Wyze factory reset for Cam v1/v2/v3 and Pan v1",
+      "url": "https://support.wyze.com/hc/en-us/articles/360031484511-How-to-factory-reset-your-Wyze-Cam-v1-v2-v3-or-Pan-v1"
+    },
+    {
+      "description": "Vendor-hosted quick-start guide specifically for Wyze Cam v1.",
+      "kind": "manual",
+      "title": "Wyze Cam v1 Quick Start Guide",
+      "url": "https://support.wyze.com/hc/en-us/articles/21796837791515-Wyze-Cam-v1-Quick-Start-Guide"
+    },
+    {
+      "description": "Vendor-hosted quick-start guide specifically for Wyze Cam v2.",
+      "kind": "manual",
+      "title": "Wyze Cam v2 Quick Start Guide",
+      "url": "https://support.wyze.com/hc/en-us/articles/21798296894747-Wyze-Cam-v2-Quick-Start-Guide"
+    },
+    {
+      "description": "Vendor-hosted quick-start guide specifically for the standalone Wyze Cam v3.",
+      "kind": "manual",
+      "title": "Wyze Cam v3 Quick Start Guide",
+      "url": "https://support.wyze.com/hc/en-us/articles/21798609077019-Wyze-Cam-v3-Quick-Start-Guide"
+    },
+    {
+      "description": "Vendor-hosted quick-start guide specifically for Wyze Cam Pan v1.",
+      "kind": "manual",
+      "title": "Wyze Cam Pan v1 Quick Start Guide",
+      "url": "https://support.wyze.com/hc/en-us/articles/21800851505179-Wyze-Cam-Pan-v1-Quick-Start-Guide"
     }
+  ],
+  "local_access": {
+    "covers": [
+      "RTSP and HLS served by the manually configured bridge/NVR host"
+    ],
+    "not_covered": [
+      "Account-free onboarding or camera enumeration",
+      "A guarantee of LAN-only upstream media unless NET_MODE=LAN is enforced",
+      "Permanent cloud isolation",
+      "Models outside device.variants",
+      "A generic WebRTC stream, because six allowed models are explicitly in the pinned NO_WEBRTC set and stream entries cannot be variant-scoped"
+    ],
+    "status": "native",
+    "summary": "Stock cameras can use TUTK LAN mode through the community bridge, whose media endpoints are local. Account/API bootstrapping and continuing cloud dependence remain; permanent isolation is unsupported.\n"
+  },
+  "protocol_details": {
+    "bridge_authentication": {
+      "custom_stream_auth": {
+        "behavior": "Each entry can grant a user all paths or only named camera slugs. An empty username matches any username, so an empty username/password creates an anonymous grant with optional IP/path restrictions. These STREAM_AUTH grants can coexist with WB_AUTH=true and its WB_API credential; both mechanisms are configured.",
+        "restriction_semantics": "Empty client_ips means any client IP and empty paths means every camera path. The examples below use invented credentials and documentation-only addresses.",
+        "syntax": "user:password[:client-ip[,client-ip...]][@path[,path...]], with multiple entries separated by |",
+        "variable": "STREAM_AUTH",
+        "vectors": [
+          {
+            "client_ips": [],
+            "coexists_with_WB_AUTH": true,
+            "matches_any_username": false,
+            "mode": "credentialed",
+            "password": "example-only-password",
+            "paths": [],
+            "username": "cam-user",
+            "value": "cam-user:example-only-password"
+          },
+          {
+            "client_ips": [
+              "192.168.0.10"
+            ],
+            "coexists_with_WB_AUTH": true,
+            "matches_any_username": true,
+            "mode": "anonymous",
+            "password": "",
+            "paths": [],
+            "username": "",
+            "value": "::192.168.0.10"
+          },
+          {
+            "client_ips": [
+              "192.168.0.15",
+              "192.168.0.20"
+            ],
+            "coexists_with_WB_AUTH": true,
+            "matches_any_username": true,
+            "mode": "anonymous",
+            "password": "",
+            "paths": [
+              "just-one-cam"
+            ],
+            "username": "",
+            "value": "::192.168.0.15,192.168.0.20@just-one-cam"
+          },
+          {
+            "client_ips": [],
+            "coexists_with_WB_AUTH": true,
+            "matches_any_username": true,
+            "mode": "anonymous",
+            "password": "",
+            "paths": [
+              "public-cam"
+            ],
+            "username": "",
+            "value": ":@public-cam"
+          }
+        ]
+      },
+      "default": {
+        "WB_AUTH": true,
+        "rest_api": "The WB_API key is accepted in the api query parameter or api header.",
+        "stream_password_source": "The unique WB_API key shown at the bottom of the bridge Web UI, or an explicitly configured WB_API value.",
+        "stream_username": "wb",
+        "webui_password_source": "WB_PASSWORD; if unset, the bridge derives it from the Wyze email local part.",
+        "webui_username_default": "wbadmin"
+      },
+      "whole_stream_default_anonymous": {
+        "behavior": "This specific whole-stream default-anonymous configuration adds an anonymous MediaMTX read user for every stream; it is not the only way to configure anonymous or IP/path-restricted access.",
+        "configuration": "WB_AUTH=false with STREAM_AUTH unset",
+        "warning": "This is a deliberate insecure choice for a trusted isolated LAN, not the default and not safe port-forwarding exposure."
+      }
+    },
+    "camera_slug": {
+      "algorithm": [
+        "Trim leading/trailing whitespace from the Wyze nickname (or use the MAC when no nickname exists).",
+        "Replace every ASCII space with a hyphen.",
+        "Apply the upstream default-name filter: retain ASCII letters, digits, underscore, hyphen and plus; remove other non-ASCII/special characters.",
+        "Lowercase the result."
+      ],
+      "default_separator": "-",
+      "examples": [
+        {
+          "camera_name": "front-porch-cam",
+          "nickname": "Front Porch Cam"
+        },
+        {
+          "camera_name": "garage+east",
+          "nickname": "Garage+East"
+        }
+      ],
+      "overrides_out_of_scope": "URI_SEPARATOR and URI_MAC can change upstream names; this spec uses the unmodified default only."
+    },
+    "reset_product_scope": [
+      "Wyze Cam v1 (HD only)",
+      "Wyze Cam v2",
+      "Wyze Cam v3",
+      "Wyze Cam Pan v1"
+    ],
+    "source_revision": "bf893749b748f142199c9bce14fac44f8a661d6e",
+    "supported_camera_scope": {
+      "excluded": [
+        "HL_PAN4",
+        "All Gwell models, including GW_GC1 and GW_GC2",
+        "All Meari models",
+        "Battery Cam Pro (AN_RSCW)",
+        "Floodlight Pro (LD_CFP)",
+        "Doorbell Pro (GW_BE1) and Doorbell Pro 2 (AN_RDB1)"
+      ],
+      "rule": "Allow only device.variants and their listed products. Unknown, warning-marked and different-SDK products are denied, not experimental matches.",
+      "source": "https://github.com/mrlt8/docker-wyze-bridge/blob/bf893749b748f142199c9bce14fac44f8a661d6e/README.md#L161-L188"
+    },
+    "tutk_sessions": {
+      "cloud_account_and_api_required": true,
+      "default": "ANY tries LAN first, then can fall back to P2P or relay.",
+      "lan_only": "NET_MODE=LAN rejects any session whose numeric mode is not 2.",
+      "modes": [
+        {
+          "meaning": "Direct peer-to-peer upstream path over the internet.",
+          "name": "P2P",
+          "value": 0
+        },
+        {
+          "meaning": "Upstream media relayed through Wyze servers; local bridge endpoints do not move into the cloud.",
+          "name": "relay",
+          "value": 1
+        },
+        {
+          "meaning": "Upstream media flows directly between camera and bridge on the LAN.",
+          "name": "LAN",
+          "value": 2
+        }
+      ],
+      "permanent_isolation_supported": false,
+      "preferred_mode": 2
+    },
+    "verification": "reported",
+    "webrtc_scope": {
+      "generic_stream_declared": false,
+      "no_webrtc_models": [
+        "WYZEC1",
+        "HL_PANP",
+        "WVOD1",
+        "HL_WCO2",
+        "WYZEDB3",
+        "HL_DB2"
+      ],
+      "reason": "The pinned bridge has a NO_WEBRTC model set, while camera.streams has no supported per-variant exclusion field. Omit the generic WebRTC template rather than offer it on known-unsupported models.",
+      "remaining_unknown": "Only additional WebRTC/ICE and host/network behavior remains unknown; the six NO_WEBRTC model exclusions are known and are not open questions."
+    }
+  },
+  "remaining_unknowns": [
+    "No supported camera was streamed through the bridge by this project.",
+    "The duration and failure mode of operation during an extended cloud outage are not established.",
+    "Additional WebRTC/ICE and host/network behavior and per-model substream support remain unknown; the six NO_WEBRTC model exclusions are known, not unknown.",
+    "Reset procedures for every non-v1/v2/v3/Pan-v1 bridge variant are deliberately not established here."
   ]
 }
