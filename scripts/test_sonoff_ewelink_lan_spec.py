@@ -175,15 +175,19 @@ def test_safety_reset_credential_and_ota_boundaries():
     assert ap["address"] == "10.10.7.1"
     assert "not universal recovery" in ap["credential_boundary"]
     rejoin = SPEC["device"]["setup"]["rejoin"]
-    assert rejoin["in_place_supported"] is False
-    assert rejoin["requires_factory_reset"] is True
-    assert rejoin["stock"] == {
-        "in_place_supported": False,
-        "requires_factory_reset": True,
-        "procedure": rejoin["stock"]["procedure"],
-    }
-    assert rejoin["diy"]["in_place_supported"] is True
-    assert rejoin["diy"]["requires_factory_reset"] is False
+    assert rejoin["in_place_supported"] is True
+    assert rejoin["requires_factory_reset"] is False
+    assert "stock" not in rejoin
+    assert "diy" not in rejoin
+    assert "not a universal stock no-reset promise" in rejoin["notes"]
+    steps = rejoin["steps"]
+    assert len(steps) == 4
+    assert steps[0]["action"].startswith("Select the rejoin path")
+    assert steps[0]["actor"] == "client"
+    assert "factory_reset.procedures[0]" in steps[1]["action"]
+    assert "do not apply that hold to other models" in steps[1]["action"]
+    assert "verified DIY only" in steps[2]["action"]
+    assert "/zeroconf/wifi" in steps[2]["action"]
     assert SPEC["remaining_unknowns"]
 
 

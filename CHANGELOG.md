@@ -74,7 +74,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   execution APIs with Overkiz root/PIN checks. All four remain identify-only
   pending dedicated encrypted/session or bearer/TLS/action/state handlers.
   All four are reported/untested, with
-  advanced attended mains/garage/shade writes and 34 independent offline tests.
+  advanced attended mains/garage/shade writes and 35 independent offline tests.
 - **November 17 mobility and scale transports: three bounded protocol specs.**
   VanMoof S3/X3 gains the legacy `6acc55` AES-128-ECB profile with strict fresh
   challenges, authenticated battery/distance/speed/lock reads and attended,

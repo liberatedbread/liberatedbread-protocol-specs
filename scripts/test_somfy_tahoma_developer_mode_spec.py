@@ -237,6 +237,11 @@ def test_pin_mismatch_and_txt_requirements_fail_closed():
 def test_identify_only_tls_bearer_and_documentary_command_contract():
     assert SPEC["device"]["integration"] == "identify_only"
     assert SPEC["device"]["testing"]["status"] == "untested"
+    assert "admin_url" not in SPEC["device"]
+    handoff = SPEC["protocol_details"]["api"]["admin_handoff"]
+    assert "No device.admin_url is declared" in handoff
+    assert "setup step validates TXT PIN, SRV hostname and Overkiz TLS identity" in handoff
+    assert "dedicated client may open https://gateway-<pin>.local" in handoff
     identification = SPEC["device"]["identification"]
     assert identification["default_scheme"] == "https"
     assert identification["tls"]["verification"] == "vendor_ca"

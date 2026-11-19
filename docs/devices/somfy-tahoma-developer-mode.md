@@ -59,6 +59,12 @@ hostname for the HTTP `Host` and TLS SNI, not the discovered IP address. DNS onl
 locates the route; substituting the IP as the request host defeats the intended
 certificate hostname check. A hostname/TXT mismatch fails closed.
 
+There is deliberately no `device.admin_url`: the generic admin opener would
+substitute the resolved IP and cannot interpret a PIN placeholder. Only after the
+setup flow validates the TXT PIN, SRV hostname and Overkiz TLS identity may a
+dedicated client reuse that validated PIN-derived hostname for an API-version
+handoff. This is a setup handoff, not a generic IP-based admin link.
+
 The spec declares `identification.default_scheme: https` and
 `identification.tls.verification: vendor_ca`. Somfy publishes the **Overkiz Root
 CA** at <https://ca.overkiz.com/overkiz-root-ca-2048.crt>. Add or pin that root

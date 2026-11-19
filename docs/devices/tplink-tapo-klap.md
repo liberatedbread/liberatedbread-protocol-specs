@@ -100,12 +100,25 @@ secure request. Read `TIMEOUT` in seconds and refresh at
 `monotonic_now + TIMEOUT - 1200` (a 20-minute skew buffer), defaulting to 86400
 seconds only when absent. Never return `TIMEOUT` as the session cookie.
 
-AES session recovery is **independent of KLAP's 403 handshake**. On expiry or an
-authentication/session error, invalidate token/cookie/cipher and perform the RSA
-handshake **and** `login_device` once with the accepted account credential. Retry
-an idempotent read once, then stop on another failure. For a relay write, first
-read `device_on`: skip if it already has the desired value, issue at most one
-write if it differs, and do not write when state cannot be read.
+AES session recovery is **independent of KLAP's 403 handshake**. Require HTTP
+200 for RSA handshake, login and passthrough; non-200 is a transport failure, not
+an automatic AES refresh classification. The pinned implementation tests HTTP 400
+as a failure without default-credential retry, so this spec does not invent
+401/403 mappings.
+
+Only these application codes trigger one bounded RSA handshake **and**
+`login_device` with the accepted account credential: **9999** session timeout,
+**1111** login failed, **1100** handshake failed, **1003** unknown credentials,
+**-1501** login error, **-1005** AES decode failure, **-40412** HomeKit login
+failure, and session-specific **-40401** session expiry / **-40413** invalid
+nonce. Invalidate token/cookie/cipher first, then retry an idempotent read once
+and stop on any failure. Every other application error performs no RSA
+handshake/login and is surfaced unchanged; outer transport-retry codes 1002,
+1112 and -1001 are not RSA reauthentication either.
+
+For a relay write, first read `device_on`: skip if it already has the desired
+value, issue at most one write if it differs, and do not write when state cannot
+be read.
 
 The spec publishes the exact encodings and synthetic RSA/AES vectors; it contains
 no real account key or credential.
@@ -158,9 +171,9 @@ not delay or weaken the complete KLAP implementation notes.
 proofs and encrypted sessions, header-first TDP broadcast/unicast CRC packets,
 314-byte RSA handshake, RSA key wrap and AES passthrough envelope using only the
 standard library and the OpenSSL command-line AES primitive. It separately checks
-KLAP 403 rehandshake and AES handshake+login recovery, cookie normalization and
-TIMEOUT expiry, bounded failure and relay-state reconciliation. No hardware
-operation is claimed.
+KLAP 403 rehandshake and AES handshake+login recovery, exact recovery-code and
+non-200 gating, cookie normalization and TIMEOUT expiry, bounded failure and
+relay-state reconciliation. No hardware operation is claimed.
 
 ## References
 

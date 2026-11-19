@@ -441,3 +441,42 @@ def test_aes_auth_recovery_is_independent_of_klap_403_and_reconciles_relay():
     with pytest.raises(AesAuthError):
         aes_request_with_recovery(handshake, login, always_fails)
     assert events == ["rsa_handshake", "login", "rsa_handshake", "login"]
+
+
+def aes_recovery_action(http_status: int, error_code: int) -> str:
+    if http_status != 200:
+        return "transport_error"
+    if error_code in {9999, 1111, 1100, 1003, -1501, -1005, -40412, -40401, -40413}:
+        return "rsa_handshake_and_login_once"
+    return "surface_application_error"
+
+
+def run_coded_aes_recovery(http_status: int, error_code: int, events: list) -> str:
+    action = aes_recovery_action(http_status, error_code)
+    if action == "rsa_handshake_and_login_once":
+        events.append("rsa_handshake")
+        events.append("login")
+    return action
+
+
+def test_exact_aes_recovery_codes_and_http_status_both_directions():
+    recovery = DETAILS["secure_passthrough"]["recovery"]
+    expected = {9999, 1111, 1100, 1003, -1501, -1005, -40412, -40401, -40413}
+    assert {int(code) for code in recovery["recovery_codes"]} == expected
+    for code in sorted(expected):
+        events = []
+        assert run_coded_aes_recovery(200, code, events) == "rsa_handshake_and_login_once"
+        assert events == ["rsa_handshake", "login"], code
+
+    for code in (-1, -1002, -1301, 1200, 1002, 1112, -1001):
+        events = []
+        assert run_coded_aes_recovery(200, code, events) == "surface_application_error"
+        assert events == [], code
+
+    for status in (400, 401, 403, 500):
+        events = []
+        assert run_coded_aes_recovery(status, 9999, events) == "transport_error"
+        assert events == [], status
+    assert "Any non-200 response is a transport failure" in recovery["http_statuses"]["non_200"]
+    assert "HTTP 400" in recovery["http_statuses"]["non_200"]
+    assert "no RSA handshake/login" in recovery["non_recovery"]

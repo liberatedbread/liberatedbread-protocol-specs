@@ -124,17 +124,21 @@ integrity protection, so setup and control belong on a trusted LAN.
 
 ## Reset and changing routers
 
-The conservative **stock** rejoin posture is `in_place_supported: false` and
-`requires_factory_reset: true`: use the exact model's setup flow rather than
-inventing an in-place write. The BASICR2/RFR2 manual specifically requires a
-**five-second pairing-button hold** until the Wi-Fi LED cycles **two short
-flashes and one long flash**. Release to enter quick pairing and provision the
-new network. That reset remains scoped to BASICR2/RFR2; other stock models use
-their own instructions rather than inheriting the hold.
+The top-level rejoin default is `in_place_supported: true` and
+`requires_factory_reset: false`: an in-place route exists where the exact
+model/mode supports one, but this is **not** a universal stock no-reset promise.
+The consumer must select the model-specific path rather than applying that
+default to every stock unit. Other stock models use their own setup flow rather
+than inheriting either a universal reset or no-reset rule.
 
-Official **DIY is the separate exception**: on a verified `type=diy_plug`, POST
-`/zeroconf/wifi` with the new SSID/password without a factory reset. Recheck the
-instance device ID and SRV port afterward. Whether a stock devicekey changes
+For **BASICR2/RFR2 stock**, use the already model-scoped reset procedure: hold
+the pairing button for **five seconds** until the Wi-Fi LED cycles **two short
+flashes and one long flash**, then release to enter quick pairing and provision
+the new network. That hold does not apply to other models.
+
+Official **DIY is the explicit in-place exception**: on a verified `type=diy_plug`,
+POST `/zeroconf/wifi` with the new SSID/password without a factory reset. Recheck
+the instance device ID and SRV port afterward. Whether a stock devicekey changes
 during re-pairing is unresolved; retrieve it again via a legitimate account or
 bounded setup source if necessary.
 

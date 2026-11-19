@@ -307,8 +307,21 @@ protocol_details:
       timeout: "Read TIMEOUT as seconds. Compute expiry = monotonic_now + TIMEOUT - 1200 seconds (20-minute clock-skew buffer); use 86400 seconds only when TIMEOUT is absent. Never send TIMEOUT back as the session cookie. On expiry, clear token/cookie and require RSA handshake plus login before another request."
       key_reuse: "The RSA keypair may be cached for later handshakes. Session cookies/tokens are session state, not durable owner credentials; any process restart or uncertain expiry must reauthenticate rather than replaying an old token."
     recovery:
-      trigger: "An expired session or an authentication/session error reported by HTTP status or the decrypted application error_code. This AES recovery is independent of KLAP's HTTP-403 seed handshake."
-      bounded_reauthentication: "Invalidate token, session cookie and encryption session, then perform RSA handshake AND login_device once with the accepted account credential and retry an idempotent read once. If either step or the retry fails, stop and surface the error; do not loop and do not treat default credential roles as universal recovery."
+      http_statuses:
+        success: "Require HTTP 200 for RSA handshake, login_device and securePassthrough before interpreting error_code."
+        non_200: "Any non-200 response is a transport failure, not an automatic AES session-refresh classification. The pinned AES handshake test uses HTTP 400 as a failure with no default-credential retry. Do not invent 401/403 mappings; KLAP's HTTP-403 seed recovery is separate."
+      recovery_codes:
+        "9999": "SESSION_TIMEOUT_ERROR: session timeout."
+        "1111": "LOGIN_FAILED_ERROR: login failed."
+        "1100": "HAND_SHAKE_FAILED_ERROR: RSA handshake failed."
+        "1003": "TRANSPORT_UNKNOWN_CREDENTIALS_ERROR: credentials unknown to the device."
+        "-1501": "LOGIN_ERROR: application login error."
+        "-1005": "AES_DECODE_FAIL_ERROR: AES decode failure."
+        "-40412": "HOMEKIT_LOGIN_FAIL: HomeKit login failure."
+        "-40401": "SESSION_EXPIRED: session-specific expiry."
+        "-40413": "INVALID_NONCE: session-specific nonce invalidation."
+      bounded_reauthentication: "For exactly one of recovery_codes, invalidate token, session cookie and encryption session, then perform one bounded RSA handshake AND login_device with the accepted account credential and retry an idempotent read once. If either step or the retry fails, stop and surface the error; do not loop and do not treat default credential roles as universal recovery."
+      non_recovery: "Any other application error performs no RSA handshake/login. Preserve and surface the original error instead of masking it as a credential failure. This includes common method/device errors and transport-retry codes 1002, 1112 and -1001, whose outer retry policy is not an RSA reauthentication."
       relay_reconciliation: "For plug_on/plug_off, never blindly repeat after reauthentication. First get_device_info. If device_on already equals the desired state, do not resend; if it differs, issue at most one write after this successful read. If state cannot be read, do not write."
     test_vector:
       note: "Synthetic RSA-1024 keypair. The private exponent is published only so an independent vector test can simulate both sides; it belongs to no device."
