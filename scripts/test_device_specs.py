@@ -3628,6 +3628,10 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
         "tplink-tapo-klap",
         "docs/devices/frigidaire-local-api-audit.md", "docs/devices/frigidaire-ac.md",
     }),
+    # docker-wyze-bridge's documented STREAM_AUTH example client addresses.
+    "192.168.0.10": frozenset({"wyze-bridge-camera"}),
+    "192.168.0.15": frozenset({"wyze-bridge-camera"}),
+    "192.168.0.20": frozenset({"wyze-bridge-camera"}),
     # AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket.
     "192.168.1.1": frozenset({
         "parrot-arsdk-drone", "govee-rgb-light", "govee-rgbic-light",

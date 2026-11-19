@@ -15,14 +15,14 @@ def spec() -> dict:
     return yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
 
 
-def test_exact_product_model_firmware_matrix(spec):
+def test_exact_product_model_installed_firmware_matrix(spec):
     variants = {
-        (v["product_name"], v["model"]): v["firmware"]["package_version"]
+        (v["product_name"], v["model"]): v["firmware"]["installed_version"]
         for v in spec["device"]["variants"]
     }
     assert variants == {
         ("Wyze Cam v2", "WYZEC1-JZ"): "4.28.4.49",
-        ("Wyze Cam v3 (standalone, not Floodlight)", "WYZE_CAKP2JFUS"): "4.61.0.1",
+        ("Wyze Cam v3 (standalone, not Floodlight)", "WYZE_CAKP2JFUS"): "4.61.0.3",
         ("Wyze Cam Pan v1", "WYZECP1_JEF"): "4.29.4.49",
     }
     allowed_models = {model for _, model in variants}
@@ -37,7 +37,7 @@ def test_exact_product_model_firmware_matrix(spec):
         "WVOD1",
     }.isdisjoint(allowed_models)
     assert set(variants.values()).isdisjoint(
-        {"4.28.4.50", "4.28.4.51", "4.29.4.50", "4.29.4.51", "4.61.0.3", "4.36.16.5055"}
+        {"4.28.4.50", "4.28.4.51", "4.29.4.50", "4.29.4.51", "4.61.0.1", "4.36.16.5055"}
     )
 
 
@@ -65,7 +65,8 @@ def test_official_archive_and_inner_hashes_are_complete(spec):
     for variant in spec["device"]["variants"]:
         firmware = variant["firmware"]
         version, archive_hash, inner_hash, sd_name = expected[variant["model"]]
-        assert firmware["package_version"] == version
+        assert firmware["archive_package_version"] == version
+        assert "package_version" not in firmware
         assert firmware["archive_sha256"] == archive_hash
         assert firmware["inner_sha256"] == inner_hash
         assert firmware["microsd_filename"] == sd_name
@@ -102,20 +103,50 @@ def test_app_enable_route_has_per_camera_credentials_and_generate_url(spec):
     assert "including its credentials, host, port and path" in actions
 
 
-def test_microsd_route_is_advanced_alternative_with_warnings(spec):
+def test_installed_version_selection_is_distinct_from_archive_download(spec):
+    scope = spec["protocol_details"]["legacy_rtsp_scope"]
+    assert "firmware.installed_version" in scope["selection_rule"]
+    assert "4.61.0.3" in scope["selection_rule"]
+    assert "firmware.archive_package_version" in scope["archive_rule"]
+    assert "4.61.0.1" in scope["archive_rule"]
+    primary = spec["device"]["setup"]["methods"][0]
+    primary_actions = "\n".join(step["action"] for step in primary["steps"])
+    assert "firmware.installed_version" in primary_actions
+    post_flash = spec["device"]["setup"]["methods"][1]["stages"][1]
+    post_flash_actions = "\n".join(step["action"] for step in post_flash["steps"])
+    assert "installed_version" in post_flash_actions
+    assert "4.61.0.3" in post_flash_actions
+    assert "4.61.0.1 archive_package_version" in post_flash_actions
+    beta = next(
+        doc
+        for doc in spec["device"]["openness"]["upstream_docs"]
+        if doc["title"] == "Official standalone Cam v3 RTSP beta announcement"
+    )
+    assert "4.61.0.1" in beta["covers"]
+    assert "4.61.0.3" in beta["covers"]
+
+
+def test_microsd_route_is_advanced_alternative_with_rendered_warnings(spec):
     alternative = spec["device"]["setup"]["methods"][1]
     assert alternative["role"] == "alternative"
     assert alternative["advanced"] is True
-    assert "Later features" in alternative["advanced_reason"]
-    assert "maintenance" in alternative["advanced_reason"]
-    assert "interruption" in alternative["advanced_reason"]
+    rendered_method = alternative["description"]
+    for warning in (
+        "Later features are lost",
+        "AI/Cam Plus functions may be unstable",
+        "ongoing branch maintenance is not committed",
+        "interrupted-flash recovery is unknown",
+    ):
+        assert warning in rendered_method
     assert [stage["type"] for stage in alternative["stages"]] == [
         "none",
         "cloud_account",
     ]
-    flash_actions = "\n".join(
-        step["action"] for step in alternative["stages"][0]["steps"]
-    )
+    flash_stage = alternative["stages"][0]
+    assert "AI/Cam Plus functions may be" in flash_stage["description"]
+    assert "interrupted-flash recovery is unknown" in flash_stage["description"]
+    flash_actions = "\n".join(step["action"] for step in flash_stage["steps"])
+    assert "archive_package_version" in flash_actions
     assert "archive_sha256" in flash_actions
     assert "inner_sha256" in flash_actions
     assert "demo_wcv3.bin" in flash_actions

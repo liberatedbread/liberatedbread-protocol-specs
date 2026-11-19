@@ -30,12 +30,14 @@ device:
     generalized to other firmware or models.
 
     The community docker-wyze-bridge authenticates to the Wyze cloud and uses
-    each camera's cloud-issued TUTK values, then serves RTSP, HLS and WebRTC on
-    the bridge/NVR host. A Wyze account and developer API Key/ID are required;
-    this is not an account-free or permanently cloud-isolated path. The bridge
-    prefers a LAN upstream connection but can fall back to P2P or relay. The
-    RTSP/HLS/WebRTC endpoints below are still local to the bridge host even
-    when that upstream media path is relayed.
+    each camera's cloud-issued TUTK values, then serves media on the bridge/NVR
+    host. This spec declares the generic RTSP and HLS endpoints only. WebRTC is
+    omitted because six allowed models are in the pinned NO_WEBRTC set and the
+    stream schema cannot scope a template by variant. A Wyze account and
+    developer API Key/ID are required; this is not an account-free or
+    permanently cloud-isolated path. The bridge prefers a LAN upstream
+    connection but can fall back to P2P or relay. The RTSP/HLS endpoints below
+    are still local to the bridge host even when that upstream path is relayed.
 
     identify_only reflects this project's missing video-player integration,
     not the bridge's capabilities. {address} is always the manually configured
@@ -50,10 +52,15 @@ device:
       verification: "reported"
     - model: "WYZE_CAKP2JFUS"
       products: ["Wyze Cam v3", "Wyze Cam Floodlight v1"]
+      accessory_identities:
+        "Wyze Cam Floodlight v1": "HL_CFL"
       verification: "reported"
       notes: >
-        The model code is shared. Use the cloud product/accessory identity to
-        distinguish the standalone v3 from Floodlight v1, especially for reset.
+        The model code is shared. HL_CFL is only the Floodlight v1 accessory
+        identity that distinguishes it from standalone Cam v3; it is not a
+        standalone cloud camera model or variant. Use the cloud product and
+        accessory identity, especially for reset, and do not infer Floodlight
+        Pro from either code.
     - model: "HL_CAM3P"
       products: ["Wyze Cam v3 Pro (2K)"]
       verification: "reported"
@@ -84,12 +91,6 @@ device:
     - model: "HL_DB2"
       products: ["Wyze Cam Doorbell v2 (2K)"]
       verification: "reported"
-    - model: "HL_CFL"
-      products: ["Wyze Cam Floodlight v1"]
-      verification: "reported"
-      notes: >
-        Floodlight v1 is also represented by WYZE_CAKP2JFUS with an HL_CFL
-        accessory identity; do not infer Floodlight Pro from either code.
     - model: "HL_CFL2"
       products: ["Wyze Cam Floodlight v2 (2K)"]
       verification: "reported"
@@ -161,7 +162,7 @@ device:
             actor: "user"
           - action: "Manually configure the bridge/NVR host as {address}, derive {camera_name} with protocol_details.camera_slug, and use the selected local stream URL with the configured authentication."
             actor: "client"
-            expect: "The bridge serves the camera on RTSP 8554, HLS 8888 or WebRTC 8889, subject to its authentication configuration."
+            expect: "The bridge serves the camera on RTSP 8554 or HLS 8888, subject to its authentication configuration. No generic WebRTC endpoint is offered; see protocol_details.webrtc_scope."
     factory_reset:
       applicable: true
       confidence: "medium"
@@ -292,12 +293,13 @@ local_access:
     media endpoints are local. Account/API bootstrapping and continuing cloud
     dependence remain; permanent isolation is unsupported.
   covers:
-    - "RTSP, HLS and WebRTC served by the manually configured bridge/NVR host"
+    - "RTSP and HLS served by the manually configured bridge/NVR host"
   not_covered:
     - "Account-free onboarding or camera enumeration"
     - "A guarantee of LAN-only upstream media unless NET_MODE=LAN is enforced"
     - "Permanent cloud isolation"
     - "Models outside device.variants"
+    - "A generic WebRTC stream, because six allowed models are explicitly in the pinned NO_WEBRTC set and stream entries cannot be variant-scoped"
 
 camera:
   enable_required: true
@@ -321,17 +323,15 @@ camera:
       served_by: "nvr"
       auth: "WB_AUTH/WB_API or STREAM_AUTH; see protocol_details.bridge_authentication"
       notes: "Actual MediaMTX HLS playlist path on the bridge/NVR host."
-    - name: "Local WebRTC (via bridge)"
-      transport: "webrtc"
-      url_template: "http://{address}:8889/{camera_name}"
-      default_port: 8889
-      served_by: "nvr"
-      auth: "WB_AUTH/WB_API or STREAM_AUTH; see protocol_details.bridge_authentication"
-      notes: "MediaMTX WebRTC endpoint; additional WebRTC/ICE configuration may be required in standard Docker mode."
 
 protocol_details:
   source_revision: "bf893749b748f142199c9bce14fac44f8a661d6e"
   verification: "reported"
+  webrtc_scope:
+    generic_stream_declared: false
+    reason: "The pinned bridge has a NO_WEBRTC model set, while camera.streams has no supported per-variant exclusion field. Omit the generic WebRTC template rather than offer it on known-unsupported models."
+    no_webrtc_models: ["WYZEC1", "HL_PANP", "WVOD1", "HL_WCO2", "WYZEDB3", "HL_DB2"]
+    remaining_unknown: "Only additional WebRTC/ICE and host/network behavior remains unknown; the six NO_WEBRTC model exclusions are known and are not open questions."
   supported_camera_scope:
     source: "https://github.com/mrlt8/docker-wyze-bridge/blob/bf893749b748f142199c9bce14fac44f8a661d6e/README.md#L161-L188"
     rule: "Allow only device.variants and their listed products. Unknown, warning-marked and different-SDK products are denied, not experimental matches."
@@ -374,10 +374,44 @@ protocol_details:
     custom_stream_auth:
       variable: "STREAM_AUTH"
       syntax: "user:password[:client-ip[,client-ip...]][@path[,path...]], with multiple entries separated by |"
-      behavior: "Each entry can grant a user all paths or only named camera slugs. When WB_AUTH supplies WB_API and STREAM_AUTH is also set, both mechanisms are configured."
-    explicitly_disabled:
+      behavior: "Each entry can grant a user all paths or only named camera slugs. An empty username matches any username, so an empty username/password creates an anonymous grant with optional IP/path restrictions. These STREAM_AUTH grants can coexist with WB_AUTH=true and its WB_API credential; both mechanisms are configured."
+      restriction_semantics: "Empty client_ips means any client IP and empty paths means every camera path. The examples below use invented credentials and documentation-only addresses."
+      vectors:
+        - value: "cam-user:example-only-password"
+          mode: "credentialed"
+          username: "cam-user"
+          password: "example-only-password"
+          matches_any_username: false
+          client_ips: []
+          paths: []
+          coexists_with_WB_AUTH: true
+        - value: "::192.168.0.10"
+          mode: "anonymous"
+          username: ""
+          password: ""
+          matches_any_username: true
+          client_ips: ["192.168.0.10"]
+          paths: []
+          coexists_with_WB_AUTH: true
+        - value: "::192.168.0.15,192.168.0.20@just-one-cam"
+          mode: "anonymous"
+          username: ""
+          password: ""
+          matches_any_username: true
+          client_ips: ["192.168.0.15", "192.168.0.20"]
+          paths: ["just-one-cam"]
+          coexists_with_WB_AUTH: true
+        - value: ":@public-cam"
+          mode: "anonymous"
+          username: ""
+          password: ""
+          matches_any_username: true
+          client_ips: []
+          paths: ["public-cam"]
+          coexists_with_WB_AUTH: true
+    whole_stream_default_anonymous:
       configuration: "WB_AUTH=false with STREAM_AUTH unset"
-      behavior: "An anonymous MediaMTX read user is configured and the streams need no credentials."
+      behavior: "This specific whole-stream default-anonymous configuration adds an anonymous MediaMTX read user for every stream; it is not the only way to configure anonymous or IP/path-restricted access."
       warning: "This is a deliberate insecure choice for a trusted isolated LAN, not the default and not safe port-forwarding exposure."
   reset_product_scope: ["Wyze Cam v1 (HD only)", "Wyze Cam v2", "Wyze Cam v3", "Wyze Cam Pan v1"]
 
@@ -398,12 +432,13 @@ evidence:
   open_questions: >
     Exact per-firmware TUTK reliability, maximum concurrent camera sessions and
     how long cached credentials can survive without cloud access remain
-    unverified. WebRTC support varies by model and host networking.
+    unverified. Additional WebRTC/ICE and host/network behavior also remains
+    unverified; the six NO_WEBRTC model exclusions are known and declared.
 
 remaining_unknowns:
   - "No supported camera was streamed through the bridge by this project."
   - "The duration and failure mode of operation during an extended cloud outage are not established."
-  - "Per-model WebRTC and substream support are not claimed by the three generic stream templates."
+  - "Additional WebRTC/ICE and host/network behavior and per-model substream support remain unknown; the six NO_WEBRTC model exclusions are known, not unknown."
   - "Reset procedures for every non-v1/v2/v3/Pan-v1 bridge variant are deliberately not established here."
 
 helpful_urls:
@@ -414,7 +449,7 @@ helpful_urls:
   - title: "docker-wyze-bridge Authentication"
     url: "https://github.com/mrlt8/docker-wyze-bridge/wiki/Authentication"
     kind: "implementation"
-    description: "Default WB_AUTH/WB_API credentials, custom STREAM_AUTH and explicit anonymous configuration."
+    description: "Default WB_AUTH/WB_API credentials, credentialed and anonymous STREAM_AUTH grants, and the whole-stream default-anonymous configuration."
   - title: "docker-wyze-bridge Network Connection Modes"
     url: "https://github.com/mrlt8/docker-wyze-bridge/wiki/Network-Connection-Modes"
     kind: "implementation"

@@ -136,10 +136,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   exact model resets and independent OpenSSL/stdlib vectors using invented
   credentials. HTTP 200 is acknowledgement only: no local state read or generic
   consumer handler is claimed. Legacy official RTSP is restricted to Cam v2
-  `4.28.4.49`, standalone Cam v3 `4.61.0.1` and Pan v1 `4.29.4.49`, with an
-  advanced microSD route, feature-loss/maintenance warnings, official archive
-  and inner-binary SHA-256 values, and opaque app-generated full URLs rather
-  than invented ports or paths. Both remain reported/untested and identify-only.
+  installed `4.28.4.49`, standalone Cam v3 installed `4.61.0.3` (archive package
+  `4.61.0.1`) and Pan v1 installed `4.29.4.49`, with an advanced microSD route,
+  rendered feature-loss/AI/Cam Plus/interruption warnings, official archive and
+  inner-binary SHA-256 values, and opaque app-generated full URLs rather than
+  invented ports or paths. Both remain reported/untested and identify-only.
 - **November 15 audit follow-up: Anova Mini and Nano protocols.** Separate,
   model-scoped specs and owner guides cover the Mini's JSON/Base64 GATT commands
   and the Nano's distinct COBS/proto2 TX/RX transport, with independent

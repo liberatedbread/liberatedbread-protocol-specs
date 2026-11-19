@@ -7,15 +7,15 @@
 
 ## Overview
 
-Wyze's legacy RTSP support is a separate, old firmware branch—not a feature of ordinary stock firmware. This spec covers exactly three product/package pairs:
+Wyze's legacy RTSP support is a separate, old firmware branch—not a feature of ordinary stock firmware. This spec covers exactly three product/installed-version pairs:
 
-| Product | Model | Exact official RTSP package | microSD filename |
-|---|---|---|---|
-| Cam v2 | `WYZEC1-JZ` | `4.28.4.49` | `demo.bin` |
-| Standalone Cam v3 | `WYZE_CAKP2JFUS` | `4.61.0.1` | `demo_wcv3.bin` |
-| Cam Pan v1 | `WYZECP1_JEF` | `4.29.4.49` | `demo.bin` |
+| Product | Model | Archive package (download/hash only) | App-reported installed version (selection) | microSD filename |
+|---|---|---|---|---|
+| Cam v2 | `WYZEC1-JZ` | `4.28.4.49` | `4.28.4.49` | `demo.bin` |
+| Standalone Cam v3 | `WYZE_CAKP2JFUS` | `4.61.0.1` | `4.61.0.3` | `demo_wcv3.bin` |
+| Cam Pan v1 | `WYZECP1_JEF` | `4.29.4.49` | `4.29.4.49` | `demo.bin` |
 
-Both product and firmware must match. Cam v1, Pan v2/v3, Cam v4, Floodlight products (including a product sharing the v3 model code), Doorbells, Outdoor cameras, and every other model or package are excluded. The newer 2025 Cam v3/Pan v3 RTSP beta is a different route and is outside this legacy spec.
+Both product and app-reported installed version must match. Wyze's official standalone Cam v3 beta thread distinguishes the `4.61.0.1` archive package from the `4.61.0.3` version it installs and reports. Do not reject that intended camera by comparing the app with the archive name, and do not accept an app reporting `4.61.0.1` as the required installed version. Cam v1, Pan v2/v3, Cam v4, Floodlight products (including a product sharing the v3 model code), Doorbells, Outdoor cameras, and every other model or installed version are excluded. The newer 2025 Cam v3/Pan v3 RTSP beta is a different route and is outside this legacy spec.
 
 Wyze warns that features added after this branch are unavailable and that AI/Cam Plus functions can be unstable. Wyze does not commit to ongoing RTSP branch maintenance and recommends the branch only for full-time RTSP use. Flashing is an **advanced alternative**, not routine troubleshooting.
 
@@ -23,7 +23,7 @@ Wyze warns that features added after this branch are unavailable and that AI/Cam
 
 ### If the exact RTSP branch is already installed
 
-1. Confirm the product and exact package above.
+1. Confirm the product and exact **installed version** above; for standalone Cam v3, accept `4.61.0.3`, not the `4.61.0.1` archive package version.
 2. In the Wyze app, open the camera's live view and go to **Settings → Advanced Settings → RTSP**. Let the app check compatibility.
 3. Turn on RTSP and create a username/password unique to this camera. Wyze's legacy article specifies 4–10 characters using lowercase letters and digits without special characters.
 4. Select **Generate URL**. Save the complete displayed URL verbatim as `stream_url`, including credentials, camera host, port, and path.
@@ -33,13 +33,13 @@ The app/account is required to enable RTSP and mint the per-camera credentials. 
 
 ### Advanced alternative: flash the branch from microSD
 
-Use this only if the exact branch is not already installed and you accept the feature loss and maintenance risk.
+**Warning:** this replaces the camera firmware with an old separate branch. Later features are lost, AI/Cam Plus functions may be unstable, ongoing branch maintenance is not committed, and interrupted-flash recovery is unknown. Use this only for full-time RTSP with the exact product archive, not as routine troubleshooting.
 
-1. Download only the matching official archive linked in the YAML spec. Verify its published archive SHA-256, extract its one inner binary, and verify the inner SHA-256 too. The spec records hashes independently obtained from Wyze's official host; no firmware is committed here.
+1. Download only the matching official archive linked in the YAML spec, using `archive_package_version` solely for download and hash selection. Verify its published archive SHA-256, extract its one inner binary, and verify the inner SHA-256 too. The spec records hashes independently obtained from Wyze's official host; no firmware is committed here.
 2. Wyze recommends a 32 GB FAT32 microSD card. Put the binary at the card root using the exact filename in the table.
 3. Unplug the camera and insert the card. Hold **Setup** while reconnecting power. Release at the lighter/yellowish solid blue light on Cam v2/Pan v1 or solid purple on standalone Cam v3.
 4. Wait three to four minutes for the flash/reboot and status-light changes. Remove the card before normal use.
-5. Follow the app-enable steps above; flashing alone neither enables RTSP nor creates credentials.
+5. Confirm the app now reports the table's exact `installed_version`; standalone Cam v3 should report `4.61.0.3` after flashing archive `4.61.0.1`. Follow the app-enable steps above; flashing alone neither enables RTSP nor creates credentials.
 
 Interrupted-flash recovery and downgrade behavior were not tested. Do not substitute another model's image or another RTSP version.
 
@@ -66,12 +66,13 @@ Only the matching reset procedures are included:
 - **Cam v2 and Pan v1:** remove the microSD card and, with power on, hold the bottom Setup button for **10 seconds**. Wait at least 30 seconds, allowing up to five minutes, until solid yellow becomes blinking yellow.
 - **Standalone Cam v3:** remove the microSD card and hold Setup for **10 seconds**. Wait until the status light turns red and the camera is ready to set up again.
 
-There is deliberately no Cam v1 or Floodlight reset procedure in this spec. For a router change, try the matching model's app setup/reconnect flow first. Afterward confirm the exact RTSP package is still installed, re-enable RTSP if necessary, and use only the newly generated full URL.
+There is deliberately no Cam v1 or Floodlight reset procedure in this spec. For a router change, try the matching model's app setup/reconnect flow first. Afterward confirm the exact installed version is still reported, re-enable RTSP if necessary, and use only the newly generated full URL.
 
 ## References
 
 - [Official Wyze Cam RTSP article](https://support.wyze.com/hc/en-us/articles/360026245231-Wyze-Cam-RTSP)
 - [Official manual firmware-flash instructions](https://support.wyze.com/hc/en-us/articles/360031490871-How-to-flash-your-Wyze-Cam-firmware-manually)
-- Official firmware: [Cam v2 4.28.4.49](https://download.wyzecam.com/firmware/rtsp/demo_v2_rtsp_4.28.4.49.bin.zip), [standalone Cam v3 4.61.0.1](https://download.wyzecam.com/firmware/rtsp/demo_v3_RTSP_4.61.0.1.zip), [Pan v1 4.29.4.49](https://download.wyzecam.com/firmware/rtsp/demo_Pan_rtsp_4.29.4.49.bin.zip)
+- [Official standalone Cam v3 RTSP beta announcement](https://forums.wyze.com/t/beta-testing-for-wyze-cam-v3-rtsp-firmware-now-available/196922), distinguishing archive package `4.61.0.1` from installed version `4.61.0.3`
+- Official firmware archives: [Cam v2 4.28.4.49](https://download.wyzecam.com/firmware/rtsp/demo_v2_rtsp_4.28.4.49.bin.zip), [standalone Cam v3 4.61.0.1](https://download.wyzecam.com/firmware/rtsp/demo_v3_RTSP_4.61.0.1.zip), [Pan v1 4.29.4.49](https://download.wyzecam.com/firmware/rtsp/demo_Pan_rtsp_4.29.4.49.bin.zip)
 
 See `device-specs/devices/wyze-legacy-rtsp.yaml` for the exact archive and inner-binary SHA-256 values, setup stages, and model-scoped lifecycle details.

@@ -1,7 +1,7 @@
 # Wyze Cam (via docker-wyze-bridge)
 
 > **Status**: Spec available (untested, reported); identify-only in this project
-> **Protocol**: WiFi, TUTK upstream with local RTSP/HLS/WebRTC from a community bridge
+> **Protocol**: WiFi, TUTK upstream with local RTSP/HLS from a community bridge
 > **Manufacturer**: Wyze Labs
 > **Manufacturer Status**: Active
 
@@ -11,7 +11,7 @@ Stock Wyze cameras have no first-party general-purpose local API. The narrow exc
 
 The community [docker-wyze-bridge](https://github.com/mrlt8/docker-wyze-bridge) logs in to the owner's Wyze account, obtains camera information and TUTK values, and serves media from the machine running the bridge. A Wyze account and developer API Key/ID are required. Permanent cloud isolation is not supported.
 
-The bridge prefers a LAN connection but can fall back to P2P or relay. Its session codes are **0 = P2P**, **1 = relay**, and **2 = LAN**. `NET_MODE=LAN` rejects non-LAN sessions. Even in relay mode, the RTSP/HLS/WebRTC URLs below remain endpoints on the local bridge host; “local endpoint” does not prove that the upstream media stayed on the LAN.
+The bridge prefers a LAN connection but can fall back to P2P or relay. Its session codes are **0 = P2P**, **1 = relay**, and **2 = LAN**. `NET_MODE=LAN` rejects non-LAN sessions. Even in relay mode, the RTSP/HLS URLs below remain endpoints on the local bridge host; “local endpoint” does not prove that the upstream media stayed on the LAN.
 
 ## Supported cameras
 
@@ -32,10 +32,10 @@ This is an allowlist from the bridge's supported-camera table, not a list of Wyz
 | Cam Outdoor v2 | `HL_WCO2` |
 | Cam Doorbell v1 | `WYZEDB3` |
 | Cam Doorbell v2 (2K) | `HL_DB2` |
-| Cam Floodlight v1 | `WYZE_CAKP2JFUS` with `HL_CFL` accessory identity, or `HL_CFL` |
+| Cam Floodlight v1 | `WYZE_CAKP2JFUS` with `HL_CFL` accessory identity |
 | Cam Floodlight v2 (2K) | `HL_CFL2` |
 
-`WYZE_CAKP2JFUS` is shared by the standalone Cam v3 and Floodlight v1. Product and accessory identity therefore matters, especially for reset.
+`WYZE_CAKP2JFUS` is shared by the standalone Cam v3 and Floodlight v1. `HL_CFL` is only the Floodlight v1 accessory identity that distinguishes it from the standalone camera, not another cloud camera model or a standalone variant. Product and accessory identity therefore matters, especially for reset.
 
 Do **not** infer support for `HL_PAN4`, Gwell or Meari devices, Battery Cam Pro (`AN_RSCW`), Floodlight Pro (`LD_CFP`), Doorbell Pro (`GW_BE1`), or Doorbell Pro 2 (`AN_RDB1`). Warning-marked and different-SDK products in upstream's table are not included.
 
@@ -58,9 +58,8 @@ With upstream's default settings, trim the nickname, replace spaces with hyphens
 |---|---|
 | RTSP | `rtsp://{address}:8554/{camera_name}` |
 | HLS | `http://{address}:8888/{camera_name}/stream.m3u8` |
-| WebRTC | `http://{address}:8889/{camera_name}` |
 
-The HLS path above is the actual MediaMTX playlist path, not the bridge Web UI.
+The HLS path above is the actual MediaMTX playlist path, not the bridge Web UI. No generic WebRTC template is offered: the pinned bridge's `NO_WEBRTC` set excludes six otherwise allowed models—`WYZEC1`, `HL_PANP`, `WVOD1`, `HL_WCO2`, `WYZEDB3`, and `HL_DB2`—and the stream schema cannot variant-scope an entry. Those exclusions are known; only additional WebRTC/ICE and host/network behavior remains unverified.
 
 ## Pairing and authentication
 
@@ -71,9 +70,18 @@ There is no camera PIN or Bluetooth-style pairing. The Wyze cloud supplies per-c
 - Media streams use username `wb` and the bridge's unique `WB_API` key as the password. The key is shown at the bottom of the Web UI unless explicitly configured.
 - The Web UI defaults to username `wbadmin`; `WB_PASSWORD` overrides its derived password.
 - The REST API accepts `WB_API` in an `api` header or query parameter.
-- `STREAM_AUTH` can define per-user credentials, optional client IPs, and optional camera-path restrictions. Multiple entries are separated by `|`; when `WB_API` and `STREAM_AUTH` are both configured, both mechanisms apply.
+- `STREAM_AUTH` uses `user:password[:client-ip[,client-ip...]][@path[,path...]]`, with multiple entries separated by `|`. Empty IP or path restrictions mean any IP or all paths. These grants can coexist with `WB_AUTH=true` and its `WB_API` credential.
 
-Authentication is only explicitly disabled with `WB_AUTH=false` **and no `STREAM_AUTH`**. That configures anonymous stream reads. It is an insecure, deliberate choice for a trusted isolated LAN, not a safe configuration for port forwarding or an untrusted network.
+An empty `STREAM_AUTH` username matches **any username**; an empty username and password creates an anonymous grant. Credentialed and anonymous examples are:
+
+| Value | Meaning |
+|---|---|
+| `cam-user:example-only-password` | Credentialed access from any IP to all paths; the password is an invented example. |
+| `::192.168.0.10` | Anonymous access from `192.168.0.10` to all paths. |
+| `::192.168.0.15,192.168.0.20@just-one-cam` | Anonymous access from either listed IP to only `just-one-cam`. |
+| `:@public-cam` | Anonymous access from any IP to only `public-cam`. |
+
+`WB_AUTH=false` with no `STREAM_AUTH` is the **whole-stream default-anonymous configuration**, not the only anonymous form. It configures anonymous reads for every stream and is an insecure, deliberate choice for a trusted isolated LAN, not a safe configuration for port forwarding or an untrusted network.
 
 To revoke a bridge, revoke its Wyze developer API key and clear cached bridge credentials. Rotate `WB_API` or `STREAM_AUTH` secrets to revoke local stream consumers; cloud revocation alone does not change those local credentials.
 

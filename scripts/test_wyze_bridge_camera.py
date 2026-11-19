@@ -36,12 +36,12 @@ def test_exact_supported_model_allowlist(spec):
         "HL_WCO2",
         "WYZEDB3",
         "HL_DB2",
-        "HL_CFL",
         "HL_CFL2",
     }
     actual = {variant["model"] for variant in spec["device"]["variants"]}
     assert actual == expected
     assert {
+        "HL_CFL",
         "HL_PAN4",
         "GW_GC1",
         "GW_GC2",
@@ -53,13 +53,18 @@ def test_exact_supported_model_allowlist(spec):
     }.isdisjoint(actual)
 
 
-def test_floodlight_and_shared_v3_model_mapping_is_explicit(spec):
+def test_floodlight_accessory_identity_is_not_a_standalone_model(spec):
     variants = {v["model"]: v for v in spec["device"]["variants"]}
-    assert variants["WYZE_CAKP2JFUS"]["products"] == [
+    shared_v3 = variants["WYZE_CAKP2JFUS"]
+    assert shared_v3["products"] == [
         "Wyze Cam v3",
         "Wyze Cam Floodlight v1",
     ]
-    assert variants["HL_CFL"]["products"] == ["Wyze Cam Floodlight v1"]
+    assert shared_v3["accessory_identities"] == {
+        "Wyze Cam Floodlight v1": "HL_CFL"
+    }
+    assert "not a standalone cloud camera model" in shared_v3["notes"]
+    assert "HL_CFL" not in variants
     assert variants["HL_CFL2"]["products"] == ["Wyze Cam Floodlight v2 (2K)"]
 
 
@@ -90,14 +95,30 @@ def test_discovery_is_manual_bridge_host_only(spec):
 
 def test_stream_templates_use_bridge_address_and_real_hls_path(spec):
     streams = {stream["transport"]: stream for stream in spec["camera"]["streams"]}
+    assert set(streams) == {"rtsp", "hls"}
     assert streams["rtsp"]["url_template"] == "rtsp://{address}:8554/{camera_name}"
     assert streams["hls"]["url_template"] == (
         "http://{address}:8888/{camera_name}/stream.m3u8"
     )
-    assert streams["webrtc"]["url_template"] == "http://{address}:8889/{camera_name}"
     for stream in streams.values():
         assert "{bridge_address}" not in stream["url_template"]
         assert "{device" not in stream["url_template"]
+
+
+def test_no_generic_webrtc_and_exact_known_exclusions(spec):
+    scope = spec["protocol_details"]["webrtc_scope"]
+    assert scope["generic_stream_declared"] is False
+    assert set(scope["no_webrtc_models"]) == {
+        "WYZEC1",
+        "HL_PANP",
+        "WVOD1",
+        "HL_WCO2",
+        "WYZEDB3",
+        "HL_DB2",
+    }
+    assert "host/network behavior" in scope["remaining_unknown"]
+    assert "known and are not open questions" in scope["remaining_unknown"]
+    assert "webrtc" not in {stream["transport"] for stream in spec["camera"]["streams"]}
 
 
 def test_tutk_modes_and_cloud_boundary(spec):
@@ -114,18 +135,53 @@ def test_tutk_modes_and_cloud_boundary(spec):
     assert "local bridge endpoints" in tutk["modes"][1]["meaning"]
 
 
-def test_wb_auth_stream_auth_and_explicit_anonymous_mode(spec):
+def parse_stream_auth_entry(value: str) -> dict:
+    authority, at_sign, path_list = value.partition("@")
+    parts = authority.split(":")
+    assert len(parts) in {2, 3}
+    username, password = parts[:2]
+    client_ips = parts[2].split(",") if len(parts) == 3 and parts[2] else []
+    paths = path_list.split(",") if at_sign and path_list else []
+    return {
+        "username": username,
+        "password": password,
+        "client_ips": client_ips,
+        "paths": paths,
+    }
+
+
+def test_wb_auth_credentialed_and_anonymous_stream_auth_vectors(spec):
     auth = spec["protocol_details"]["bridge_authentication"]
     assert auth["default"]["WB_AUTH"] is True
     assert auth["default"]["stream_username"] == "wb"
     assert "unique WB_API key" in auth["default"]["stream_password_source"]
     assert auth["default"]["webui_username_default"] == "wbadmin"
-    assert auth["custom_stream_auth"]["variable"] == "STREAM_AUTH"
-    assert "@path" in auth["custom_stream_auth"]["syntax"]
-    assert auth["explicitly_disabled"]["configuration"] == (
-        "WB_AUTH=false with STREAM_AUTH unset"
-    )
-    assert "anonymous" in auth["explicitly_disabled"]["behavior"]
+    custom = auth["custom_stream_auth"]
+    assert custom["variable"] == "STREAM_AUTH"
+    assert "@path" in custom["syntax"]
+    assert "empty username matches any username" in custom["behavior"]
+    assert "WB_AUTH=true" in custom["behavior"]
+    assert {vector["value"] for vector in custom["vectors"]} == {
+        "cam-user:example-only-password",
+        "::192.168.0.10",
+        "::192.168.0.15,192.168.0.20@just-one-cam",
+        ":@public-cam",
+    }
+    assert {vector["mode"] for vector in custom["vectors"]} == {
+        "credentialed",
+        "anonymous",
+    }
+    for vector in custom["vectors"]:
+        parsed = parse_stream_auth_entry(vector["value"])
+        for key in ("username", "password", "client_ips", "paths"):
+            assert vector[key] == parsed[key]
+        assert vector["matches_any_username"] is (parsed["username"] == "")
+        assert vector["coexists_with_WB_AUTH"] is True
+        if vector["mode"] == "anonymous":
+            assert parsed["username"] == parsed["password"] == ""
+    whole_stream = auth["whole_stream_default_anonymous"]
+    assert whole_stream["configuration"] == "WB_AUTH=false with STREAM_AUTH unset"
+    assert "not the only way" in whole_stream["behavior"]
     for stream in spec["camera"]["streams"]:
         assert stream["auth"] != "none"
 

@@ -204,7 +204,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Reolink IP Camera](reolink-camera.md) | WiFi (RTSP/CGI + Baichuan 9000) | Spec Available | Enable RTSP/ONVIF (low) | Reolink |
 | [Amcrest / Dahua IP Camera](amcrest-dahua-camera.md) | WiFi (RTSP + CGI) | Spec Available | Set admin password (low) | Dahua / Amcrest |
 | [Hikvision IP Camera (ISAPI)](hikvision-isapi-camera.md) | WiFi (RTSP + ISAPI) | Spec Available | Activate + password (low) | Hangzhou Hikvision |
-| [Wyze Cam (docker-wyze-bridge)](wyze-bridge-camera.md) | WiFi (RTSP/HLS/WebRTC via bridge) | Spec Available | Wyze account/API + bridge host (untested) | Wyze Labs |
+| [Wyze Cam (docker-wyze-bridge)](wyze-bridge-camera.md) | WiFi (RTSP/HLS via bridge) | Spec Available | Wyze account/API + bridge host (untested) | Wyze Labs |
 | [Wyze Bulb Color / Light Strip (encrypted LAN)](wyze-mesh-light-lan.md) | WiFi (encrypted HTTP 88) | Spec Available | Vendor BLE/cloud setup + enr (untested) | Wyze Labs |
 | [Wyze Cam (legacy official RTSP)](wyze-legacy-rtsp.md) | WiFi (RTSP, exact legacy firmware) | Spec Available | App enable; optional advanced microSD flash (untested) | Wyze Labs |
 | [Bambu Lab 3D Printer (LAN)](bambu-lab-lan.md) | WiFi (MQTT 8883 + FTPS + RTSPS) | Spec Available | Enable LAN mode + access code (low) | Bambu Lab |
