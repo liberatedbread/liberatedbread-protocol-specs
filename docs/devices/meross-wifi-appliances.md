@@ -49,9 +49,19 @@ fields are:
 - `from`: the full local `/config` URL;
 - `uuid`: the target device UUID.
 
-Verify the reply UUID and its signature on the LAN. An `ERROR` method carries a
-device-level `payload.error.code`; HTTP success alone is not command success.
-MD5 signing does not supply modern replay protection, so use a trusted LAN.
+Correlate before decrypting or applying state. A normal reply must carry the
+**exact outstanding `messageId`**, the expected full `namespace`, and `GETACK`
+for a GET or `SETACK` for a SET. Only then verify its signature and bound UUID,
+and only after those checks consume its payload. A stale reply with a valid
+signature still fails.
+
+Handle `ERROR` separately: correlate its ID/namespace, verify signature/UUID,
+then surface `payload.error.code` instead of treating it as an ACK or normal
+payload. Handle `PUSH` separately as an unsolicited state notification, never as
+completion of an in-flight command. If the exact ID is missing or no matching
+request is outstanding, reject the reply and serialize the next request with a
+fresh ID rather than matching by arrival order. HTTP success alone is not command
+success, and MD5 signing does not supply modern replay protection.
 
 ## Encrypt.Suite
 
@@ -123,8 +133,9 @@ update clients if the shared key changed.
 `scripts/test_meross_wifi_appliances_spec.py` reconstructs the MD5 signature,
 AES-256-CBC/zero-padding vector, UDP probe and identity binding, Config.Key
 payload, ToggleX messages, and garage open/close writes. It also checks the
-cleartext exemptions, advanced safety gates, and stock-versus-owner-selected
-credential boundary using no network or real key.
+cleartext exemptions, advanced safety gates, stock-versus-owner-selected
+credential boundary, and stale-ID/wrong-namespace/wrong-ACK/signature/UUID,
+ERROR and PUSH handling using no network or real key.
 
 ## References
 

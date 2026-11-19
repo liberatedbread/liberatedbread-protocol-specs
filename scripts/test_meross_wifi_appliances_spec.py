@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -191,3 +192,146 @@ def test_safety_lifecycle_and_reported_status():
     assert setup["rejoin"]["in_place_supported"] is False
     assert SPEC["device"]["pairing"]["security_mode"] == "app_layer"
     assert SPEC["remaining_unknowns"]
+
+
+def validate_reply(request: dict, response: dict, account_key: str) -> dict:
+    """Correlate, require ACK, authenticate, and only then return payload."""
+    request_header = request["header"]
+    response_header = response["header"]
+    if response_header.get("messageId") != request_header["messageId"]:
+        raise ValueError("messageId mismatch")
+    if response_header.get("namespace") != request_header["namespace"]:
+        raise ValueError("namespace mismatch")
+
+    def authenticate():
+        expected = hashlib.md5(
+            f"{response_header['messageId']}{account_key}{response_header['timestamp']}".encode()
+        ).hexdigest()
+        if response_header.get("sign") != expected:
+            raise ValueError("signature mismatch")
+        if response_header.get("uuid") != request_header["uuid"]:
+            raise ValueError("UUID mismatch")
+
+    if response_header.get("method") == "ERROR":
+        authenticate()
+        return {"error": response["payload"]["error"]["code"]}
+
+    expected_ack = "GETACK" if request_header["method"] == "GET" else "SETACK"
+    if response_header.get("method") != expected_ack:
+        raise ValueError("acknowledgement mismatch")
+    authenticate()
+    return response["payload"]
+
+
+def correlated_pair(method="GET", namespace="Appliance.System.All", message_id="00112233445566778899aabbccddeeff"):
+    key = DETAILS["envelope"]["test_vector"]["account_key"]
+    uuid = "20000000-0000-4000-8000-020000000001"
+    timestamp = 1700000000
+    request = signed_message(
+        namespace,
+        method,
+        {},
+        message_id=message_id,
+        timestamp=timestamp,
+        key=key,
+        uuid=uuid,
+    )
+    response = signed_message(
+        namespace,
+        "GETACK" if method == "GET" else "SETACK",
+        {"answer": 42},
+        message_id=message_id,
+        timestamp=timestamp,
+        key=key,
+        uuid=uuid,
+    )
+    return key, request, response
+
+
+def test_reply_correlation_ack_signature_uuid_then_payload():
+    key, request, response = correlated_pair()
+    assert validate_reply(request, response, key) == {"answer": 42}
+    key, request, response = correlated_pair(method="SET", namespace="Appliance.Control.ToggleX")
+    assert validate_reply(request, response, key) == {"answer": 42}
+
+    key, request, response = correlated_pair()
+    stale = signed_message(
+        response["header"]["namespace"],
+        "GETACK",
+        {"answer": 999},
+        message_id="ffeeddccbbaa99887766554433221100",
+        timestamp=response["header"]["timestamp"],
+        key=key,
+        uuid=response["header"]["uuid"],
+    )
+    with pytest.raises(ValueError, match="messageId mismatch"):
+        validate_reply(request, stale, key)
+
+    wrong_namespace = signed_message(
+        "Appliance.Control.ToggleX",
+        "GETACK",
+        {"answer": 999},
+        message_id=request["header"]["messageId"],
+        timestamp=response["header"]["timestamp"],
+        key=key,
+        uuid=response["header"]["uuid"],
+    )
+    with pytest.raises(ValueError, match="namespace mismatch"):
+        validate_reply(request, wrong_namespace, key)
+
+    wrong_ack = json.loads(json.dumps(response))
+    wrong_ack["header"]["method"] = "SETACK"
+    wrong_ack["header"]["sign"] = "not-even-a-valid-signature"
+    with pytest.raises(ValueError, match="acknowledgement mismatch"):
+        validate_reply(request, wrong_ack, key)
+
+    bad_signature = json.loads(json.dumps(response))
+    bad_signature["header"]["sign"] = "0" * 32
+    with pytest.raises(ValueError, match="signature mismatch"):
+        validate_reply(request, bad_signature, key)
+
+    wrong_uuid = json.loads(json.dumps(response))
+    wrong_uuid["header"]["uuid"] = "20000000-0000-4000-8000-020000000002"
+    with pytest.raises(ValueError, match="UUID mismatch"):
+        validate_reply(request, wrong_uuid, key)
+
+
+def test_error_push_and_uncorrelated_replies_never_complete_a_write():
+    key, request, response = correlated_pair(method="SET", namespace="Appliance.Control.ToggleX")
+    error = signed_message(
+        request["header"]["namespace"],
+        "ERROR",
+        {"error": {"code": 5001}},
+        message_id=request["header"]["messageId"],
+        timestamp=response["header"]["timestamp"],
+        key=key,
+        uuid=response["header"]["uuid"],
+    )
+    assert validate_reply(request, error, key) == {"error": 5001}
+
+    bad_error = json.loads(json.dumps(error))
+    bad_error["header"]["sign"] = "0" * 32
+    with pytest.raises(ValueError, match="signature mismatch"):
+        validate_reply(request, bad_error, key)
+
+    push = signed_message(
+        request["header"]["namespace"],
+        "PUSH",
+        {"togglex": {"channel": 0, "onoff": 1}},
+        message_id=request["header"]["messageId"],
+        timestamp=response["header"]["timestamp"],
+        key=key,
+        uuid=response["header"]["uuid"],
+    )
+    with pytest.raises(ValueError, match="acknowledgement mismatch"):
+        validate_reply(request, push, key)
+
+    missing_id = json.loads(json.dumps(response))
+    del missing_id["header"]["messageId"]
+    with pytest.raises(ValueError, match="messageId mismatch"):
+        validate_reply(request, missing_id, key)
+
+    policy = DETAILS["envelope"]["reply_validation"]
+    assert "fresh messageId" in policy["uncorrelated_transport"]
+    assert "Never match replies by arrival order" in policy["uncorrelated_transport"]
+    assert "never as the answer that completes an in-flight command" in policy["unsolicited_push"]

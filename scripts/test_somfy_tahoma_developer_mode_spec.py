@@ -1,4 +1,4 @@
-"""Somfy Developer Mode request/response tests against a loopback HTTP stub."""
+"""Documentary Somfy Developer Mode conformance against a loopback HTTP stub."""
 
 from __future__ import annotations
 
@@ -40,7 +40,6 @@ class GatewayStub(BaseHTTPRequestHandler):
             "authorization": self.headers.get("Authorization"),
             "body": json.loads(body) if body else None,
         })
-        return body
 
     def _reply(self, value, status=200):
         data = json.dumps(value, separators=(",", ":")).encode()
@@ -89,16 +88,6 @@ class GatewayStub(BaseHTTPRequestHandler):
         else:
             self._reply({"error": "not found", "errorCode": "NOT_FOUND"}, 404)
 
-    def do_DELETE(self):
-        self._record()
-        if self.path in (
-            f"{API_ROOT}/exec/current/setup",
-            f"{API_ROOT}/exec/current/setup/{EXECUTION_ID}",
-        ):
-            self._reply({})
-        else:
-            self._reply({"error": "not found", "errorCode": "NOT_FOUND"}, 404)
-
 
 @pytest.fixture
 def gateway():
@@ -113,6 +102,7 @@ def gateway():
 
 
 def api_request(base_url: str, name: str, **parameters):
+    """Transcribe a documentary command, not a generic mobile consumer."""
     command = COMMANDS[name]
     token = parameters.pop("token", None)
     path = command["path"]
@@ -121,12 +111,9 @@ def api_request(base_url: str, name: str, **parameters):
             value = urllib.parse.quote(str(value), safe="")
         path = path.replace("{" + key + "}", str(value))
     headers = {"Accept": "application/json"}
-    for scheme_name in command.get("auth", []):
-        scheme = SPEC["auth_schemes"][scheme_name]
-        assert scheme["type"] == "header"
+    for header, template in command.get("headers", {}).items():
         assert token, f"{name} requires a bearer token"
-        for header, template in scheme["headers"].items():
-            headers[header] = template.replace("{owner_token}", token)
+        headers[header] = template.replace("{owner_token}", token)
     body = None
     if "body" in command:
         text = command["body"]
@@ -215,7 +202,7 @@ def test_listener_rate_limit_timeout_and_invalid_id_recovery():
     assert "rebuild event state from /setup" in listener["recovery"]
 
 
-def test_execution_apply_query_and_cancel_are_real_requests(gateway):
+def test_execution_apply_and_query_are_real_documentary_requests(gateway):
     base_url, records = gateway
     status, accepted = api_request(base_url, "cover_open", token=TOKEN, device_url=DEVICE_URL)
     assert status == 200
@@ -228,11 +215,8 @@ def test_execution_apply_query_and_cancel_are_real_requests(gateway):
     status, current = api_request(base_url, "get_execution", token=TOKEN, execution_id=execution)
     assert status == 200
     assert current["id"] == execution
-    status, cancelled = api_request(base_url, "cancel_execution", token=TOKEN, execution_id=execution)
-    assert status == 200
-    assert cancelled == {}
-    assert [record["method"] for record in records] == ["POST", "GET", "DELETE"]
-    assert records[-1]["path"] == f"{API_ROOT}/exec/current/setup/{EXECUTION_ID}"
+    assert [record["method"] for record in records] == ["POST", "GET"]
+    assert all(record["authorization"] == f"Bearer {TOKEN}" for record in records)
 
 
 def test_pin_mismatch_and_txt_requirements_fail_closed():
@@ -250,24 +234,41 @@ def test_pin_mismatch_and_txt_requirements_fail_closed():
     assert discovery["service_type"] != "_kizbox._tcp.local."
 
 
-def test_tls_bearer_listener_and_movement_contract():
+def test_identify_only_tls_bearer_and_documentary_command_contract():
+    assert SPEC["device"]["integration"] == "identify_only"
+    assert SPEC["device"]["testing"]["status"] == "untested"
+    identification = SPEC["device"]["identification"]
+    assert identification["default_scheme"] == "https"
+    assert identification["tls"]["verification"] == "vendor_ca"
+    assert "overkiz-root-ca-2048.crt" in identification["tls"]["notes"]
+    assert "never a discovered IP substitute" in identification["notes"]
+    assert SPEC["protocol_details"]["api"]["request_host"].startswith("gateway-<gateway_pin>.local")
+    assert "Never replace it with the mDNS IP" in SPEC["protocol_details"]["api"]["request_host"]
     tls = SPEC["protocol_details"]["tls"]
-    assert tls["mode"] == "standard"
     assert tls["root_ca_url"] == "https://ca.overkiz.com/overkiz-root-ca-2048.crt"
     assert tls["root_sha256_fingerprint"].startswith("BB:FA:96:11")
     assert "Do not set CERT_NONE" in tls["rule"]
-    assert SPEC["device"]["integration"] == "supported"
-    assert SPEC["device"]["testing"]["status"] == "untested"
+
+    assert "entities" not in SPEC
+    assert "auth_schemes" not in SPEC
+    assert not any(command["method"] == "DELETE" for command in COMMANDS.values())
     for name, command in COMMANDS.items():
         if name == "read_api_version":
-            assert "auth" not in command
+            assert "headers" not in command
+            assert "owner_token" not in command.get("parameters", {})
         else:
-            assert command["auth"] == ["owner_bearer"], name
+            assert command["headers"] == {"Authorization": "Bearer {owner_token}"}, name
+            parameter = command["parameters"]["owner_token"]
+            assert parameter == {
+                "type": "string",
+                "required": True,
+                "source": "credential:owner_token",
+            }, name
     assert COMMANDS["cover_open"]["advanced"] is True
     assert COMMANDS["cover_close"]["advanced"] is True
     assert "advanced" not in COMMANDS["cover_stop"]
-    assert "advanced" not in COMMANDS["cancel_execution"]
-    assert "advanced" not in COMMANDS["cancel_all_executions"]
+    assert "cancel_execution" not in COMMANDS
+    assert "cancel_all_executions" not in COMMANDS
 
 
 def test_activation_exclusions_reset_and_rejoin_boundaries():

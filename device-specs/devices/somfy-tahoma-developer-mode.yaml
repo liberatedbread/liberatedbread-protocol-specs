@@ -17,7 +17,7 @@ device:
   category: "hub"
   type: "home-automation-gateway-local-api"
   transport: "https"
-  integration: "supported"
+  integration: "identify_only"
   openness:
     status: "open_by_design"
     reverse_engineered: false
@@ -38,11 +38,14 @@ device:
     Do not substitute the app's separate _kizbox._tcp browsing for the official
     _kizboxdev._tcp developer advertisement.
 
-    The standard HTTP command surface is executable: bearer header substitution,
-    JSON bodies and path parameters need no proprietary encrypted/session
-    handler. Event listeners still require lifecycle scheduling as declared.
-    Shade open/close writes are advanced attended operations; stop and execution
-    cancellation remain available without an advanced opt-in.
+    Integration is identify_only. The generic mobile consumer has no
+    auth_schemes support, vendor-CA handler, advanced network-action gate,
+    DELETE transport, or resolver for named State records inside a device. All
+    OpenAPI operations and documentary commands below are implementation facts,
+    not a claim that the current generic app can execute them. A dedicated
+    handler must supply those capabilities and attended advanced-write
+    confirmation before supported status can be restored. No generic cover
+    entity, state mapping or DELETE cancellation binding is declared.
   identification:
     mdns_service_type: "_kizboxdev._tcp.local."
     mdns_txt_match:
@@ -54,7 +57,15 @@ device:
         match: "present"
         description: "Official TXT API version; fw_version is informational and does not select another API root."
     default_port: 8443
-    notes: "Require the TXT gateway_pin to agree with gateway-<pin>.local before HTTPS; a mismatch is not a supported gateway."
+    default_scheme: "https"
+    tls:
+      verification: "vendor_ca"
+      notes: >
+        Validate against the published Overkiz Root CA at
+        https://ca.overkiz.com/overkiz-root-ca-2048.crt and verify the
+        gateway-<pin>.local hostname. Do not disable verification or substitute
+        an IP request host/SNI; the PIN-derived hostname is required for TLS identity.
+    notes: "Require the TXT gateway_pin to agree with gateway-<pin>.local before HTTPS; use that hostname for the request, never a discovered IP substitute."
   discovery:
     methods:
       - type: "mdns"
@@ -192,10 +203,20 @@ protocol_details:
   api:
     verification: "reported"
     base_url: "https://gateway-<gateway_pin>.local:8443/enduser-mobile-web/1/enduserAPI"
+    request_host: "gateway-<gateway_pin>.local; resolve this name or preserve it as Host and TLS SNI. Never replace it with the mDNS IP for certificate validation."
     service: "_kizboxdev._tcp.local. (not _kizbox._tcp)"
     identity_rule: "TXT gateway_pin is authoritative. Require exact case-insensitive agreement with gateway-<pin>.local; reject mismatch rather than guessing from the instance name."
     authorization: "Authorization: Bearer <owner-token> on every endpoint except GET apiVersion, whose security list is empty in the official OpenAPI."
     content_type: "application/json for exec/apply and any body; use normal HTTPS request/response semantics."
+  consumer_limits:
+    integration: "identify_only"
+    missing_handlers:
+      - "Per-command bearer credentials (no generic auth_schemes consumer)"
+      - "Overkiz vendor-CA plus PIN-derived Host/SNI verification"
+      - "Advanced network-action confirmation for attended open/close"
+      - "DELETE execution cancellation"
+      - "Named State array resolution for cover open/closed and optional position/tilt"
+    documentary_boundary: "Commands and http_endpoints are a protocol catalogue for a dedicated client. No generic cover entity/state binding or DELETE command is executable today."
   tls:
     verification: "reported"
     mode: "standard"
@@ -235,48 +256,48 @@ http_endpoints:
   - method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/setup"
     name: "Installation Setup"
-    description: "Bearer-authorized complete setup, fetched once at startup and after listener replacement."
+    description: "Documentary bearer-authorized complete setup, fetched once at startup and after listener replacement."
     verification: "reported"
   - method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/setup/gateways"
     name: "Gateway Description"
-    description: "Bearer-authorized gatewayId/connectivity/protocolVersion array."
+    description: "Documentary bearer-authorized gatewayId/connectivity/protocolVersion array."
     response_body: { content_type: "application/json", example: '[{"gatewayId":"2001-0000-0000","connectivity":{"status":"OK","protocolVersion":"2022.1.3-1"}}]' }
     verification: "reported"
   - method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/setup/devices"
     name: "Devices"
-    description: "Bearer-authorized array of Device records with deviceURL/label/controllable/states."
+    description: "Documentary bearer-authorized array of Device records with deviceURL/label/controllable/states."
     response_body: { content_type: "application/json", example: '[{"deviceURL":"io://2001-0000-0000/1000001","label":"Example Shade","controllableName":"io:VerticalExteriorAwningIOComponent","states":[{"name":"core:OpenClosedState","type":3,"value":"closed"}]}]' }
     verification: "reported"
   - method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/setup/devices/{device_url}/states"
     name: "Device States"
-    description: "Bearer-authorized State array for one deviceURL; URL-encode the path parameter exactly once."
+    description: "Documentary bearer-authorized State array for one deviceURL; URL-encode the path parameter exactly once."
     response_body: { content_type: "application/json", example: '[{"name":"core:OpenClosedState","type":3,"value":"open"}]' }
     verification: "reported"
   - method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/events/register"
     name: "Register Event Listener"
-    description: "Bearer-authorized; returns id. Listener dies after ten inactive minutes or gateway reboot."
+    description: "Documentary bearer-authorized; returns id. Listener dies after ten inactive minutes or gateway reboot."
     response_body: { content_type: "application/json", example: '{"id":"00000000-0000-4000-8000-000000000002"}' }
     verification: "reported"
   - method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/fetch"
     name: "Fetch Listener Events"
-    description: "Bearer-authorized Event array; no more than once per second and often enough to avoid the ten-minute expiry."
+    description: "Documentary bearer-authorized Event array; no more than once per second and often enough to avoid the ten-minute expiry."
     response_body: { content_type: "application/json", example: '[{"name":"DeviceStateChangedEvent","deviceURL":"io://2001-0000-0000/1000001","deviceStates":[{"name":"core:OpenClosedState","type":3,"value":"open"}]}]' }
     verification: "reported"
   - method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/unregister"
     name: "Unregister Event Listener"
-    description: "Bearer-authorized orderly listener cleanup; no body required."
+    description: "Documentary bearer-authorized orderly listener cleanup; no body required."
     response_body: { content_type: "application/json", example: '[]' }
     verification: "reported"
   - method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
     name: "Apply Action Group"
-    description: "Bearer-authorized non-persistent action group. Shade movement commands are advanced attended writes."
+    description: "Documentary bearer-authorized non-persistent action group. Shade movement commands are advanced attended writes."
     request_body:
       content_type: "application/json"
       fields:
@@ -290,53 +311,49 @@ http_endpoints:
   - method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/exec/current"
     name: "Current Executions"
-    description: "Bearer-authorized list of currently running local API action groups."
+    description: "Documentary bearer-authorized list of currently running local API action groups."
     verification: "reported"
   - method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/exec/current/{execution_id}"
     name: "Current Execution"
-    description: "Bearer-authorized status of one running local execution."
+    description: "Documentary bearer-authorized status of one running local execution."
     verification: "reported"
   - method: "DELETE"
     path: "/enduser-mobile-web/1/enduserAPI/exec/current/setup/{execution_id}"
     name: "Cancel Execution"
-    description: "Bearer-authorized cancellation of one local setup-level execution; not advanced so stop remains accessible."
+    description: "Documentary bearer-authorized cancellation of one local setup-level execution; not advanced so stop remains accessible."
     verification: "reported"
   - method: "DELETE"
     path: "/enduser-mobile-web/1/enduserAPI/exec/current/setup"
     name: "Cancel All Executions"
-    description: "Bearer-authorized cancellation of all running setup-level local executions."
+    description: "Documentary bearer-authorized cancellation of all running setup-level local executions."
     verification: "reported"
-
-auth_schemes:
-  owner_bearer:
-    type: "header"
-    credential: "owner_token"
-    headers:
-      Authorization: "Bearer {owner_token}"
-    description: "Owner-generated Developer Mode token; gateway_pin is never substituted here."
 
 commands:
   read_api_version:
-    description: "Unauthenticated API version after mDNS PIN match and Overkiz TLS validation."
+    description: "Documentary unauthenticated API version request after mDNS PIN match and Overkiz TLS validation; no Authorization header."
     transport: "http"
     method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/apiVersion"
     returns: [{name: "protocolVersion", type: "string"}]
     verification: "reported"
   read_setup:
-    description: "Read complete installation once at startup and after listener recovery."
+    description: "Documentary bearer request for the complete installation at startup and listener recovery."
     transport: "http"
     method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/setup"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     verification: "reported"
   read_devices:
-    description: "Read deviceURL, label, controllable and current states for installation-specific covers."
+    description: "Documentary bearer request for deviceURL, label, controllable and current states; no generic cover resolver is implied."
     transport: "http"
     method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/setup/devices"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     returns:
       - {name: "deviceURL", type: "string"}
       - {name: "label", type: "string"}
@@ -344,144 +361,119 @@ commands:
       - {name: "states", type: "array", description: "Named State records, including core:OpenClosedState when supported."}
     verification: "reported"
   read_device_states:
-    description: "Read one device's named State array; URL-encode device_url exactly once."
+    description: "Documentary bearer request for one device's named State array; URL-encode device_url exactly once."
     transport: "http"
     method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/setup/devices/{device_url}/states"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
     parameters:
       device_url: { type: "string", required: true, source: "instance:deviceURL", description: "DeviceURL from setup/devices, URL-encoded for the path." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     returns:
       - {name: "name", type: "string"}
       - {name: "type", type: "integer"}
       - {name: "value", type: "any", description: "Preserve the State's JSON type; open/closed is a string, positions may be numeric percent."}
     verification: "reported"
   register_listener:
-    description: "Register a server-side event listener and retain its id for bounded fetch/unregister."
+    description: "Documentary bearer listener registration; a dedicated lifecycle handler retains the returned id."
     transport: "http"
     method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/events/register"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     returns: [{name: "id", type: "string", description: "ListenerId, usually a UUID-shaped string."}]
     verification: "reported"
   fetch_events:
-    description: "Fetch pending events no more than once per second; on invalid-listener 400 re-register and resync setup."
+    description: "Documentary bearer event fetch, at most once per second; invalid-listener 400 requires re-registration and setup resync."
     transport: "http"
     method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/fetch"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
     parameters:
       listener_id: { type: "string", required: true, description: "Runtime id returned by register_listener, not an owner credential." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     returns:
       - {name: "name", type: "string"}
       - {name: "deviceURL", type: "string"}
       - {name: "deviceStates", type: "array"}
     verification: "reported"
   unregister_listener:
-    description: "Unregister the listener during orderly shutdown; expiry/reboot still requires recovery."
+    description: "Documentary bearer listener cleanup; expiry/reboot still requires dedicated recovery."
     transport: "http"
     method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/unregister"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
     parameters:
       listener_id: { type: "string", required: true, description: "Runtime id returned by register_listener." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     verification: "reported"
   cover_open:
-    description: "Apply an attended open command to a confirmed cover deviceURL."
+    description: "Documentary attended open command; a future advanced network-action handler must confirm identity, direction and clearance before sending."
     transport: "http"
     method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
     body: '{"label":"Attended cover open","actions":[{"deviceURL":"{device_url}","commands":[{"name":"open","parameters":[]}]}]}'
     parameters:
       device_url: { type: "string", required: true, source: "instance:deviceURL" }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     advanced: true
-    advanced_reason: "Moves a real cover. Confirm the device, direction and clear travel path; keep stop/cancel available and monitor to completion."
+    advanced_reason: "Moves a real cover. Confirm the device, direction and clear travel path; keep stop available and monitor to completion. This is future dedicated-handler behavior, not a current generic control."
     verification: "reported"
   cover_close:
-    description: "Apply an attended close command to a confirmed cover deviceURL."
+    description: "Documentary attended close command; a future advanced network-action handler must confirm identity and an unobstructed travel path."
     transport: "http"
     method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
     body: '{"label":"Attended cover close","actions":[{"deviceURL":"{device_url}","commands":[{"name":"close","parameters":[]}]}]}'
     parameters:
       device_url: { type: "string", required: true, source: "instance:deviceURL" }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     advanced: true
-    advanced_reason: "Moves a real cover and can trap an obstruction. Watch the full travel path and monitor actual state; never assume execId means completion."
+    advanced_reason: "Moves a real cover and can trap an obstruction. Watch the full travel path and monitor actual state; execId is not completion. This is future dedicated-handler behavior, not a current generic control."
     verification: "reported"
   cover_stop:
-    description: "Apply stop to the confirmed cover; deliberately not advanced so a user can halt movement promptly."
+    description: "Documentary stop POST, deliberately non-advanced so a dedicated client need not place an extra confirmation before halting movement."
     transport: "http"
     method: "POST"
     path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
     body: '{"label":"Stop cover","actions":[{"deviceURL":"{device_url}","commands":[{"name":"stop","parameters":[]}]}]}'
     parameters:
       device_url: { type: "string", required: true, source: "instance:deviceURL" }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     verification: "reported"
   list_executions:
-    description: "List currently running local API action groups."
+    description: "Documentary bearer request for currently running local API action groups."
     transport: "http"
     method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/exec/current"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     verification: "reported"
   get_execution:
-    description: "Read one current local execution by execId."
+    description: "Documentary bearer request for one current local execution by execId."
     transport: "http"
     method: "GET"
     path: "/enduser-mobile-web/1/enduserAPI/exec/current/{execution_id}"
-    auth: ["owner_bearer"]
+    headers: { Authorization: "Bearer {owner_token}" }
     parameters:
       execution_id: { type: "string", required: true, description: "execId returned by exec/apply." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
     verification: "reported"
-  cancel_execution:
-    description: "Cancel one local setup-level execution; not advanced."
-    transport: "http"
-    method: "DELETE"
-    path: "/enduser-mobile-web/1/enduserAPI/exec/current/setup/{execution_id}"
-    auth: ["owner_bearer"]
-    parameters:
-      execution_id: { type: "string", required: true, description: "execId returned by exec/apply." }
-    verification: "reported"
-  cancel_all_executions:
-    description: "Cancel every currently running setup-level local execution; not advanced."
-    transport: "http"
-    method: "DELETE"
-    path: "/enduser-mobile-web/1/enduserAPI/exec/current/setup"
-    auth: ["owner_bearer"]
-    verification: "reported"
-
-entities:
-  - platform: "cover"
-    name: "Installation Cover"
-    variants: ["TaHoma Switch and officially compatible gateways"]
-    instances:
-      keyed_by: "deviceURL"
-      children_path: "devices"
-      id_field: "deviceURL"
-      label_path: "label"
-    state_command: "read_devices"
-    state_mapping: { is_open: "core:OpenClosedState", on_when: "open" }
-    commands:
-      open_cover: "cover_open"
-      close_cover: "cover_close"
-      stop_cover: "cover_stop"
-    notes: >
-      Instantiate only devices whose controllable/states support the declared
-      commands. State resolver matches State records by name; open/closed are
-      strings, not booleans. No percentage/tilt is inferred without a model-specific
-      state definition. open/close are advanced; stop remains directly available.
 
 local_access:
   status: "native"
-  summary: "Official Developer Mode supplies token-authorized local HTTPS discovery, installation/state reads, events and executions without ongoing cloud access."
+  summary: "The official Developer Mode API supports token-authorized local HTTPS operations; this repository's generic consumer remains identify_only until dedicated handlers exist."
   covers:
     - "_kizboxdev._tcp identity, Overkiz TLS and unauthenticated apiVersion"
-    - "setup/devices/states, bearer authorization and event listener lifecycle"
-    - "exec/apply plus current execution query/cancel and attended cover commands"
+    - "Documentary setup/devices/states, bearer authorization and event listener lifecycle"
+    - "Documentary exec/apply and current-execution operations for a dedicated client"
   not_covered:
+    - "Generic cover entity/state rendering, DELETE cancellation and advanced network-action confirmation"
     - "Offline activation, token recovery/revocation API or excluded square gen1/Connectivity Kit"
     - "Every Somfy device/controllable, position/tilt mapping or scenario/cloud API"
     - "Unverified TLS, unattended shade movement or public firmware download"
@@ -499,7 +491,7 @@ payload_formats:
       - {name: "value", type: "any", description: "open/closed string for core:OpenClosedState; other states may use numeric percent, integer or boolean."}
     parse_rules:
       - "Find states by name within the device's State array; never assume array position."
-      - "For the declared cover, on_when open applies only to core:OpenClosedState. Missing state is unknown, not closed."
+      - "A future dedicated cover resolver must match core:OpenClosedState by name and treat missing state as unknown, not closed. No generic state_mapping is declared."
       - "execId is an acknowledgement. Reconcile execution and device events before reporting physical completion."
     example: |
       [{"name":"core:OpenClosedState","type":3,"value":"open"}]

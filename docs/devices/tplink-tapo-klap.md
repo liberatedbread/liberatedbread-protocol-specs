@@ -23,6 +23,12 @@ The 16-byte header is big-endian. Broadcast uses flags `0x11`; a unicast probe
 uses `0x21`. Before calculating CRC32, put `5a 6b 7c 8d` in the CRC field, then
 replace that placeholder with the big-endian CRC of the complete packet.
 
+A dedicated TDP codec must first require the version/opcode/serial and exact
+payload length, then restore the placeholder and verify CRC, and only then decode
+the JSON payload. The generic UDP binary reader cannot skip the header or resolve
+`binary:result.*` paths, so the spec deliberately declares **no discovery identity
+mapping**. Header-first decoding and transport selection require the custom handler.
+
 The JSON reply identifies the device and advertises its management transport:
 
 - `KLAP` selects the two-handshake encrypted HTTP protocol below;
@@ -75,9 +81,34 @@ Older firmware posts JSON to `/app`:
    `params.request` as Base64 AES-CBC ciphertext. Decrypt `result.response`
    with the same session key and IV.
 
-Login version 2 uses SHA-1 hexadecimal password material instead of the older
-password field. The spec declares the exact encodings and a synthetic RSA/AES
-vector; it publishes no real account key or credential.
+Select the login shape from `mgt_encrypt_schm.lv`: only `lv == 2` uses
+`password2` with SHA-1 hexadecimal password material; every other advertised
+value uses the older Base64 `password` field. Do not switch versions merely to
+retry a failed login.
+
+The RSA public key is SubjectPublicKeyInfo DER encoded as unwrapped Base64 inside
+the two PEM markers. Serialize the handshake as compact UTF-8 JSON with no added
+whitespace and set `Content-Length` to the exact body byte count; it is required,
+and some devices answer 500 without it. The synthetic RSA-1024 vector in the spec
+reproduces the reference implementation's **314-byte** body. Do not use chunked
+transfer encoding. Send `Content-Type` and `Accept` as `application/json`,
+`requestByApp: true`, and the `/app` Referer.
+
+Retain `TP_SESSIONID` after the handshake, falling back to `SESSIONID` when that
+is what the device supplied; normalize it into `TP_SESSIONID` on login and every
+secure request. Read `TIMEOUT` in seconds and refresh at
+`monotonic_now + TIMEOUT - 1200` (a 20-minute skew buffer), defaulting to 86400
+seconds only when absent. Never return `TIMEOUT` as the session cookie.
+
+AES session recovery is **independent of KLAP's 403 handshake**. On expiry or an
+authentication/session error, invalidate token/cookie/cipher and perform the RSA
+handshake **and** `login_device` once with the accepted account credential. Retry
+an idempotent read once, then stop on another failure. For a relay write, first
+read `device_on`: skip if it already has the desired value, issue at most one
+write if it differs, and do not write when state cannot be read.
+
+The spec publishes the exact encodings and synthetic RSA/AES vectors; it contains
+no real account key or credential.
 
 ## Controls and energy boundary
 
@@ -124,10 +155,12 @@ not delay or weaken the complete KLAP implementation notes.
 ## Verification
 
 `scripts/test_tapo_klap_spec.py` independently reconstructs the fixed-seed v1/v2
-proofs and encrypted sessions, TDP broadcast/unicast CRC packets, RSA-1024 key
-wrap and AES passthrough envelope using only the standard library and the
-OpenSSL command-line AES primitive. It also checks the 403 rehandshake policy,
-advanced relay gates and synthetic fixtures. No hardware operation is claimed.
+proofs and encrypted sessions, header-first TDP broadcast/unicast CRC packets,
+314-byte RSA handshake, RSA key wrap and AES passthrough envelope using only the
+standard library and the OpenSSL command-line AES primitive. It separately checks
+KLAP 403 rehandshake and AES handshake+login recovery, cookie normalization and
+TIMEOUT expiry, bounded failure and relay-state reconciliation. No hardware
+operation is claimed.
 
 ## References
 

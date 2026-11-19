@@ -225,7 +225,16 @@ protocol_details:
       from: "Full request URL on LAN/AP: http://<address>/config."
       triggerSrc: "AndroidLocal on the reviewed local path; a replacement client may use a stable local identifier only if firmware accepts it."
       uuid: "Target bound device UUID."
-    reply_validation: "Verify UUID and, on LAN, recompute the reply signature from its own messageId/timestamp. method ERROR carries payload.error.code and is not transport success."
+    reply_validation:
+      correlation_first:
+        - "Require header.messageId to equal the exact outstanding request messageId, not merely a valid MD5 input or a recent response."
+        - "Require header.namespace to equal the request's full expected Appliance.* namespace. A valid response for another namespace is not this command's response."
+      acknowledgement:
+        - "For a normal reply, require method == GETACK when the request was GET, or SETACK when it was SET. Do not accept GET, SET, PUSH, SETACK-for-GET or GETACK-for-SET."
+        - "Only after exact ID, namespace and acknowledgement method match, recompute MD5(reply.messageId || account_key || reply.timestamp) and require the reply sign and bound UUID. Only then decode or act on payload."
+      error_path: "method == ERROR is a separate device-failure path. After exact ID/namespace correlation, verify its signature and UUID, then surface payload.error.code; never require an ACK method or interpret normal payload as success."
+      unsolicited_push: "PUSH has no outstanding-request correlation. Handle it separately as a state notification after UUID/signature checks, never as the answer that completes an in-flight command."
+      uncorrelated_transport: "If a reply lacks the exact ID or arrives while no matching request is outstanding, reject it and serialize the next request with a fresh messageId. Never match replies by arrival order, reuse IDs to make correlation pass, or allow an old reply to complete a later write."
     test_vector:
       account_key: "0123456789abcdef0123456789abcdef"
       message_id: "00112233445566778899aabbccddeeff"

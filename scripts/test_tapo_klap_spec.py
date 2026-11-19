@@ -254,3 +254,190 @@ def test_commands_and_lifecycle_keep_documented_safety_boundaries():
     assert DETAILS["tpap_reported_appendix"]["verification"] == "reported"
     assert "extra_crypt" in DETAILS["tpap_reported_appendix"]["unresolved"]
     assert SPEC["remaining_unknowns"]
+
+
+def decode_tdp_response(packet: bytes, serial: int = 0x01020304) -> dict:
+    """Header/CRC first, JSON second; the generic binary reader cannot do this."""
+    if len(packet) < 16:
+        raise ValueError("short TDP datagram")
+    if packet[0] != 2 or int.from_bytes(packet[2:4], "big") != 1:
+        raise ValueError("unsupported TDP frame")
+    if packet[7] not in (0, 1):
+        raise ValueError("TDP error result")
+    if int.from_bytes(packet[8:12], "big") != serial:
+        raise ValueError("TDP serial mismatch")
+    payload_length = int.from_bytes(packet[4:6], "big")
+    if payload_length != len(packet) - 16:
+        raise ValueError("TDP payload length mismatch")
+    placeholder = packet[:12] + bytes.fromhex("5a6b7c8d") + packet[16:]
+    if int.from_bytes(packet[12:16], "big") != zlib.crc32(placeholder) & 0xFFFFFFFF:
+        raise ValueError("TDP CRC mismatch")
+    return json.loads(packet[16:])
+
+
+def der_length(size: int) -> bytes:
+    if size < 128:
+        return bytes([size])
+    encoded = size.to_bytes((size.bit_length() + 7) // 8, "big")
+    return bytes([0x80 | len(encoded)]) + encoded
+
+
+def der(tag: int, content: bytes) -> bytes:
+    return bytes([tag]) + der_length(len(content)) + content
+
+
+def der_integer(value: int) -> bytes:
+    encoded = value.to_bytes((value.bit_length() + 7) // 8, "big")
+    if encoded[0] & 0x80:
+        encoded = b"\x00" + encoded
+    return der(2, encoded)
+
+
+def rsa_public_spki(modulus: int, exponent: int) -> bytes:
+    public_key = der(0x30, der_integer(modulus) + der_integer(exponent))
+    algorithm = bytes.fromhex("300d06092a864886f70d0101010500")
+    return der(0x30, algorithm + der(3, b"\x00" + public_key))
+
+
+def normalized_session(cookies: dict, now: float) -> tuple[dict, float]:
+    session_id = cookies.get("TP_SESSIONID") or cookies.get("SESSIONID")
+    if not session_id:
+        raise ValueError("missing session cookie")
+    timeout = int(cookies.get("TIMEOUT", 86400))
+    return {"TP_SESSIONID": session_id}, now + timeout - 1200
+
+
+class AesAuthError(Exception):
+    pass
+
+
+def aes_request_with_recovery(handshake, login, operation, reconcile=None):
+    """AES-only handshake+login recovery, deliberately not the KLAP helper."""
+    handshake()
+    login()
+    try:
+        return operation()
+    except AesAuthError:
+        handshake()
+        login()
+        if reconcile is None:
+            return operation()
+        actual = reconcile()
+        return operation(actual)
+
+
+def test_tdp_custom_decoder_and_absent_generic_identity_mapping():
+    vectors = DETAILS["tdp"]["test_vectors"]
+    for method in SPEC["device"]["discovery"]["methods"]:
+        assert "identity_mapping" not in method["udp_broadcast"]
+        assert method["udp_broadcast"]["response_format"] == "binary"
+    assert "cannot skip this 16-byte header" in DETAILS["tdp"]["custom_handler_limitation"]
+    packet = bytes.fromhex(vectors["broadcast_packet_hex"])
+    decoded = decode_tdp_response(packet)
+    assert decoded["params"]["rsa_key"].startswith("-----BEGIN PUBLIC KEY-----")
+    tampered = bytearray(packet)
+    tampered[-1] ^= 1
+    with pytest.raises(ValueError, match="CRC"):
+        decode_tdp_response(bytes(tampered))
+    with pytest.raises(ValueError, match="serial"):
+        decode_tdp_response(packet, serial=0x01020305)
+
+
+def test_rsa_handshake_serialization_and_cookie_timeout():
+    secure = DETAILS["secure_passthrough"]
+    vector = secure["test_vector"]
+    spki = rsa_public_spki(int(vector["modulus_hex"], 16), vector["public_exponent"])
+    assert len(spki) == 162
+    assert base64.b64encode(spki).decode() == vector["public_key_der_base64"]
+    pem = (
+        "-----BEGIN PUBLIC KEY-----\n"
+        + vector["public_key_der_base64"]
+        + "\n-----END PUBLIC KEY-----\n"
+    )
+    assert pem == vector["public_key_pem"]
+    body = json.dumps({"method": "handshake", "params": {"key": pem}}, separators=(",", ":"))
+    assert body == vector["handshake_json"]
+    assert len(body.encode()) == 314
+    assert secure["handshake_http"]["vector_content_length"] == len(body.encode())
+    headers = secure["handshake_http"]["required_headers"]
+    assert headers["Content-Type"] == "application/json"
+    assert headers["requestByApp"] == "true"
+    assert "500" in headers["Content-Length"]
+    assert "chunked" in headers["Content-Length"]
+    assert "lv == 2" in secure["login_version_selection"]
+    assert "every other advertised value" in secure["login_version_selection"]
+
+    cookie, expiry = normalized_session({"SESSIONID": "synthetic-session", "TIMEOUT": "86400"}, 1000.0)
+    assert cookie == {"TP_SESSIONID": "synthetic-session"}
+    assert expiry == 1000.0 + 86400 - 1200
+    cookie, expiry = normalized_session({"TP_SESSIONID": "preferred", "SESSIONID": "ignored"}, 1000.0)
+    assert cookie == {"TP_SESSIONID": "preferred"}
+    assert expiry == 1000.0 + 86400 - 1200
+
+
+def test_aes_auth_recovery_is_independent_of_klap_403_and_reconciles_relay():
+    events = []
+
+    def handshake():
+        events.append("rsa_handshake")
+
+    def login():
+        events.append("login")
+
+    def read():
+        events.append("read")
+        if events.count("read") == 1:
+            raise AesAuthError
+        return "ok"
+
+    assert aes_request_with_recovery(handshake, login, read) == "ok"
+    assert events == ["rsa_handshake", "login", "read", "rsa_handshake", "login", "read"]
+    assert "seed_handshake" not in events
+    assert "403" not in events
+
+    def relay_operation():
+        attempts = 0
+
+        def operation(actual=None):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise AesAuthError
+            if actual is True:
+                return "already_on"
+            events.append(("set_device_info", True))
+            return "written"
+
+        return operation
+
+    events.clear()
+    assert aes_request_with_recovery(
+        handshake,
+        login,
+        relay_operation(),
+        reconcile=lambda: events.append("get_device_info") or False,
+    ) == "written"
+    assert events == [
+        "rsa_handshake", "login", "rsa_handshake", "login",
+        "get_device_info", ("set_device_info", True),
+    ]
+
+    events.clear()
+    assert aes_request_with_recovery(
+        handshake,
+        login,
+        relay_operation(),
+        reconcile=lambda: events.append("get_device_info") or True,
+    ) == "already_on"
+    assert ("set_device_info", True) not in events
+    assert events[-1] == "get_device_info"
+
+    events.clear()
+    failures = iter([AesAuthError(), AesAuthError()])
+
+    def always_fails():
+        raise next(failures)
+
+    with pytest.raises(AesAuthError):
+        aes_request_with_recovery(handshake, login, always_fails)
+    assert events == ["rsa_handshake", "login", "rsa_handshake", "login"]

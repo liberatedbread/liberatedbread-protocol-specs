@@ -57,12 +57,6 @@ device:
           probe_hex: "0200000101e5110001020304afd86f477b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
           passive_ok: false
           response_format: "binary"
-          identity_mapping:
-            stable_keys:
-              - source: "binary:result.device_id"
-              - source: "binary:result.mac"
-            display:
-              source: "binary:result.device_model"
         notes: >
           Send in parallel with the port-20004 probe. The fixed packet is a
           synthetic-key test vector; a live client generates its own RSA-2048
@@ -74,12 +68,7 @@ device:
           probe_hex: "0200000101e5110001020304afd86f477b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
           passive_ok: false
           response_format: "binary"
-          identity_mapping:
-            stable_keys:
-              - source: "binary:result.device_id"
-            display:
-              source: "binary:result.device_model"
-        notes: "Parallel low-energy listener; deduplicate replies by device_id and serial."
+        notes: "Parallel low-energy listener; a custom TDP handler validates the header/CRC, decodes JSON, then deduplicates by device_id and serial. No generic identity mapping is declared."
     identity:
       stable_keys: ["device_id", "mac"]
       display: "device_model"
@@ -229,7 +218,11 @@ protocol_details:
       - "Compute zlib/IEEE CRC32 over the complete header and payload."
       - "Replace bytes 12..15 with the CRC as big-endian uint32. Verify replies by restoring the placeholder and requiring matching version/serial."
     request_json: '{"params":{"rsa_key":"<fresh RSA-2048 public key in PEM form>"}}'
-    response: 'JSON {"error_code":0,"result":{...}} after the binary header; select mgt_encrypt_schm.encrypt_type AES or KLAP and read http_port/device_id/device_model/mac.'
+    response_codec:
+      - "Require at least 16 bytes, then parse the big-endian header before touching JSON. Require version=2, opcode=1, an accepted result (0 or 1), the request serial, and payload_length == datagram_bytes - 16."
+      - "Restore 5a6b7c8d in header bytes 12..15 and recompute IEEE CRC32 over the full datagram; reject mismatch before parsing any reply field."
+      - "Only then UTF-8/JSON-decode the exact payload bytes: {\"error_code\":0,\"result\":{...}}. Select mgt_encrypt_schm.encrypt_type AES or KLAP and read http_port/device_id/device_model/mac."
+    custom_handler_limitation: "The generic udp_broadcast binary reader yields an opaque datagram; it cannot skip this 16-byte header or resolve binary:result.* paths. Discovery therefore declares no identity_mapping. A dedicated TDP codec must perform response_codec before identity, transport selection or control."
     test_vectors:
       broadcast_packet_hex: "0200000101e5110001020304afd86f477b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
       unicast_packet_hex: "0200000101e5210001020304a9ab0c817b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
@@ -298,11 +291,33 @@ protocol_details:
       - "Base64-decode result.key and RSA-PKCS1-v1_5-decrypt it. Require a 32-byte plaintext: AES key[0:16] || IV[16:32]."
       - "Encrypt login_device with AES-128-CBC/PKCS7 and Base64. lv != 2 uses Base64(password); lv == 2 uses password2 = Base64(SHA1(password) hexadecimal ASCII). username = Base64(SHA1(email) hexadecimal ASCII)."
       - "Read result.token, then send method securePassthrough with params.request = Base64(AES-CBC-PKCS7(JSON)). Decrypt result.response identically."
+    login_version_selection: "Read mgt_encrypt_schm.lv from the validated TDP JSON reply before constructing login params. Only lv == 2 selects password2 = Base64(SHA1(password) hexadecimal ASCII); every other advertised value uses password = Base64(password). Do not select a different login version merely because a request failed."
+    handshake_http:
+      public_key_serialization: "SubjectPublicKeyInfo DER, Base64 without interior line wrapping, enclosed between '-----BEGIN PUBLIC KEY-----\\n' and '\\n-----END PUBLIC KEY-----\\n'."
+      json_serialization: 'Compact UTF-8 JSON with no added whitespace: {"method":"handshake","params":{"key":"<PEM>"}}. Newlines inside the PEM are JSON \\n escapes.'
+      required_headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+        requestByApp: "true"
+        Content-Length: "Exact UTF-8 body byte count, decimal. Required: some devices answer 500 when it is absent. Do not use chunked transfer encoding."
+        Referer: "http://<address>:<port>/app"
+      vector_content_length: 314
+    session_lifecycle:
+      cookie_persistence: "After the RSA handshake, retain TP_SESSIONID if present, otherwise SESSIONID. Normalize either value into a TP_SESSIONID cookie and send it on login_device and every securePassthrough request; keep one cookie jar across handshake/login/control rather than dropping the session between them."
+      timeout: "Read TIMEOUT as seconds. Compute expiry = monotonic_now + TIMEOUT - 1200 seconds (20-minute clock-skew buffer); use 86400 seconds only when TIMEOUT is absent. Never send TIMEOUT back as the session cookie. On expiry, clear token/cookie and require RSA handshake plus login before another request."
+      key_reuse: "The RSA keypair may be cached for later handshakes. Session cookies/tokens are session state, not durable owner credentials; any process restart or uncertain expiry must reauthenticate rather than replaying an old token."
+    recovery:
+      trigger: "An expired session or an authentication/session error reported by HTTP status or the decrypted application error_code. This AES recovery is independent of KLAP's HTTP-403 seed handshake."
+      bounded_reauthentication: "Invalidate token, session cookie and encryption session, then perform RSA handshake AND login_device once with the accepted account credential and retry an idempotent read once. If either step or the retry fails, stop and surface the error; do not loop and do not treat default credential roles as universal recovery."
+      relay_reconciliation: "For plug_on/plug_off, never blindly repeat after reauthentication. First get_device_info. If device_on already equals the desired state, do not resend; if it differs, issue at most one write after this successful read. If state cannot be read, do not write."
     test_vector:
       note: "Synthetic RSA-1024 keypair. The private exponent is published only so an independent vector test can simulate both sides; it belongs to no device."
       modulus_hex: "c3c46839409191b14befd0031e2b68ac9b6f586172429702fe1bc97d95536b79c50529d873acaf3989a01ae31fab50984801d68036cbf3c320dcf11bfc91a12b74902d270aac3174d1f22db377069ed796f55361f21335349e25ba42d159ba8861fe344aa4c3a4e15facc6c98cf1fd386ea538af20572f67a3ebed9937715f03"
       public_exponent: 65537
       private_exponent_hex: "1103c10b38d16e183ac15d12e84c5d8ca2f5ca78adb59bea66ab8397a6a2d9747beb36f7d915e924d7115344ea3bb98582bca627fe9b3b547a46b9adf505b33c2c6ffc817d9408d4e97c26246de7e17a2ec1741a871269201b3f945a1be22f1d91c830110408c4ec9c389c7f857ec3160aff5ae256f836de92fae574dcdd6a01"
+      public_key_der_base64: "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDDxGg5QJGRsUvv0AMeK2ism29YYXJClwL+G8l9lVNrecUFKdhzrK85iaAa4x+rUJhIAdaANsvzwyDc8Rv8kaErdJAtJwqsMXTR8i2zdwae15b1U2HyEzU0niW6QtFZuohh/jRKpMOk4V+sxsmM8f04bqU4ryBXL2ej6+2ZN3FfAwIDAQAB"
+      public_key_pem: "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDDxGg5QJGRsUvv0AMeK2ism29YYXJClwL+G8l9lVNrecUFKdhzrK85iaAa4x+rUJhIAdaANsvzwyDc8Rv8kaErdJAtJwqsMXTR8i2zdwae15b1U2HyEzU0niW6QtFZuohh/jRKpMOk4V+sxsmM8f04bqU4ryBXL2ej6+2ZN3FfAwIDAQAB\n-----END PUBLIC KEY-----\n"
+      handshake_json: '{"method":"handshake","params":{"key":"-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDDxGg5QJGRsUvv0AMeK2ism29YYXJClwL+G8l9lVNrecUFKdhzrK85iaAa4x+rUJhIAdaANsvzwyDc8Rv8kaErdJAtJwqsMXTR8i2zdwae15b1U2HyEzU0niW6QtFZuohh/jRKpMOk4V+sxsmM8f04bqU4ryBXL2ej6+2ZN3FfAwIDAQAB\n-----END PUBLIC KEY-----\n"}}'
       pkcs1_padding_hex: "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d"
       session_key_iv_hex: "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
       wrapped_key_base64: "dBncfi43HCzfwDARUp2gj/grD15qTOFbYuTTbElhRpBPpsSUO+wLgWLL5uqeL4Nh6hNZu5tgNU3SGIYUEFDXfjvfvnDZMn9nOd7Tpyx2RN6kk6N3cm0kUnAxx9BBuB4wAHqhv7W4SG29/Ukt3ettewyqMdm39L1rCfvHWj6rNf8="

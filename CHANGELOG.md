@@ -71,10 +71,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Sonoff gains SRV/TXT discovery and separate stock AES envelopes versus the
   Basic R3/RFR3/Mini-only keyless DIY object API. Somfy TaHoma Developer Mode
   gains the official bearer HTTPS setup/devices/states, event-listener and
-  execution APIs with Overkiz root/PIN checks. The first three remain
-  identify-only pending dedicated encrypted/session handlers; Somfy uses the
-  standard executable HTTP surface. All four are reported/untested, with
-  advanced attended mains/garage/shade writes and 28 independent offline tests.
+  execution APIs with Overkiz root/PIN checks. All four remain identify-only
+  pending dedicated encrypted/session or bearer/TLS/action/state handlers.
+  All four are reported/untested, with
+  advanced attended mains/garage/shade writes and 34 independent offline tests.
 - **November 17 mobility and scale transports: three bounded protocol specs.**
   VanMoof S3/X3 gains the legacy `6acc55` AES-128-ECB profile with strict fresh
   challenges, authenticated battery/distance/speed/lock reads and attended,

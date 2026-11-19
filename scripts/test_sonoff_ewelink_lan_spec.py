@@ -174,5 +174,36 @@ def test_safety_reset_credential_and_ota_boundaries():
     ap = DETAILS["setup_ap"]
     assert ap["address"] == "10.10.7.1"
     assert "not universal recovery" in ap["credential_boundary"]
-    assert SPEC["device"]["setup"]["rejoin"]["requires_factory_reset"] is False
+    rejoin = SPEC["device"]["setup"]["rejoin"]
+    assert rejoin["in_place_supported"] is False
+    assert rejoin["requires_factory_reset"] is True
+    assert rejoin["stock"] == {
+        "in_place_supported": False,
+        "requires_factory_reset": True,
+        "procedure": rejoin["stock"]["procedure"],
+    }
+    assert rejoin["diy"]["in_place_supported"] is True
+    assert rejoin["diy"]["requires_factory_reset"] is False
     assert SPEC["remaining_unknowns"]
+
+
+def decode_documented_plaintext(data: bytes) -> dict:
+    """Tolerate only the reported trailing 0x02 firmware-padding quirk."""
+    return json.loads(data.rstrip(b"\x02"))
+
+
+def test_cbc_decode_is_not_authenticated_and_cleanup_is_exact():
+    vector = DETAILS["stock_crypto"]["test_vector"]
+    assert decrypt_stock(vector["ciphertext_base64"], vector["devicekey"], vector["iv_base64"]) == {"switch": "on"}
+    assert "never sender authenticity or message integrity" in DETAILS["stock_crypto"]["ciphertext"]
+    assert "only those exact trailing 0x02 bytes" in DETAILS["commands"]["response_quirks"][-1]
+
+    assert decode_documented_plaintext(b'{"switch":"on"}\x02\x02') == {"switch": "on"}
+    for malformed in (
+        b'{"switch":"on"}\x00',
+        b'{"switch":"on"}\x03',
+        b'{"switch":"on"}\x02\x00',
+        b'{"switch":"on"}\x02garbage',
+    ):
+        with pytest.raises(json.JSONDecodeError):
+            decode_documented_plaintext(malformed)

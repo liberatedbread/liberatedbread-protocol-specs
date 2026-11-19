@@ -63,11 +63,17 @@ For encrypted stock:
 - decode `iv` from Base64 before using its 16 bytes;
 - Base64-decode `data` before decryption, and encode requests in the reverse order.
 
-There is no MAC. A fresh random 16-byte IV works; the app's own IV happens to be
+There is no MAC or replay authentication. Successful CBC decryption, valid
+padding, or a valid JSON parse proves **decodability, not authenticity or
+integrity**. A fresh random 16-byte IV works; the app's own IV happens to be
 16 decimal digits. Require `error=0` and correlate `sequence`/`seq` where
 returned. Serialize HTTP requests because the small server is effectively
 single-threaded. Some units return `text/html` to `getState`, meaning online but
 no JSON state, not proof of DIY.
+
+After normal PKCS#7 validation/removal, tolerate only the exact reported trailing
+`0x02` bytes left by a firmware padding bug. Do not strip arbitrary bytes, and do
+not call the resulting decode authenticated.
 
 ## Commands
 
@@ -118,22 +124,27 @@ integrity protection, so setup and control belong on a trusted LAN.
 
 ## Reset and changing routers
 
-The BASICR2/RFR2 manual specifies a **five-second pairing-button hold** until
-the Wi-Fi LED cycles **two short flashes and one long flash**. Release to enter
-quick pairing. It also tells owners to use this reset before joining another
-Wi-Fi network. This procedure is scoped to BASICR2/RFR2, not every Sonoff.
+The conservative **stock** rejoin posture is `in_place_supported: false` and
+`requires_factory_reset: true`: use the exact model's setup flow rather than
+inventing an in-place write. The BASICR2/RFR2 manual specifically requires a
+**five-second pairing-button hold** until the Wi-Fi LED cycles **two short
+flashes and one long flash**. Release to enter quick pairing and provision the
+new network. That reset remains scoped to BASICR2/RFR2; other stock models use
+their own instructions rather than inheriting the hold.
 
-Official DIY supports `/zeroconf/wifi` with the new SSID/password without a
-factory reset. Recheck the instance device ID and SRV port afterward. Whether a
-stock devicekey changes during re-pairing is unresolved; retrieve it again via a
-legitimate account or bounded setup source if necessary.
+Official **DIY is the separate exception**: on a verified `type=diy_plug`, POST
+`/zeroconf/wifi` with the new SSID/password without a factory reset. Recheck the
+instance device ID and SRV port afterward. Whether a stock devicekey changes
+during re-pairing is unresolved; retrieve it again via a legitimate account or
+bounded setup source if necessary.
 
 ## Verification
 
 `scripts/test_sonoff_ewelink_lan_spec.py` reconstructs the raw-MD5 AES key,
 Base64 IV and ciphertext, stock request example, TXT reassembly, SRV-port
-selection, and stock-versus-DIY bodies. It checks pulse units, advanced relay/OTA
-gates and the bounded reset/credential claims without contacting a relay.
+selection, and stock-versus-DIY bodies and rejoin behavior. It checks pulse units,
+advanced relay/OTA gates, bounded reset/credential claims, unauthenticated-CBC
+wording and exact-only trailing `0x02` cleanup without contacting a relay.
 
 ## References
 
