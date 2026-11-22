@@ -16,9 +16,9 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     Progress against this list, and new finds since it was written, are logged
     week by week in [Weekly Device Sweeps](weekly-sweeps.md). Done so far from
     *Do these next*: #1 Instant Pot, #2 AM43, #3 JuiceBox, #5 Sengled, #7 Yummly,
-    #6 BiSecur, #8 LIVISI, #11 AirPort ACP, #12 Philips air purifiers, #15
-    Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels id, #19 TRÅDFRI gateway, #22
-    Insteon Hub, #23 Furby Connect, #24 Nissan Leaf; from the category tables: Orbit B-hyve, the Elgato
+    #6 BiSecur, #8 LIVISI, #9 Fossil Hybrid HR, #11 AirPort ACP, #12 Philips air purifiers, #15
+    Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels id, #19 TRÅDFRI gateway, #21 Echelon Connect, #22
+    Insteon Hub, #23 Furby Connect, #24 Nissan Leaf, #25 Slingbox, #26 Cozmo; from the category tables: Orbit B-hyve, the Elgato
     classic-HTTP family, SolarEdge (as Modbus TCP, not the SetApp web API), Qingping, Eurotronic Comet
     Blue, Big Ass Fans, RadonEye, Anova ([Mini](../devices/anova-precision-cooker-mini.md) and [Nano](../devices/anova-precision-cooker-nano.md) now have separate profiles), Weber iGrill, Acaia, Felicita Arc,
     ALLPOWERS R600, RENPHO R-Q002 N, Remootio, Ozobot Evo, ThermoWorks BlueDOT,

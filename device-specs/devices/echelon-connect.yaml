@@ -1,0 +1,723 @@
+# Echelon Connect bikes and Stride treadmills (pre-July-2025 firmware) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (public, clean-room; derived facts only, no code copied):
+#   - cagnulein/qdomyos-zwift (QZ, GPL-3.0) at commit
+#     49be559ae85c1571a4a2323224e06e96c2867d32 (2025-06-30, before the July
+#     2025 firmware): src/devices/echelonconnectsport/echelonconnectsport.cpp
+#     (bike driver), src/devices/echelonstride/echelonstride.cpp (treadmill
+#     driver), src/devices/bluetooth.cpp (name routing). Byte facts were
+#     re-checked against the current master files; only the plain profile
+#     present at that commit is described here.
+#   - QZ issue #62 (Echelon Connect Sport BLE log, 2020) and the QZ
+#     Equipment Compatibility wiki page.
+#   - ptx2/gymnasticon pull request #76 (MIT), src/bikes/echelon.js at
+#     82aea215b92eef0152208964ab4c4f309bbd9df5: independent bike client.
+#
+# Scope: only the plain BLE profile of machines on firmware older than July
+# 2025. Nothing here concerns later firmware.
+
+device:
+  name: "Echelon Connect bikes and Stride treadmills (pre-July-2025 firmware)"
+  manufacturer: "Echelon Fitness"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every byte comes from two
+      independent open clients (QZ and Gymnasticon) that agree on the bike's
+      service, characteristics, stream-start frame and the cadence and
+      resistance offsets. Treadmill facts come from QZ alone.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "fitness"
+  type: "exercise-bike-and-treadmill-telemetry"
+  notes: >
+    Echelon is an active company still selling Connect bikes, Stride
+    treadmills and rowers; it is listed as active for that reason. The
+    machines have no screen of their own (bikes) or only a basic console
+    (treadmills), and the vendor app normally drives them over BLE.
+
+    Scope: this spec covers only firmware released before July 2025. From
+    July 2025, Echelon firmware makes the machine wait for a server-issued
+    challenge before it streams metrics, and this spec does not apply to
+    machines running such firmware. Echelon also announced on 2025-07-29
+    that it would void the warranty of customers it finds using third-party
+    apps with its equipment.
+
+    On older firmware the bikes and treadmills share one vendor service,
+    0bf669f1-45f2-11e7-9598-0800200c9a66, with one write characteristic
+    (0bf669f2-…) and two notify characteristics (0bf669f3-…, 0bf669f4-…).
+    Every frame in both directions is
+    f0 <type> <payload length> <payload…> <sum8>, where the last byte is the
+    sum of all earlier bytes modulo 256 (see payload_formats.Echelon_Frame).
+
+    Bikes report cadence (0xd1 frame) and resistance level (0xd2 frame).
+    They do not report power, speed or heart rate: open clients estimate
+    power and speed from cadence and resistance (protocol_details.estimates)
+    and take heart rate from a separate strap. Treadmills report belt speed
+    (0xd3), incline (0xd2) and heart rate (0xd1, byte 11). They expect the
+    client to write each 0xd0, 0xd2 and 0xd3 frame straight back as an
+    acknowledgement.
+
+    DANGER POINT: the same bytes mean different things per family. f0 b0 01
+    01 a2 starts a bike's stream but starts a treadmill's belt, and f0 b1 01
+    nn sets bike resistance but treadmill incline. Identify the family
+    before sending anything beyond the shared initialisation.
+
+    Echelon rowers (ECH-ROW…, ROWSPORT…, ROW-S…) and the stair climber
+    (ECH-EC-SPT…) answer on the same service but are not covered here.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/cagnulein/qdomyos-zwift"
+    license: "GPL-3.0"
+    notes: >
+      No vendor documentation exists. The profile was recovered by QZ from
+      an HCI log of the vendor app (issue #62) and independently implemented
+      for bikes by Gymnasticon (MIT). Facts are restated here in our own
+      words; no code is copied.
+
+  identification:
+    local_name_prefixes: ["ECH", "STRIDE"]
+    service_uuids:
+      - "0bf669f0-45f2-11e7-9598-0800200c9a66"
+    notes: >
+      Echelon machines advertise service 0bf669f0-45f2-11e7-9598-0800200c9a66
+      (Gymnasticon scans for it; QZ lists it as a fitness-machine service)
+      and connect on 0bf669f1-…. Require that service together with a name:
+      the bare prefix ECH also matches unrelated machines such as Rogue's
+      ECHO_BIKE_ units. Test the more specific names first, as QZ does:
+      ECH-EC-SPT is the stair climber (out of scope); ECH-STRIDE, ECH-UK-,
+      ECH-FR-, ECH-SD-SPT, STRIDE and STRIDE6S- are treadmills; ECH-ROW,
+      ROWSPORT and ROW-S are rowers (out of scope); any other ECH name is a
+      Connect bike. Whether the treadmills also advertise 0bf669f0 is not
+      confirmed by either source.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0bf669f0-45f2-11e7-9598-0800200c9a66"
+          local_name:
+            match: "prefix"
+            value: "ECH"
+        notes: >
+          Bikes. Exclude the treadmill, rower and stair-climber prefixes listed
+          in device.identification before treating an ECH name as a bike.
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "STRIDE"
+        notes: >
+          Stride treadmills that advertise without the ECH- prefix. The
+          ECH-STRIDE, ECH-UK-, ECH-FR- and ECH-SD-SPT names are also
+          treadmills. Stride 4 units (names starting STRIDE4) use a longer
+          initialisation in QZ that this spec does not document.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No account, cloud or bond is needed on pre-July-2025 firmware. Both open
+      clients connect, subscribe and write without pairing.
+    methods:
+      - type: "ble_direct"
+        name: "Connect bike telemetry"
+        role: "variant"
+        verified: false
+        description: >
+          Subscribe to both notify characteristics, run the shared
+          initialisation, then send start_stream_or_belt to start the bike's
+          metric stream.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Confirm the machine is a bike: an ECH name that is not one of the treadmill, rower or stair-climber prefixes."
+            actor: "client"
+          - action: "Run the top-level initialization: subscribe 0bf669f3-45f2-11e7-9598-0800200c9a66 and 0bf669f4-45f2-11e7-9598-0800200c9a66, then the a1/a3 queries."
+            actor: "client"
+          - action: "Write start_stream_or_belt (f0 b0 01 01 a2). On a bike this starts the stream; Gymnasticon sends only this frame after subscribing and gets data."
+            actor: "client"
+            expect: "0xd1 frames (cadence) and 0xd2 frames (resistance, sent when it changes) arrive on 0bf669f4-45f2-11e7-9598-0800200c9a66."
+          - action: "Optionally write poll every 2 s, as QZ does. Gymnasticon never polls, so it does not appear to be required on bikes."
+            actor: "client"
+      - type: "ble_direct"
+        name: "Stride treadmill telemetry and control"
+        role: "variant"
+        verified: false
+        description: >
+          Subscribe, send the treadmill query, run the shared
+          initialisation, poll every 2 s, and echo the 0xd0/0xd2/0xd3 frames
+          back.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Confirm the machine is a treadmill by its name prefix. Never send start_stream_or_belt as part of connecting: on a treadmill it starts the belt."
+            actor: "client"
+          - action: "Write treadmill_query_a4 (f0 a4 00 94). QZ sends it before the a1 queries; the top-level initialization runs it after them, and whether the order matters is unknown."
+            actor: "client"
+          - action: "Run the top-level initialization (subscriptions, then the a1/a3 queries)."
+            actor: "client"
+          - action: "Write poll every 2 s (QZ's cadence) and write every received 0xd0, 0xd2 and 0xd3 frame straight back to 0bf669f2-45f2-11e7-9598-0800200c9a66."
+            actor: "client"
+          - action: "Start the belt only when the user asks and is standing safely: start_stream_or_belt, then treadmill_start_d0_00, then treadmill_start_d0_11."
+            actor: "user"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No factory reset for the BLE module or the machine is described in the
+        sources used. A reset would not roll firmware back.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Nothing is bonded or stored. Reconnect, resubscribe and rerun the initialisation."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credential is involved on pre-July-2025 firmware."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      QZ and Gymnasticon both connect to un-bonded machines and write the
+      vendor characteristic directly. Whether the machine accepts a second
+      central while the vendor app is connected is not stated by either
+      source; close the vendor app first.
+
+  safety_advisory:
+    severity: "warning"
+    summary: "Treadmill speed, incline and start commands move the belt and deck under the person using it."
+    detail: >
+      set_speed, set_incline and start_stream_or_belt change a running
+      treadmill without anyone touching its console. A wrong speed can throw
+      a user off the belt. Only send them at the user's explicit request,
+      keep the safety key clipped on, and keep the treadmill's stop control
+      within reach. This client is experimental and unaffiliated with
+      Echelon; Echelon's own instructions take precedence. Bike resistance
+      changes are not covered by this warning, but a sudden large step can
+      still surprise a rider.
+    acknowledge_required: true
+
+  variants:
+    - model: "Stride treadmill"
+      identification:
+        local_name_prefix: "ECH-STRIDE"
+      notes: >
+        Speed, incline, heart rate; start/stop. The four variants after this
+        one are the same treadmill under the other names QZ routes to its
+        treadmill driver; variant identification takes one prefix each, so
+        every treadmill entity lists all five. Stride 4 (STRIDE4…) also
+        matches the STRIDE prefix but needs extra initialisation not
+        documented here, and it reports speed in a different frame.
+    - model: "Stride treadmill (ECH-UK)"
+      identification:
+        local_name_prefix: "ECH-UK-"
+      notes: "Same treadmill protocol as the Stride treadmill variant, advertised as ECH-UK-…."
+    - model: "Stride treadmill (ECH-FR)"
+      identification:
+        local_name_prefix: "ECH-FR-"
+      notes: "Same treadmill protocol as the Stride treadmill variant, advertised as ECH-FR-…."
+    - model: "Stride treadmill (ECH-SD-SPT)"
+      identification:
+        local_name_prefix: "ECH-SD-SPT"
+      notes: "Same treadmill protocol as the Stride treadmill variant, advertised as ECH-SD-SPT…."
+    - model: "Stride treadmill (STRIDE)"
+      identification:
+        local_name_prefix: "STRIDE"
+      notes: "Same treadmill protocol as the Stride treadmill variant, advertised as STRIDE…. Also covers STRIDE6S- names."
+    - model: "Connect bike"
+      identification:
+        local_name_prefix: "ECH"
+        service_uuids:
+          - "0bf669f0-45f2-11e7-9598-0800200c9a66"
+      notes: >
+        Any ECH name that matches none of the treadmill, rower or
+        stair-climber prefixes. QZ's compatibility wiki lists EX-3, EX-4s,
+        EX-5/EX-5s and EX-7s with software resistance control, Connect Sport
+        and EX-15 as read-only (manual resistance knob), and EX-8s as not
+        working. No source gives a way to tell motorised from manual
+        resistance over BLE.
+
+initialization:
+  - characteristic: "0bf669f3-45f2-11e7-9598-0800200c9a66"
+    subscribe: true
+    notes: "QZ subscribes to both notify characteristics. Which frames use this one is not recorded; Gymnasticon ignores it."
+  - characteristic: "0bf669f4-45f2-11e7-9598-0800200c9a66"
+    subscribe: true
+    notes: "Carries the bike's 0xd1 and 0xd2 frames (Gymnasticon)."
+  - characteristic: "0bf669f2-45f2-11e7-9598-0800200c9a66"
+    write: [0xf0, 0xa1, 0x00, 0x91]
+    notes: "Query 0xa1, empty payload. QZ sends it four times in a row, copying the vendor app's log. Its reply is not decoded by either source."
+  - characteristic: "0bf669f2-45f2-11e7-9598-0800200c9a66"
+    write: [0xf0, 0xa1, 0x00, 0x91]
+  - characteristic: "0bf669f2-45f2-11e7-9598-0800200c9a66"
+    write: [0xf0, 0xa1, 0x00, 0x91]
+  - characteristic: "0bf669f2-45f2-11e7-9598-0800200c9a66"
+    write: [0xf0, 0xa1, 0x00, 0x91]
+  - characteristic: "0bf669f2-45f2-11e7-9598-0800200c9a66"
+    write: [0xf0, 0xa3, 0x00, 0x93]
+    notes: "Query 0xa3, empty payload; reply undecoded."
+  - characteristic: "0bf669f2-45f2-11e7-9598-0800200c9a66"
+    write: [0xf0, 0xa1, 0x00, 0x91]
+    notes: >
+      Last shared step. Bikes then need start_stream_or_belt to stream, and
+      treadmills need treadmill_query_a4 (QZ sends it first). These are
+      left out of this list because the steps cannot be limited to one
+      variant, and the bike's step starts a treadmill belt.
+
+services:
+  - uuid: "0bf669f1-45f2-11e7-9598-0800200c9a66"
+    name: "Echelon vendor service"
+    notes: >
+      The connect-time service. Advertisements carry 0bf669f0-…, a different
+      UUID. Both QZ drivers and Gymnasticon use this service's three
+      characteristics and nothing else.
+    characteristics:
+      - uuid: "0bf669f2-45f2-11e7-9598-0800200c9a66"
+        name: "Command write"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          All frames go here, written with response by both clients.
+          Whether write-without-response is accepted is not recorded.
+          Frame: f0, type, payload length, payload, sum8 of all earlier bytes.
+          Treadmill clients also write every received 0xd0, 0xd2 and 0xd3
+          frame back here unchanged, as QZ does.
+        commands:
+          poll:
+            description: >
+              Keep-alive poll, type 0xa0 with a one-byte counter. QZ sends it
+              every 2 s on both families, counting 1..255 and skipping 0 on
+              wrap. Gymnasticon never sends it to bikes.
+            encoding: "bytes"
+            template: [0xf0, 0xa0, 0x01, "{counter}", "{checksum}"]
+            parameters:
+              counter:
+                type: "uint8"
+                auto: "sequence"
+                min: 1
+                max: 255
+                description: "Per-poll counter, 1..255, wraps to 1 (never 0)."
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+                description: "Sum of bytes 0-3 modulo 256."
+            verification: "reported"
+          query_a1:
+            description: "Query 0xa1 with no payload; part of the initialisation. Reply not decoded."
+            encoding: "bytes"
+            value: [0xf0, 0xa1, 0x00, 0x91]
+            verification: "reported"
+          query_a3:
+            description: "Query 0xa3 with no payload; part of the initialisation. Reply not decoded."
+            encoding: "bytes"
+            value: [0xf0, 0xa3, 0x00, 0x93]
+            verification: "reported"
+          treadmill_query_a4:
+            description: "Treadmill only: query 0xa4 with no payload. QZ sends it first when connecting to a Stride. Not sent to bikes by either client."
+            encoding: "bytes"
+            value: [0xf0, 0xa4, 0x00, 0x94]
+            verification: "reported"
+          start_stream_or_belt:
+            description: >
+              Type 0xb0, payload 01. On a bike it starts the metric stream:
+              QZ sends it last in the bike initialisation, and Gymnasticon
+              sends only this frame. On a treadmill it is the first frame of
+              QZ's belt start (follow it with treadmill_start_d0_00 and
+              treadmill_start_d0_11).
+            encoding: "bytes"
+            value: [0xf0, 0xb0, 0x01, 0x01, 0xa2]
+            advanced: true
+            advanced_reason: >
+              On a treadmill this starts the belt. Send it to a bike only
+              after the name has identified a bike. Send it to a treadmill
+              only when the user is standing safely and has asked to start;
+              stop_belt or the console's stop key stops it.
+            verification: "reported"
+          treadmill_start_d0_00:
+            description: "Treadmill only: second frame of QZ's belt start, type 0xd0, payload 00. Its meaning is not explained by the source."
+            encoding: "bytes"
+            value: [0xf0, 0xd0, 0x01, 0x00, 0xc1]
+            advanced: true
+            advanced_reason: "Part of the treadmill belt-start sequence. Send only straight after start_stream_or_belt at the user's request; stop_belt stops the belt."
+            verification: "reported"
+          treadmill_start_d0_11:
+            description: "Treadmill only: third frame of QZ's belt start, type 0xd0, payload 0x11. Its meaning is not explained by the source."
+            encoding: "bytes"
+            value: [0xf0, 0xd0, 0x01, 0x11, 0xd2]
+            advanced: true
+            advanced_reason: "Part of the treadmill belt-start sequence. Send only straight after treadmill_start_d0_00 at the user's request; stop_belt stops the belt."
+            verification: "reported"
+          stop_belt:
+            description: >
+              Treadmill: stop the belt (type 0xb0, payload 00), as QZ does.
+              Not sent to bikes by either client; its effect on a bike
+              (probably stopping the stream) is unconfirmed.
+            encoding: "bytes"
+            value: [0xf0, 0xb0, 0x01, 0x00, 0xa1]
+            verification: "reported"
+          set_resistance:
+            description: >
+              Bike only: set the resistance level, type 0xb1, one-byte level.
+              QZ limits it to 1-32. Only motorised-resistance bikes act on it
+              (see variants). On a treadmill the same bytes set incline; use
+              set_incline there.
+            encoding: "bytes"
+            template: [0xf0, 0xb1, 0x01, "{level}", "{checksum}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 1
+                max: 32
+                description: "Resistance level 1-32, the same scale the bike reports in 0xd2 frames."
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+                description: "Sum of bytes 0-3 modulo 256."
+            verification: "reported"
+          set_incline:
+            description: >
+              Treadmill only: set the incline, type 0xb1, one-byte value. QZ
+              sends whole values 0-15 and reads the same scale back from 0xd2
+              frames. Whether the value is percent grade or a console level
+              is not stated by the source.
+            encoding: "bytes"
+            template: [0xf0, 0xb1, 0x01, "{incline}", "{checksum}"]
+            parameters:
+              incline:
+                type: "uint8"
+                min: 0
+                max: 15
+                description: "Incline, whole steps 0-15 (QZ's limits)."
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+                description: "Sum of bytes 0-3 modulo 256."
+            advanced: true
+            advanced_reason: >
+              Tilts the treadmill deck under the user. Change it only at the
+              user's request; set_incline 0 or the console's controls lower
+              it again.
+            verification: "reported"
+          set_speed:
+            description: >
+              Treadmill only: set belt speed, type 0xb2, two-byte big-endian
+              value = km/h x 1000. QZ limits requests to 0-22 km/h. On a
+              console set to miles the raw value is probably mph x 1000 (QZ
+              treats the matching 0xd3 reading that way); unconfirmed.
+            encoding: "bytes"
+            template: [0xf0, 0xb2, 0x02, "{speed}", "{checksum}"]
+            parameters:
+              speed:
+                type: "uint16"
+                endianness: "big"
+                scale: 0.001
+                unit: "km/h"
+                min: 0
+                max: 22000
+                description: "Belt speed; raw = km/h x 1000, sent high byte first."
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+                description: "Sum of bytes 0-4 modulo 256."
+            advanced: true
+            advanced_reason: >
+              Changes the belt speed under the user. A wrong value can throw
+              them off. Send only at the user's request; stop_belt or the
+              console's stop key stops the belt.
+            verification: "reported"
+
+      - uuid: "0bf669f3-45f2-11e7-9598-0800200c9a66"
+        name: "Notify 1"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Subscribed by QZ, which handles frames from both notify
+          characteristics with the same parser. Which frame types arrive
+          here rather than on 0bf669f4-… is not recorded.
+
+      - uuid: "0bf669f4-45f2-11e7-9598-0800200c9a66"
+        name: "Notify 2 (metrics)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Metric frames, decoded by frame type (byte 1); see
+          payload_formats. The format below covers the 0xd1 frame only.
+          0xd2 is bike resistance or treadmill incline, and 0xd3 is
+          treadmill speed. Treadmills expect each 0xd0, 0xd2 and 0xd3 frame
+          to be written straight back to 0bf669f2-…. Neither client checks
+          the trailing checksum byte of incoming frames.
+        format_match:
+          offset: 1
+          value: 0xd1
+          notes: "The 0xd1 frame. Bike: 13 bytes. Treadmill: longer than 11 bytes, exact length unrecorded."
+        format:
+          - {offset: 3, length: 2, name: "elapsed", type: "uint16", endianness: "big", unit: "s", notes: "Bike. Workout elapsed seconds (QZ logs it as minutes:seconds). Not established for treadmills."}
+          - {offset: 7, length: 2, name: "distance", type: "uint16", endianness: "big", scale: 0.01, notes: "Bike. QZ logs raw/100 but computes its own distance; unit (km or miles) unconfirmed."}
+          - {offset: 10, length: 1, name: "cadence", type: "uint8", unit: "rpm", notes: "Bike. Crank cadence; both clients read this byte."}
+          - {offset: 11, length: 1, name: "heart_rate", type: "uint8", unit: "bpm", notes: "Treadmill (from the console's grips or strap). 0 means no reading. Workout telemetry only, not for medical use. Not established for bikes."}
+
+payload_formats:
+  Echelon_Frame:
+    description: "Framing shared by every documented write and notification, bikes and treadmills alike."
+    fields:
+      - {index: 0, name: "header", description: "Always 0xf0."}
+      - {index: 1, name: "type", description: "Frame type. Writes: a0 poll, a1/a3/a4 queries, b0 start/stop, b1 resistance or incline, b2 speed. Notifications: d0 (treadmill, meaning unknown), d1 metrics, d2 resistance or incline, d3 treadmill speed."}
+      - {index: 2, name: "length", description: "Payload byte count (0, 1, 2 … in every documented frame). Inferred from the frames; neither client names it."}
+      - {index: 3, name: "payload", description: "length bytes; multi-byte values are big-endian."}
+      - {name: "checksum", description: "Last byte: sum of all earlier bytes, header included, modulo 256."}
+    parse_rules:
+      - "Check byte 0 is 0xf0, then switch on byte 1."
+      - "Multi-byte values are big-endian, unlike most BLE fitness profiles."
+      - "Neither open client verifies the checksum on incoming frames; a client may check it but should log, not drop, mismatches until hardware confirms the rule applies to notifications."
+  Bike_Metrics_D1:
+    description: "Bike 0xd1 metrics frame, 13 bytes: f0 d1 09, nine payload bytes, checksum."
+    fields:
+      - {index: 3, name: "elapsed", unit: "s", description: "uint16 big-endian, bytes 3-4."}
+      - {index: 5, name: "unknown_5_6", description: "Bytes 5-6, not decoded by either source."}
+      - {index: 7, name: "distance", description: "uint16 big-endian, bytes 7-8, raw x 0.01; unit unconfirmed."}
+      - {index: 9, name: "unknown_9", description: "Not decoded."}
+      - {index: 10, name: "cadence", unit: "rpm", description: "uint8."}
+      - {index: 11, name: "unknown_11", description: "Not decoded on bikes."}
+      - {index: 12, name: "checksum", description: "Sum of bytes 0-11 modulo 256."}
+    parse_rules:
+      - "QZ ignores 0xd1-type data unless the notification is exactly 13 bytes long."
+      - "Power, speed and heart rate are not in the frame; see protocol_details.estimates."
+  Resistance_Or_Incline_D2:
+    description: "0xd2, 5 bytes: f0 d2 01 <value> <checksum>."
+    fields:
+      - {index: 3, name: "value", description: "Bike: resistance level 1-32. Treadmill: incline in the set_incline scale."}
+    parse_rules:
+      - "Bikes send it only when the level changes, so keep the last value. QZ also uses it to follow the knob on manual bikes."
+      - "Treadmills: write the frame back unchanged as an acknowledgement."
+  Treadmill_Speed_D3:
+    description: "Treadmill 0xd3, 6 bytes: f0 d3 02 <speed hi> <speed lo> <checksum>."
+    fields:
+      - {index: 3, name: "speed", unit: "km/h", scale: 0.001, description: "uint16 big-endian, raw/1000. QZ multiplies by 1.60934 when the user says the console is in miles, so on such consoles the raw unit is mph."}
+    parse_rules:
+      - "Sent when the speed changes; keep the last value."
+      - "Write the frame back unchanged as an acknowledgement."
+
+protocol_details:
+  scope: >
+    Firmware released before July 2025 only. From July 2025, Echelon
+    firmware makes the machine wait for a server-issued challenge before it
+    streams metrics; nothing in this spec applies to such machines.
+  frame_checksum: "sum(all bytes before the last) & 0xff, header 0xf0 included"
+  treadmill_echo:
+    frame_types: [0xd0, 0xd2, 0xd3]
+    rule: "Write each received frame of these types back to 0bf669f2-45f2-11e7-9598-0800200c9a66 unchanged, immediately."
+    schema_gap: "No field can declare 'echo this notification as its acknowledgement'; it is stated here and in the characteristic notes."
+  family_dependent_opcodes:
+    b0_01_01: {bike: "start metric stream", treadmill: "start belt (first of three frames)"}
+    b1: {bike: "set resistance 1-32", treadmill: "set incline 0-15"}
+    initialization_gap: "Top-level initialization cannot be limited to one variant, so the bike's stream start and the treadmill's a4 query are commands, not init steps."
+  poll:
+    interval_s: 2
+    counter: "1..255, wraps to 1"
+    required: "QZ always polls; Gymnasticon never polls a bike and still receives data. Treadmill requirement unknown."
+  estimates:
+    note: "The machines do not report these; open clients derive them. They are estimates, not readings."
+    bike_power_gymnasticon: "watts = round(7.228958 x 1.090112^resistance x 1.015343^cadence); 0 when cadence or resistance is 0"
+    bike_power_qz: "QZ interpolates a 33 x 11 table of watts by resistance level and 10-rpm cadence step (with an alternative user-contributed table); the table is not reproduced here"
+    bike_speed_qz: "km/h = 0.37497622 x cadence"
+  model_support_qz_wiki:
+    motorised_resistance: ["EX-3", "EX-4s", "EX-5", "EX-5s", "EX-7s"]
+    manual_resistance: ["Connect Sport", "EX-15"]
+    not_working: ["EX-8s"]
+    treadmill: ["Stride"]
+  test_vectors:
+    note: "Invented values, built from the stated layouts; not captures."
+    poll_counter_5: {hex: "f0a0010596", counter: 5}
+    set_resistance_12: {hex: "f0b1010cae", level: 12}
+    set_incline_4: {hex: "f0b10104a6", incline: 4}
+    set_speed_8_5_kmh: {hex: "f0b2022134f9", speed_kmh: 8.5}
+    bike_d1: {hex: "f0d109005a0000012c004b009c", elapsed_s: 90, distance_raw_x0_01: 3.0, cadence_rpm: 75}
+    bike_d2_resistance_20: {hex: "f0d20114d7", resistance: 20}
+    treadmill_d3_7_kmh: {hex: "f0d3021b5838", speed_kmh: 7.0}
+    treadmill_d2_incline_3: {hex: "f0d20103c6", incline: 3}
+    treadmill_d1_hr_130: {hex: "f0d1090000000000000000824c", heart_rate_bpm: 130}
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+      notes: >
+        Echelon delivered new firmware in July 2025 through its own app
+        (press reports); how the image reaches the machine is not documented
+        by any source used here. Installing that firmware takes the machine
+        out of this spec's scope, and no source describes a rollback. Do not
+        write anything to the machine other than the commands above.
+
+entities:
+  - platform: "sensor"
+    name: "Cadence"
+    unit: "rpm"
+    variants: ["Connect bike"]
+    state_characteristic: "0bf669f4-45f2-11e7-9598-0800200c9a66"
+    state_mapping: {value: "cadence"}
+    notes: "0xd1 byte 10."
+  - platform: "sensor"
+    name: "Elapsed Time"
+    device_class: "duration"
+    unit: "s"
+    variants: ["Connect bike"]
+    state_characteristic: "0bf669f4-45f2-11e7-9598-0800200c9a66"
+    state_mapping: {value: "elapsed"}
+    notes: "0xd1 bytes 3-4, big-endian."
+  - platform: "sensor"
+    name: "Resistance Level"
+    variants: ["Connect bike"]
+    notes: "0xd2 byte 3, 1-32, sent only on change (payload_formats.Resistance_Or_Incline_D2). The format block covers 0xd1 only, so this needs a frame-type switch in the client."
+  - platform: "number"
+    name: "Target Resistance"
+    variants: ["Connect bike"]
+    min: 1
+    max: 32
+    step: 1
+    commands:
+      set_value: "set_resistance"
+    notes: "Motorised-resistance bikes only (EX-3, EX-4s, EX-5/5s, EX-7s per QZ's wiki). Manual bikes ignore it."
+  - platform: "sensor"
+    name: "Heart Rate"
+    unit: "bpm"
+    variants: ["Stride treadmill", "Stride treadmill (ECH-UK)", "Stride treadmill (ECH-FR)", "Stride treadmill (ECH-SD-SPT)", "Stride treadmill (STRIDE)"]
+    state_characteristic: "0bf669f4-45f2-11e7-9598-0800200c9a66"
+    state_mapping: {value: "heart_rate"}
+    notes: "0xd1 byte 11; 0 means no reading. Not for medical use."
+  - platform: "sensor"
+    name: "Belt Speed"
+    unit: "km/h"
+    variants: ["Stride treadmill", "Stride treadmill (ECH-UK)", "Stride treadmill (ECH-FR)", "Stride treadmill (ECH-SD-SPT)", "Stride treadmill (STRIDE)"]
+    notes: "0xd3 bytes 3-4 big-endian / 1000 (payload_formats.Treadmill_Speed_D3); mph on consoles set to miles."
+  - platform: "sensor"
+    name: "Incline"
+    variants: ["Stride treadmill", "Stride treadmill (ECH-UK)", "Stride treadmill (ECH-FR)", "Stride treadmill (ECH-SD-SPT)", "Stride treadmill (STRIDE)"]
+    notes: "0xd2 byte 3."
+  - platform: "number"
+    name: "Target Speed"
+    key: "speed"
+    variants: ["Stride treadmill", "Stride treadmill (ECH-UK)", "Stride treadmill (ECH-FR)", "Stride treadmill (ECH-SD-SPT)", "Stride treadmill (STRIDE)"]
+    unit: "km/h"
+    min: 0
+    max: 22
+    step: 0.1
+    commands:
+      set_value: "set_speed"
+    notes: "22 km/h is QZ's request limit, not a confirmed machine maximum."
+  - platform: "number"
+    name: "Target Incline"
+    variants: ["Stride treadmill", "Stride treadmill (ECH-UK)", "Stride treadmill (ECH-FR)", "Stride treadmill (ECH-SD-SPT)", "Stride treadmill (STRIDE)"]
+    min: 0
+    max: 15
+    step: 1
+    commands:
+      set_value: "set_incline"
+  - platform: "button"
+    name: "Stop Belt"
+    key: "stop"
+    variants: ["Stride treadmill", "Stride treadmill (ECH-UK)", "Stride treadmill (ECH-FR)", "Stride treadmill (ECH-SD-SPT)", "Stride treadmill (STRIDE)"]
+    commands:
+      press: "stop_belt"
+
+local_access:
+  status: "native"
+  summary: "On pre-July-2025 firmware, bike and treadmill metrics and treadmill/bike controls are available directly over BLE with no cloud."
+  covers:
+    - "Bike cadence, resistance level, elapsed time and raw distance"
+    - "Bike resistance setting on motorised models"
+    - "Treadmill speed, incline and heart rate; start, stop, speed and incline"
+  not_covered:
+    - "Any machine on firmware from July 2025 onward"
+    - "Echelon rowers and stair climber; Stride 4's initialisation"
+    - "Measured power (not reported by the bikes) and firmware update"
+
+cloud:
+  required: false
+  notes: "Not needed for the profile documented here. Later firmware depends on Echelon's servers and is out of scope."
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/cagnulein/qdomyos-zwift/blob/49be559ae85c1571a4a2323224e06e96c2867d32/src/devices/echelonconnectsport/echelonconnectsport.cpp"
+      artifact: "QZ bike driver at 49be559ae85c1571a4a2323224e06e96c2867d32 (GPL-3.0)"
+      description: "UUIDs, bike initialisation, poll, resistance write, 0xd1/0xd2 offsets, speed estimate."
+    - type: "public_implementation"
+      url: "https://github.com/cagnulein/qdomyos-zwift/blob/49be559ae85c1571a4a2323224e06e96c2867d32/src/devices/echelonstride/echelonstride.cpp"
+      artifact: "QZ treadmill driver at the same commit"
+      description: "Treadmill initialisation, start/stop, speed and incline writes, 0xd1/0xd2/0xd3 parsing and echo replies."
+    - type: "public_implementation"
+      url: "https://github.com/cagnulein/qdomyos-zwift/blob/49be559ae85c1571a4a2323224e06e96c2867d32/src/devices/bluetooth.cpp"
+      artifact: "QZ device routing at the same commit"
+      description: "Name prefixes for bikes, treadmills, rowers and the stair climber."
+    - type: "public_implementation"
+      url: "https://github.com/ptx2/gymnasticon/pull/76"
+      artifact: "Gymnasticon PR #76, src/bikes/echelon.js at 82aea215b92eef0152208964ab4c4f309bbd9df5 (MIT)"
+      description: "Independent bike client: advertised 0bf669f0, notify on 0bf669f4, single stream-start write, cadence byte 10, resistance byte 3, power estimate."
+    - type: "community_report"
+      url: "https://github.com/cagnulein/qdomyos-zwift/issues/62"
+      description: "2020 HCI log of the vendor app on a Connect Sport; resistance is manual on that model."
+    - type: "community_report"
+      url: "https://github.com/cagnulein/qdomyos-zwift/wiki/Equipment-Compatibility"
+      description: "Which bike models support software resistance; EX-8s not working."
+  documentation_review: >
+    Reviewed 2026-11-15. Two independent bike clients agree on UUIDs, stream
+    start and the cadence and resistance bytes. Treadmill details have a
+    single source. All checksums in the examples were recomputed.
+  open_questions: >
+    Meaning of the a1/a3/a4 replies and of the 0xd0 frame; which frames use
+    0bf669f3-…; distance unit; incline scale; treadmill 0xd1 length; whether
+    the poll is required; Stride 4's extra initialisation.
+
+remaining_unknowns:
+  - "No source describes how to tell from the BLE link whether a machine is on pre- or post-July-2025 firmware. A machine that streams 0xd1 frames after the documented initialisation is behaving as this spec describes."
+  - "Replies to the a1, a3 and a4 queries and the treadmill 0xd0 frame are not decoded."
+  - "Which frame types arrive on 0bf669f3-45f2-11e7-9598-0800200c9a66 versus 0bf669f4-45f2-11e7-9598-0800200c9a66 is not recorded."
+  - "Bike 0xd1 bytes 5-6, 9 and 11 are undecoded; the distance unit (km or miles) is unconfirmed."
+  - "Treadmill incline unit (percent or level), 0xd1 frame length, maximum speed and whether speed is mph x 1000 on consoles set to miles."
+  - "Whether polling is required, and whether the order of the treadmill's a4 query matters."
+  - "Stride 4 initialisation and speed frame are out of scope; Echelon rowers and the stair climber are not covered."
+  - "No way to tell motorised from manual-resistance bikes over BLE is known."
+  - "Single-connection behaviour, write-without-response support and any factory reset are unknown."
+  - "No physical Echelon machine was used by this project."
+
+helpful_urls:
+  - title: "qdomyos-zwift (QZ)"
+    url: "https://github.com/cagnulein/qdomyos-zwift"
+    kind: "implementation"
+    description: "GPL-3.0 app with Echelon bike, treadmill, rower and stair-climber drivers."
+  - title: "Gymnasticon PR #76: Echelon bike client"
+    url: "https://github.com/ptx2/gymnasticon/pull/76"
+    kind: "implementation"
+    description: "MIT-licensed independent Echelon bike client (Node.js)."
+  - title: "QZ Equipment Compatibility wiki"
+    url: "https://github.com/cagnulein/qdomyos-zwift/wiki/Equipment-Compatibility"
+    kind: "other"
+    description: "Per-model support table, including which Echelon bikes accept resistance changes."
+  - title: "Ars Technica: firmware update hinders Echelon equipment's offline use (2025-07)"
+    url: "https://arstechnica.com/gadgets/2025/07/firmware-update-hinders-echelon-smart-home-gym-equipments-ability-to-work-offline/"
+    kind: "other"
+    description: "News report on the July 2025 firmware that put machines out of this spec's scope."

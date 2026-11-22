@@ -98,7 +98,7 @@ network-action, DELETE and named-cover-state handlers. All four are
 questions and hardware verification gaps remain in the specs rather than being
 flattened into this file.
 
-## Validation: 331/331 passing (330 device specs + 1 example)
+## Validation: 337/337 passing (336 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after

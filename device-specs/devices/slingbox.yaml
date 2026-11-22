@@ -1,0 +1,1108 @@
+# Sling Media Slingbox place-shifters (Solo, Pro, Pro-HD, 240/AV, 350, 500, M1, M2) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - GerryDazoo/Slinger (no licence file; source published on GitHub,
+#     version 4.01, last commit 2025-10-02): slingbox_server.py, README.md,
+#     config.ini, unified_config.ini, sb-pwd.md and the V3.0x-V4.0 release
+#     notes PDFs. Read only; facts paraphrased, no code copied.
+#   - Stonyx/SlingboxLib (GPL-2.0-or-later, 2010-2011): SlingboxLib.h,
+#     SlingboxLib.cpp. The library Kodi's Slingbox add-on
+#     (notspiff/vfs.slingbox) bundles.
+#   - yeahok/slingboxstream-py (LGPL-2.0, per its README): slingapi.py.
+#   - Nomkid/Blingsox (MIT, 2022): node/src/sling/binary.ts, austin.ts, box.ts.
+#   - Slinger discussion #567 (post-reset admin password, reset hold time)
+#     and support.com's "How to Reset a Slingbox" (reset indications).
+# Every frame below and in scripts/test_slingbox_spec.py was built from the
+# rule in protocol_details with the invented admin password "example-pw",
+# the invented session id 0x5A3C, an invented client random and an invented
+# box challenge. No capture from a real box is reproduced.
+# Deliberately left out: how the video payload is decrypted (the Solo /
+# Pro / Pro-HD ASF payload walk and the 350/500 HLS key unwrapping). The
+# project backlog flags stream obfuscation for a DMCA 1201 review first.
+# Also left out: Sling's IR code database (the box holds it; this spec only
+# names the button numbers a client sends).
+
+device:
+  name: "Sling Media Slingbox (Solo, Pro, Pro-HD, 240, 350, 500, M1, M2)"
+  manufacturer: "Sling Media"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The 32-byte header,
+      the fixed-key TEA, the session-key derivation and the payload
+      layouts are transcribed from three independent open clients
+      (Slinger, SlingboxLib, slingboxstream-py) that agree on them.
+      scripts/test_slingbox_spec.py checks that a transcription of the
+      dynamic-key rule matches a second, independently written one and
+      rebuilds every example frame here.
+  protocol: "lan"
+  transport: "tcp"
+  category: "tv"
+  type: "place-shifter"
+  notes: >
+    Slingboxes take a TV source (composite, S-Video, component, HDMI or,
+    on the Pro and Pro-HD, a built-in tuner), encode it and stream it to a
+    remote player, while an IR blaster drives the set-top box. Sling Media
+    (DISH) shut its servers on 2022-11-09, and with them the SlingPlayer
+    apps' account login and box lookup. The boxes themselves still accept
+    direct connections on the LAN; Slinger is the community server that
+    talks to one and re-serves its stream over HTTP.
+
+    `protocol: lan` because every model has an Ethernet port and that is
+    the path the open clients document. The 500 also has built-in Wi-Fi
+    (Wikipedia: the first Slingbox with it); joining it to a wireless
+    network was part of Sling's setup and no open source describes that
+    provisioning, so this spec offers none. Whether the M1 and M2 have
+    Wi-Fi is not established by the sources read.
+
+    Control is a binary request/response protocol on one TCP port (5001
+    on the older family, 5201 on the newer; discovery reports the actual
+    port). A client opens a TCP connection, sends a one-off HTTP-style
+    line `GET /stream.asf` with a `Pragma: Sling-Connection-Type=Control`
+    header, then exchanges messages that each start with a 32-byte
+    little-endian header (protocol_details.message_header). Payloads are
+    TEA-encrypted: first with a key fixed in every client, then, after a
+    challenge exchange, with a per-session key derived from both sides'
+    random bytes. The client logs in as "admin" (or "guest"), opens a
+    session, picks the video input, sets resolution, frame rate and
+    bitrate, and opens a second TCP connection marked
+    `Sling-Connection-Type=Stream`, on which the box sends an ASF stream.
+    IR keys go to the set-top box as button numbers (1-81) that the box
+    looks up in the remote-control code set configured during setup.
+
+    SECURITY: the control channel's first messages, including the login
+    carrying the admin password, are encrypted only with TEA under a key
+    published in every open client, so anyone who captures a login on the
+    network can read the password. Keep the box off the internet unless
+    the owner accepts that, and prefer a VPN to a port forward.
+
+  security_advisory:
+    severity: "reported"
+    summary: "The login message carrying the admin password is encrypted only under a fixed, publicly known TEA key."
+    detail: >
+      Every open client encrypts the login (0x67) with the same hard-coded
+      128-bit TEA key, in ECB mode, before a per-session key exists. Anyone
+      who can capture the control connection can decrypt it and read the
+      admin password. The box has no other access control: a client that
+      knows the admin password can also take over the box from whoever is
+      watching (message 0x93). Do not forward the box's port to the
+      internet; reach it over a VPN instead.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/GerryDazoo/Slinger"
+    license: "Slinger: no licence file (source published); SlingboxLib: GPL-2.0-or-later; slingboxstream-py: LGPL-2.0; Blingsox: MIT"
+    notes: >
+      Sling Media published no protocol. A "SlingBox SDK" on SourceForge
+      (LGPL, per slingboxstream-py's README) and a Perl script derived
+      from it are the common ancestors of the community clients; they are
+      not read here. Slinger's README itself says the handshake and stream
+      framing live only in code.
+
+  identification:
+    default_port: 5201
+    lan_protocols: ["slingbox"]
+    notes: >
+      The UDP 5004 broadcast below is the reliable way in: the reply names
+      the product id, the finder id, the box name and the control port. The
+      default port differs by family (5001 Solo / Pro / Pro-HD in
+      SlingboxLib's default and Slinger's example; 5201 350 / 500 in
+      Slinger's default; a 5301 M1 appears in Slinger's example config) and
+      may have been changed by the owner, so read it from the reply.
+
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 5004
+          probe_hex: "0101000002000000000000000000000000000000000000000000000000000000"
+          passive_ok: false
+          response_format: "binary"
+          identity_mapping:
+            stable_keys:
+              - source: "binary:finder_id"
+                key: "finder_id"
+            display:
+              source: "binary:box_name"
+          response_match:
+            - source: "binary:message_id"
+              match: "exact"
+              value: "0x0002"
+              description: "The reply is a message header with message id 2 and payload size 92 (124 bytes in all)."
+        notes: >
+          Send the 32-byte probe (a bare message header: type 0x0101,
+          message id 0x0002, everything else zero) to the subnet broadcast
+          address on UDP 5004 from any source port; Slinger and Blingsox
+          bind an ephemeral port and listen for replies for about 2 s.
+          Each box answers from its own address with 124 bytes laid out in
+          payload_formats.DiscoveryReply: the same header but with size 92
+          (0x5C), then the product id, finder id, name and control port.
+          The reply payload is not encrypted. A box on another subnet is
+          added by address and port.
+    identity:
+      stable_keys: ["finder_id"]
+      display: "box_name"
+      notes: >
+        The finder id (16 bytes, shown as 32 hex digits) is the identifier
+        Sling's directory used to look a box up; it is fixed per unit. The
+        box name is UTF-16LE, set by the owner during setup.
+    static_ip_required: false
+
+  variants:
+    - model: "Slingbox Solo / Pro / Pro-HD (older family)"
+      notes: >
+        Product ids 1 (Pro), 7 (Solo), 8 (Pro-HD) in Slinger's table;
+        Slinger treats every product id below 9 as this family. Default
+        control port 5001. Inputs per Slinger's config.ini: Pro 0 analog
+        tuner, 1 composite, 2 S-Video, 3 component (via an HDMI-to-component
+        cable); Pro-HD 0 tuner, 1 composite, 2 S-Video, 3 component; Solo 0
+        composite, 1 S-Video, 2 component. Stream payload is TEA-encrypted
+        above 320x240 (SlingboxLib's README; on the Pro-HD at every
+        resolution), so a client must decrypt it (not covered here). Slinger
+        reads the stream in 3000-byte packets (1636 in audio-only mode). The
+        Pro-HD's tuner takes a direct channel number with message 0x89.
+        Slinger sends logout (0x68) when it ends a session on these boxes.
+    - model: "Slingbox 240 / AV"
+      notes: >
+        Slinger's "240" type, the SB240-100 (product id 3, "AV" in its
+        table); it is handled like the older family with a different
+        audio-header fix-up. Supported in Slinger since 3.08.
+    - model: "Slingbox 350 / 500 / M1 / M2 (newer family)"
+      notes: >
+        Product ids 17 (350), 18 (500), 32 (M1) and 19762 = 0x4D32, ASCII
+        "M2" (M2) in Slinger's table. Default control port 5201. Inputs per
+        Slinger's config.ini: 500 0 composite, 1 component, 2 HDMI; 350 / M1
+        / M2 0 composite, 1 component (Slinger warns that 2 or 3 makes an M2
+        reboot). Resolutions up to 1920x1080. Slinger forwards the stream
+        from these boxes in 3072-byte reads without touching it. These boxes
+        also answer an HTTP/XML API Blingsox calls "Austin"
+        (protocol_details.austin_http_api).
+    - model: "Other product ids"
+      notes: >
+        Slinger's table also names 0/2/5 Classic, 4 Tuner, 6 Sling Modem, 9
+        "922", 12 HDS-600RS, 13 "120" and 14 Sling Adapter. Nothing in the
+        sources says which of these speak this protocol.
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      This spec covers a box that was set up with Sling's software while
+      the servers ran, or that still carries its factory settings: it has
+      an admin password, a configured video input and, for IR control, a
+      remote-control code set for the set-top box. Choosing the code set
+      was done in SlingPlayer and needed Sling's servers; no open source
+      describes how to load one. See remaining_unknowns.
+    methods:
+      - type: "wired"
+        name: "Connect and log in with the admin password"
+        role: "primary"
+        verified: false
+        description: >
+          Find the box by the UDP 5004 broadcast or take its address and
+          port from the user, open the control connection, log in as admin,
+          do the key exchange, open a session, set up the stream, then open
+          the stream connection.
+        issues_credentials:
+          admin_password:
+            user_entered: true
+            notes: >
+              The box's admin password, at most 16 characters (the login
+              carries 16 UTF-16 code units). On the 500 and M1 Sling's setup
+              assigned a random 15-character password that the owner never
+              chose; it was fetched from the owner's Sling account, where it
+              was stored TEA-encrypted with an "E1:" prefix
+              (protocol_details.e1_password). Slinger's author reports that
+              a 500 or M1 whose setup never reached Sling's servers keeps
+              "admin" as its password.
+        steps:
+          - action: "Plug the Slingbox into the router by Ethernet and power it on."
+            actor: "user"
+          - action: "Broadcast the 32-byte probe to UDP 5004, or take the box's address and control port from the user."
+            actor: "client"
+            expect: "A 124-byte reply naming the product id, finder id, box name and control port."
+          - action: "Open TCP to the control port and send the line GET /stream.asf HTTP/1.1 with Accept: */* and Pragma: Sling-Connection-Type=Control, Session-Id=0, then a blank line."
+            actor: "client"
+            expect: "No HTTP response; the connection stays open for binary messages."
+          - action: "Send login 0x67 (commands.login) under the fixed key."
+            actor: "client"
+            expect: "A 32-byte reply header, status 0, whose session id field carries the session id for every later message. Status 2 = wrong password."
+          - action: "Send key exchange 0xC6 with 16 random bytes; derive the session key from them, the session id and the first 16 bytes of the decrypted reply (protocol_details.session_key)."
+            actor: "client"
+          - action: "Send 0x7E (commands.start_session) under the session key."
+            actor: "client"
+            expect: "Status 0. A non-zero status means another client holds the box; see commands.take_over."
+          - action: "Optionally select the video input (0x85), then send 0xA6 and the stream settings (0xB5)."
+            actor: "client"
+          - action: "Open a second TCP connection to the same port and send GET /stream.asf with Pragma: Sling-Connection-Type=Stream, Session-Id=<session id>."
+            actor: "client"
+            expect: "The box sends an ASF stream on it. Send a keep-alive (0x66) on the control connection every 10 s."
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        Erases the box's settings: name, admin password, configured inputs
+        and the remote-control code set. Afterwards the box needs setup
+        again, which used Sling's servers. Community reports say the admin
+        password of a reset 500 / M1 is "admin" and that SlingPlayer for
+        desktop 5.0.0 (build 83) could still finish setup (firmware update, name,
+        remote) with a newly created Sling account; whether that still
+        works is not established. A quick press of the reset button or a
+        power cycle only restarts the box (Slinger 3.08 release notes).
+      description: >
+        From support.com's "How to Reset a Slingbox" and Slinger discussion
+        #567. The reset button is on the back and may be recessed; use a
+        pin or straightened paper clip. Hold times differ widely between
+        reports.
+      procedures:
+        - name: "350 / 500 / M1 / M2: hold reset until the network light double-flashes"
+          verified: false
+          basis: "support.com 'How to Reset a Slingbox'; Slinger discussion #567 (an M1 needed 40+ s; another M1 never reset)."
+          power_state: "on"
+          indicator: "The network light on the front flashes twice quickly."
+          description: >
+            Hold the reset button with the box powered on until the network
+            light flashes twice quickly, which can take up to about 60 s.
+            The 500 can take ten minutes or more to finish resetting.
+          steps:
+            - action: "With the box powered on, press and hold the reset button on the back."
+              actor: "user"
+            - action: "Keep holding until the network light flashes twice quickly (up to about 60 s), then release."
+              actor: "user"
+              expect: "The network light double-flashes; the box restarts with factory settings."
+        - name: "Solo / Pro / Pro-HD: hold reset until the Sling logo light blinks"
+          verified: false
+          basis: "support.com 'How to Reset a Slingbox'."
+          power_state: "on"
+          indicator: "The Sling logo light blinks."
+          description: >
+            Hold the reset button with the box powered on until the Sling
+            logo light blinks (the article gives 10 to 60 s depending on the
+            model), then release and let the box finish.
+          steps:
+            - action: "With the box powered on, press and hold the reset button on the back."
+              actor: "user"
+            - action: "Release when the Sling logo light blinks."
+              actor: "user"
+              expect: "The box restarts with factory settings."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        On Ethernet with a DHCP address, the box comes back on a new router
+        by itself; find it again with the UDP 5004 broadcast. A 500 that was
+        joined to Wi-Fi in Sling's setup needs that setup again (or an
+        Ethernet cable) after a Wi-Fi change; no local way to change its
+        Wi-Fi settings is documented.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Admin password and guest password"
+        - "Box name, configured inputs and the IR code set for the set-top box"
+      issued_to_client:
+        - "A session id, per login (header field at offset 2)."
+      notes: >
+        The login message carries the admin password under the fixed TEA
+        key; never log control-channel frames.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    # No link-layer pairing. Every control connection proves the admin (or
+    # guest) password in the login message; nothing persistent is issued.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        The admin password. On the Solo / Pro / Pro-HD the owner chose it
+        in Sling's setup; on the 500 and M1 the setup generated a random
+        15-character one, which owners who lost their Sling account cannot
+        recover now. A guest login (user "guest", the guest password)
+        exists in SlingboxLib and slingboxstream-py; what it may do is not
+        documented.
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        The box streams to one client at a time. If 0x7E returns a non-zero
+        status another client holds it; message 0x93 with the admin
+        password kicks that client off (Slinger retries three times). If it
+        still refuses, power-cycle the box (Slinger's release notes report
+        Solos that need a reboot).
+      notes: >
+        Slinger's networking guide states the box supports one stream to one
+        client at a time and that a second connection kicks off the first.
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      clears: "The admin password, which is the only credential."
+      notes: >
+        There is no per-client credential to revoke. Changing the admin
+        password was done in Sling's setup software; no open client
+        implements it, so the only documented way to change it is a factory
+        reset followed by setup.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      An admin-password device, local only. The shutdown of Sling's servers
+      does not affect the login itself, only the recovery of a password the
+      owner never saw (500 / M1) and first-time setup after a reset.
+
+protocol_handler: "slingbox"
+
+protocol_details:
+  connections:
+    control: >
+      TCP to the box's port. The client first sends, in ASCII, "GET
+      /stream.asf HTTP/1.1\r\nAccept: */*\r\nPragma:
+      Sling-Connection-Type=Control, Session-Id=0\r\n\r\n". The open
+      clients read no HTTP response; the next bytes on the connection are
+      binary messages. slingboxstream-py adds ", PlayerInstance-Id=
+      000000000000000, Client-Capability=1" to the Pragma line; the others
+      do not.
+    stream: >
+      A second TCP connection to the same port, opened after the stream
+      settings, with "Pragma: Sling-Connection-Type=Stream,
+      Session-Id=<decimal session id>". The box sends an ASF (Advanced
+      Systems Format) stream on it: header objects (the file properties
+      carry the UTF-16LE string "Slingbox", which Slinger replaces with the
+      box name), a Data Object header, then fixed-size data packets.
+      Slinger passes the stream to players such as VLC behind its own
+      "HTTP/1.0 200 OK", "Content-type: application/octet-stream" reply,
+      unmodified for the 350 / 500 / M1 / M2. The open clients show no HTTP
+      response from the box on this connection either.
+    keepalive: >
+      Message 0x66 with no payload on the control connection every 10 s
+      (Slinger; slingboxstream-py does the same). The box's answer is not
+      waited for; Slinger drains whatever is pending afterwards.
+    one_client: >
+      One streaming client at a time; see device.pairing.exclusivity.
+  message_header:
+    size: 32
+    endianness: "little"
+    fields:
+      - "offset 0, u16: message type. 0x0101 in Slinger and SlingboxLib for every message; slingboxstream-py sends 0x0201 for most and 0x0101 for some. The box accepts both; the meaning of the difference is unknown."
+      - "offset 2, u16: session id. 0 on login; the box puts the session id in its reply header and the client sends it in every later message (all clients copy it from each reply)."
+      - "offset 4, u16: message id (opcode); see opcodes."
+      - "offset 6, u16: 0."
+      - "offset 8, u16: sequence number, incremented per message (Slinger starts at 1, SlingboxLib at 0). SlingboxLib says the reply carries the same number."
+      - "offset 10, 6 bytes: 0 in requests."
+      - "offset 16, u16: payload length in bytes (a multiple of 8, because TEA works on 8-byte blocks)."
+      - "offset 18, u16: cipher mode. 0x2000 = payload under the fixed key; 0x8000 = payload under the session key. Replies from the box carry their own value; SlingboxLib decodes a reply whose field is 0x2000."
+      - "offset 20, 4 bytes: 0."
+      - "offset 24, u16: parity. In mode 0x8000, the XOR of every plaintext payload byte (in the low byte; the high byte 0). 0 in mode 0x2000."
+      - "offset 26, 6 bytes: 0."
+    reply: >
+      The box answers each request (except the keep-alive) with a 32-byte
+      header in the same layout and, if the length at offset 16 is non-zero,
+      that many payload bytes encrypted under the current key. Clients read
+      the session id at offset 2 and a status word (u16) at offset 12. Status
+      0 is success; 0x02 is a wrong password on login; 0x2B on login is what
+      Slinger reports as "box might be bricked"; Slinger ignores 0x0D and
+      0x13. Any non-zero status on 0x7E means the box is in use.
+    unsolicited: >
+      SlingboxLib reads messages with id 0x0065 that the box sends on its
+      own: payload size 0x78 carries the current channel as a u16 at payload
+      offset 0; payload size 8 carries the current input in payload byte 0;
+      size 0 is the answer to a client's own 0x65 status request.
+  cipher:
+    algorithm: >
+      TEA (Tiny Encryption Algorithm): 64-bit blocks, 128-bit key, 32
+      cycles, delta 0x9E3779B9, applied in ECB mode to each 8-byte block of
+      the payload. The block is two little-endian u32 words (v0, v1); the key
+      is four u32 words k0..k3. Per cycle: sum += delta; v0 += ((v1 << 4) +
+      k0) XOR (v1 + sum) XOR ((v1 >> 5) + k1); v1 += ((v0 << 4) + k2) XOR (v0
+      + sum) XOR ((v0 >> 5) + k3), all mod 2^32. Decryption runs the cycles
+      backwards from sum = 0xC6EF3720. Slinger and SlingboxLib write the
+      addition of delta as subtraction of 0x61C88647, the same thing mod 2^32.
+      The header is never encrypted.
+    fixed_key: >
+      Mode 0x2000 uses one key built into every open client: words
+      0xBCDEAAAA, 0x87FBBBBA, 0x7CCCCFFA, 0xDDDDAABC (as bytes, little-endian
+      per word: aaaadebcbabbfb87facfcc7cbcaadddd). SlingboxLib uses only this
+      key, for every message, on the older family.
+    note: >
+      ECB with a fixed key means equal plaintext blocks give equal
+      ciphertext: every all-zero block in the examples encrypts to the same
+      eight bytes.
+  session_key:
+    exchange: >
+      After login, the client sends 0xC6 (still mode 0x2000): payload u32 1,
+      a 16-byte client random R, 36 zero bytes (56 bytes). The reply's
+      decrypted payload starts with a 16-byte box challenge C. Slinger and
+      slingboxstream-py then send everything in mode 0x8000 under the
+      session key K below. Slinger and slingboxstream-py both send a fixed R
+      rather than a random one; the box accepts that. SlingboxLib skips this
+      exchange and stays in mode 0x2000.
+    derivation: >
+      bits(x) lists the bits of byte string x, least significant bit of each
+      byte first (16 bytes give 128 bits). S = bits of the session id as a
+      u16 little-endian (16 bits). mix(x, a, b): t = bits(x); for i = 1..16:
+      r = i * (a if bit (i-1) of the session id is 0 else b); rotate t left
+      by r positions (t = t[r:] + t[:r]; a negative r rotates right by |r|);
+      XOR the first 16 bits of t with S, leaving the rest; then v = t on the
+      first round and v = v XOR t afterwards. The result is v (128 bits). K
+      = bits-to-bytes(mix(R, 2, 3) XOR mix(C, -1, -4)), packing each 8 bits
+      back into a byte least significant bit first, read as four
+      little-endian u32 words.
+    example:
+      session_id: "0x5a3c"
+      client_random: "00112233445566778899aabbccddeeff"
+      box_challenge: "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+      key_words: "0x7a722e5e 0xcf0e0401 0xce6757ca 0x796b58c2"
+      notes: "Invented inputs; scripts/test_slingbox_spec.py recomputes the key with two independent transcriptions of the rule."
+  opcodes:
+    "0x0065": "Status. Empty request; the box also sends 0x65 on its own (channel / input status; see message_header.unsolicited). SlingboxLib."
+    "0x0066": "Keep-alive. Empty payload, every 10 s. No reply awaited."
+    "0x0067": "Login. 200-byte payload: u32 (0 in Slinger and SlingboxLib, 1 in slingboxstream-py), user name as UTF-16LE in 32 bytes (\"admin\" or \"guest\"), password as UTF-16LE in 32 bytes, 132 bytes (zero in Slinger; SlingboxLib puts the UTF-16LE text \"Slingbox\" at the start of them; slingboxstream-py puts u32 1 in the last four). SlingboxLib checks for a reply with payload size 8."
+    "0x0068": "Logout. Empty payload. Slinger sends it on the older family when a session ends; SlingboxLib on disconnect."
+    "0x006A": "Unknown. Slinger sends payload u32 1 + 172 zero bytes (176) after 0x93 and before retrying 0x7E."
+    "0x007E": "Start session / stream control. Payload u32 1, u32 0 (Slinger, SlingboxLib); slingboxstream-py sends 9, 0. A non-zero status means the box is in use."
+    "0x0081": "Unknown. slingboxstream-py sends it empty during start-up."
+    "0x0076": "Unknown. slingboxstream-py sends it empty during start-up."
+    "0x0085": "Select video input. Payload u16 input, three u16 zero (8 bytes). Valid inputs depend on the model (device.variants)."
+    "0x0086": "Get IR key codes for an input. Payload u16 0x0400 + input, 254 zero bytes (256). The decrypted reply lists, from payload byte 1 until a 0 byte, the button numbers the configured remote supports (Slinger logs them; an empty list suggests the wrong input)."
+    "0x0087": "Send an IR button. 480-byte payload; see payload_formats.IrPayload."
+    "0x0089": "Set channel / channel up / down on the built-in tuner (Pro-HD; SlingboxLib uses it on the older family). 16-byte payload; see payload_formats.ChannelPayload."
+    "0x0093": "Take over the box from another client. Payload: user \"admin\" UTF-16LE in 32 bytes, admin password UTF-16LE in 32 bytes, 8 zero bytes (72)."
+    "0x00A6": "Sent before the stream settings; meaning unknown. 96-byte payload. Slinger sends u16 words 0x01CF 0 0x40 0x10 0x5000 0x0180 1 0x1E 0 0x3D then zeros; slingboxstream-py 0x05CF 0 0x14 0x08 0x1F40 0x60 1 0x1E 0 0xBD 0x04; SlingboxLib (which calls it the encryption message and sends it only for 320x480, 640x240 and 640x480) u32 words 0x100, 0, 0, 0, 0x1D0000 then zeros."
+    "0x00B5": "Stream settings: resolution, frame rate, bitrates, smoothness, key-frame interval, audio bitrate. 160-byte payload; see payload_formats.StreamSettings."
+    "0x00C6": "Key exchange; see session_key."
+    "0x00D5": "Sent by slingboxstream-py on the 350 before it fetches an HLS playlist over HTTP; its comment guesses it carries video settings. Layout not established."
+    "0x03EB / 0x03ED / 0x03EF": "Sent by slingboxstream-py on the 350 during its HLS start-up; meaning unknown."
+  ir_buttons:
+    description: >
+      The button numbers a client sends in 0x87 (Slinger's README, a list
+      of SBCMD values). The box translates each into the IR code of the
+      remote-control code set configured during setup; whether a number
+      does anything depends on that set (query it with 0x86). Digits are
+      sent one button at a time (Slinger's start-channel: 0 is 18, 1-9 are
+      9-17).
+    values:
+      "1": "Power"
+      "2": "Power on"
+      "3": "Power off"
+      "4": "Channel up"
+      "5": "Channel down"
+      "6": "Volume up"
+      "7": "Volume down"
+      "8": "Mute"
+      "9-17": "Digits 1-9"
+      "18": "Digit 0"
+      "19": "Enter"
+      "20": "Hundred"
+      "21": "Last channel"
+      "22": "TV/VCR"
+      "23": "External"
+      "24": "Play"
+      "25": "Stop"
+      "26": "Pause"
+      "27": "Rewind"
+      "28": "Fast forward"
+      "29": "Record"
+      "30": "Skip forward"
+      "31": "Skip back"
+      "32": "Live"
+      "33": "Menu"
+      "34": "Setup"
+      "35": "Guide"
+      "36": "Cancel"
+      "37": "Exit"
+      "38": "Up"
+      "39": "Down"
+      "40": "Left"
+      "41": "Right"
+      "42": "Select"
+      "43": "Page up"
+      "44": "Page down"
+      "45": "Favourite"
+      "46": "Info"
+      "47": "Format"
+      "48": "Subtitle"
+      "49": "Surround"
+      "50": "Slow"
+      "51": "Eject"
+      "52": "Random"
+      "53-61": "Picture-in-picture: PIP, format, freeze, swap, move, source, channel up, channel down, multi"
+      "62-73": "Custom 10-21"
+      "74-78": "Red, green, yellow, blue, white"
+      "79-81": "Custom 27-29"
+  resolutions:
+    description: "Values of StreamSettings.resolution (Slinger's README; SlingboxLib names 0-11 the same). 0 is audio only (Slinger 3.08e). The box does not upscale: a value above the source's resolution gives no more detail."
+    values:
+      "0": "Audio only"
+      "1": "320x240"
+      "2": "160x120"
+      "3": "352x240"
+      "4": "176x120"
+      "5": "640x480"
+      "6": "640x240"
+      "7": "320x480"
+      "8": "128x96"
+      "9": "224x176"
+      "10": "448x240"
+      "11": "256x192"
+      "12": "1280x720"
+      "13": "1440x544"
+      "14": "1680x544"
+      "15": "1920x544"
+      "16": "1920x1080"
+  e1_password:
+    description: >
+      Sling's account service returned a box's admin and user passwords as
+      "E1:" followed by hex. Slinger (3.08f) accepts that form: strip "E1:",
+      hex-decode, TEA-decrypt each 8-byte block with the fixed key, and read
+      UTF-16LE up to a 00 00 terminator. Slinger's sb-pwd.md describes how
+      it was fetched from Sling's account web service with the owner's Sling
+      login; whether that service still answers is not established.
+    example_password: "example-pw"
+    example: "E1:4143F416119787CB80B6F3C6C143A39233B1ABDCA459FC13"
+    example_notes: "Invented password, UTF-16LE, a 00 00 terminator, zero-padded to 24 bytes, encrypted with the fixed key."
+  austin_http_api:
+    description: >
+      Blingsox (MIT, 2022, an unfinished client) talks to the newer boxes
+      (it assumes any control port above 5200) over HTTP on the same port:
+      POST http://<box>:<port>/slingbox<session path><path> with an XML body
+      and the header "Sling-Authorization: account=admin, counter=<n>,
+      cnonce=<c>, digest=<d>", where n counts requests from 0, c is a
+      client nonce (Blingsox uses the time in milliseconds), and d is the
+      lowercase hex MD5 of "admin:<session path>:<c>:<n>:<admin password>".
+      The first request has an empty session path and the body
+      <client><description>...</description></client>; the reply's
+      <session xlink:href="..."> gives the session path and links to
+      events, caps, avinputs, current_avinput, streams, device, whatison,
+      setup and host_app. POST <session>/device?Method=GET returns the
+      device: id, product, irblaster, hardware and firmware version and
+      date, MAC, name, network settings and the list of A/V inputs.
+      Blingsox polls <session>/events?Method=GET&timeout=0 every 5 s as a
+      heartbeat. It implements nothing further, and nothing in the sources
+      says whether this API can start a stream or send IR.
+    verification: "hypothesis"
+  hls_on_newer_boxes: >
+    slingboxstream-py drives a 350 differently from Slinger: after the
+    binary start-up it fetches http://<box>:<port>/<session id>-0.m3u8 (with
+    an Android SlingPlayer user agent) and downloads AES-128 HLS segments.
+    How it obtains the segment key from the playlist and the password is
+    left out of this spec (see the header comment).
+  stream_settings_ranges:
+    frame_rate: "Slinger: 1, 6, 10, 15, 20, 30, 60 depending on resolution. SlingboxLib rounds down to 1, 6, 10, 15, 20, 30."
+    video_bandwidth: "50-8000 (kbit/s by context; both clients clamp to this range). Slinger default 2000."
+    smoothness: "Slinger: 0 (auto) to 63, default 63. SlingboxLib: 0-100, default 50."
+    iframe_interval: "Seconds between key frames, at most 30. Slinger default 5, SlingboxLib 10."
+    audio_bitrate: "16, 20, 32, 40, 48, 64, 96 (kbit/s). Slinger's config comment says default 32, its code defaults to 64."
+
+payload_formats:
+  DiscoveryReply:
+    description: >
+      The 124-byte UDP reply to the discovery probe. Offsets 0-31 are a
+      message header (type 0x0101, message id 0x0002, payload size 0x5C);
+      the rest is the payload. Unencrypted.
+    fields:
+      - name: "message_type"
+        offset: 0
+        type: "uint16"
+        endianness: "little"
+        description: "0x0101."
+      - name: "message_id"
+        offset: 4
+        type: "uint16"
+        endianness: "little"
+        description: "0x0002."
+      - name: "payload_size"
+        offset: 16
+        type: "uint16"
+        endianness: "little"
+        description: "0x005C (92)."
+      - name: "product_id"
+        offset: 38
+        type: "uint16"
+        endianness: "big"
+        description: "Model; see device.variants. Slinger reads it big-endian (byte 38 high)."
+      - name: "finder_id"
+        offset: 40
+        description: "16 bytes, the box's finder id; shown as 32 hex digits."
+      - name: "box_name"
+        offset: 56
+        description: "64 bytes, UTF-16LE, zero-padded."
+      - name: "control_port"
+        offset: 120
+        type: "uint16"
+        endianness: "little"
+        description: "TCP port for the control and stream connections."
+    example: "010100000200000000000000000000005c0000000000000000000000000000000000000000000011a0a1a2a3a4a5a6a7a8a9aaabacadaeaf440065006e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000051140000"
+    example_notes: "Invented: product id 17 (350), finder id a0a1...af, name \"Den\", port 5201. Bytes 32-37 and 122-123 are zero here; their meaning is unknown."
+  MessageHeader:
+    description: "The 32-byte header of every control message; see protocol_details.message_header."
+    fields:
+      - name: "message_type"
+        offset: 0
+        type: "uint16"
+        endianness: "little"
+      - name: "session_id"
+        offset: 2
+        type: "uint16"
+        endianness: "little"
+      - name: "message_id"
+        offset: 4
+        type: "uint16"
+        endianness: "little"
+      - name: "sequence"
+        offset: 8
+        type: "uint16"
+        endianness: "little"
+      - name: "status"
+        offset: 12
+        type: "uint16"
+        endianness: "little"
+        description: "In replies: 0 success, 0x02 wrong password, others see protocol_details.message_header.reply."
+      - name: "payload_length"
+        offset: 16
+        type: "uint16"
+        endianness: "little"
+      - name: "cipher_mode"
+        offset: 18
+        type: "uint16"
+        endianness: "little"
+        description: "0x2000 fixed key, 0x8000 session key."
+      - name: "parity"
+        offset: 24
+        type: "uint16"
+        endianness: "little"
+        description: "XOR of the plaintext payload bytes in mode 0x8000, else 0."
+    example: "01013c5a660000000a0000000000000000000080000000000000000000000000"
+    example_notes: "A keep-alive: session 0x5A3C, sequence 10, no payload, mode 0x8000."
+  StreamSettings:
+    description: "Plaintext payload of 0xB5, forty little-endian u32 words (160 bytes), as Slinger fills it; SlingboxLib's differences in notes."
+    fields:
+      - name: "w0_w1"
+        offset: 0
+        description: "Two words 0x000000FF."
+      - name: "resolution"
+        offset: 8
+        type: "uint32"
+        endianness: "little"
+        description: "protocol_details.resolutions."
+      - name: "w3"
+        offset: 12
+        type: "uint32"
+        endianness: "little"
+        description: "1."
+      - name: "video"
+        offset: 16
+        type: "uint32"
+        endianness: "little"
+        description: "video_bandwidth (bits 0-15) + frame_rate << 16 + iframe_interval << 24."
+      - name: "smoothness_word"
+        offset: 20
+        type: "uint32"
+        endianness: "little"
+        description: "Slinger: 0x10001 + (smoothness << 8). SlingboxLib: 1 + (smoothness << 8)."
+      - name: "w6_w7"
+        offset: 24
+        description: "3, 1."
+      - name: "audio_bitrate"
+        offset: 32
+        type: "uint32"
+        endianness: "little"
+      - name: "w9"
+        offset: 36
+        type: "uint32"
+        endianness: "little"
+        description: "Slinger 0x4F; SlingboxLib 3. Meaning unknown."
+      - name: "w10"
+        offset: 40
+        type: "uint32"
+        endianness: "little"
+        description: "1."
+      - name: "nonce"
+        offset: 44
+        description: "16 bytes. Slinger sends the same 16 bytes it used as the 0xC6 client random; SlingboxLib a different fixed constant. Role not documented."
+      - name: "w15_w16"
+        offset: 60
+        description: "Slinger: 0x01012020, 1. SlingboxLib: 0, 0. Then zeros to 160 bytes."
+    example: "ff000000ff0000000c00000001000000d0071e05013f01000300000001000000400000004f000000010000000123456789abcdeffedcba987654321020200101010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    example_notes: "1280x720, 30 fps, 2000, I-frame every 5 s, smoothness 63, audio 64, invented 16-byte nonce 0123...3210."
+  IrPayload:
+    description: "Plaintext payload of 0x87, 480 bytes, as Slinger builds it."
+    fields:
+      - name: "button"
+        offset: 0
+        type: "uint8"
+        description: "Button number, protocol_details.ir_buttons."
+      - name: "remote_code"
+        offset: 3
+        type: "uint8"
+        description: "Slinger's [REMOTE] code, which its notes say equals the video input number. Bytes 1-2 are 0."
+      - name: "remote_code_word"
+        offset: 472
+        type: "uint16"
+        endianness: "little"
+        description: "The remote code again; then three u16 zero to byte 480. SlingboxLib puts 0xFF at byte 472 and nothing at byte 3; slingboxstream-py puts 0xFA at byte 2, 0x0201 at 472 and 0x0100 at 476."
+  ChannelPayload:
+    description: "Plaintext payload of 0x89, 16 bytes."
+    fields:
+      - name: "mode"
+        offset: 0
+        type: "uint32"
+        endianness: "little"
+        description: "2 = go to the channel below; 0 = channel up; 1 = channel down (SlingboxLib)."
+      - name: "channel"
+        offset: 4
+        type: "uint16"
+        endianness: "little"
+        description: "Channel number (0 for up/down)."
+      - name: "subchannel"
+        offset: 6
+        type: "uint8"
+        description: "Digital sub-channel (Slinger, for the Pro-HD's ATSC tuner); 0 otherwise."
+      - name: "tail"
+        offset: 8
+        description: "Slinger: 8 zero bytes. SlingboxLib: u32 0xFF000000 for a direct channel or 0x000000FF for up/down, then u32 0."
+
+http_endpoints:
+  - method: "POST"
+    path: "/slingbox"
+    status: "unverified"
+    name: "Austin session (newer boxes)"
+    description: >
+      The HTTP/XML API Blingsox uses on 350 / 500 / M1 / M2 boxes, on the
+      control port, with the Sling-Authorization digest header. See
+      protocol_details.austin_http_api. Not needed for streaming or IR,
+      which go through the binary protocol in commands.
+
+commands:
+  login:
+    description: >
+      First message on the control connection (after the GET line). Under
+      the fixed key, session id 0. The reply header's session id goes into
+      every later message; status 2 means a wrong password.
+    body: "0x67, mode 0x2000: u32 0, UTF-16LE \"admin\" in 32 bytes, UTF-16LE {password} in 32 bytes, 132 zero bytes"
+    parameters:
+      password:
+        type: "string"
+        required: true
+        max_length: 16
+        source: "credential:admin_password"
+        description: "The box's admin password (16 UTF-16 code units at most)."
+    example_body: "01010000670000000100000000000000c8000020000000000000000000000000d25f9bfe0f09ee0d9737106d43ae78209674363e0690a3049674363e0690a3041401cfecb0d87d73d773a12a9ed1030db6fcdf11f02659ed9674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a304"
+    example_notes: "Invented password example-pw, sequence 1."
+    verification: "reported"
+  key_exchange:
+    description: >
+      Send a 16-byte client random under the fixed key; the decrypted
+      reply's first 16 bytes are the box challenge. Derive the session key
+      (protocol_details.session_key) and switch to mode 0x8000.
+    body: "0xC6, mode 0x2000: u32 1, {client_random} (16 bytes), 36 zero bytes"
+    parameters:
+      client_random:
+        type: "string"
+        required: true
+        min_length: 32
+        max_length: 32
+        description: "16 bytes as 32 hex digits. The open clients send a fixed value; a client should send fresh random bytes."
+    example_body: "01013c5ac6000000020000000000000038000020000000000000000000000000edddb88e209407eec343295a33657bc56c23ce97477e44619674363e0690a3049674363e0690a3049674363e0690a3049674363e0690a304"
+    example_notes: "Session 0x5A3C, sequence 2, invented client random 00112233445566778899aabbccddeeff."
+    verification: "reported"
+  start_session:
+    description: >
+      Claim the box for streaming (0x7E). Status 0 = the session is yours;
+      non-zero = another client holds the box (see take_over).
+    body: "0x7E, mode 0x8000: u32 1, u32 0"
+    example_body: "01013c5a7e000000030000000000000008000080000000000100000000000000ab87cec20dceee25"
+    example_notes: "Session key from protocol_details.session_key.example; sequence 3; parity 1."
+    verification: "reported"
+  take_over:
+    description: >
+      Kick another client off the box (0x93), then Slinger sends 0x6A
+      (u32 1 + 172 zero bytes) and retries start_session. The other viewer's
+      stream stops.
+    body: "0x93, mode 0x8000: UTF-16LE \"admin\" in 32 bytes, UTF-16LE {password} in 32 bytes, 8 zero bytes"
+    parameters:
+      password:
+        type: "string"
+        required: true
+        max_length: 16
+        source: "credential:admin_password"
+        description: "The box's admin password."
+    example_body: "01013c5a93000000040000000000000048000080000000002d00000000000000710a56cb45c7043e8c416aa6b6084ee2997abcd030277049997abcd030277049833db49884431626880269e6785ff320ce05a014cef46972997abcd030277049997abcd030277049"
+    example_notes: "Invented password example-pw, sequence 4."
+    verification: "reported"
+  select_input:
+    description: >
+      Select the video input the box encodes (0x85). Valid numbers depend on
+      the model (device.variants); Slinger's config warns that an invalid
+      one can make the box misbehave (an M2 reboots on 2 or 3).
+    body: "0x85, mode 0x8000: u16 {input}, three u16 0"
+    parameters:
+      input:
+        type: "integer"
+        required: true
+        min: 0
+        max: 3
+        description: "Input number; see the model's list in device.variants."
+    example_body: "01013c5a85000000040000000000000008000080000000000100000000000000ab87cec20dceee25"
+    example_notes: "Input 1, sequence 4. Same ciphertext as start_session because the plaintext is the same (ECB)."
+    advanced: true
+    advanced_reason: >
+      Changes the input the box uses, which it remembers for the next
+      session. A number the model does not have can make the box stop
+      answering or reboot (Slinger reports this for the M2 with 2 or 3).
+      Recover by power-cycling the box or a short press of its reset
+      button (not the long factory-reset hold), then select a valid input.
+    verification: "reported"
+  get_key_codes:
+    description: >
+      Ask which IR buttons the configured remote supports for an input
+      (0x86). The decrypted reply lists button numbers from payload byte 1
+      up to the first 0 byte.
+    body: "0x86, mode 0x8000: u16 0x0400 + {input}, 254 zero bytes"
+    parameters:
+      input:
+        type: "integer"
+        required: true
+        min: 0
+        max: 3
+        description: "Input number."
+    example_body: "01013c5a860000000500000000000000000100800000000005000000000000004125153707facc7a997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049"
+    example_notes: "Input 1, sequence 5."
+    verification: "reported"
+  prepare_stream:
+    description: "Message 0xA6 that Slinger sends before the stream settings; its meaning is unknown (see protocol_details.opcodes for the other clients' values)."
+    body: "0xA6, mode 0x8000: u16 0x01CF 0 0x40 0x10 0x5000 0x0180 1 0x1E 0 0x3D, 76 zero bytes"
+    example_body: "01013c5aa6000000060000000000000060000080000000006d00000000000000bc4ebae6d7e284d8343f396ec210dbcbd2f5d892b5e6e160997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049"
+    example_notes: "Sequence 6."
+    verification: "reported"
+  set_stream_settings:
+    description: >
+      Set resolution, frame rate, video bitrate, smoothness, key-frame
+      interval and audio bitrate for the stream (0xB5), then open the stream
+      connection. Status non-zero means a value the box rejects. Applies to
+      this session's stream; whether the box stores it is not established.
+    body: "0xB5, mode 0x8000: payload_formats.StreamSettings with {resolution}, {frame_rate}, {video_bandwidth}, {smoothness}, {iframe_interval}, {audio_bitrate}, {nonce}"
+    parameters:
+      resolution:
+        type: "integer"
+        required: true
+        min: 0
+        max: 16
+        default: 12
+        description: "protocol_details.resolutions; 0 audio only. The older family stops at 11."
+      frame_rate:
+        type: "integer"
+        required: true
+        enum: [1, 6, 10, 15, 20, 30, 60]
+        default: 30
+        unit: "fps"
+        description: "Frames per second; 60 only at some resolutions on the newer family."
+      video_bandwidth:
+        type: "integer"
+        required: true
+        min: 50
+        max: 8000
+        default: 2000
+        unit: "kbit/s"
+        description: "Video bitrate."
+      smoothness:
+        type: "integer"
+        required: true
+        min: 0
+        max: 63
+        default: 63
+        description: "Video smoothness, 0 = automatic (Slinger's range)."
+      iframe_interval:
+        type: "integer"
+        required: true
+        min: 0
+        max: 30
+        default: 5
+        unit: "s"
+        description: "Seconds between key frames."
+      audio_bitrate:
+        type: "integer"
+        required: true
+        enum: [16, 20, 32, 40, 48, 64, 96]
+        default: 64
+        unit: "kbit/s"
+        description: "Audio bitrate."
+      nonce:
+        type: "string"
+        required: true
+        min_length: 32
+        max_length: 32
+        description: "16 bytes as 32 hex digits; Slinger reuses its 0xC6 client random. Role unknown."
+    example_body: "01013c5ab50000000700000000000000a000008000000000f300000000000000fe5924069a9bb11221c962708bd0d5ccb0b397127f76fdae7837283ee8bd653a159d955b07b2abef60bbd814ce27f87358b6bd779affe9cc95719e6556d8f60aab87cec20dceee25997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049"
+    example_notes: "The StreamSettings example (1280x720, 30 fps, 2000, I-frame 5 s, smoothness 63, audio 64), sequence 7."
+    verification: "reported"
+  send_ir_button:
+    description: >
+      Send one IR button to the set-top box (0x87). The box must have a
+      remote-control code set configured, and Slinger's notes say IR only
+      works while a stream is connected. Send channel numbers one digit at
+      a time.
+    body: "0x87, mode 0x8000: payload_formats.IrPayload with {button} and {remote_code}"
+    parameters:
+      button:
+        type: "integer"
+        required: true
+        min: 1
+        max: 81
+        description: "Button number, protocol_details.ir_buttons (4 channel up, 5 channel down, 9-18 digits)."
+      remote_code:
+        type: "integer"
+        required: true
+        min: 0
+        max: 3
+        description: "The remote code; per Slinger's notes, the same number as the selected video input."
+    example_body: "01013c5a870000000800000000000000e00100800000000004000000000000006234fd0a958f234a997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049997abcd030277049ab87cec20dceee25"
+    example_notes: "Button 4 (channel up), remote code 1, sequence 8."
+    verification: "reported"
+  set_tuner_channel:
+    description: >
+      Tune the Pro-HD's built-in tuner directly to a channel (0x89, mode 2).
+      Other boxes change channel through send_ir_button.
+    body: "0x89, mode 0x8000: payload_formats.ChannelPayload, mode 2, {channel}, {subchannel}, 8 zero bytes"
+    parameters:
+      channel:
+        type: "integer"
+        required: true
+        min: 0
+        max: 65535
+        description: "Channel number."
+      subchannel:
+        type: "integer"
+        required: false
+        min: 0
+        max: 255
+        default: 0
+        description: "Digital sub-channel."
+    example_body: "01013c5a890000000900000000000000100000800000000099000000000000004550d567f7b42e4a997abcd030277049"
+    example_notes: "Channel 155, sub-channel 0, sequence 9."
+    verification: "reported"
+  keepalive:
+    description: "Keep the session alive (0x66, no payload), every 10 s. Do not wait for a reply."
+    body: "0x66, mode 0x8000, no payload"
+    example_body: "01013c5a660000000a0000000000000000000080000000000000000000000000"
+    example_notes: "Sequence 10."
+    verification: "reported"
+  logout:
+    description: "End the session (0x68, no payload) before closing the control connection. Slinger does this on the older family; its 3.08d notes say doing so cut down the kicked-off errors on Solo boxes."
+    body: "0x68, mode 0x8000, no payload"
+    example_body: "01013c5a680000000b0000000000000000000080000000000000000000000000"
+    example_notes: "Sequence 11."
+    verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud"]
+      transport: "cloud"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          SlingPlayer updated the box's firmware from Sling's servers during
+          setup; a Slinger discussion (#567) reports SlingPlayer for desktop
+          5.0.0 (build 83) updating an M1 after a reset, after the shutdown. No open source
+          describes the image format or the update messages, and no update
+          path is declared here.
+      enter:
+        how: "unknown"
+        notes: "No local command that starts an update is documented."
+      dfu_mode:
+        notes: "How the box appears while updating is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+cloud:
+  required: false
+  vendor_service: "Sling Media / DISH Slingbox directory, account and SlingPlayer services"
+  failure_mode: >
+    Shut down on 2022-11-09. Lost: SlingPlayer login, finding a box by its
+    finder id from outside the LAN, retrieving the 500 / M1 admin password
+    from the Sling account, first-time setup (including choosing the
+    set-top box's IR code set) and firmware updates. The box's own
+    control and stream protocol is local and unaffected.
+
+local_access:
+  status: "native"
+  summary: >
+    Binary control protocol on the box's TCP port: login, session, input
+    selection, stream settings, IR buttons, tuner channel, keep-alive, and
+    an ASF stream on a second connection. Slinger re-serves the stream over
+    HTTP.
+  covers:
+    - "Finding boxes on the LAN (UDP 5004 broadcast)"
+    - "Login with the admin password and session-key setup"
+    - "Video input, resolution, frame rate, bitrates"
+    - "IR remote buttons and the Pro-HD tuner's channel"
+    - "Opening the ASF stream connection"
+  not_covered:
+    - "Decrypting encrypted stream payloads (older family above 320x240, Pro-HD always; 350 HLS segments): deliberately left out"
+    - "First-time setup, choosing or loading an IR code set, changing the admin password"
+    - "Firmware update"
+
+evidence:
+  documentation_review: >
+    Read on 2026-11-15: Slinger's slingbox_server.py (4.01), README,
+    sb-pwd.md, example configs and release notes; SlingboxLib.h/.cpp
+    (Stonyx, GPL-2.0+); slingboxstream-py's slingapi.py; Blingsox's
+    binary.ts and austin.ts; Slinger discussion #567; support.com's reset
+    article. The three binary clients agree on the header layout, the fixed
+    TEA key and the login, input, IR and settings payloads (differences
+    noted inline). Slinger and slingboxstream-py implement the same
+    session-key derivation; a script checked that a transcription of each
+    gives the same key for several invented inputs.
+  open_questions: >
+    The meaning of 0xA6, 0x6A and the 16-byte settings nonce; what the
+    newer boxes' HTTP API can do; how IR code sets were loaded; the 240's
+    control port.
+
+remaining_unknowns:
+  - "Stream payload decryption (older family above 320x240 and the Pro-HD at all resolutions; the 350's HLS segment keys) is implemented by Slinger and slingboxstream-py but deliberately not transcribed, pending the DMCA 1201 review the project backlog asks for. Slinger reports the 350 / 500 / M1 / M2 ASF stream plays unmodified with its settings."
+  - "Whether the 0xC6 session key is required, or a client may stay in fixed-key mode 0x2000 as SlingboxLib does with the older family."
+  - "Meaning of message type 0x0101 versus 0x0201, of the reply status codes other than 0 and 2, and of opcodes 0x6A, 0x76, 0x81, 0xA6, 0xD5, 0x3EB, 0x3ED and 0x3EF."
+  - "The 16-byte value in the stream settings (Slinger reuses its 0xC6 random; SlingboxLib sends a fixed constant) and the words that differ between the clients (w9, w15, w16)."
+  - "How an IR code set is chosen and loaded into the box without Sling's setup software, and the byte layout of the IR message beyond button and remote code (the three clients differ at bytes 2-3 and 472-479)."
+  - "Whether stream settings and the selected input persist across sessions."
+  - "The guest login's permissions and how either password is changed."
+  - "The newer boxes' HTTP/XML API (Blingsox, unfinished): its full resource set, and whether it can start a stream or send IR."
+  - "Discovery reply bytes 32-37 and 122-123, and the control port and product id of the 240."
+  - "Factory-reset hold times: sources range from 10 s to over 40 s, and one M1 owner reports no reset at all; what the guest password resets to."
+  - "Firmware: image format, signing, and whether any local update path exists."
+  - "Wi-Fi on the 500 (and possibly the M1 / M2): how it is provisioned and changed without Sling's setup software."
+  - "The schema's variants carry no discovery product-id matcher, so the model is told apart only by DiscoveryReply.product_id read in code; variant notes are prose."
+  - "No entity is declared: every control command needs the session key from a live login and key exchange, and send_ir_button needs a remote code the client learns only from the owner's setup, so no one-tap binding could fill its parameters. The command vocabulary also has no envelope for a TEA-encrypted binary frame, so `body` describes the message and protocol_handler names the encoder."
+
+helpful_urls:
+  - title: "GerryDazoo/Slinger"
+    url: "https://github.com/GerryDazoo/Slinger"
+    description: "Community Slingbox server: discovery, login, session key, IR, stream settings and HTTP re-streaming for every model; release notes and password-recovery notes."
+  - title: "Stonyx/SlingboxLib"
+    url: "https://github.com/Stonyx/SlingboxLib"
+    description: "C++ client library (GPL-2.0+, 2010-2011) for the older boxes: message header, fixed-key TEA, login, settings, channel, input and IR messages."
+  - title: "yeahok/slingboxstream-py"
+    url: "https://github.com/yeahok/slingboxstream-py"
+    description: "Python HLS proxy for a Slingbox 350 (LGPL-2.0): another transcription of the header, the TEA and the session-key rule."
+  - title: "Nomkid/Blingsox"
+    url: "https://github.com/Nomkid/Blingsox"
+    description: "Unfinished MIT client: discovery parsing and the newer boxes' HTTP/XML API with its digest header."
+  - title: "Slinger discussion #567: Getting started with Slingbox M1"
+    url: "https://github.com/GerryDazoo/Slinger/discussions/567"
+    description: "Owner reports on resetting an M1, its post-reset admin password and finishing setup after the shutdown."
+  - title: "How to Reset a Slingbox (support.com)"
+    url: "https://www.techsolutions.support.com/how-to/how-to-reset-a-slingbox-11862"
+    kind: "manual"
+    description: >
+      Factory-reset steps for the Slingbox 350, 500, M1 and M2 (hold reset
+      until the network light double-flashes) and for the older models (until
+      the Sling logo light blinks). A third-party guide; Sling's own help
+      site is gone.
+  - title: "Wikipedia: Slingbox"
+    url: "https://en.wikipedia.org/wiki/Slingbox"
+    description: "Model history and the 2022-11-09 service shutdown."

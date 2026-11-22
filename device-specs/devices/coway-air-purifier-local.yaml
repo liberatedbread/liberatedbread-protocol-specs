@@ -1,0 +1,1078 @@
+# Coway Airmega Wi-Fi air purifiers — owner-run local server (coway-local) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor firmware or app code,
+# no code copied from the open-source project):
+#   - scottjg/coway-local (MIT; default branch read 2026-11-22): README.md, BLE_DISCOVERY.md,
+#     HOTSPOT_SETUP.md, the setup page's codec (web/v1/protocol.mjs, web/v1/bootstrap.mjs,
+#     web/v1/app.mjs), the hotspot script (web/v1/softap.sh), the Home Assistant service
+#     (custom_components/coway_local/service.py, broker.py, pki.py, const.py, telemetry.py,
+#     fan.py, select.py, sensor.py) and its tests (tests/protocol-fixture.json, conftest.py)
+#   - Scott J. Goldman, "Reverse Engineering My Coway Air Purifier to Ditch the Cloud",
+#     scottjg.com, 2026-11-11
+#   - Tom's Hardware, "Dev hacks Coway air purifier to cut it off from the cloud ..." (2026-11)
+#   - Coway AP-1022K (Airmega Icon / Icon S) user manual, vendor-hosted PDF
+# Every identifier in the examples (MAC, serial, token, keys, LAN address) is invented.
+
+device:
+  name: "Coway Airmega Wi-Fi air purifiers (AP-1022K Icon S, AP-1720G 250S) — owner-run local server"
+  manufacturer: "Coway Co., Ltd."
+  manufacturer_status: "active"
+  aliases:
+    - "Coway Airmega Icon S"
+    - "Coway Airmega IconS"
+    - "Coway Airmega 250S"
+    - "AP-1022K"
+    - "AP-1720G"
+    - "coway-local"
+  companion_apps:
+    - name: "Coway IoCare+ (formerly IoCare)"
+      role: "primary"
+      platform: "cross_platform"
+      notes: >
+        The vendor app. It provisions the fan for Coway's cloud, not for a
+        local server; a fan set up the way this spec describes is no longer
+        reachable from it. Android 2.28.0 was the build coway-local's author
+        examined for the Bluetooth discovery rules.
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Everything below is
+      transcribed from the MIT-licensed coway-local project (its docs, its
+      setup page's codec and its Home Assistant service, which were run by
+      its author against one AP-1022K and three AP-1720G) and from the
+      author's write-up. The Bluetooth codec transcription was checked
+      against coway-local's own published P001/P002 vectors before invented
+      vectors were generated for this spec;
+      scripts/test_coway_air_purifier_local_spec.py rebuilds and parses every
+      example here from the rules as stated. Wire facts are `reported`.
+  protocol: "wifi"
+  transport: "mqtts"
+  category: "climate"
+  type: "air-purifier"
+  pictogram: "air-purifier"
+  notes: >
+    Coway's Wi-Fi Airmega purifiers are cloud clients. During setup the phone
+    app hands the fan, over Bluetooth (or over the fan's own hotspot on some
+    250S units), the Wi-Fi credentials AND three server addresses: a plain
+    HTTP URL to download the CA certificate it should trust, an HTTPS
+    "certificate server" URL to enrol at, and a one-time enrolment token.
+    The fan downloads the CA, enrols, downloads a client certificate and
+    private key, and is told in the enrolment reply which MQTT broker
+    (normally AWS IoT on 8883) to connect to. From then on all control and
+    state ride JSON messages over mutually-authenticated MQTT/TLS.
+
+    Because those addresses are carried IN the setup message, an owner can
+    send the setup message themselves with their own server's addresses: no
+    DNS override, no traffic interception and no certificate forgery is
+    needed. The owner's server then plays all three cloud roles — CA
+    download (plain HTTP), enrolment and credential download (HTTPS), MQTT
+    broker (TLS) — and the fan never contacts Coway again.
+    scottjg/coway-local is the working implementation: a Home Assistant
+    custom integration that runs the three listeners itself, plus a static
+    Web Bluetooth setup page (and a shell script for hotspot-setup units)
+    that sends the fan its settings.
+
+    DIRECTION MATTERS. The fan listens on nothing a client can talk to after
+    setup. It is the HTTP and MQTT CLIENT; whatever wants to control it has
+    to be its broker. The topics, payloads and commands below are written
+    from the broker's side: "publish" means the server sends to the fan.
+
+    Coverage: the AP-1022K (Airmega Icon S, now discontinued) with MCU
+    firmware V1.0.0.1 and Wi-Fi firmware 000011, which is the unit the
+    protocol was taken from, and the AP-1720G (Airmega 250S), product codes
+    02FWK (Bluetooth setup) and 02F9R (hotspot setup), firmware not
+    recorded, on which coway-local's author reported setup, sensors and
+    speed control working. The attribute codes are the AP-1022K's; the
+    250S's own extra modes (rapid mode) and its light settings are not
+    mapped. Other Coway models may pass the Bluetooth setup (the advertising
+    rule is broad) without sharing these mappings.
+
+    SECURITY NOTE (prose only; no security_advisory, because one would hide the controls this local route exists to provide): the fan
+    fetches the CA certificate it will trust for every later connection
+    over plain, unauthenticated HTTP, from the URL it was given at setup.
+    That is the property this whole local route rests on — the owner points
+    that URL at a CA they generated — and it is also why setup must happen
+    on a network the owner trusts. Keep the three server ports on the
+    trusted LAN and never forward them from the internet.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/scottjg/coway-local"
+    license: "MIT"
+    notes: >
+      Coway publishes nothing. The setup messages were reconstructed from
+      Android Bluetooth logs matched against the vendor app, and the cloud
+      exchange from intercepted setup traffic; the MQTT payloads from the
+      raw stream mapped to app button presses. coway-local is the
+      reference implementation; it bundles broker code adapted from aMQTT
+      (also MIT).
+
+  identification:
+    notes: >
+      No LAN identification: after setup the fan advertises no service and
+      accepts no connection. In Bluetooth setup mode it advertises
+      manufacturer data under company ID 0x0639 or 0xFFFF (layouts in
+      protocol_details.ble_provisioning.advertising) and, in its scan
+      response, the 16-bit services ffc0, ffc1 and ffc3. 0xFFFF is the
+      reserved "no company" value and is NOT exclusive to Coway, so it is
+      not declared as a matcher here; a client must still check the GATT
+      services and the identity reply before treating a device as a Coway
+      fan. Hotspot-setup 250S units (02F9R) carry Wi-Fi modules with the
+      I&C Technology MAC prefix 84:72:07; that prefix is the module vendor's
+      and is not a model identifier.
+
+  discovery:
+    none: >
+      Nothing to scan for after setup. The fan is a client: it connects to
+      the broker host and port named in the enrolment reply and presents
+      its enrolled client certificate, with its serial as the MQTT client
+      ID. The server learns the fan's identity from that connection, and
+      "discovers" a new fan only by enrolling it. During setup the fan is
+      found over Bluetooth (setup mode) or by joining its hotspot.
+    identity:
+      stable_keys: ["serial"]
+      display: "serial"
+      notes: >
+        `serial` is the 18-character identity the fan was given in its setup
+        message and presents as its MQTT client ID and in every message's
+        `prodId`. Coway's app sends the fan's own Coway serial; coway-local
+        sends `LOCAL0` followed by the fan's Wi-Fi MAC as 12 uppercase hex
+        digits, so the identity survives a relabelled or missing sticker.
+    static_ip_required: true
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The owner's server must be running BEFORE the fan is set up, at a LAN
+      address that will not change: the address is written into the fan,
+      and changing it (or any of the three ports) means setting every fan up
+      again. Pick ONE of the two methods by hardware: Bluetooth if the fan
+      appears in a Bluetooth scan in setup mode, the hotspot route if it
+      raises an open Wi-Fi network instead (the 250S with product code
+      02F9R). Both deliver the same P001/P002 messages; both are "medium":
+      coway-local's author ran them, this project has not.
+    methods:
+      - type: "ble_provisioning"
+        name: "Bluetooth setup pointed at the owner's server"
+        role: "primary"
+        verified: false
+        description: >
+          The owner's server is started first; then a client next to the fan
+          sends it the Wi-Fi credentials and the server's three addresses
+          over Bluetooth. The fan does the rest on its own: joins Wi-Fi,
+          downloads the CA over plain HTTP, enrols over HTTPS, downloads its
+          certificate and key, and connects to the server's MQTT broker.
+          coway-local does this from a Web Bluetooth page (Chrome on macOS
+          or Android; Safari and iOS cannot), so the server itself needs no
+          Bluetooth radio.
+        ble:
+          protocol: "Coway Wi-Fi setup (P001 key, AES-256-CBC P002 settings) — see protocol_details.ble_provisioning"
+          service_uuid: "0000ffc0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000ffa2-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000ffa0-0000-1000-8000-00805f9b34fb"
+          pairing_required: false
+        stages:
+          - type: "none"
+            name: "Start the owner's server"
+            verified: false
+            description: >
+              Three TCP listeners on one fixed LAN address, all from one
+              locally generated CA (protocol_details.server_roles). In
+              coway-local they are the integration's HTTP 8080, HTTPS 9443
+              and MQTT/TLS 9883, each configurable.
+            steps:
+              - action: "Reserve a fixed LAN address for the server host (e.g. 192.168.1.50) in the router."
+                actor: "user"
+              - action: "Generate a CA and a server certificate for that address (IP SAN and a DNS SAN holding the same literal), and start the CA download (HTTP), enrolment (HTTPS) and broker (MQTT/TLS) listeners."
+                actor: "client"
+                expect: "All three ports listen. coway-local refuses to start (\"setup retrying\") when a port is taken."
+              - action: "Mint a one-time enrolment token (coway-local: 32 URL-safe characters, valid 15 minutes, one fan)."
+                actor: "client"
+          - type: "ble_provisioning"
+            name: "Send the fan its Wi-Fi and server addresses"
+            verified: false
+            description: >
+              The exchange in protocol_details.ble_provisioning: read the
+              identity, scan for networks, write P001 then P002, follow the
+              status notifications until the fan reports its broker
+              connection (status 61).
+            ble:
+              protocol: "Coway Wi-Fi setup over GATT service ffc0"
+              service_uuid: "0000ffc0-0000-1000-8000-00805f9b34fb"
+              write_characteristic: "0000ffa2-0000-1000-8000-00805f9b34fb"
+              read_characteristic: "0000ffa0-0000-1000-8000-00805f9b34fb"
+              pairing_required: false
+            steps:
+              - action: "Hold the fan's Mode button (or whichever button sets the fan speed) until it enters Wi-Fi setup mode."
+                actor: "user"
+                expect: "The fan advertises over Bluetooth with manufacturer data under company ID 0x0639 or 0xFFFF."
+              - action: "Connect, enable notifications on ffa0, ffa1 and ffa2 (service ffc0) and ff00 (service ffc1), then read ffa0 and reassemble the identity reply."
+                actor: "client"
+                expect: "A protobuf whose field 2 is the fan's Wi-Fi MAC as text."
+                timeout_seconds: 12
+              - action: "Read ffa1 and reassemble the Wi-Fi scan; offer only entries on channel 14 or below."
+                actor: "client"
+                timeout_seconds: 25
+              - action: "Pick the 2.4 GHz network and type its passphrase (8-63 bytes for a secured network)."
+                actor: "user"
+              - action: "Write P001 to ffa2 in 20-byte fragments, with write-with-response."
+                actor: "client"
+                expect: "A status notification on ffa2 with field 2 = 1 and status 72 (key accepted)."
+                timeout_seconds: 15
+              - action: "Write P002 (Wi-Fi settings plus caUrl, certSvrUrl, certToken, serial) to ffa2 the same way."
+                actor: "client"
+                expect: "Status 10 (Wi-Fi joined), 20, 40, 50 (credentials downloaded), then 61 (broker connected). 52 means the broker was not reached yet; the fan keeps retrying."
+                timeout_seconds: 120
+              - action: "Join Wi-Fi, GET caUrl over plain HTTP, POST the enrolment to certSvrUrl, GET certUrl and privateUrl, connect to host:port over MQTT/TLS with the new certificate."
+                actor: "device"
+                expect: "The broker sees a TLS client certificate it issued and client ID = serial; the fan subscribes to its MControl topic (that subscription is what coway-local calls \"fan ready\")."
+                timeout_seconds: 120
+      - type: "none"
+        name: "Hotspot setup (Airmega 250S, product code 02F9R)"
+        role: "variant"
+        verified: false
+        description: >
+          For fans with no Bluetooth setup: in setup mode they raise an open
+          Wi-Fi network, act as its DHCP and DNS server, and take the same
+          P001 and P002 messages over raw TCP instead of GATT. Typed `none`
+          because the setup channel is a plain TCP socket and the schema has
+          no SoftAP type for that; the setup AP itself is declared below.
+          coway-local drives it with web/v1/softap.sh (bash, openssl, curl;
+          macOS or Linux).
+        softap:
+          open_network: true
+          gateway_ip: "192.168.12.101"
+          port: 5040
+          credential_encryption:
+            algorithm: "AES-256-CBC"
+            padding: "pkcs7"
+            key_derivation: "The 20-byte key the client itself sent in P001, followed by the fan's Wi-Fi MAC as 12 uppercase ASCII hex characters (32 bytes). The key travels in the clear one message earlier, so this obscures the passphrase rather than protecting it."
+            algorithm_steps:
+              - "Pick a 20-byte key K (coway-local: 20 random lowercase ASCII letters; the vendor app: 20 random bytes; the fan accepts either)."
+              - "Send P001 = ASCII 'P001' + protobuf {1: 1 (varint), 2: base64(K) (string)}."
+              - "AES key = K + the fan's MAC as 12 uppercase ASCII hex characters, no separators (32 bytes, so AES-256)."
+              - "Plaintext = the settings protobuf (protocol_details.ble_provisioning.p002.fields), fields in ascending number, zero integers and empty strings omitted; pad with PKCS#7 to a 16-byte multiple."
+              - "Pick a 16-byte IV, encrypt with AES-256-CBC, and send P002 = ASCII 'P002' + base64(IV + ciphertext) (standard alphabet, with '=' padding)."
+        steps:
+          - action: "Start the owner's server and mint an enrolment token, exactly as in the first stage of the Bluetooth method."
+            actor: "client"
+          - action: "With the fan on, hold Filter Reset and Wi-Fi together for 3 seconds."
+            actor: "user"
+            expect: "The Wi-Fi light blinks and an open Wi-Fi network appears."
+          - action: "Join the computer to the fan's open network."
+            actor: "user"
+          - action: "Open TCP 5001 on the fan's hotspot address, send `AT*ICT*SCAN` followed by CR, read the scan reply (same layout as the Bluetooth scan) and read the fan's MAC from the ARP table while connected."
+            actor: "client"
+          - action: "Pick the network and type its passphrase."
+            actor: "user"
+          - action: "Open TCP 5040, send P001 (no fragment headers), read the 6-byte status reply, then send P002 and read its reply."
+            actor: "client"
+            expect: "Each reply is protobuf {1: command (1, then 2), 2: 1 for success, 3: a status code}. The code varied (61, 2, 5, 0) and is not the 72 the Bluetooth path waits for; accept any reply with field 2 = 1."
+          - action: "Rejoin the usual network; the fan enrols and connects on its own."
+            actor: "device"
+            expect: "The fan connects to the broker within seconds of downloading its credentials and chimes. If it keeps re-posting the enrolment every ~11 s with its light flashing twice, the server's enrolment reply was not compact JSON."
+            timeout_seconds: 180
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. coway-local's removal step revokes the fan on the
+        server and deletes its credentials but explicitly does not reset the
+        fan. Entering setup mode again and sending new P001/P002 messages
+        replaces the Wi-Fi settings and server addresses, so a reset is not
+        needed to move a fan between servers. Whether a fan whose setup did
+        not complete keeps its old settings is unknown; two that failed
+        setup left the network (one after a power cycle).
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Put the fan back into setup mode and send it P001/P002 again with
+        the new Wi-Fi network. The old network need not exist. The server's
+        address and ports are re-sent at the same time, so a server move is
+        handled the same way. Re-enrolling an already-enrolled fan works;
+        coway-local saw the first broker attempt fail (status 52) and a
+        later one succeed.
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Home Wi-Fi SSID, BSSID and passphrase (from P002)"
+        - "The CA certificate downloaded from caUrl — the fan's only trust anchor"
+        - "Its client certificate and private key (downloaded from certUrl and privateUrl)"
+        - "The broker host and port and its serial identity (from the enrolment reply and P002)"
+      issued_to_client: []
+      notes: >
+        The Wi-Fi passphrase crosses Bluetooth (or the open hotspot) inside
+        P002, AES-256-CBC encrypted under a key whose first 20 bytes were
+        sent in the clear in P001 and whose last 12 are the fan's MAC: an
+        eavesdropper on that link can decrypt it. The passphrase never
+        reaches the owner's server; coway-local's setup page holds it only
+        in the browser. The server issues the fan its credentials, not the
+        other way round; the server keeps the CA key, its own server key
+        and each fan's certificate fingerprint, and losing that store means
+        setting every fan up again.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: true
+      recovery: >
+        A fan trusts one CA and connects to one broker, both fixed at setup.
+        Moving it to another server (or back to Coway) means setup mode and
+        new P001/P002 messages. Several consumers share a fan through the
+        one server, never by each pointing the fan at itself.
+      notes: >
+        One broker per fan, by construction. coway-local also lets each
+        enrolled fan publish and subscribe only on its own topics.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        Setup mode is the only window in which the fan accepts new server
+        addresses: hold Mode (AP-1022K) or Filter Reset + Wi-Fi for 3 s
+        (hotspot-setup 250S). The enrolment token sent in P002 is what
+        authorises that one fan at the server; coway-local makes each token
+        single-use, bound to the first MAC that presents it, and valid for
+        15 minutes.
+    notes: >
+      No Bluetooth pairing or bonding: the GATT setup service is open while
+      the fan is in setup mode. What does the job of pairing is the
+      enrolment: the fan presents the P002 certToken to the server's
+      enrolment endpoint and receives a client certificate, and the broker
+      thereafter admits only a TLS client presenting that certificate with
+      its serial as the MQTT client ID (coway-local compares the SHA-256
+      fingerprint of the certificate to the one recorded at enrolment). The
+      fan, in turn, authenticates the server only by the CA it fetched over
+      plain HTTP. Basis: coway-local, run by its author against the models
+      in device.variants.
+
+  variants:
+    - model: "AP-1022K (Airmega Icon S)"
+    - model: "AP-1720G (Airmega 250S), product code 02FWK"
+    - model: "AP-1720G (Airmega 250S), product code 02F9R"
+
+protocol_handler: "coway_iocare_local"
+
+local_access:
+  status: "native"
+  summary: >
+    The stock fan can be freed from Coway's cloud with no hardware change and
+    no firmware change: it is set up against an owner-run server instead of
+    Coway's. The server has to be the fan's HTTP enrolment endpoint and MQTT
+    broker; nothing can control the fan without being that broker.
+  covers:
+    - "Power, three manual speeds, smart and sleep modes"
+    - "Lighting level, off timer, smart-mode sensitivity, pre-filter cleaning cycle"
+    - "PM2.5, ambient light, pre-filter and MAX2 filter remaining"
+    - "Connection state (the MQTT session) and a status refresh"
+  not_covered:
+    - "The Coway app and Coway cloud features, including remote access through Coway (the fan no longer talks to Coway)"
+    - "Firmware updates (the fan subscribes to an update topic, but nothing about the update protocol is known)"
+    - "PM10 and other air-quality metrics, filter notification flags, and the 250S's own modes (rapid mode) and light settings"
+
+cloud:
+  required: false
+  vendor_service: "Coway IoCare+ cloud (Coway certificate service plus AWS IoT, ap-northeast-2)"
+  failure_mode: >
+    A fan set up against an owner-run server never contacts Coway, so a
+    Coway outage, account ban or shutdown does not affect it. A fan set up
+    with the Coway app depends on Coway entirely, and only the app can
+    control it.
+  notes: >
+    The vendor sequence, for comparison (from the researcher's router flow
+    log and intercepted setup): the app asks iocare.iotsvc.coway.com for a
+    temporary token, which returns caUrl, certSvrUrl and a 48-character
+    certToken; the fan then fetches the CA from rootca-fs.iocareus.com's S3
+    bucket over plain HTTP, enrols at cert.iotp.coway.com, downloads its
+    certificate and key from icert-fs.iocareus.com, and connects to an AWS
+    IoT ATS endpoint under iot.ap-northeast-2.amazonaws.com on TCP 8883.
+    The AWS IoT endpoint name is per-account and is not listed in egress:
+    blocking its parent would block every AWS IoT customer in that region.
+  egress:
+    - host: "rootca-fs.iocareus.com.s3.ap-northeast-2.amazonaws.com"
+      contacted_by: "device"
+      roles: ["provisioning"]
+      ports: [{port: 80, protocol: "tcp"}]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "HOTSPOT_SETUP.md and the researcher's write-up (the caUrl Coway's cloud hands out); a locally set-up fan is given the owner's URL instead."
+      notes: "Plain HTTP GET of AmazonRootCA1.pem during setup only."
+    - host: "cert.iotp.coway.com"
+      contacted_by: "device"
+      roles: ["provisioning"]
+      ports: [{port: 443, protocol: "tcp"}]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "HOTSPOT_SETUP.md; the certSvrUrl Coway's cloud hands out is https://cert.iotp.coway.com/iot/v1/cert/r0."
+    - host: "icert-fs.iocareus.com"
+      contacted_by: "device"
+      roles: ["provisioning"]
+      ports: [{port: 443, protocol: "tcp"}]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "The researcher's write-up: certUrl and privateUrl in Coway's enrolment reply point here."
+    - host: "iocare.iotsvc.coway.com"
+      contacted_by: "app"
+      roles: ["provisioning", "api"]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "HOTSPOT_SETUP.md: the app's temporary-token and pairing-step-history calls."
+
+mqtt:
+  transport_security: "tls"
+
+mqtt_topics:
+  - topic: "IoCare/MControl/002AIR007/{serial}"
+    name: "Control (server to fan)"
+    direction: "publish"
+    qos: 1
+    description: >
+      Every command and every status request. The fan subscribes on connect;
+      its subscription to this topic is the signal that it is ready for
+      commands. 002AIR007 is the service code (`svcCode`) the enrolment reply
+      gives; it is the value Coway's cloud gave the Icon S and the one
+      coway-local gives every fan, the 250S included.
+    payload_format:
+      encoding: "json"
+      fields:
+        - {name: "header.requestId", type: "string", description: "Fresh per request, fixed width: 13 decimal digits of milliseconds since the Unix epoch, '-', '22' (16 characters). The fan echoes it in the reply."}
+        - {name: "header.prodId", type: "string", description: "The fan's serial."}
+        - {name: "header.API_NO", type: "string", description: "A1011 (set a setting), A1013 (request status), A1051 (set the pre-filter cycle)."}
+        - {name: "attributes", type: "object", description: "\"<API_NO>.<4-hex suffix>\": integer, one key per setting changed; {} for A1013."}
+  - topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    name: "Events and replies (fan to server, AP-1022K and 02FWK)"
+    direction: "subscribe"
+    qos: 1
+    description: >
+      Replies to commands (A1010, A1012, A1050, carrying the request's
+      requestId) and unsolicited reports (A1010 settings, A1020 telemetry,
+      A1050 pre-filter cycle). The `$aws/rules/AIR/` prefix is AWS IoT's
+      basic-ingest form, kept verbatim: the fan publishes to this exact
+      string and a local broker must accept it.
+    payload_format:
+      encoding: "json"
+      fields:
+        - {name: "header.prodId", type: "string", description: "The fan's serial; drop a message whose prodId is not the client's own."}
+        - {name: "header.API_NO", type: "string", description: "A1010, A1012, A1020, A1050 or A1000 (payload_formats.CowayMessage)."}
+        - {name: "header.requestId", type: "string", description: "Present on a reply; the request's value."}
+        - {name: "attributes", type: "object", description: "\"<API_NO>.<suffix>\": value."}
+  - topic: "IoCare/MEvent/002AIR007/{serial}"
+    name: "Events and replies (fan to server, 250S product code 02F9R)"
+    direction: "subscribe"
+    qos: 1
+    description: >
+      The hotspot-setup 250S publishes the same A1010, A1020 and A1050
+      messages here instead of on BEvent. A server should accept both.
+    payload_format:
+      encoding: "json"
+  - topic: "IoCare/MITG/002AIR007/{serial}"
+    name: "MITG (fan to server)"
+    direction: "subscribe"
+    description: "A topic the fan is allowed to publish on; its content is not documented."
+  - topic: "IoCare/MITGLWT/002AIR007/{serial}"
+    name: "Last will (fan to server)"
+    direction: "subscribe"
+    description: "The fan's MQTT will topic; coway-local rejects a CONNECT whose will names any other topic. The will's payload is not documented."
+  - topic: "IoCare/MFota/002AIR007/{serial}"
+    name: "Firmware over the air (server to fan)"
+    direction: "publish"
+    description: "Subscribed by the fan. Never used by coway-local; the name suggests firmware-update notices, which is an inference (features.firmware_update)."
+  - topic: "IoCare/MCert/002AIR007/{serial}"
+    name: "Certificate (server to fan)"
+    direction: "publish"
+    description: "Subscribed by the fan. Content and use unknown."
+  - topic: "$aws/things/{serial}/shadow/update/delta"
+    name: "Device shadow delta (server to fan)"
+    direction: "publish"
+    description: "AWS IoT device-shadow delta, subscribed by the fan. Not used by coway-local; content unknown."
+
+payload_formats:
+  CowayMessage:
+    description: >
+      Every MQTT payload in both directions: compact JSON, one object with a
+      `header` and an `attributes` map. Attribute keys are the API number, a
+      literal '.', and a four-hex-digit suffix ("A1011.0003"): ONE JSON key
+      containing a dot, not a nested path. A reply's API number is the
+      request's with the last digit one lower (A1011 → A1010, A1013 → A1012,
+      A1051 → A1050), and its attribute keys carry the reply's number.
+    values:
+      A1011: "Server → fan: set one or more settings (attributes as in SettingAttributes)."
+      A1010: "Fan → server: settings, as the reply to A1011 and as an unsolicited report."
+      A1013: "Server → fan: request status; attributes {}."
+      A1012: "Fan → server: settings, as the reply to A1013."
+      A1051: "Server → fan: set the pre-filter cleaning cycle (A1051.0001)."
+      A1050: "Fan → server: the pre-filter cleaning cycle (A1050.0001), as the reply to A1051 and as a report."
+      A1020: "Fan → server: periodic telemetry (TelemetryAttributes)."
+      A1000: "Fan → server: carries mcuFrmwrVer (MCU firmware version string); when it is sent is not documented."
+    parse_rules:
+      - "Parse the payload as JSON; ignore it unless header.prodId equals the connected client's serial and attributes is an object."
+      - "Dispatch on header.API_NO. For A1010 and A1012 store each integer attribute by its suffix (the part after the first '.'): both describe the same settings."
+      - "Match a reply to a pending request by header.requestId AND the expected reply API number; a reply with another requestId is a report, not the confirmation."
+      - "Confirm a set by reading back the requested suffix in the reply: coway-local treats a reply that omits it or carries another value as a failed set."
+    example: '{"header":{"requestId":"1767225600000-22","prodId":"LOCAL000005E00532A","API_NO":"A1010"},"attributes":{"A1010.0001":1,"A1010.0002":0,"A1010.0003":2,"A1010.0007":2,"A1010.0008":0,"A1010.000A":2}}'
+  SettingAttributes:
+    description: >
+      Setting suffixes, shared by A1011 (write) and A1010/A1012 (read back).
+      Values are integers. Observed on the AP-1022K; the 250S reports the
+      same codes for what it shares.
+    fields:
+      - {name: "0001", description: "Power: 0 off, 1 on."}
+      - {name: "0002", description: "Mode: 1 smart, 2 sleep; 0 is read back after a manual speed is set and is taken to mean manual (coway-local's mapping)."}
+      - {name: "0003", description: "Manual fan speed 1-3."}
+      - {name: "0007", description: "Lighting level. Wire 1, 2, 3 are coway-local's levels 1-3 and wire 0 its level 4; what each looks like on the fan is not documented."}
+      - {name: "0008", unit: "min", description: "Off timer in minutes: 0 off, 60, 240, 480 (the app's choices)."}
+      - {name: "000A", description: "Smart-mode sensitivity: 1 sensitive, 2 moderate, 3 insensitive."}
+  PrefilterCycle:
+    description: "A1051.0001 / A1050.0001: the pre-filter cleaning reminder interval."
+    values:
+      "112": "2 weeks"
+      "168": "3 weeks (coway-local writes this once after enrolment)"
+      "224": "4 weeks"
+    parse_rules:
+      - "Only these three values were seen. The unit is not established (112/168/224 are eight times the number of days)."
+  TelemetryAttributes:
+    description: "A1020 report attributes. Only the four below are decoded; the report carries others whose meaning is not documented here."
+    fields:
+      - {name: "A1020.0001", unit: "µg/m³", description: "PM2.5 concentration. Identified from Coway's public sensor definitions."}
+      - {name: "A1020.0007", unit: "lx", description: "Ambient light. Scaling not calibrated."}
+      - {name: "A1020.0011", unit: "%", description: "Pre-filter USAGE, 0-100; remaining = 100 - value."}
+      - {name: "A1020.0012", unit: "%", description: "MAX2 filter USAGE, 0-100; remaining = 100 - value."}
+    parse_rules:
+      - "Accept only non-negative integers, and for 0011/0012 only 0-100; coway-local shows anything else as unknown."
+      - "An attribute absent from a report leaves the previous reading in place; after a reconnect show nothing until the first report."
+    example: '{"header":{"prodId":"LOCAL000005E00532A","API_NO":"A1020"},"attributes":{"A1020.0001":4,"A1020.0007":617,"A1020.0011":25,"A1020.0012":71}}'
+  SetupStatus:
+    description: >
+      The fan's setup progress, notified on ffa2 (Bluetooth) or replied on TCP
+      5040 (hotspot): protobuf {1: the command it refers to (1 = P001, 2 =
+      P002), 2: 1 for success, 3: status code}. Code meanings are coway-local's
+      reading of the fan's behaviour.
+    values:
+      "1": "Wi-Fi association failed"
+      "2": "Wi-Fi association failed"
+      "3": "Wi-Fi association failed"
+      "4": "Wi-Fi association failed"
+      "5": "DHCP failed"
+      "6": "Configuration rejected"
+      "10": "Wi-Fi connected"
+      "11": "CA server unreachable"
+      "12": "CA download failed"
+      "20": "CA downloaded"
+      "21": "Certificate server unreachable"
+      "30": "Certificate token rejected"
+      "40": "Certificate server accepted setup"
+      "41": "Certificate download unreachable"
+      "42": "Certificate download failed"
+      "43": "Private-key download unreachable"
+      "44": "Private-key download failed"
+      "50": "Device credentials downloaded"
+      "51": "Broker DNS failed"
+      "52": "Broker connection failed (the fan keeps retrying and usually connects)"
+      "61": "MQTT broker connected — setup complete"
+      "71": "Setup initialized"
+      "72": "Bluetooth key accepted (the reply to P001)"
+      "73": "Bluetooth key rejected"
+    parse_rules:
+      - "Failure: field 2 is not 1, or the code is one of 1-6, 11, 12, 21-31, 41-44, 51, 73."
+      - "52 is not final: keep waiting (coway-local allows another 60 s)."
+      - "Done: field 1 = 2 and code 61 (Bluetooth). The hotspot path's codes differ; there, field 2 = 1 is the test."
+    example: "080110011848"
+
+commands:
+  request_state:
+    description: "Ask the fan for its settings (A1013). It answers with A1012 carrying every setting suffix."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1013"},"attributes":{}}'
+    parameters:
+      serial: &serial_param
+        type: "string"
+        source: "credential:serial"
+        description: "The fan's 18-character serial (its MQTT client ID), as given in P002; coway-local uses LOCAL0 + the Wi-Fi MAC."
+      request_id: &request_id_param
+        type: "string"
+        auto: "sequence"
+        description: "13 decimal digits of milliseconds since the Unix epoch, then '-22'. Must be unique and increasing; the fan accepts this fixed-width form, not UUIDs. `auto: sequence` is the nearest declared role; the encoder must render it in this form."
+    returns:
+      - {name: "A1012", type: "CowayMessage", description: "On BEvent (MEvent on 02F9R) with the same requestId."}
+    example_body: '{"header":{"requestId":"1767225600000-22","prodId":"LOCAL000005E00532A","API_NO":"A1013"},"attributes":{}}'
+    verification: "reported"
+  set_power:
+    description: "Turn the purifier on or off (A1011.0001)."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1011"},"attributes":{"A1011.0001":{power}}}'
+    parameters:
+      serial: *serial_param
+      request_id: *request_id_param
+      power:
+        type: "integer"
+        required: true
+        enum: [0, 1]
+        description: "0 off, 1 on."
+    returns:
+      - {name: "A1010", type: "CowayMessage", description: "Same requestId; A1010.0001 must equal the value sent."}
+    example_body: '{"header":{"requestId":"1767225600001-22","prodId":"LOCAL000005E00532A","API_NO":"A1011"},"attributes":{"A1011.0001":1}}'
+    verification: "reported"
+  set_speed:
+    description: "Set a manual fan speed (A1011.0003). Turn the fan on first if it is off."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1011"},"attributes":{"A1011.0003":{speed}}}'
+    parameters:
+      serial: *serial_param
+      request_id: *request_id_param
+      speed:
+        type: "integer"
+        required: true
+        min: 1
+        max: 3
+        description: "Manual speed step 1-3. Setting it leaves smart/sleep mode (mode reads back 0)."
+    returns:
+      - {name: "A1010", type: "CowayMessage", description: "Same requestId; A1010.0003 must equal the value sent."}
+    example_body: '{"header":{"requestId":"1767225600002-22","prodId":"LOCAL000005E00532A","API_NO":"A1011"},"attributes":{"A1011.0003":2}}'
+    verification: "reported"
+  set_mode:
+    description: "Select smart or sleep mode (A1011.0002). Manual mode is entered by setting a speed."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1011"},"attributes":{"A1011.0002":{mode}}}'
+    parameters:
+      serial: *serial_param
+      request_id: *request_id_param
+      mode:
+        type: "integer"
+        required: true
+        enum: [1, 2]
+        description: "1 smart, 2 sleep."
+    example_body: '{"header":{"requestId":"1767225600003-22","prodId":"LOCAL000005E00532A","API_NO":"A1011"},"attributes":{"A1011.0002":1}}'
+    verification: "reported"
+  set_lighting:
+    description: "Set the lighting level (A1011.0007)."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1011"},"attributes":{"A1011.0007":{lighting}}}'
+    parameters:
+      serial: *serial_param
+      request_id: *request_id_param
+      lighting:
+        type: "integer"
+        required: true
+        enum: [0, 1, 2, 3]
+        description: "Wire 1-3 are levels 1-3 and wire 0 is level 4 in coway-local's labelling; the visible effect of each is not documented."
+    example_body: '{"header":{"requestId":"1767225600004-22","prodId":"LOCAL000005E00532A","API_NO":"A1011"},"attributes":{"A1011.0007":3}}'
+    verification: "reported"
+  set_timer:
+    description: "Set the off timer (A1011.0008)."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1011"},"attributes":{"A1011.0008":{minutes}}}'
+    parameters:
+      serial: *serial_param
+      request_id: *request_id_param
+      minutes:
+        type: "integer"
+        required: true
+        enum: [0, 60, 240, 480]
+        unit: "min"
+        description: "0 cancels the timer; 60, 240, 480 are the app's choices. Other values untested."
+    example_body: '{"header":{"requestId":"1767225600005-22","prodId":"LOCAL000005E00532A","API_NO":"A1011"},"attributes":{"A1011.0008":240}}'
+    verification: "reported"
+  set_sensitivity:
+    description: "Set the smart-mode sensitivity (A1011.000A)."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1011"},"attributes":{"A1011.000A":{sensitivity}}}'
+    parameters:
+      serial: *serial_param
+      request_id: *request_id_param
+      sensitivity:
+        type: "integer"
+        required: true
+        enum: [1, 2, 3]
+        description: "1 sensitive, 2 moderate, 3 insensitive."
+    example_body: '{"header":{"requestId":"1767225600006-22","prodId":"LOCAL000005E00532A","API_NO":"A1011"},"attributes":{"A1011.000A":2}}'
+    verification: "reported"
+  set_prefilter_cycle:
+    description: "Set the pre-filter cleaning reminder interval (A1051.0001); the fan replies A1050."
+    transport: "mqtt"
+    path: "IoCare/MControl/002AIR007/{serial}"
+    body: '{"header":{"requestId":"{request_id}","prodId":"{serial}","API_NO":"A1051"},"attributes":{"A1051.0001":{cycle}}}'
+    parameters:
+      serial: *serial_param
+      request_id: *request_id_param
+      cycle:
+        type: "integer"
+        required: true
+        enum: [112, 168, 224]
+        description: "112 = 2 weeks, 168 = 3 weeks, 224 = 4 weeks (payload_formats.PrefilterCycle)."
+    returns:
+      - {name: "A1050", type: "CowayMessage", description: "Same requestId; A1050.0001 must equal the value sent."}
+    example_body: '{"header":{"requestId":"1767225600007-22","prodId":"LOCAL000005E00532A","API_NO":"A1051"},"attributes":{"A1051.0001":168}}'
+    verification: "reported"
+
+entities:
+  - platform: "fan"
+    name: "Purifier"
+    features: ["speed"]
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    commands:
+      turn_on: {command: "set_power", values: {power: 1}}
+      turn_off: {command: "set_power", values: {power: 0}}
+      set_speed: "set_speed"
+    notes: >
+      State from A1010/A1012 attributes (keys contain a literal '.', see
+      payload_formats.CowayMessage): on = suffix 0001 == 1, speed = suffix
+      0003 (1-3, three steps). The 02F9R 250S publishes on
+      IoCare/MEvent/002AIR007/{serial} instead. Pushed; no state_mapping is
+      given because a dotted path cannot name a key that contains a dot.
+  - platform: "select"
+    name: "Mode"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    commands:
+      select_option: "set_mode"
+    notes: "Suffix 0002: 1 smart, 2 sleep; 0 (manual) is read back but is reached by setting a speed, not by this select."
+  - platform: "select"
+    name: "Lighting level"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    commands:
+      select_option: "set_lighting"
+    notes: "Suffix 0007; options as set_lighting.lighting."
+  - platform: "select"
+    name: "Off timer"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    commands:
+      select_option: "set_timer"
+    notes: "Suffix 0008, minutes."
+  - platform: "select"
+    name: "Smart mode sensitivity"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    commands:
+      select_option: "set_sensitivity"
+    notes: "Suffix 000A."
+  - platform: "select"
+    name: "Pre-filter cleaning cycle"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    commands:
+      select_option: "set_prefilter_cycle"
+    notes: "A1050.0001 from the A1050 report or reply."
+  - platform: "sensor"
+    name: "PM2.5"
+    device_class: "pm25"
+    unit: "µg/m³"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    notes: "A1020.0001 in the A1020 report."
+  - platform: "sensor"
+    name: "Ambient light"
+    device_class: "illuminance"
+    unit: "lx"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    notes: "A1020.0007; scaling not calibrated."
+  - platform: "sensor"
+    name: "Pre-filter remaining"
+    icon: "mdi:air-filter"
+    unit: "%"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    notes: "100 - A1020.0011 (the wire value is usage). Not compared side by side with the Coway app."
+  - platform: "sensor"
+    name: "MAX2 filter remaining"
+    icon: "mdi:air-filter"
+    unit: "%"
+    state_topic: "$aws/rules/AIR/IoCare/BEvent/002AIR007/{serial}"
+    notes: "100 - A1020.0012 (the wire value is usage). Not compared side by side with the Coway app."
+  - platform: "button"
+    name: "Refresh state"
+    icon: "mdi:refresh"
+    commands:
+      press: "request_state"
+
+services:
+  - uuid: "0000ffc0-0000-1000-8000-00805f9b34fb"
+    name: "Coway Wi-Fi setup service"
+    notes: >
+      Present only in setup mode. Every value on its characteristics is
+      fragmented with a 4-byte header (protocol_details.ble_provisioning.
+      fragmentation), which the schema's framing schemes do not cover, so it
+      is described here rather than in `framing`. No pairing or bonding.
+    characteristics:
+      - uuid: "0000ffa0-0000-1000-8000-00805f9b34fb"
+        name: "Identity (read, notify)"
+        properties: ["read", "notify"]
+        role: "notify"
+        notes: "protobuf {1: module SSID (bytes, optional), 2: Wi-Fi MAC (ASCII)}"
+      - uuid: "0000ffa1-0000-1000-8000-00805f9b34fb"
+        name: "Wi-Fi scan (read, notify)"
+        properties: ["read", "notify"]
+        role: "notify"
+        notes: "'*ICT*SCANRESULT:' + 48-byte entries + '[OK]'"
+      - uuid: "0000ffa2-0000-1000-8000-00805f9b34fb"
+        name: "Setup command and status (write, notify)"
+        properties: ["write", "notify"]
+        role: "command"
+        notes: "writes: P001 / P002; notifications: SetupStatus protobuf"
+  - uuid: "0000ffc1-0000-1000-8000-00805f9b34fb"
+    name: "Coway setup data service"
+    notes: "coway-local enables notifications on its ff00 characteristic but reads nothing from it; purpose unknown."
+    characteristics:
+      - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
+        name: "Data (notify)"
+        properties: ["notify"]
+        role: "notify"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        format: "unknown"
+        notes: "No image, container or signature scheme is known. coway-local does not implement updates."
+      enter:
+        how: "unknown"
+        notes: >
+          The fan subscribes to IoCare/MFota/002AIR007/{serial} and to its
+          AWS IoT shadow delta topic, which suggests the cloud orders
+          updates over MQTT and the fan fetches the image itself; that is
+          an inference from the topic names, not an observation. Nothing
+          should be published on MFota.
+      dfu_mode:
+        notes: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        Firmware seen: AP-1022K MCU V1.0.0.1 with Wi-Fi firmware 000011; the
+        MCU version is reported in A1000 (mcuFrmwrVer). Whether a fan on an
+        owner-run server can still be updated at all is unknown.
+
+protocol_details:
+  server_roles:
+    summary: >
+      What the owner must run: three TCP listeners on one fixed LAN IPv4
+      address, the HTTPS and MQTT ones presenting a server certificate signed
+      by a CA the owner generated. coway-local's defaults are below; any three
+      distinct ports from 1024 to 65535 work, because the fan is told them.
+    ca_download:
+      scheme: "http"
+      default_port: 8080
+      path: "/ca.pem"
+      method: "GET"
+      response: "The owner CA certificate, PEM, Content-Type application/x-pem-file."
+      note: "Plain HTTP is the fan firmware's choice, not the server's. Coway's own caUrl is http://rootca-fs.iocareus.com.s3.ap-northeast-2.amazonaws.com/AmazonRootCA1.pem."
+    enrolment:
+      scheme: "https"
+      default_port: 9443
+      path: "the certSvrUrl path sent in P002; the fan POSTs to it as given (coway-local: /n/<base64url of the fan's Bluetooth name, unpadded>, the name being a label its setup page adds)"
+    credential_download:
+      scheme: "https"
+      default_port: 9443
+      paths: "certUrl and privateUrl from the enrolment reply, any path (coway-local: /d/<one-time capability>/c and /k)"
+      response: "PEM client certificate; PEM RSA private key (coway-local: 2048-bit RSA, traditional 'RSA PRIVATE KEY' PEM, no passphrase)."
+    broker:
+      scheme: "mqtts"
+      default_port: 9883
+      note: "Coway's broker is AWS IoT on 8883. Any port works; the fan uses the `port` of the enrolment reply."
+    certificates:
+      ca: "Self-signed, CA:true, pathlen 0, keyCertSign + cRLSign."
+      server: "Signed by the CA, serverAuth EKU, SubjectAltName with BOTH an IP address entry and a DNS-name entry holding the same IP literal: the firmware compares an IP-literal host against DNS SANs."
+      client: "Signed by the CA, clientAuth EKU, CN coway-<MAC> in coway-local (the fan does not check its own CN)."
+      validity: "coway-local back-dates notBefore to 2020-01-01 because the fan may start without a correct clock."
+    tls:
+      version: "TLS 1.2"
+      cipher: "The firmware needs AES128-SHA256 (TLS_RSA_WITH_AES_128_CBC_SHA256, RSA key exchange). coway-local offers AES128-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384 on both HTTPS and MQTT."
+      client_auth: "The broker requires the client certificate; the HTTPS listener does not."
+  enrolment_exchange:
+    verification: "reported"
+    request: >
+      POST certSvrUrl, Content-Type JSON, body {"macAddr": <12 uppercase hex>,
+      "certToken": <token from P002>, "serial": <serial from P002>}. coway-local
+      rejects a token it did not mint, an expired or used one, and a serial
+      that is not LOCAL0 + macAddr.
+    reply: >
+      JSON {"header": {"success": true, "result": "S1000", "message":
+      "SUCCESS"}, "payload": {macAddr, serial, certToken, host, port,
+      certSvrUrl, caUrl, certUrl, privateUrl, svcCode, countryCd}}. host and
+      port are the MQTT broker. svcCode 002AIR007 and countryCd US are what
+      Coway's cloud sent the Icon S, and what coway-local sends every fan.
+    compact_json: >
+      Write the reply with no whitespace (separators ',' and ':'). The 02F9R
+      250S ignores a reply containing spaces: it never requests certUrl or
+      privateUrl and re-posts the enrolment every ~11 s. The AP-1022K accepts
+      either.
+    rejection: "coway-local answers 403 (or 409/400) with {\"header\":{\"success\":false,\"result\":\"F5002\",\"message\":...}}; F5002 is coway-local's choice, not a known Coway code."
+    then: "The fan GETs certUrl and privateUrl, then opens MQTT/TLS to host:port."
+  mqtt_session:
+    verification: "reported"
+    client_id: "The fan's serial."
+    authentication: "TLS client certificate issued at enrolment; no username or password is described. coway-local compares the SHA-256 of the presented DER certificate with the fingerprint stored at enrolment, before touching any existing session."
+    will: "Will topic IoCare/MITGLWT/002AIR007/<serial>."
+    subscribes: ["IoCare/MControl/002AIR007/<serial>", "IoCare/MFota/002AIR007/<serial>", "IoCare/MCert/002AIR007/<serial>", "$aws/things/<serial>/shadow/update/delta"]
+    publishes: ["IoCare/MITG/002AIR007/<serial>", "IoCare/MITGLWT/002AIR007/<serial>", "$aws/rules/AIR/IoCare/BEvent/002AIR007/<serial>", "IoCare/MEvent/002AIR007/<serial>"]
+    ready: "The fan is ready for commands once it has subscribed to its MControl topic."
+    commands_qos: 1
+    max_payload: "coway-local drops publications over 32 KiB."
+    keepalive: "unknown — coway-local's broker does not enforce it, and a fan whose link died leaves a stale session until it reconnects."
+    after_connect: "coway-local sends A1013 on every new connection and every 60 s while connected, and once after enrolment A1051.0001 = 168."
+    command_timeout_s: 15
+  ble_provisioning:
+    verification: "reported"
+    advertising:
+      note: "Offsets index the manufacturer-data VALUE, after the two-byte company ID. Described from the vendor app's registration scanner, which scans unfiltered and then parses these layouts; the browser setup page matches only the length and the 0x40 byte."
+      company_0x0639: "At least 7 bytes; byte 1 = 0x40; bytes 2-6 are the product (material) code, decoded from base 36. Takes priority when both IDs are present."
+      company_0xffff: "At least 8 bytes; if byte 2 = 0x40, bytes 3-7 are the code in base 36, otherwise bytes 2-7 are the code as text. The app also reads protocol/encryption information from this layout (not documented)."
+      observed: "The tested AP-1022K: company 0xFFFF, payload 00 16 31 31 33 34 33 39 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 C5; bytes 2-7 read '113439', its material code. Scan response lists services ffc0, ffc1, ffc3."
+      catalogue: "The vendor app accepts only codes in its own product catalogue and lists at most ten devices; no advertised name is required by either the app or the setup page."
+    gatt:
+      services: "0000ffc0-0000-1000-8000-00805f9b34fb (ffa0 identity, ffa1 scan, ffa2 command/status); 0000ffc1-0000-1000-8000-00805f9b34fb (ff00); 0000ffc3-0000-1000-8000-00805f9b34fb (advertised, unused)."
+      sequence: "Connect; enable notifications on ffa0, ffa1, ffa2 and ff00; read ffa0 (identity); read ffa1 (scan); write P001 to ffa2 and wait for status 72; write P002 and wait for status 61."
+      read_echo: "Chrome also delivers a read's value as a notification; feed each value to the reassembler once."
+      ignore: "A single-byte 0xFF value on ffa0 or ffa1 is not a fragment; drop it (meaning unknown)."
+    fragmentation:
+      header: "4 bytes: total fragment count (u16 little-endian), then this fragment's 1-based index (u16 little-endian)."
+      body: "Up to (GATT value size - 4) bytes; coway-local writes 20-byte values (16-byte bodies) because Web Bluetooth does not expose the negotiated MTU."
+      reassembly: "Fragments arrive in order; index 1 starts a message, the message is complete when index == count. Reject out-of-order or inconsistent counts."
+      writes: "write-with-response, one fragment per write."
+    identity:
+      encoding: "protobuf"
+      fields: {"1": "module SSID, bytes (often COWAY...); a label, not the model", "2": "Wi-Fi MAC as ASCII text; strip ':' and uppercase it to get the 12-hex form used everywhere else"}
+    scan:
+      header: "ASCII '*ICT*SCANRESULT:' (16 bytes)"
+      entries: "Consecutive 48-byte entries until one starting '[OK]' or fewer than 48 bytes remain (the list ends '[OK]' CR LF)."
+      entry_layout: "bytes 0-1 unknown; 2-3 SSID length (u16 LE, at most 32); 4-35 SSID (zero padded); 36-41 BSSID; 42-45 RSSI dBm (i32 LE, signed); 46 security (0 = open; other values are secured, meanings not mapped); 47 channel."
+      filter: "Offer only entries with an SSID and channel <= 14 (2.4 GHz)."
+    p001:
+      layout: "ASCII 'P001' + protobuf {1: 1 (varint), 2: base64(20-byte key) (string)}"
+      key: "20 bytes. coway-local: 20 random lowercase ASCII letters. Vendor app: 20 random bytes. The fan accepts either."
+    p002:
+      layout: "ASCII 'P002' + base64(16-byte IV + AES-256-CBC ciphertext)"
+      aes_key: "The P001 key followed by the fan's MAC as 12 uppercase ASCII hex characters (32 bytes)."
+      padding: "PKCS#7"
+      iv: "16 bytes (coway-local: 16 random lowercase letters)."
+      plaintext: "Protobuf, fields in ascending number, a zero integer or an empty string left out."
+      fields:
+        "1": "cmd, varint, always 2"
+        "2": "ssid, string"
+        "3": "pwd, string (the passphrase; empty/absent for an open network)"
+        "4": "bssid, string, 12 hex digits (the app writes uppercase, coway-local lowercase; both accepted)"
+        "5": "type, varint, 1"
+        "6": "ip, string (static addressing; not used by coway-local)"
+        "7": "gateway, string (not used)"
+        "8": "subnet, string (not used)"
+        "9": "dns, string (not used)"
+        "10": "macAddr, string, the fan's MAC, 12 uppercase hex"
+        "11": "caUrl, string — the plain-HTTP CA download"
+        "12": "certSvrUrl, string — the HTTPS enrolment endpoint"
+        "13": "certToken, string — the one-time enrolment token (Coway's cloud: 48 characters; coway-local: 32 URL-safe characters)"
+        "14": "serial, string — the identity the fan will use (Coway: its own serial; coway-local: LOCAL0 + macAddr)"
+        "15": "caFile, string (not used)"
+  softap_provisioning:
+    verification: "reported"
+    applies_to: "AP-1720G (Airmega 250S) product code 02F9R"
+    enter: "With the fan on, hold Filter Reset and Wi-Fi for 3 s until the Wi-Fi light blinks."
+    network: "Open Wi-Fi; the fan's hotspot address (setup.methods[1].softap.gateway_ip) is also the network's DHCP and DNS server. The SSID was not recorded. The fan's MAC on its hotspot is its home-network MAC."
+    scan: "TCP 5001: send 'AT*ICT*SCAN' + CR; the reply is the same '*ICT*SCANRESULT:' layout as the Bluetooth scan."
+    setup: "TCP 5040: send P001 then P002, byte for byte as on Bluetooth but without fragment headers; each gets a 6-byte protobuf reply {1: 1 or 2, 2: 1 on success, 3: status code}."
+    status_codes: "Field 3 was 61, 2, 5 and 0 across attempts and is read as the fan's last state; the Bluetooth path's 72 never appears."
+    app_extras: "The vendor app also reports progress to its cloud (pairing-step-history); nothing on the fan depends on it."
+  test_vectors:
+    note: "All values invented: RFC 7042 documentation MAC 00:00:5E:00:53:2A, placeholder server 192.168.1.50, made-up token, key and IV. scripts/test_coway_air_purifier_local_spec.py rebuilds each from the rules above."
+    mac: "00005E00532A"
+    serial: "LOCAL000005E00532A"
+    bluetooth_name: "Example fan"
+    p001_key: "qwertyuiopasdfghjklz"
+    p002_iv: "zyxwvutsrqponmlk"
+    config:
+      cmd: 2
+      ssid: "ExampleNet"
+      pwd: "example-passphrase"
+      bssid: "00005e005301"
+      type: 1
+      macAddr: "00005E00532A"
+      caUrl: "http://192.168.1.50:8080/ca.pem"
+      certSvrUrl: "https://192.168.1.50:9443/n/RXhhbXBsZSBmYW4"
+      certToken: "ExampleToken0123456789abcdefghij"
+      serial: "LOCAL000005E00532A"
+    config_protobuf_hex: "0802120a4578616d706c654e65741a126578616d706c652d70617373706872617365220c3030303035653030353330312801520c3030303035453030353332415a1f687474703a2f2f3139322e3136382e312e35303a383038302f63612e70656d622b68747470733a2f2f3139322e3136382e312e35303a393434332f6e2f52586868625842735a53426d5957346a204578616d706c65546f6b656e303132333435363738396162636465666768696a72124c4f43414c30303030303545303035333241"
+    p001_hex: "503030310801121c6358646c636e523564576c766347467a5a475a6e6147707262486f3d"
+    p001_fragments_hex:
+      - "03000100503030310801121c6358646c636e5235"
+      - "0300020064576c766347467a5a475a6e61477072"
+      - "0300030062486f3d"
+    p002: "P002enl4d3Z1dHNycXBvbm1sa/s3uW0+B4Kc51HBwsJJ8CzTaplSlPjWYfpfmdjJs06EdPevE1Xlc2CFVTyVoSFh21OHNO0wnnD6oPUeYxmWdTlO3ujo1TgylHpf0p8kxJhq3tOVjLStOyNjofv+WPEhry+uiAMWpH5sp8rjU16tq0TpLPhNkn0/aC7bAxtqacO0m8IBMWLuHcsQqx9BGVMQ3PwkDRvFtlgcZrYLdfproJol+x1t/xMetjmCuOSzGJo2yMZb7R4MOtjfKK90teZvHTcAopXhGQLc2vYDiYSUO/4="
+    p002_fragment_count: 19
+    identity_hex: "0a0c434f5741594558414d504c45120c303030303545303035333241"
+    scan_hex: "2a4943542a5343414e524553554c543a00000a004578616d706c654e65740000000000000000000000000000000000000000000000005e005301ccffffff03065b4f4b5d0d0a"
+    scan_parsed: {ssid: "ExampleNet", bssid: "00005e005301", rssi: -52, security: 3, channel: 6}
+    status_hex:
+      key_accepted: "080110011848"
+      wifi_connected: "08021001180a"
+      broker_connected: "08021001183d"
+    enrolment_request: '{"macAddr":"00005E00532A","certToken":"ExampleToken0123456789abcdefghij","serial":"LOCAL000005E00532A"}'
+    enrolment_reply: '{"header":{"success":true,"result":"S1000","message":"SUCCESS"},"payload":{"macAddr":"00005E00532A","serial":"LOCAL000005E00532A","certToken":"ExampleToken0123456789abcdefghij","host":"192.168.1.50","port":9883,"certSvrUrl":"https://192.168.1.50:9443/n/RXhhbXBsZSBmYW4","caUrl":"http://192.168.1.50:8080/ca.pem","certUrl":"https://192.168.1.50:9443/d/ExampleCapability0123456/c","privateUrl":"https://192.168.1.50:9443/d/ExampleCapability0123456/k","svcCode":"002AIR007","countryCd":"US"}}'
+    telemetry_decoded: {pm25: 4, illuminance: 617, prefilter_remaining: 75, max2_remaining: 29}
+
+evidence:
+  artifacts:
+    - type: "community_repo"
+      artifact: "scottjg/coway-local, default branch (merge of PR #4), read 2026-11-22"
+      url: "https://github.com/scottjg/coway-local"
+      description: "MIT. Setup page codec and hotspot script, Home Assistant service and broker, BLE_DISCOVERY.md and HOTSPOT_SETUP.md, and the P001/P002 vectors in tests/protocol-fixture.json that this spec's transcription was checked against before invented vectors were generated."
+    - type: "public_research"
+      artifact: "Scott J. Goldman, Reverse Engineering My Coway Air Purifier to Ditch the Cloud (2026-11-11)"
+      url: "https://scottjg.com/posts/2026-11-11-reverse-engineering-my-coway-air-purifier-to-ditch-the-cloud/"
+      description: "The plain-HTTP CA download, Coway's enrolment reply, MQTT on 8883 via AWS IoT, and the P001/P002 derivation."
+    - type: "public_research"
+      artifact: "Tom's Hardware report (2026-11)"
+      url: "https://www.tomshardware.com/tech-industry/cyber-security/dev-hacks-coway-air-purifier-to-cut-it-off-from-the-cloud-now-runs-locally-in-home-assistant-fan-downloads-the-certificate-over-plain-http-letting-a-home-server-stand-in-for-coways"
+      description: "News report of the same work; the citation for security_advisory. The mezha.net report could not be fetched (bot wall) and was not used."
+
+remaining_unknowns:
+  - "Every attribute code is the AP-1022K's. The 250S's own modes (rapid mode) and light settings, PM10 and other A1020 fields, and filter notification flags are not mapped."
+  - "What MITG, MITGLWT (the will payload), MCert, MFota and the shadow delta carry, and when A1000 is sent."
+  - "Firmware update: protocol, image source, signing and whether it can work without Coway are all unknown."
+  - "The unit of the pre-filter cycle values (112/168/224) and what lighting levels 0-3 look like."
+  - "Whether mode 0 really means manual, or only appears after a manual speed is set; and whether setting smart/sleep changes the reported speed."
+  - "The base-36 decoding of the advertised product code (byte order and digit alphabet), the 0xFFFF layout's protocol/encryption field, the 0xFF single-byte notification, the ff00 and ffc3 roles, and scan bytes 0-1."
+  - "Hotspot SSID, the meaning of the hotspot path's status codes, and whether a fan keeps new Wi-Fi settings when setup does not complete."
+  - "Whether the fan pins anything beyond the downloaded CA (it appears not to: any CA served at caUrl was trusted), and its MQTT keepalive."
+  - "Factory reset: none documented."
+  - "Schema gap: the Bluetooth fragment header (u16 LE count + u16 LE index) is not one of the `framing` schemes, so it lives in protocol_details."
+  - "Schema gap: entity state_mapping paths are dotted, and every attribute key here contains a literal '.', so the entities name their attribute in notes instead of state_mapping."
+  - "Schema gap: request_id is a millisecond timestamp plus '-22', not one of the `auto` roles; `auto: sequence` is the nearest, and a consumer needs the named handler to render it."
+  - "Schema gap: no setup-method type for a SoftAP whose setup channel is a raw TCP socket; the hotspot method is typed `none` and carries the softap block."
+  - "Schema gap: a device that is an MQTT CLIENT of an owner-run broker has no first-class declaration; the mqtt block models a device that IS the broker, and a consumer that is not a broker cannot drive this spec's commands."
+  - "Not replayed on hardware by this project."
+
+helpful_urls:
+  - title: "scottjg/coway-local"
+    url: "https://github.com/scottjg/coway-local"
+    kind: "implementation"
+    description: "MIT Home Assistant integration that is the owner-run server (HTTP CA download, HTTPS enrolment, MQTT/TLS broker) plus the Web Bluetooth setup page and the hotspot setup script."
+  - title: "Reverse Engineering My Coway Air Purifier to Ditch the Cloud"
+    url: "https://scottjg.com/posts/2026-11-11-reverse-engineering-my-coway-air-purifier-to-ditch-the-cloud/"
+    kind: "protocol_writeup"
+    description: "The researcher's write-up: why the cloud integration kept breaking, the plain-HTTP CA download, Coway's enrolment reply, and the Bluetooth setup encryption."
+  - title: "Tom's Hardware: Dev hacks Coway air purifier to cut it off from the cloud"
+    url: "https://www.tomshardware.com/tech-industry/cyber-security/dev-hacks-coway-air-purifier-to-cut-it-off-from-the-cloud-now-runs-locally-in-home-assistant-fan-downloads-the-certificate-over-plain-http-letting-a-home-server-stand-in-for-coways"
+    kind: "other"
+    description: "News coverage of coway-local and the plain-HTTP certificate download."
+  - title: "Coway Airmega Icon / Icon S (AP-1022K) user manual (PDF)"
+    url: "https://s3.ap-northeast-2.amazonaws.com/coway-app/coway/MANUAL/AP-1022K.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the AP-1022K Airmega Icon and Icon S (Wi-Fi
+      on the Icon S only). It defers Wi-Fi pairing to Coway's online app
+      guide, so the setup-mode button hold in this spec comes from
+      coway-local, not from the manual.

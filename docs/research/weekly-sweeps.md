@@ -530,3 +530,81 @@ device change.
 - **Eargo / Lexie**: still no coverage confirming whether the apps or the
   cloud went off after 2026-10-22.
 - **June Oven** and **Futurehome**: already logged; nothing new.
+
+## 2026-11-15
+
+### Added this week
+
+Three *Do these next* picks. Every spec is `testing: untested`; wire facts
+from open clients are `reported`.
+
+| Spec | Source | Notes |
+|---|---|---|
+| [Slingbox](../devices/slingbox.md) | #25 | UDP 5004 discovery (product id, name, control port), the control connection's HTTP-style opening and its 32-byte binary header, TEA encryption under the fixed key then the 0xC6 session key, admin/guest login, input select (`advanced`), stream settings, IR button numbers, Pro-HD tuning, keep-alive and logout. How the video payload is decrypted (older boxes' ASF walk, the 350/500 HLS keys) is left out pending the DMCA §1201 review the backlog row asks for. The IR code database is not reproduced. Header and login layouts agree across Slinger, SlingboxLib and slingboxstream-py; the session-key rule is in two of them. `scripts/test_slingbox_spec.py`. |
+| [Anki Cozmo Robot](../devices/anki-cozmo.md) | #26 | Joining the robot's AP (passphrase shown on its face, never recorded), the 14-byte frame header, selective-repeat ARQ with cumulative acks, the start-up sequence and 0.5 s keep-alive, drive/turn (`advanced`), head, lift, stop, cliff stop, volume, face image and audio structure, the 91-byte RobotState layout, and the firmware chunk transfer (`advanced`). From pycozmo (MIT); every example is rebuilt from invented values. `scripts/test_anki_cozmo_spec.py`. |
+| [Echelon Connect Bikes and Stride Treadmills](../devices/echelon-connect.md) | #21 | Pre-July-2025 firmware only; the spec says once that later firmware waits for a server challenge and that it does not apply there, and nothing more. Identification by service plus name prefix, the `f0 type len payload sum8` frame, subscribe-then-query initialisation, bike cadence/resistance/elapsed time, treadmill speed/incline/heart rate. Treadmill speed, incline and start are `advanced`, under a `safety_advisory` (warning). Bike facts agree across QZ and Gymnasticon; treadmill facts are QZ only. `scripts/test_echelon_connect_spec.py`. |
+
+Slingbox and Cozmo join `ENTITYLESS_CONTROL_SURFACES`: both need a live
+session (TEA keys, ARQ sequence numbers) that no generic renderer opens.
+
+Schema gaps that came up, each in its spec's `protocol_details` or
+`remaining_unknowns`: no variant match on a discovery reply's numeric
+product id and no TEA-framed binary command body (Slingbox); no binary UDP
+request template with typed holes, no session/ARQ layer around commands, no
+byte offsets in `payload_formats`, and no `robot` taxonomy domain (Cozmo);
+initialisation steps and characteristic commands that cannot be limited to
+one variant, no "echo this notification back" acknowledgement, and one
+`format_match` per characteristic (Echelon).
+
+### New candidates
+
+| Device | Why now | Local path | Notes |
+|---|---|---|---|
+| ecobee Switch+ (smart light switch with Alexa) | ecobee [announced](https://mobilesyrup.com/2026/11/11/ecobee-switch-end-smart-features-compensation/) on 2026-11-11 that the Switch+ loses app setup, control, configuration and Alexa on 2027-03-02; a factory reset after that date loses them too. Owners get a US$25 / C$35 gift card, claimable until 2027-06-30. | HomeKit (HAP), which ecobee says continues "as long as supported by Apple". | Pair it to Apple Home before 2027-03-02 and don't factory-reset it afterwards. HAP is a public protocol, so this is a link-don't-spec item unless a non-HAP local surface turns up ([HA community thread](https://community.home-assistant.io/t/ecobee-cancels-the-switch/1028738)). The repo only has `research-notes/ecobee-thermostat`. |
+
+### Status changes to items already listed
+
+- **Samsung SmartThings Tracker**: ended 2026-10-31; SmartTags moved to
+  Samsung Find, so they are not orphaned and need no spec.
+- **Fitbit Web API**: stopped 2026-11-02. That is a cloud API, not a device
+  path, so nothing to add.
+- **Eargo / Lexie**: still no coverage confirming the apps or cloud went
+  off after 2026-10-22.
+
+## 2026-11-22
+
+### Added this week
+
+One *Do these next* pick and two news picks. Every spec is
+`testing: untested`; wire facts from open clients are `reported`.
+
+| Spec | Source | Notes |
+|---|---|---|
+| [Fossil Hybrid HR / Gen 6 Hybrid](../devices/fossil-hybrid-hr.md) | #9 | Shared `3dda0001-…` scan service, so a client classifies the watch by firmware-revision prefix before writing. The key handshake (two 8-byte randoms under AES-128 with the owner's 16-byte watch key, which the owner exports from their own account; no account API), the file-handle layer (get/put/lookup/close/delete, 64-wrap packet sequence, CRC-32 and CRC-32C), AES-128-CTR encrypted files with the IV built from the randoms, and the operations they carry: time and settings, notifications, activity sync, button JSON, hands, find-my-watch, watch apps and the raw firmware put. `identify_only`. Gadgetbridge (AGPL, facts only) and Hybridge (MIT) agree on the crypto. `scripts/test_fossil_hybrid_hr_spec.py`. |
+| [BGH Smart Control](../devices/bgh-smart-control.md) | News (cloud closed 2025-12-31; local integrations now public) | Built-in-Wi-Fi BGH air conditioners and the HPA-4911 retrofit kit. Plain UDP: commands to 20910, replies and broadcasts on 20911, one 17-byte header, the 29-byte status report, 22 commands, and a climate entity. Setup-AP join, IR pairing and codec learning, with four unverified reset procedures. Three MIT clients agree on the core; their conflicts (SSID field width, fan auto value) are recorded. `scripts/test_bgh_smart_control_spec.py`. |
+| [Coway Airmega Wi-Fi Purifiers (local server)](../devices/coway-air-purifier-local.md) | News (coway-local, released 2026-11-11) | The setup message (over BLE or the unit's hotspot) tells the fan where to fetch its CA over plain HTTP, where to enrol, and which MQTT/TLS broker to use, so an owner-run server replaces Coway's cloud with no DNS tricks. Setup encryption (AES-256-CBC), the enrolment exchange, eight MQTT topics, settings and telemetry attributes, eight commands and eleven entities. The plain-HTTP CA fetch is a prose security note, not a `security_advisory`, because an advisory would hide the controls this route exists for. `scripts/test_coway_air_purifier_local_spec.py`. |
+
+Schema gaps that came up, each in its spec's `protocol_details` or
+`remaining_unknowns`: multi-step session crypto, per-handle encryption and
+"inside an authenticated session" commands (Fossil); UDP commands with no
+`response` shape, replies on a different port, and fixed-width NUL-padded
+strings (BGH); a device that is the MQTT *client* of an owner-run broker,
+attribute keys containing a literal `.`, a hotspot whose setup channel is
+raw TCP, and a non-standard BLE fragment header (Coway).
+
+### New candidates
+
+| Device | Why now | Local path | Notes |
+|---|---|---|---|
+| Haier air conditioners (SmartAir2) | A community [local integration](https://community.home-assistant.io/t/haier-air-conditioner-local-integration-no-cloud-smartair2/1017649) is now public. | LAN, no cloud | Not yet in the repo; a spec could follow the BGH pattern. |
+
+### Status changes to items already listed
+
+- **Google Nest app**: Google [announced](https://www.droid-life.com/2026/11/20/google-officially-killing-off-nest-app-and-google-assistant-on-home-devices/)
+  on 2026-11-20 that the Nest app ends on 2027-01-25 and Google Assistant
+  leaves non-Gemini speakers and displays on 2027-08-02. Devices move to the
+  Google Home app, so nothing is orphaned yet; the existing
+  Dropcam and Nest Protect research notes
+  specs are unchanged.
+- **Eargo / Lexie**: still no coverage confirming the apps or cloud went
+  off after 2026-10-22.
