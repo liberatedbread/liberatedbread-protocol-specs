@@ -570,3 +570,41 @@ one variant, no "echo this notification back" acknowledgement, and one
   path, so nothing to add.
 - **Eargo / Lexie**: still no coverage confirming the apps or cloud went
   off after 2026-10-22.
+
+## 2026-11-22
+
+### Added this week
+
+One *Do these next* pick and two news picks. Every spec is
+`testing: untested`; wire facts from open clients are `reported`.
+
+| Spec | Source | Notes |
+|---|---|---|
+| [Fossil Hybrid HR / Gen 6 Hybrid](../devices/fossil-hybrid-hr.md) | #9 | Shared `3dda0001-…` scan service, so a client classifies the watch by firmware-revision prefix before writing. The key handshake (two 8-byte randoms under AES-128 with the owner's 16-byte watch key, which the owner exports from their own account; no account API), the file-handle layer (get/put/lookup/close/delete, 64-wrap packet sequence, CRC-32 and CRC-32C), AES-128-CTR encrypted files with the IV built from the randoms, and the operations they carry: time and settings, notifications, activity sync, button JSON, hands, find-my-watch, watch apps and the raw firmware put. `identify_only`. Gadgetbridge (AGPL, facts only) and Hybridge (MIT) agree on the crypto. `scripts/test_fossil_hybrid_hr_spec.py`. |
+| [BGH Smart Control](../devices/bgh-smart-control.md) | News (cloud closed 2025-12-31; local integrations now public) | Built-in-Wi-Fi BGH air conditioners and the HPA-4911 retrofit kit. Plain UDP: commands to 20910, replies and broadcasts on 20911, one 17-byte header, the 29-byte status report, 22 commands, and a climate entity. Setup-AP join, IR pairing and codec learning, with four unverified reset procedures. Three MIT clients agree on the core; their conflicts (SSID field width, fan auto value) are recorded. `scripts/test_bgh_smart_control_spec.py`. |
+| [Coway Airmega Wi-Fi Purifiers (local server)](../devices/coway-air-purifier-local.md) | News (coway-local, released 2026-11-11) | The setup message (over BLE or the unit's hotspot) tells the fan where to fetch its CA over plain HTTP, where to enrol, and which MQTT/TLS broker to use, so an owner-run server replaces Coway's cloud with no DNS tricks. Setup encryption (AES-256-CBC), the enrolment exchange, eight MQTT topics, settings and telemetry attributes, eight commands and eleven entities. The plain-HTTP CA fetch is a prose security note, not a `security_advisory`, because an advisory would hide the controls this route exists for. `scripts/test_coway_air_purifier_local_spec.py`. |
+
+Schema gaps that came up, each in its spec's `protocol_details` or
+`remaining_unknowns`: multi-step session crypto, per-handle encryption and
+"inside an authenticated session" commands (Fossil); UDP commands with no
+`response` shape, replies on a different port, and fixed-width NUL-padded
+strings (BGH); a device that is the MQTT *client* of an owner-run broker,
+attribute keys containing a literal `.`, a hotspot whose setup channel is
+raw TCP, and a non-standard BLE fragment header (Coway).
+
+### New candidates
+
+| Device | Why now | Local path | Notes |
+|---|---|---|---|
+| Haier air conditioners (SmartAir2) | A community [local integration](https://community.home-assistant.io/t/haier-air-conditioner-local-integration-no-cloud-smartair2/1017649) is now public. | LAN, no cloud | Not yet in the repo; a spec could follow the BGH pattern. |
+
+### Status changes to items already listed
+
+- **Google Nest app**: Google [announced](https://www.droid-life.com/2026/11/20/google-officially-killing-off-nest-app-and-google-assistant-on-home-devices/)
+  on 2026-11-20 that the Nest app ends on 2027-01-25 and Google Assistant
+  leaves non-Gemini speakers and displays on 2027-08-02. Devices move to the
+  Google Home app, so nothing is orphaned yet; the existing
+  Dropcam and Nest Protect research notes
+  specs are unchanged.
+- **Eargo / Lexie**: still no coverage confirming the apps or cloud went
+  off after 2026-10-22.

@@ -325,6 +325,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Slingbox (all models)](slingbox.md) | LAN (UDP 5004 discovery, TCP control + ASF stream) | Spec Available (untested) | Admin or guest password from the box's setup (medium) | Sling Media / DISH (servers shut down 2022-11-09) |
 | [Anki Cozmo Robot](anki-cozmo.md) | WiFi (robot AP, UDP 5551) | Spec Available (untested) | Join the robot's AP; passphrase shown on its face (medium) | Anki / Digital Dream Labs (shutdown) |
 | [Echelon Connect Bikes and Stride Treadmills](echelon-connect.md) | BLE | Spec Available (untested; pre-July-2025 firmware only) | None needed (connect and subscribe) | Echelon (active; later firmware requires a server challenge) |
+| [Fossil Hybrid HR / Gen 6 Hybrid (Skagen, Citizen CZ)](fossil-hybrid-hr.md) | BLE (AES-keyed session, encrypted file transfer) | Identify-only (untested) | Owner-exported 16-byte watch key (high) | Fossil (abandoned smartwatches) |
+| [BGH Smart Control (Wi-Fi ACs and HPA-4911 kit)](bgh-smart-control.md) | WiFi (UDP 20910/20911) | Spec Available (untested) | Setup AP join frame, then IR pairing and codec learning (medium) | BGH (cloud shut down 2025-12-31) |
+| [Coway Airmega Wi-Fi Purifiers (local server)](coway-air-purifier-local.md) | WiFi (MQTT/TLS, fan-initiated; BLE or hotspot setup) | Spec Available (untested) | BLE or hotspot setup pointed at an owner-run server (high) | Coway (active) |
 
 ## Not everything here was liberated
 

@@ -1,0 +1,1203 @@
+# BGH Smart Control (Wi-Fi air conditioners and the HPA-4911 kit) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no code transcribed):
+#   - arpena/hpa4911 (MIT) — the Home Assistant integration from the HA
+#     community thread, plus its standalone configuration utility and
+#     CONFIGURING_NEW_DEVICES.md (commit d2b4e2c, 2026-07-06).
+#   - firtman/bgh_smart (README says MIT; no licence file) — the earlier local
+#     integration, its Wi-Fi provisioning module and the community kit guide
+#     docs/GUIA_BGH_SMART_CONTROL_KIT.md (commit af21dea, 2026-10-15).
+#   - andrescerutti/bgh-smart-control-local (MIT) — a third client built on
+#     the firtman protocol notes (commit 6e76d77, 2026-11-18).
+# Every example frame below is built from invented values: the unit MAC is the
+# RFC 7042 documentation MAC 00:00:5E:00:53:01, the SSID and passphrase are
+# placeholders, and no byte comes from anyone's capture.
+
+device:
+  name: "BGH Smart Control (Wi-Fi air conditioners and HPA-4911 kit)"
+  manufacturer: "BGH (platform by Solidmation)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The 17-byte header, the
+      UDP 20910/20911 split, the HVAC set and status layouts, the kit's
+      custom subcommands and the Wi-Fi join frame are from three open-source
+      clients whose authors ran them against their own units (arpena/hpa4911,
+      firtman/bgh_smart, andrescerutti/bgh-smart-control-local). Every wire
+      fact is therefore `reported`; where the three disagree the spec says so.
+  protocol: "wifi"
+  category: "climate"
+  transport: "udp"
+  aliases:
+    - "BGH Smart Control Kit"
+    - "HPA-4911"
+    - "HPA4911"
+    - "BGH Smart AC"
+    - "Kit Smart Control BGH"
+  companion_apps:
+    - name: "BGH Smart Control"
+      package: "com.solidmation.bghsmartcontrol"
+      role: "historical"
+      platform: "android"
+      notes: >
+        The vendor app (2.7 is the build the community analysed). It spoke the
+        same local UDP protocol on the LAN, but its sign-in depended on the
+        BGH Smart Control cloud, which closed on 2025-12-31; after that it
+        asks for a login nobody can complete.
+  notes: >
+    BGH is an Argentine electronics maker. Its "Smart Control" line was sold
+    mainly in Argentina from about 2016: BGH air conditioners with a built-in
+    Wi-Fi module, and the HPA-4911 Smart Control Kit that retrofits any
+    infrared-controlled split unit. The platform was built by Solidmation
+    (the MyHabeetat cloud). BGH shut the Smart Control cloud and app down on
+    31 December 2025; the community thread that announced the replacement
+    integration gives that date, and Argentine press quoting BGH's notice
+    gives the same one. The units still answer on the LAN.
+
+    THE KIT has two halves. The base plugs into the wall and passes mains
+    through to the air conditioner. It carries the Wi-Fi module, a
+    current/consumption sensor and a link button with a red/green LED. The
+    IR unit runs on three batteries and sticks on the indoor unit facing its
+    receiver. It measures room temperature, has a vibration sensor and a
+    recessed link button, and talks to the base over BLE (a CSR1010, per one
+    teardown). The LAN client only ever talks to the base; the base relays
+    each command to the IR unit, which fires the air conditioner's own IR
+    code. So a command that is ACKed has reached the base, not necessarily
+    the air conditioner.
+
+    TRANSPORT: plain binary UDP, no encryption, no authentication, no
+    checksum. A client sends to the unit's UDP port 20910. Replies (ACK,
+    NAK, query answers) come back unicast to the sender's source port, and
+    the unit broadcasts status reports and ASCII debug text to
+    255.255.255.255:20911. Every datagram starts with the 17-byte header in
+    protocol_details.bgh_udp.header. Commands are addressed by the unit's
+    own MAC in the header; the unit ignores frames for another MAC except
+    where a broadcast MAC (ff:ff:ff:ff:ff:ff) is accepted (discovery,
+    status poll, keep-alive).
+
+    FLOW: discover (enumerate broadcast, or listen on 20911) to learn each
+    unit's IP and MAC; subscribe (Join 161 subcommand 12) and poll (228 to
+    endpoint 1), then read the 29-byte status report (253) the unit
+    broadcasts; control with HVAC SetMode (97 to endpoint 1), which carries
+    mode, fan, flags and set point in one frame. The subscription lapses after
+    about two minutes, so a client renews it.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/arpena/hpa4911"
+    license: "MIT"
+    notes: >
+      Nothing published by BGH or Solidmation. The protocol was recovered by
+      capturing the vendor app talking to units on the LAN after the cloud
+      closed (arpena), from Node-RED users' captures (firtman), and from the
+      vendor app's kit-setup assistant (the firtman kit guide). Three
+      independent clients agree on the header, the ports, the HVAC frames and
+      the status layout.
+
+  identification:
+    default_port: 20910
+    mac_prefixes:
+      - "AC:CF:23"
+    ssid_prefix: "BGH-"
+    lan_protocols: ["bgh-solidmation-udp"]
+    notes: >
+      AC:CF:23 is the prefix the arpena guide and the kit guide both report
+      for these units (the IEEE block belongs to Hi-Flying, the Wi-Fi module
+      vendor, so it also matches unrelated products built on the same
+      module). A kit base shows up in router DHCP lists as HPA-4911. The
+      positive identification is an answer to the enumerate probe on UDP
+      20910, or any datagram on UDP 20911 that starts 0x00 and carries
+      command 253 or 245.
+
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 20910
+          broadcast_address: "255.255.255.255"
+          listen_port: 20911
+          probe_hex: "00000000000000ffffffffffff010000a104"
+          response_format: "binary"
+          passive_ok: true
+          identity_mapping:
+            stable_keys:
+              - source: "binary:source_mac"
+            display:
+              source: "binary:enumerate_info"
+        notes: >
+          The probe is the enumerate command (commands.discover) with the
+          broadcast MAC and sequence 1. arpena's utility binds UDP 20911,
+          sends the probe from there to 255.255.255.255:20910 and re-sends it
+          every second; any datagram whose bytes 1-6 are not all-zero or
+          all-ones names a unit by its MAC, and the sender's address is its
+          IP. Units also broadcast to 20911 on their own (status reports on
+          change and on subscription, debug text), so listening alone finds
+          active units. A unit in setup mode broadcasts to 20911 from its own
+          AP, which is how the provisioning clients learn its MAC. A client
+          that binds 20911 competes with any other local client doing the
+          same (the Home Assistant integration holds it), which is why the
+          utilities tell you to stop Home Assistant first.
+    identity:
+      stable_keys: ["mac"]
+      display: "name"
+      notes: >
+        The unit's Wi-Fi MAC (bytes 1-6 of every datagram it sends) is the
+        stable key and the address every command needs. Its IP comes from
+        DHCP; all three clients advise a DHCP reservation.
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      A unit that was set up with the vendor app before the shutdown is
+      already on Wi-Fi and needs nothing to answer on the LAN. A new or reset
+      unit is provisioned over its own setup AP with one UDP frame
+      (Join 161 subcommand 3). The HPA-4911 kit then needs two more things
+      the built-in AC does not: the IR unit paired to the base (physical
+      buttons, below) and the IR codec of the owner's remote (learned over
+      UDP). Without the codec the IR unit transmits but the air conditioner
+      ignores it.
+    methods:
+      - type: "softap_udp"
+        name: "Setup AP, then one UDP join frame"
+        role: "primary"
+        verified: false
+        description: >
+          Put the unit into setup mode so it hosts an AP named BGH-...; join
+          it; learn the unit's MAC; send the Join/Wi-Fi frame
+          (commands.wifi_join) to the module's fixed gateway address on UDP
+          20910; wait for the ACK. The unit drops the AP and joins the home
+          network in 10-30 s. For a kit, continue with the IR pairing and
+          codec stages.
+        stages:
+          - type: "softap_udp"
+            name: "Base on Wi-Fi"
+            verified: false
+            description: >
+              Both variants. The setup AP and the one-frame UDP join.
+            softap:
+              ssid_prefix: "BGH-"
+              ssid_examples:
+                - "BGH-XXXX"
+                - "BGH-XXX-XXXXXXXXXX"
+              gateway_ip: "10.10.100.254"
+              port: 20910
+              ssid_notes: >
+                The sources write the suffix two ways (four characters in
+                arpena's guide, a three-part form in the kit guide); its rule is
+                not documented. 10.10.100.254 on a 10.10.100.0/24 network is the
+                Hi-Flying module's standard SoftAP address. No source mentions an
+                AP passphrase; whether the AP is open is not stated.
+              credential_encryption:
+                algorithm: "none"
+                encoding: "raw"
+                notes: >
+                  The SSID and passphrase travel in the clear, NUL-padded, inside
+                  the UDP datagram. Anyone on the setup AP can read them.
+            steps:
+              - action: "Put the unit in setup mode: for a kit, the base reset in factory_reset (LED blinking green); for a BGH AC with built-in Wi-Fi, the remote-control connect-mode gesture in factory_reset."
+                actor: "user"
+                expect: "A Wi-Fi network named BGH-... appears."
+              - action: "Join the BGH-... network. The unit is 10.10.100.254."
+                actor: "user"
+                expect: "The client can send to 10.10.100.254:20910."
+              - action: "Learn the unit's MAC: bind UDP 20911 and read bytes 1-6 of the first datagram the unit broadcasts, or send commands.keepalive to 10.10.100.254:20910 and read bytes 1-6 of the reply."
+                actor: "client"
+                request:
+                  protocol: "udp"
+                  action: "keepalive (command 255, broadcast destination MAC)"
+                expect: "A datagram from 10.10.100.254 whose bytes 1-6 are the unit MAC."
+                timeout_seconds: 20
+              - action: "Send commands.wifi_join to 10.10.100.254:20910: Join (161) subcommand 3, the home SSID and passphrase each NUL-padded to 33 bytes, security type 3 (WPA2) and encryption type 4 (AES). Retry on timeout; firtman's client waits 3 s and retries up to 10 times."
+                actor: "client"
+                request:
+                  protocol: "udp"
+                  action: "wifi_join (161/3)"
+                  arguments:
+                    - name: "ssid"
+                      type: "string"
+                      required: true
+                      description: "Home 2.4 GHz SSID, UTF-8, at most 32 bytes so a NUL fits."
+                    - name: "password"
+                      type: "string"
+                      required: true
+                      description: "Home Wi-Fi passphrase, UTF-8, at most 32 bytes."
+                    - name: "security"
+                      type: "uint8"
+                      description: "0 open, 1 WEP, 2 WPA, 3 WPA2 (default)."
+                    - name: "encryption"
+                      type: "uint8"
+                      description: "0 none, 1 WEP64, 2 WEP128, 3 TKIP, 4 AES (default)."
+                expect: "A 17-byte ACK: command byte 0x80, byte 13 equal to the sequence number sent."
+                timeout_seconds: 30
+              - action: "Drop the BGH-... AP and join the home 2.4 GHz network."
+                actor: "device"
+                expect: "The AP disappears within 10-30 s and the unit appears in the router's DHCP list (a kit base as HPA-4911)."
+                timeout_seconds: 60
+              - action: "Rejoin the home network and find the unit with the enumerate broadcast (commands.discover)."
+                actor: "client"
+                expect: "An enumerate reply (161 subcommand 2) from the unit's new address."
+          - type: "hub_pairing"
+            name: "Kit only: pair the IR unit to the base"
+            verified: false
+            description: >
+              HPA-4911 only. The battery IR unit joins its base over BLE; the
+              link buttons and a power cycle drive it, and the LAN client can
+              only check the result.
+            steps:
+              - action: "Unplug the base. Hold the IR unit's link button about 20 s until it blinks red, then remove one battery."
+                actor: "user"
+                expect: "IR unit LED blinking red."
+              - action: "Plug the base in and wait until it is on the home network, then put the battery back."
+                actor: "user"
+                expect: "Within a few minutes the IR unit stops blinking, then the base does."
+              - action: "Confirm with commands.request_ir_status: a non-zero IR MAC in the last six payload bytes means paired."
+                actor: "client"
+                request:
+                  protocol: "udp"
+                  action: "request_ir_status (162/92)"
+                expect: "A 162 reply whose payload starts 92 and ends with a non-zero 6-byte IR MAC."
+          - type: "device_ui"
+            name: "Kit only: learn the remote's IR codec"
+            verified: false
+            description: >
+              HPA-4911 only. The kit learns which IR protocol the air
+              conditioner uses from presses of the AC's own remote, with
+              learning mode switched on and the result stored over UDP.
+            steps:
+              - action: "Enable learning mode (commands.learn_mode_on)."
+                actor: "client"
+                request:
+                  protocol: "udp"
+                  action: "learn_mode_on (162/90 1)"
+                expect: "ACK (0x80)."
+              - action: "Point the air conditioner's own remote at the IR unit and press ON/OFF, then press it again to confirm."
+                actor: "user"
+                expect: "For each press the base broadcasts a 162 frame with payload 95 <codec> on UDP 20911 (payload_formats.CodecDetected). Both presses should report the same codec."
+                timeout_seconds: 30
+              - action: "Store the codec with the sensor choice (commands.set_ir_codec): sensor 1 when the AC is plugged into the base, 2 when the IR unit's vibration sensor is used."
+                actor: "client"
+                request:
+                  protocol: "udp"
+                  action: "set_ir_codec (162/88 codec sensor)"
+                expect: "ACK (0x80)."
+              - action: "With the IR unit stuck in its final place and the AC off and fully stopped, calibrate the vibration zero (commands.calibrate_vibration), then leave learning mode (commands.learn_mode_off)."
+                actor: "client"
+                expect: "ACK to each."
+        troubleshooting:
+          - symptom: "The join is ACKed and the AP disappears, but the unit never shows up on the home network."
+            causes:
+              - "Wrong passphrase, or a 5 GHz-only SSID. The units are 2.4 GHz only. Reset and provision again."
+              - "SSID or passphrase longer than 32 bytes, truncated by the 33-byte field."
+          - symptom: "No reply from 10.10.100.254."
+            causes:
+              - "The client's firewall blocks UDP (Windows marks the setup AP as a public network)."
+              - "The client is not on the BGH-... AP, or its gateway is not 10.10.100.254."
+          - symptom: "Kit: the IR unit transmits (visible through a phone camera) but the air conditioner ignores it."
+            causes:
+              - "No IR codec stored, or the wrong one. Run the learning stage."
+              - "The IR unit is too far from, or not aligned with, the AC's receiver. The kit guide's test is a beep from the AC on every emission."
+      - type: "cloud_account"
+        name: "BGH Smart Control app"
+        role: "historical"
+        verified: false
+        description: >
+          The vendor app did the same Wi-Fi join and kit setup, but only after
+          signing in to the BGH Smart Control cloud. The cloud closed on
+          2025-12-31, so the app can no longer get past sign-in.
+        cloud:
+          provider: "BGH Smart Control (Solidmation)"
+          local_alternative: >
+            Yes: the primary method above sends the same frames from any LAN
+            client; no account is involved anywhere in the local protocol.
+        steps:
+          - action: "Sign in to the BGH Smart Control app and add the unit."
+            actor: "user"
+            expect: "Fails since 2026-01-01: the sign-in service is gone."
+    factory_reset:
+      applicable: true
+      confidence: medium
+      effect: >
+        Clears the base's Wi-Fi credentials and returns it to setup mode with
+        the BGH-... AP. The full kit reset also unbinds the IR unit from the
+        base, so it must be paired again. Whether the stored IR codec and
+        cloud notification IP survive is not documented.
+      description: >
+        The kit reset is two buttons and a power cycle, done in a set order,
+        and the IR unit's button is recessed behind the battery cover. Both
+        guides give the same sequence; arpena's adds the hold times as 5 s
+        then 10 s. A kit that is still on the network can instead be told to
+        reset over UDP (commands.leave). A BGH air conditioner with built-in
+        Wi-Fi has no base; its setup mode is entered from the AC's own
+        remote.
+      procedures:
+        - name: "Kit: IR button, base unplugged, then the base link button twice"
+          verified: false
+          basis: >
+            The firtman kit guide, which says it follows BGH's own help pages,
+            and arpena/hpa4911 CONFIGURING_NEW_DEVICES.md, which gives the
+            same order with hold times of 5 s and 10 s.
+          applies_to: ["HPA-4911"]
+          power_state: "any"
+          indicator: "Base LED blinking green; the BGH-... AP appears."
+          steps:
+            - action: "Unplug the base (and the AC plugged into it)."
+              actor: "user"
+            - action: "Within 30 s, press the IR unit's recessed link button once with a paper clip (it is beside the batteries)."
+              actor: "user"
+              expect: "The IR unit LED blinks red (it faces the AC, so it can be hard to see)."
+            - action: "Remove a battery from the IR unit so it cannot re-pair yet."
+              actor: "user"
+            - action: "Plug the base in."
+              actor: "user"
+              expect: "Base LED blinking red."
+            - action: "Hold the base's link button about 5 s, until the red LED goes off and comes back (it flashes red rapidly), then release."
+              actor: "user"
+              expect: "The base has dropped its IR unit."
+            - action: "Hold the base's link button again, about 10 s, until the LED blinks green slowly."
+              actor: "user"
+              expect: "Base in setup mode; the BGH-... AP is up."
+        - name: "Kit: IR unit only, 20 s hold"
+          verified: false
+          basis: "Community report in firtman/bgh_smart issue 7, repeated in the kit guide's IR pairing step."
+          applies_to: ["HPA-4911"]
+          hold_seconds: 20
+          power_state: "any"
+          indicator: "IR unit LED blinking red."
+          steps:
+            - action: "Hold the IR unit's link button about 20 s until its LED blinks red."
+              actor: "user"
+              expect: "The IR unit is unpaired and will pair with the next base it hears."
+        - name: "Built-in Wi-Fi AC: connect mode from the remote"
+          verified: false
+          basis: "firtman/bgh_smart README, Wi-Fi provisioning section."
+          applies_to: ["BGH Smart AC (built-in Wi-Fi)"]
+          power_state: "on"
+          indicator: "After the unit turns itself off and on again, the BGH-... AP appears."
+          steps:
+            - action: "With the AC's remote, set 29 °C, then 30 °C, and repeat the pair several times until the AC switches itself off."
+              actor: "user"
+            - action: "Turn the AC on again."
+              actor: "user"
+              expect: "The AC is in connect mode and hosts a BGH-... AP."
+        - name: "Leave over UDP"
+          verified: false
+          basis: >
+            arpena/hpa4911 utility's leave command (command 175, sent four
+            times as the app did, then wait for an ACK that may not come
+            because the unit has already reset).
+          power_state: "on"
+          steps:
+            - action: "Send commands.leave to the unit's LAN address four times."
+              actor: "client"
+              request:
+                protocol: "udp"
+                action: "leave (175)"
+              expect: "Possibly an ACK (0x80); the unit drops off the network and hosts its BGH-... AP."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Every source re-provisions through the setup AP. Whether a joined unit
+        accepts commands.wifi_join on its current network (which would move it
+        to a new SSID without a reset) is untested. A unit still reachable on
+        the old network can be reset with commands.leave instead of the
+        buttons, so replace the router after sending it, not before.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi SSID, security and encryption type, and passphrase"
+        - "Kit: the paired IR unit, the IR codec and the sensor mode"
+        - "Cloud notification IP (protocol_details.bgh_udp.cloud_notification_ip)"
+      issued_to_client: []
+      notes: >
+        The passphrase is sent in the clear on the setup AP. After setup the
+        LAN protocol has no credential at all: any host that knows the unit's
+        MAC, which every datagram the unit sends discloses, can control it.
+
+  pairing:
+    required: false
+    confidence: medium
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to recover: UDP is connectionless and the unit answers any
+        sender. The one shared resource is the local UDP port 20911, which
+        only one process per host can usually bind; stop the other client
+        (often Home Assistant) or use SO_REUSEADDR.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No window or button gates the LAN protocol. The link buttons pair the
+        kit's IR unit to its base over BLE, which is internal to the kit and
+        not a client authorisation.
+    unpair:
+      supported: false
+      notes: "There is no client bond to drop."
+    notes: >
+      The network is the only gate. A command must carry the unit's MAC as
+      destination, but the unit broadcasts that MAC in every status report and
+      answers a broadcast enumerate with it, so it is an address, not a
+      secret. All three open-source clients drive the unit with no key, login
+      or token. The vendor app's cloud sign-in only gated the app; it was
+      never part of the local protocol, which is why the units outlived the
+      cloud. The unit's HTTP admin page (the Hi-Flying module's) rejected the
+      usual default logins in one owner's test; nothing in the protocol needs
+      it.
+
+  variants:
+    - model: "HPA-4911"
+      notes: >
+        The Smart Control Kit: base plus battery IR unit. Has the IR, codec,
+        battery and vibration-sensor commands.
+    - model: "BGH Smart AC (built-in Wi-Fi)"
+      notes: >
+        BGH air conditioners with the Wi-Fi module inside. The firtman
+        integration was written against these and speaks the same header,
+        HVAC SetMode and 253 status report. The kit-only custom commands
+        (162) are not documented for them.
+
+cloud:
+  required: false
+  vendor_service: "BGH Smart Control cloud (Solidmation platform). Shut down 2025-12-31."
+  failure_mode: >
+    The app cannot sign in, so it cannot reach units from inside or outside
+    the home. Local UDP control is unaffected. Remote access is gone unless
+    the owner builds their own.
+  notes: >
+    Units still send periodic status (253) and time-sync (251) datagrams to
+    their stored cloud notification IP. commands.set_cloud_ip points that at
+    a LAN host, which then receives status pushes on UDP 20911 without
+    polling (arpena). The cloud host names are not recorded in any source
+    read for this spec. Solidmation's other cloud, MyHabeetat, was still up
+    in January 2026 but needs a local hub the BGH line never had.
+
+protocol_details:
+  bgh_udp:
+    transport: >
+      UDP. Client to unit: unicast to UDP 20910 (or 255.255.255.255:20910 for
+      discovery). Unit to client: replies unicast to the sender's source port;
+      status reports (253), debug text (245) and IR-codec detections (162/95)
+      broadcast to 255.255.255.255:20911. arpena's integration sends from and
+      listens on 20911 so it sees both. No encryption, no authentication, no
+      length field, no checksum: a datagram is exactly header + payload.
+    header:
+      length: 17
+      fields:
+        - {offset: 0, length: 1, name: "protocol_version", value: "0x00"}
+        - {offset: 1, length: 6, name: "source_mac", notes: "All zero from a client. The unit's own MAC in everything it sends."}
+        - {offset: 7, length: 6, name: "destination_mac", notes: "The unit's MAC. ff:ff:ff:ff:ff:ff for discovery, poll and keep-alive, and in the unit's broadcasts."}
+        - {offset: 13, length: 1, name: "sequence", notes: "Per-client counter, mod 256. The unit echoes it in the ACK/NAK, which is how a reply is matched to its command."}
+        - {offset: 14, length: 1, name: "source_endpoint", notes: "0 from a client. 1 on the unit's status report."}
+        - {offset: 15, length: 1, name: "destination_endpoint", notes: "0 = the device itself (Join, Custom, Leave, Reboot). 1 = the thermostat/HVAC endpoint (SetMode, Poll)."}
+        - {offset: 16, length: 1, name: "command"}
+      notes: >
+        firtman's README labels byte 13 as a "command" (0xf6, 0x81) and bytes
+        14-16 as a fixed 00 01 61; those are the sequence number and the
+        endpoints/command of SetMode, as the later sources established.
+    commands:
+      "0x61": "97 HVAC SetMode (to endpoint 1): mode, fan, flags, set point"
+      "0x80": "128 ACK (unit to client)"
+      "0x81": "129 NAK (unit to client)"
+      "0xa1": "161 Join: subcommands 2 enumerate reply, 3 Wi-Fi join, 4 enumerate, 5 Wi-Fi scan, 6 scan result, 7 get cloud IP, 8 set cloud IP, 12 subscribe"
+      "0xa2": "162 Custom (kit): subcommands 88 set codec, 90 learning mode, 92 IR unit status, 95 codec detected (unit to client), 100 calibrate vibration zero, 101 room-temperature offset"
+      "0xa4": "164 Reboot"
+      "0xaf": "175 Leave (factory reset of the Wi-Fi configuration)"
+      "0xe4": "228 Poll (to endpoint 1): ask for a status report"
+      "0xf2": "242 Status/config report seen by arpena's monitor; same mode/fan/flags/temperature offsets as 253; not otherwise documented"
+      "0xf5": "245 Debug text, ASCII, broadcast"
+      "0xfb": "251 Time sync, unit to cloud"
+      "0xfd": "253 Status report, broadcast (payload_formats.HvacStatusReport)"
+      "0xff": "255 Keep-alive; the unit answers one sent with the broadcast MAC, which reveals its MAC"
+    values:
+      mode: {"0": "off", "1": "cool", "2": "heat", "3": "dry", "4": "fan only", "254": "auto"}
+      fan: {"1": "low", "2": "medium", "3": "high", "254": "auto (arpena integration)", "0": "auto (arpena utility)", "4": "turbo (arpena utility only)", "255": "not applicable (sent with mode off and in the app's beep test)"}
+      flags: {"0x08": "turbo (arpena, from experiment)", "0x10": "horizontal swing", "0x20": "vertical swing"}
+      setpoint_sentinel: "0x8000 (int16 -32768) in the set-point field: no set point. The app's beep test and firtman's mode-only frame send it."
+      sensor: {"0": "none", "1": "consumption sensor in the base (AC plugged into the base)", "2": "IR unit vibration sensor", "3": "external (exists in the app, use undocumented)"}
+      wifi_security: {"0": "open", "1": "WEP", "2": "WPA", "3": "WPA2"}
+      wifi_encryption: {"0": "none", "1": "WEP64", "2": "WEP128", "3": "TKIP", "4": "AES"}
+    conflicts:
+      - >
+        Wi-Fi join layout. firtman's provisioning module and the cerutti client
+        send 1 + 33 (SSID) + 1 + 1 + 33 (passphrase) = 69 payload bytes, 86 in
+        all, with encryption 4 = AES. arpena's utility sends a 32-byte SSID
+        field (85 in all) and calls encryption 3 AES and security 4 WPA3. This
+        spec follows the 33-byte form: two clients use it, firtman's states
+        and checks the 86-byte length, and arpena's own Wi-Fi scan parser
+        reads the SSID from a 33-byte field (payload bytes 1-33) with security
+        and encryption after it.
+      - >
+        Fan auto. arpena's integration sends 254 for auto. Its utility sends
+        0, and its monitor decodes both 0 and 254 as auto. firtman offers no
+        auto. Send 254, and accept both on read.
+      - >
+        Mode-only SetMode. arpena's integration sends a one-byte payload
+        (just the mode) for a mode change and for off. firtman sends mode, fan,
+        flags 0 and the 0x8000 sentinel. The cerutti client sends off as mode
+        0, fan 255, flags 0, set point 0. All are reported to work. The
+        five-byte form is the one the app used.
+      - >
+        IR unit status request. arpena sends 162 with payload [92]; firtman's
+        guide and cerutti send [92, 30], which is what the app sent.
+      - >
+        Codec detection. firtman and cerutti read the 162/95 broadcast
+        (payload byte 1 = codec). arpena instead parses the number out of the
+        unit's debug text (245), in which the codec appears in parentheses.
+    subscription: >
+      Join subcommand 12 sent to the unit's MAC subscribes the sender to
+      status reports. arpena renews every 120 s because the unit keeps the
+      subscription for about two minutes. Each renewal is followed by a Poll
+      (228, broadcast MAC, endpoint 1), which makes the unit broadcast a 253
+      report at once. Units also broadcast a report on every state change,
+      including changes made with the AC's own remote where the kit sees them.
+    cloud_notification_ip: >
+      Join subcommand 7 returns the IP the unit sends cloud datagrams to, as
+      NUL-terminated ASCII after the subcommand byte. Subcommand 8 sets it:
+      16 bytes of ASCII dotted quad, NUL-padded. Pointing it at a LAN host
+      makes that host receive the unit's periodic 253 reports on UDP 20911.
+    string_fields: >
+      String parameters in commands.*.template (ssid, password, cloud_ip) are
+      UTF-8, truncated to and NUL-padded to exactly the parameter's
+      max_length. A value that fills the field has no terminator, so keep
+      SSID and passphrase to 32 bytes.
+    ir_codecs:
+      notes: >
+        The IR unit's firmware holds the codec table; the app knows only the
+        numbers and a few limits per codec. The brand family beside each
+        number is arpena's attribution, paraphrased. "toggle" codecs send one power code for on and off,
+        so the kit must know the AC's real state, which is what the sensor
+        mode is for. Temperature limits are the app's, per the firtman kit
+        guide.
+      table:
+        - {code: 1, family: "Midea", toggle: false, min_c: 17, max_c: 30}
+        - {code: 10, family: "Samsung (short frame)", toggle: false, min_c: 18, max_c: 30}
+        - {code: 12, family: "Samsung (mid frame)", toggle: false, min_c: 18, max_c: 30}
+        - {code: 13, family: "Samsung (long frame)", toggle: false, min_c: 18, max_c: 30}
+        - {code: 20, family: "Gree", toggle: false, min_c: 16, max_c: 30}
+        - {code: 30, family: "De'Longhi", toggle: false, min_c: 16, max_c: 30}
+        - {code: 40, family: "White-Westinghouse", toggle: true, min_c: 18, max_c: 32}
+        - {code: 50, family: "TCL (first variant)", toggle: false, min_c: 16, max_c: 31, notes: "21-25 in auto"}
+        - {code: 51, family: "TCL (second variant)", toggle: false, min_c: 16, max_c: 31}
+        - {code: 60, family: "LG", toggle: true, min_c: 18, max_c: 30, notes: "16 in heat; confirmed on an LG unit by the kit guide's author"}
+        - {code: 70, family: "Hisense", toggle: true, min_c: 18, max_c: 30, notes: "reported working on a BGH unit"}
+        - {code: 71, family: "Hisense (older)", toggle: false, min_c: 16, max_c: 30}
+        - {code: 80, family: "AUX (first variant)", toggle: false, min_c: 16, max_c: 32}
+        - {code: 81, family: "AUX (second variant)", notes: "in arpena's list only"}
+        - {code: 90, family: "Chigo", toggle: false, min_c: 18, max_c: 30}
+        - {code: 100, family: "Goodman", toggle: false, min_c: 16, max_c: 30}
+        - {code: 110, family: "Toshiba", toggle: true, min_c: 17, max_c: 30}
+        - {code: 111, family: "Carrier", toggle: false, min_c: 17, max_c: 30}
+        - {code: 120, family: "RC5", toggle: true, min_c: 16, max_c: 30}
+        - {code: 130, family: "York", toggle: false, min_c: 18, max_c: 32}
+        - {code: 140, family: "Haier", toggle: false, min_c: 16, max_c: 30}
+        - {code: 150, family: "MKTech", toggle: false, min_c: 16, max_c: 32}
+    test_vectors:
+      description: >
+        Invented values only. scripts/test_bgh_smart_control_spec.py rebuilds
+        every commands.*.example_body from its template and the header rule,
+        and decodes these frames with the payload_formats layouts.
+      unit_mac: "00:00:5E:00:53:01"
+      ir_unit_mac: "00:00:5E:00:53:02"
+      frames:
+        - name: "status_report"
+          hex: "0000005e005301ffffffffffff2a0100fd060102104709600900000000"
+          decoded: {source_mac: "00:00:5E:00:53:01", sequence: 42, command: 253, status_type: 6, mode: 1, fan: 2, flags: 16, room_temperature: 23.75, target_temperature: 24.0, timer_on_minutes: 0, timer_off_minutes: 0}
+        - name: "ack"
+          hex: "0000005e00530100000000000004010080"
+          decoded: {source_mac: "00:00:5E:00:53:01", sequence: 4, command: 128}
+        - name: "ir_status_reply"
+          hex: "0000005e005301000000000000080000a25c2a5a0000000000005e005302"
+          decoded: {command: 162, subcommand: 92, rssi: 42, battery: 90, ir_mac: "00:00:5E:00:53:02"}
+        - name: "enumerate_reply"
+          hex: "0000005e005301ffffffffffff010000a1024850412d343931312c392e392e3900"
+          decoded: {command: 161, subcommand: 2, info: "HPA-4911,9.9.9", firmware: "9.9.9"}
+        - name: "codec_detected"
+          hex: "0000005e005301ffffffffffff300000a25f3c"
+          decoded: {command: 162, subcommand: 95, codec: 60}
+      notes: >
+        The reply headers' destination MAC and endpoint bytes are invented
+        (no source states them for replies); a parser should key on bytes
+        1-6, 13 and 16 only.
+
+payload_formats:
+  HvacStatusReport:
+    description: >
+      Command 253 from the unit, broadcast to 255.255.255.255:20911: 29 bytes,
+      the 17-byte header then a 12-byte payload. Offsets below are into the
+      payload (frame offset minus 17). Every multi-byte field is
+      little-endian.
+    fields:
+      - {name: "status_type", description: "Payload byte 0. 6 = HVAC status; only that type is documented."}
+      - {name: "mode", description: "Payload byte 1, uint8.", values: {"0": "off", "1": "cool", "2": "heat", "3": "dry", "4": "fan_only", "254": "auto"}}
+      - {name: "fan", description: "Payload byte 2, uint8.", values: {"0": "auto", "1": "low", "2": "medium", "3": "high", "4": "turbo", "254": "auto"}}
+      - {name: "flags", description: "Payload byte 3, bit field: 0x10 horizontal swing, 0x20 vertical swing, 0x08 turbo. Only 0x10 is read by any client."}
+      - {name: "room_temperature", unit: "C", scale: 0.01, description: "Payload bytes 4-5, int16 LE. On the kit this is the IR unit's reading."}
+      - {name: "target_temperature", unit: "C", scale: 0.01, description: "Payload bytes 6-7, int16 LE. The set point."}
+      - {name: "timer_on_minutes", unit: "min", description: "Payload bytes 8-9, uint16 LE. arpena's reading; firtman calls bytes 8-11 padding and has only seen zeros."}
+      - {name: "timer_off_minutes", unit: "min", description: "Payload bytes 10-11, uint16 LE. As above."}
+    parse_rules:
+      - "Accept only a datagram of exactly 29 bytes whose byte 0 is 0x00, byte 16 is 0xFD (253) and payload byte 0 is 6. Bytes 7-12 are ff:ff:ff:ff:ff:ff."
+      - "Attribute it to the unit by bytes 1-6 (its MAC), not by the sender address alone."
+      - "The unit also sends 22-byte ACKs, 46-47-byte control responses and 108-byte discovery frames to the same socket. firtman's first release parsed a 22-byte ACK as status and showed 255 °C; filter by length and command byte."
+      - "Temperatures are signed int16 / 100. Treat values outside roughly -40 to 60 °C as a mis-parse."
+    example: "0000005e005301ffffffffffff2a0100fd060102104709600900000000"
+  IrUnitStatus:
+    description: >
+      Kit only. The reply to commands.request_ir_status: command 162, payload
+      starting with subcommand 92.
+    fields:
+      - {name: "subcommand", description: "Payload byte 0 = 92."}
+      - {name: "rssi", description: "Payload byte 1, uint8: BLE signal of the IR unit as the base sees it. The app accepted 1-84 during setup; unit and sign unknown."}
+      - {name: "battery", unit: "%", description: "Payload bytes 2-3, uint16 LE. arpena shows it as a battery percentage; nobody has checked the scale. 0 is reported transiently and arpena ignores it."}
+      - {name: "ir_mac", description: "The last six payload bytes: the paired IR unit's address, all zero when none is paired."}
+    parse_rules:
+      - "Require command 162 and payload byte 0 = 92."
+      - "Read the IR MAC from the LAST six bytes of the datagram. arpena reads seven bytes from payload offset 6, which is one too many if the payload is 13 bytes."
+      - "Payload bytes 4 to (length - 7) are undocumented."
+    example: "0000005e005301000000000000080000a25c2a5a0000000000005e005302"
+  EnumerateReply:
+    description: >
+      The reply to commands.discover: command 161, payload byte 0 = 2, then
+      NUL-terminated ASCII, comma-separated. Field 1 (zero-based) is the
+      firmware version; the other fields are not documented. The example's
+      text is invented.
+    delimiter: ","
+    fields:
+      - {index: 1, name: "firmware", description: "Firmware version string."}
+    parse_rules:
+      - "Require command 161 and payload byte 0 = 2."
+      - "Decode payload bytes 1.. as ASCII, cut at the first NUL, split on commas."
+    example: "0000005e005301ffffffffffff010000a1024850412d343931312c392e392e3900"
+  CodecDetected:
+    description: >
+      Kit only, in learning mode. Broadcast to UDP 20911 each time the IR unit
+      recognises the owner's remote: command 162, payload [95, codec].
+    fields:
+      - {name: "codec", description: "Payload byte 1, uint8; see protocol_details.bgh_udp.ir_codecs."}
+    example: "0000005e005301ffffffffffff300000a25f3c"
+  DebugText:
+    description: >
+      Command 245, broadcast to UDP 20911: the payload is ASCII log text from
+      the base (commands it relays, BLE retries to the IR unit, learning-mode
+      changes, the IR unit's room temperature in hundredths). The best
+      diagnostic there is; not a stable interface.
+    parse_rules:
+      - "Decode payload as ASCII with errors ignored. Do not drive logic from it."
+
+commands:
+  discover:
+    description: >
+      Enumerate (Join 161, subcommand 4) to the broadcast MAC. Broadcast it to
+      255.255.255.255:20910 to find units, or unicast it to one unit for its
+      firmware. Each unit answers with payload_formats.EnumerateReply; bytes
+      1-6 of the reply are the unit MAC.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, "{sequence}", 0x00, 0x00, 0xa1, 0x04]
+    parameters:
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    returns:
+      - {name: "device_mac", type: "bytes", description: "Bytes 1-6 of the reply."}
+      - {name: "firmware", type: "string", description: "EnumerateReply field 1."}
+    example_body: "00000000000000ffffffffffff010000a104"
+    example_notes: "Sequence 1."
+    verification: "reported"
+  keepalive:
+    description: >
+      Keep-alive (255) to the broadcast MAC. The unit answers, which reveals
+      its MAC when only its IP is known (arpena's utility does this).
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, "{sequence}", 0x00, 0x00, 0xff]
+    parameters:
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "00000000000000ffffffffffff0a0000ff"
+    example_notes: "Sequence 10."
+    verification: "reported"
+  subscribe_status:
+    description: >
+      Join (161) subcommand 12 to the unit's MAC: subscribe this sender to
+      status reports for about two minutes. Renew every 120 s.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa1, 0x0c]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC, from discovery or any datagram it sends (bytes 1-6)."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e005301020000a10c"
+    example_notes: "Unit 00:00:5E:00:53:01, sequence 2."
+    verification: "reported"
+  poll_hvac_status:
+    description: >
+      Poll (228) to the broadcast MAC, endpoint 1. The unit answers by
+      broadcasting a 253 status report (payload_formats.HvacStatusReport) to
+      UDP 20911, not by a unicast reply: bind 20911 to read it. Send after
+      subscribe_status, as every client does.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, "{sequence}", 0x00, 0x01, 0xe4]
+    parameters:
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    returns:
+      - {name: "mode", type: "uint8", description: "HvacStatusReport.mode."}
+      - {name: "fan", type: "uint8", description: "HvacStatusReport.fan."}
+      - {name: "flags", type: "uint8", description: "HvacStatusReport.flags."}
+      - {name: "room_temperature", type: "int16", unit: "C", description: "HvacStatusReport.room_temperature, raw / 100."}
+      - {name: "target_temperature", type: "int16", unit: "C", description: "HvacStatusReport.target_temperature, raw / 100."}
+    example_body: "00000000000000ffffffffffff030001e4"
+    example_notes: "Sequence 3. Sent unicast to the unit's IP, so the broadcast MAC reaches only that unit."
+    verification: "reported"
+  set_hvac_mode:
+    description: >
+      HVAC SetMode (97, endpoint 1) changing the mode and carrying the current
+      fan and set point along. Mode 0 turns the AC off; any other mode turns
+      it on in that mode. There is no separate power command.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x01, 0x61, "{mode}", "{fan}", "{flags}", "{target_raw}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      mode: {type: "uint8", required: true, allowed: [0, 1, 2, 3, 4, 254], labels: ["off", "cool", "heat", "dry", "fan_only", "auto"], description: "New mode."}
+      fan: {type: "uint8", source: "state:poll_hvac_status.fan", description: "Current fan code, sent back unchanged."}
+      flags: {type: "uint8", default: 0, description: "Swing/turbo bits; 0 is what every client sends with a mode change."}
+      target_raw: {type: "int16", endianness: "little", scale: 0.01, unit: "C", source: "state:poll_hvac_status.target_temperature", description: "Current set point x 100, sent back unchanged."}
+    returns:
+      - {name: "ack", type: "uint8", description: "A unicast ACK (command 0x80) echoing the sequence. It confirms the base took it, not that the AC did; the next 253 report shows the result."}
+    example_body: "0000000000000000005e005301040001610102006009"
+    example_notes: "Unit 00:00:5E:00:53:01, sequence 4: cool, fan medium, flags 0, 24.00 °C (2400 = 0x0960)."
+    verification: "reported"
+  set_temperature:
+    description: "HVAC SetMode (97, endpoint 1) changing the set point, carrying the current mode and fan along."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x01, 0x61, "{mode}", "{fan}", "{flags}", "{target_raw}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      mode: {type: "uint8", source: "state:poll_hvac_status.mode", description: "Current mode, sent back unchanged."}
+      fan: {type: "uint8", source: "state:poll_hvac_status.fan", description: "Current fan code, sent back unchanged."}
+      flags: {type: "uint8", default: 0, description: "Swing/turbo bits; arpena sends 0 here, which also clears swing."}
+      target_raw: {type: "int16", endianness: "little", scale: 0.01, unit: "C", required: true, min: 1600, max: 3000, description: "New set point x 100 (24 °C = 2400). The clients use 16-30 °C in 1 °C steps; the IR codec may narrow it (protocol_details.bgh_udp.ir_codecs)."}
+    example_body: "0000000000000000005e00530105000161010200ca08"
+    example_notes: "Sequence 5: cool, fan medium, flags 0, 22.50 °C (2250 = 0x08ca)."
+    verification: "reported"
+  set_fan_mode:
+    description: "HVAC SetMode (97, endpoint 1) changing the fan, carrying the current mode and set point along."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x01, 0x61, "{mode}", "{fan}", "{flags}", "{target_raw}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      mode: {type: "uint8", source: "state:poll_hvac_status.mode", description: "Current mode, sent back unchanged."}
+      fan: {type: "uint8", required: true, allowed: [1, 2, 3, 254], labels: ["low", "medium", "high", "auto"], description: "New fan speed. 254 is auto in arpena's integration; see protocol_details.bgh_udp.conflicts."}
+      flags: {type: "uint8", default: 0, description: "Swing/turbo bits."}
+      target_raw: {type: "int16", endianness: "little", scale: 0.01, unit: "C", source: "state:poll_hvac_status.target_temperature", description: "Current set point x 100, sent back unchanged."}
+    example_body: "0000000000000000005e005301060001610103006009"
+    example_notes: "Sequence 6: cool, fan high, flags 0, 24.00 °C."
+    verification: "reported"
+  set_swing:
+    description: >
+      HVAC SetMode (97, endpoint 1) with the horizontal-swing bit. arpena turns
+      swing on with flags 0x10 and off with 0xE7 (every bit except 0x08 and
+      0x10), which it found by experiment to clear swing without setting
+      turbo; plain 0 did not reliably clear it on the author's unit.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x01, 0x61, "{mode}", "{fan}", "{flags}", "{target_raw}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      mode: {type: "uint8", source: "state:poll_hvac_status.mode", description: "Current mode."}
+      fan: {type: "uint8", source: "state:poll_hvac_status.fan", description: "Current fan code."}
+      flags: {type: "uint8", required: true, allowed: [16, 231], labels: ["swing on", "swing off"], description: "0x10 on, 0xE7 off."}
+      target_raw: {type: "int16", endianness: "little", scale: 0.01, unit: "C", source: "state:poll_hvac_status.target_temperature", description: "Current set point x 100."}
+    example_body: "0000000000000000005e005301170001610102106009"
+    example_notes: "Sequence 23: cool, fan medium, swing on, 24.00 °C."
+    verification: "reported"
+  turn_off:
+    description: >
+      HVAC SetMode (97, endpoint 1) with the one-byte payload 0 (mode off), as
+      arpena's integration sends it. The five-byte alternatives are in
+      protocol_details.bgh_udp.conflicts.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x01, 0x61, 0x00]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e0053010700016100"
+    example_notes: "Sequence 7."
+    notes: "With a toggle IR codec the kit sends the power code only if it believes the AC is on; see protocol_details.bgh_udp.ir_codecs."
+    verification: "reported"
+  request_ir_status:
+    description: "Kit only. Custom (162) subcommand 92 with argument 30: the IR unit's BLE signal, battery and MAC (payload_formats.IrUnitStatus)."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa2, 0x5c, 0x1e]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    returns:
+      - {name: "rssi", type: "uint8", description: "IrUnitStatus.rssi."}
+      - {name: "battery", type: "uint16", unit: "%", description: "IrUnitStatus.battery."}
+      - {name: "ir_mac", type: "bytes", description: "IrUnitStatus.ir_mac."}
+    example_body: "0000000000000000005e005301080000a25c1e"
+    example_notes: "Sequence 8."
+    verification: "reported"
+  learn_mode_on:
+    description: "Kit only. Custom (162) subcommand 90, argument 1: learning mode on; the unit then broadcasts CodecDetected for each recognised remote press."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa2, 0x5a, 0x01]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e0053010b0000a25a01"
+    example_notes: "Sequence 11."
+    verification: "reported"
+  learn_mode_off:
+    description: "Kit only. Custom (162) subcommand 90, argument 0: learning mode off."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa2, 0x5a, 0x00]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e0053010c0000a25a00"
+    example_notes: "Sequence 12."
+    verification: "reported"
+  set_ir_codec:
+    description: "Kit only. Custom (162) subcommand 88: store the IR codec and the sensor mode."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa2, 0x58, "{codec}", "{sensor}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      codec: {type: "uint8", required: true, description: "IR codec number from protocol_details.bgh_udp.ir_codecs, normally the one CodecDetected reported."}
+      sensor: {type: "uint8", required: true, min: 0, max: 3, labels: ["none", "consumption (AC plugged into the base)", "IR unit vibration", "external"], description: "How the kit learns whether the AC is running. Toggle codecs need 1 or 2."}
+    example_body: "0000000000000000005e0053010d0000a2583c01"
+    example_notes: "Sequence 13: codec 60, consumption sensor."
+    advanced: true
+    advanced_reason: >
+      Changes which IR protocol the kit speaks. The wrong codec makes every
+      later command do nothing, or with a toggle codec switch the AC the wrong
+      way. Recover by running the learning steps again.
+    verification: "reported"
+  calibrate_vibration:
+    description: >
+      Kit only. Custom (162) subcommand 100: take the IR unit's vibration zero
+      and close the setup. Send only with the IR unit stuck in place and the
+      AC off and fully stopped.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa2, 0x64]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e0053010e0000a264"
+    example_notes: "Sequence 14."
+    advanced: true
+    advanced_reason: >
+      A zero taken while the AC runs or the IR unit is loose makes the kit
+      think a running AC is off, so with a toggle codec the next command
+      switches it off. Recover by calibrating again under the right
+      conditions.
+    verification: "reported"
+  set_temperature_offset:
+    description: "Kit only. Custom (162) subcommand 101: room-temperature calibration offset, int16 LE in hundredths of a degree."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa2, 0x65, "{offset_raw}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      offset_raw: {type: "int16", endianness: "little", scale: 0.01, unit: "C", required: true, min: -1000, max: 1000, description: "Offset x 100 added to the IR unit's reading. The kit guide gives the x 100 scale; arpena passes a raw signed int16. The range is a guard, not a documented limit."}
+    example_body: "0000000000000000005e0053010f0000a265ceff"
+    example_notes: "Sequence 15: -0.50 °C (-50 = 0xffce)."
+    advanced: true
+    advanced_reason: "Shifts the room temperature every later report shows. Recover by sending 0."
+    verification: "reported"
+  get_cloud_ip:
+    description: "Join (161) subcommand 7: read the cloud notification IP (reply: 161, subcommand byte, NUL-terminated ASCII)."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa1, 0x07]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e005301100000a107"
+    example_notes: "Sequence 16."
+    verification: "reported"
+  set_cloud_ip:
+    description: >
+      Join (161) subcommand 8: set the cloud notification IP to a LAN host,
+      which then receives the unit's periodic status pushes on UDP 20911.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa1, 0x08, "{cloud_ip}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      cloud_ip: {type: "string", required: true, min_length: 7, max_length: 16, description: "Dotted-quad IPv4 address as ASCII, NUL-padded to 16 bytes."}
+    example_body: "0000000000000000005e005301110000a1083139322e3136382e312e353000000000"
+    example_notes: "Sequence 17: 192.168.1.50."
+    advanced: true
+    advanced_reason: >
+      Redirects the unit's cloud traffic. Harmless now the cloud is gone, but
+      a wrong address loses the status pushes. Recover by setting it again.
+    verification: "reported"
+  wifi_scan:
+    description: >
+      Join (161) subcommand 5: list the networks the unit sees. Replies are
+      161 frames with payload byte 0 = 6: SSID in payload bytes 1-33
+      (NUL-padded), then security, encryption and signal bytes at frame
+      offsets 51, 52 and 53; an ACK ends the list (arpena).
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa1, 0x05]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e005301120000a105"
+    example_notes: "Sequence 18."
+    verification: "reported"
+  wifi_join:
+    description: >
+      Join (161) subcommand 3: give the unit Wi-Fi credentials. Sent to
+      10.10.100.254:20910 on the setup AP. 86 bytes. Answered by a 17-byte
+      ACK echoing the sequence.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa1, 0x03, "{ssid}", "{security}", "{encryption}", "{password}"]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC, learned on the setup AP."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+      ssid: {type: "string", required: true, min_length: 1, max_length: 33, description: "Home SSID, UTF-8, NUL-padded to 33 bytes. Keep it to 32."}
+      security: {type: "uint8", default: 3, min: 0, max: 3, labels: ["open", "WEP", "WPA", "WPA2"], description: "Network security type."}
+      encryption: {type: "uint8", default: 4, min: 0, max: 4, labels: ["none", "WEP64", "WEP128", "TKIP", "AES"], description: "Cipher."}
+      password: {type: "string", required: true, max_length: 33, description: "Passphrase, UTF-8, NUL-padded to 33 bytes. Keep it to 32."}
+    example_body: "0000000000000000005e005301130000a1034578616d706c654e657400000000000000000000000000000000000000000000000304636f727265637420686f7273650000000000000000000000000000000000000000"
+    example_notes: "Sequence 19: SSID ExampleNet, WPA2/AES, passphrase 'correct horse'."
+    advanced: true
+    advanced_reason: >
+      Moves the unit to another network; a wrong SSID or passphrase strands
+      it off every network. Recover with the factory reset.
+    verification: "reported"
+  reboot:
+    description: "Reboot (164), no payload."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xa4]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e005301140000a4"
+    example_notes: "Sequence 20."
+    verification: "reported"
+  leave:
+    description: "Leave (175), no payload: clear the Wi-Fi configuration and return to setup mode. The app sent it four times."
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x00, 0xaf]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e005301150000af"
+    example_notes: "Sequence 21."
+    advanced: true
+    advanced_reason: >
+      Factory-resets the Wi-Fi configuration: the unit leaves the network and
+      needs the setup-AP provisioning again, with someone physically near it.
+    verification: "reported"
+  ir_beep_test:
+    description: >
+      Kit only, during setup. The app's placement test: HVAC SetMode with mode
+      0, fan 255, flags 255 and set point 0x8000, repeated every 3 s while the
+      owner moves the IR unit until the AC beeps on each one.
+    transport: "udp"
+    template: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{device_mac}", "{sequence}", 0x00, 0x01, 0x61, 0x00, 0xff, 0xff, 0x00, 0x80]
+    parameters:
+      device_mac: {type: "bytes", min_length: 6, max_length: 6, source: "state:discover.device_mac", description: "The unit's MAC."}
+      sequence: {type: "uint8", auto: "sequence", description: "Per-client counter, mod 256."}
+    example_body: "0000000000000000005e0053011600016100ffff0080"
+    example_notes: "Sequence 22."
+    verification: "reported"
+
+features:
+  - type: firmware_update
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "unknown"
+        format: "unknown"
+      enter:
+        how: "unknown"
+        notes: >
+          No source documents a firmware update path for the base, the IR
+          unit or the built-in module, and no update command appears among the
+          protocol's command bytes. If updates came from the cloud, that route
+          closed with it.
+      dfu_mode:
+        notes: "Unknown; nothing describes how a unit looks mid-update."
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        Recorded so the question has an answer: unknown. Two facts bear on it.
+        The base is built on a Hi-Flying Wi-Fi module (OUI AC:CF:23, SoftAP
+        10.10.100.254, and one owner saw it answer that module family's
+        UDP 48899 discovery beacon). Such modules usually offer a web UI with
+        an upgrade page, but this unit's web login rejected the usual default
+        credentials and the module refused the module family's AT commands, so
+        nothing shows that path is open. The IR unit's BLE chip (a CSR1010,
+        per the same owner's teardown) has a vendor OTA mechanism in general,
+        but nobody has looked at this one. Do not try either on a working unit.
+
+entities:
+  - platform: "climate"
+    name: "Air Conditioner"
+    unit: "C"
+    min_temp: 16
+    max_temp: 30
+    temp_step: 1
+    features: ["target_temperature", "hvac_mode", "fan_mode"]
+    state_command: "poll_hvac_status"
+    state_mapping:
+      hvac_mode: "mode"
+      fan_mode: "fan"
+      current_temperature: "room_temperature"
+      target_temperature: "target_temperature"
+      scale: 0.01
+    commands:
+      set_temperature: "set_temperature"
+      set_hvac_mode: "set_hvac_mode"
+      set_fan_mode: "set_fan_mode"
+      turn_off: "turn_off"
+    notes: >
+      State arrives as the 253 broadcast on UDP 20911, both after a poll and
+      on every change, so a client listens rather than waits for a reply.
+      Renew subscribe_status every 120 s. Mode codes 0 off, 1 cool, 2 heat,
+      3 dry, 4 fan_only, 254 auto; fan 1 low, 2 medium, 3 high, 254 (or 0)
+      auto. Turning on is choosing a mode. Each set command carries the whole
+      state, so read it back first or the fan and set point you did not mean
+      to change will be overwritten. The set-point limits depend on the IR
+      codec on a kit (protocol_details.bgh_udp.ir_codecs). Swing is the
+      separate set_swing command; no climate role binds it.
+  - platform: "sensor"
+    name: "Room Temperature"
+    device_class: "temperature"
+    unit: "C"
+    precision: 0.01
+    state_command: "poll_hvac_status"
+    state_mapping:
+      value: "room_temperature"
+      scale: 0.01
+    notes: "On the kit this is the IR unit's sensor, after any offset set with set_temperature_offset."
+  - platform: "sensor"
+    name: "IR Unit Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["HPA-4911"]
+    state_command: "request_ir_status"
+    state_mapping:
+      value: "battery"
+    notes: "Percentage per arpena; the scale is unconfirmed. A transient 0 is common and is best ignored."
+
+evidence:
+  documentation_review: >
+    Read on 2026-11-22: arpena/hpa4911 at d2b4e2c (README, info.md,
+    CONFIGURING_NEW_DEVICES.md, the integration's UDP client, coordinator,
+    climate and sensor modules, and the standalone configuration utility);
+    firtman/bgh_smart at af21dea (README, the kit guide
+    docs/GUIA_BGH_SMART_CONTROL_KIT.md, the UDP client, constants and the
+    Wi-Fi provisioning module); andrescerutti/bgh-smart-control-local at
+    6e76d77 (README and protocol module); and the Home Assistant community
+    thread (four posts, 2026-01-12 to 2026-07-06). All facts are derived; no
+    code is transcribed. Every example frame was built here from invented
+    values. The shutdown date is from the community thread and press reports
+    quoting BGH's notice; BGH's own notice was not found online.
+  artifacts:
+    - type: community_repo
+      artifact: "arpena/hpa4911, commit d2b4e2c (MIT)"
+      url: "https://github.com/arpena/hpa4911"
+      obtained_via: "GitHub, 2026-11-22"
+      description: >
+        Header layout, ports, subscription and poll, HVAC SetMode and the 253
+        layout including the timer fields, swing flags, IR status reply,
+        enumerate reply, the Join and Custom subcommand numbers, cloud IP,
+        Wi-Fi scan, leave, reboot, the codec name table, and the kit reset.
+    - type: community_repo
+      artifact: "firtman/bgh_smart, commit af21dea (README states MIT; no licence file)"
+      url: "https://github.com/firtman/bgh_smart"
+      obtained_via: "GitHub, 2026-11-22"
+      description: >
+        The earliest local integration, for BGH ACs with built-in Wi-Fi: the
+        29-byte status broadcast, the ACK-misparse trap, the 86-byte Wi-Fi
+        join with its security and encryption codes, the remote-control
+        connect-mode gesture; and the community kit guide with the full
+        reset, IR pairing, the app's codec-learning sequence, sensor modes
+        and per-codec limits.
+    - type: community_repo
+      artifact: "andrescerutti/bgh-smart-control-local, commit 6e76d77 (MIT)"
+      url: "https://github.com/andrescerutti/bgh-smart-control-local"
+      obtained_via: "GitHub, 2026-11-22"
+      description: >
+        A third client confirming the header, the 33-byte Wi-Fi join, the
+        codec-detected broadcast and the off frame; and an owner's teardown
+        notes (Hi-Flying-style module answering UDP 48899, CSR1010 BLE chip,
+        web login closed).
+    - type: community_thread
+      artifact: "Home Assistant community: 'BGH Smart Control is dead, long life to local BGH Smart Control'"
+      url: "https://community.home-assistant.io/t/bgh-smart-control-is-dead-long-life-to-local-bgh-smart-control/974020"
+      description: "Shutdown date (2025-12-31), the two-module hardware, MyHabeetat still running in January 2026."
+  open_questions: >
+    The meaning of status flags beyond 0x10; whether payload bytes 8-11 of the
+    253 report really are on/off timers; the full enumerate-reply fields; the
+    108-byte and 46-47-byte frames the unit also sends; the IR battery scale
+    and RSSI unit; which Wi-Fi join layout the built-in-Wi-Fi ACs accept;
+    whether fan 0 or 254 is the unit's own auto; whether wifi_join works in
+    place on a joined unit; whether leave clears the codec; and any firmware
+    update path.
+
+remaining_unknowns:
+  - "Firmware update: no path documented for the base, the IR unit or the built-in module."
+  - "Status flags: only 0x10 (horizontal swing) is read by any client; 0x08 turbo and 0x20 vertical swing come from one client's experiments, and the 0xE7 swing-off value is empirical."
+  - "Payload bytes 8-11 of the 253 report: on/off timer minutes per arpena, padding per firtman."
+  - "Wi-Fi join: 33-byte SSID field and encryption 4 = AES (firtman, cerutti) versus 32 bytes and 3 = AES (arpena). Built-in-Wi-Fi ACs were provisioned only by firtman's client."
+  - "Fan auto: 254 or 0. Fan 255 appears in the app's off and beep frames, with an unknown meaning."
+  - "IR unit status reply: the bytes between the battery and the IR MAC, the RSSI unit, and the battery scale."
+  - "The unit's other frame types: 108-byte discovery, 46-47-byte control responses, 22-byte ACKs (whether the extra 5 bytes echo the command), and command 242."
+  - "Whether the setup AP is open, and the rule behind its SSID suffix."
+  - "Whether a factory reset clears the IR codec, sensor mode and cloud notification IP."
+  - "The cloud host names the units used to contact."
+  - "Whether the kit-only custom commands (162) do anything on a built-in-Wi-Fi AC."
+
+helpful_urls:
+  - title: "arpena/hpa4911 — Local BGH Smart integration for Home Assistant"
+    url: "https://github.com/arpena/hpa4911"
+    kind: "implementation"
+    description: "MIT. The integration from the community thread, plus a standalone configuration utility."
+  - title: "arpena/hpa4911 — Configuring new HPA-4911 devices"
+    url: "https://github.com/arpena/hpa4911/blob/main/CONFIGURING_NEW_DEVICES.md"
+    kind: "protocol_writeup"
+    description: "Factory reset, setup-AP join, codec detection, cloud-IP redirect and the command list."
+  - title: "firtman/bgh_smart — BGH Smart Control integration"
+    url: "https://github.com/firtman/bgh_smart"
+    kind: "implementation"
+    description: "The first local integration (built-in-Wi-Fi ACs and the kit) with the status layout and Wi-Fi provisioning, in Spanish."
+  - title: "BGH Smart Control Kit (HPA-4911) from scratch, without the app (community guide, Spanish)"
+    url: "https://github.com/firtman/bgh_smart/blob/main/docs/GUIA_BGH_SMART_CONTROL_KIT.md"
+    kind: "manual"
+    description: >
+      Community guide for the HPA-4911 kit: LED meanings, the full reset,
+      IR-unit pairing, codec learning, sensor modes and a codec table. Not a
+      vendor document; its reset steps say they follow BGH's help pages.
+  - title: "andrescerutti/bgh-smart-control-local"
+    url: "https://github.com/andrescerutti/bgh-smart-control-local"
+    kind: "implementation"
+    description: "MIT. A local web panel for the HPA-4911 with a setup assistant, built on the firtman protocol notes."
+  - title: "Home Assistant community: BGH Smart Control is dead, long life to local BGH Smart Control"
+    url: "https://community.home-assistant.io/t/bgh-smart-control-is-dead-long-life-to-local-bgh-smart-control/974020"
+    kind: "forum"
+    description: "Announces the local integration; states the cloud shut down on 31 December 2025."
+  - title: "Via País: BGH Smart Control function discontinued (Spanish)"
+    url: "https://viapais.com.ar/informacion-general/si-tenes-este-aire-acondicionado-hay-una-funcion-que-ya-no-podras-usar-a-que-se-debe/"
+    kind: "other"
+    description: "Argentine press report quoting BGH's notice that the Smart Control app and service stopped on 31 December 2025. Refuses non-browser clients (403)."
+  - title: "Cultura Geek: BGH SmartControl Kit review (Spanish, 2016)"
+    url: "https://culturageek.com.ar/review-del-bgh-smartcontrol/"
+    kind: "other"
+    description: "Hands-on review of the HPA-4911 kit showing both units."
