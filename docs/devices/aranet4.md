@@ -45,8 +45,9 @@ a firmware update.
 - **Advertisement** (manufacturer ID `0x0702`): 7-byte short (header only) or
   22-byte long payload — CO2 u16@8, temp ×0.05 u16@10, pressure ×0.1 u16@12,
   humidity u8@14, battery u8@15, status color u8@16, interval u16@17,
-  ago u16@19. Family devices (Aranet2/Radiation/Radon) use 24-byte payloads
-  with a leading type byte.
+  ago u16@19. Aranet2 and Radon use 24-byte payloads; Radiation uses 26 bytes,
+  all with a leading family type byte. Radiation dose total is u32 LE @8,
+  duration u32 LE seconds @12, and rate u16 LE ×10 nSv/h @16.
 - **GATT**: vendor service `f0cd1400-…` (fw < v1.2.0) or `0xFCE0`
   (fw ≥ v1.2.0). Current readings `f0cd3001` (13 B), command char `f0cd1402`
   (history requests `0x82`/`0x61`, interval `0x90`, integrations toggle

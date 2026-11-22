@@ -26,18 +26,24 @@ device:
     Pebble-compatible hardware, and the Rebble Foundation runs the web services
     and appstore. Full local control, no cloud.
 
-    APPLICATION LAYER — the "Pebble Protocol": endpoint-addressed packets. Every
-    packet has a numeric `endpoint` and a body; framing is a length + endpoint
-    prefix. Field types: Uint8/16/32/64, Int*, Boolean, UUID; four string
-    encodings (PascalString length-prefixed, NullTerminated, Fixed, BinaryArray);
-    structural fields Union/FixedList/PascalList/Embed/Padding/Optional. Default
-    endianness is big-endian, configurable per field.
+    APPLICATION LAYER — the "Pebble Protocol": endpoint-addressed packets.
+    Framing is exactly u16 BIG-ENDIAN body length at bytes 0-1 (EXCLUDING the
+    four-byte length/endpoint header), u16 BIG-ENDIAN endpoint at bytes 2-3,
+    then exactly body_length bytes of body. Field types: Uint8/16/32/64,
+    Int*, Boolean, UUID; four string encodings (PascalString, NullTerminated,
+    Fixed, BinaryArray); Union/FixedList/PascalList/Embed/Padding/Optional.
+    Default field endianness is big-endian, configurable per field.
 
-    TRANSPORTS (libpebble2): direct Bluetooth serial to a paired watch; a
-    WebSocket via the phone app's Developer Connection (port 9000); and QEMU for
-    the emulator. Pebble supports only one simultaneous connection — disconnect
-    the phone before connecting a computer over serial. No cloud is needed for
-    protocol operation.
+    TRANSPORTS: direct Bluetooth serial to a paired watch at 115200 baud;
+    phone-hosted PPoGATT (10000000); Pebble-2 watch-hosted V1 (30000003) and
+    reversed V2 (40000000). Watch-hosted services are declared under services;
+    the phone-hosted forward definition is under
+    protocol_details.pebble_protocol.transports.ppogatt_forward. A WebSocket
+    via the phone app's Developer Connection (port 9000); and QEMU. Pebble
+    supports only one simultaneous
+    connection — disconnect the phone before connecting a computer over
+    serial. No cloud is needed for protocol operation. Generation-specific
+    GATT/battery support and firmware-update transport are not generalized.
 
     Endpoint NUMBER assignments beyond examples should be taken from libpebble2
     source per message type.
@@ -226,19 +232,73 @@ device:
       answers the protocol. Medium confidence: Pebble's archived help, the
       PebbleOS developer documentation and Gadgetbridge agree, but this
       project has not paired one.
-# The Pebble Protocol application layer + libpebble2 transports. Bespoke
-# protocol material lives under `protocol_details` because the schema's top
-# level is closed; that block is the schema's namespace for single-spec
-# protocol blocks.
+services:
+  - uuid: "30000003-328e-0fbb-c642-1aa6699bdada"
+    name: "PPoGATT Watch-Server V1 (Pebble 2)"
+    notes: >
+      Watch-hosted V1 on Pebble 2. Phone reads meta and subscribes to watch
+      data notifications; phone writes the separate data-write
+      characteristic. UUIDs use the Pebble base.
+    characteristics:
+      - uuid: "30000004-328e-0fbb-c642-1aa6699bdada"
+        name: "V1 Watch Data (notify)"
+        properties: ["notify"]
+        notes: "Watch -> phone PPoGATT packets."
+      - uuid: "30000005-328e-0fbb-c642-1aa6699bdada"
+        name: "V1 Meta"
+        properties: ["read"]
+        notes: "Phone reads version/application metadata."
+      - uuid: "30000006-328e-0fbb-c642-1aa6699bdada"
+        name: "V1 Watch Data Write"
+        properties: ["write_without_response"]
+        notes: "Phone -> watch PPoGATT packets; separate from the notify UUID."
+
+  - uuid: "40000000-328e-0fbb-c642-1aa6699bdada"
+    name: "PPoGATT Reversed V2 Service (watch-hosted)"
+    notes: >
+      Watch hosts V2 and phone is GATT client. After subscribing, the PHONE
+      sends the first ResetRequest to 40000003; watch replies on 40000001.
+      No meta characteristic exists (40000002 is reserved, not a data
+      endpoint). Do not treat forward phone-hosted PPoGATT as the same GATT
+      service with reversed characteristic numbers.
+    characteristics:
+      - uuid: "40000001-328e-0fbb-c642-1aa6699bdada"
+        name: "V2 Watch Data (notify)"
+        properties: ["notify"]
+        notes: "Watch -> phone PPoGATT packets, including reset responses and data."
+      - uuid: "40000003-328e-0fbb-c642-1aa6699bdada"
+        name: "V2 Watch Data Write"
+        properties: ["write_without_response"]
+        notes: "Phone -> watch PPoGATT packets; phone sends initial ResetRequest here."
+
 protocol_details:
   pebble_protocol:
-    framing: "Endpoint-addressed packets: length + numeric endpoint prefix, then a body. Big-endian by default."
-    field_types: "Uint8/16/32/64, Int*, Boolean, UUID; strings PascalString/NullTerminated/Fixed/BinaryArray; Union/FixedList/PascalList/Embed/Padding/Optional."
+    framing:
+      header_bytes: 4
+      body_length: "u16 big-endian at bytes 0-1; counts body bytes only and excludes the four-byte header"
+      endpoint: "u16 big-endian at bytes 2-3"
+      body: "Exactly body_length bytes at offset 4"
+    field_types: "Uint8/16/32/64, Int*, Boolean, UUID; strings PascalString/NullTerminated/Fixed/BinaryArray; Union/FixedList/PascalList/Embed/Padding/Optional. Big-endian by default, configurable per field."
+    ppogatt_packet: "One-byte header: sequence number in bits 3-7 and packet type in bits 0-2; data=0, ack=1, ResetRequest=2, ResetComplete=3. Payload then carries the Pebble Protocol stream."
     transports:
-      bluetooth_serial: "Direct to a paired watch over the OS Bluetooth stack."
+      bluetooth_serial: "Direct to a paired watch over the OS Bluetooth serial stack at 115200 baud."
+      ppogatt_forward:
+        host: "phone"
+        service_uuid: "10000000-328e-0fbb-c642-1aa6699bdada"
+        data_uuid: "10000001-328e-0fbb-c642-1aa6699bdada"
+        meta_uuid: "10000002-328e-0fbb-c642-1aa6699bdada"
+        first_reset: "watch"
+        directions: >
+          Phone is GATT server and watch is GATT client. Watch reads meta,
+          writes data to the phone and starts ResetRequest; phone notifies
+          the watch. This phone-hosted definition is NOT a watch service and
+          is deliberately absent from top-level services.
+      ppogatt_watch_v1: "Pebble-2 watch-hosted 30000003 service with separate notify/write/meta characteristics."
+      ppogatt_reversed_v2: "Watch-hosted 40000000 service; phone starts ResetRequest; no meta."
       websocket: "Via the phone app's Developer Connection, TCP port 9000 (MessageTargetPhone)."
       qemu: "The Pebble emulator (MessageTargetQemu)."
     concurrency: "One connection at a time — disconnect the phone before connecting a computer over serial."
+    unresolved: "Generation-specific battery/GATT support and firmware-update transport/signing are not established; do not generalize one watch generation's endpoints."
 
 # The libpebble2 WebSocket developer connection (port 9000) is the concrete
 # local IP surface; http_endpoints is a placeholder for the access surface —
@@ -254,6 +314,10 @@ http_endpoints:
       connection (see protocol_details.pebble_protocol), not HTTP/REST.
 
 helpful_urls:
+  - title: "Core Devices PebbleOS Bluetooth identifiers and PPoGATT"
+    url: "https://github.com/coredevices/PebbleOS/blob/main/include/pbl/bluetooth/pebble_bt.h"
+    kind: "implementation"
+    description: "Open-source Pebble-base UUID constants, forward/watch-hosted V1/reversed V2 service and characteristic assignments."
   - title: "libpebble2 — Pebble Protocol + transports"
     url: "https://libpebble2.readthedocs.io/en/latest/protocol/"
     description: "The official library's protocol framing and transport documentation."

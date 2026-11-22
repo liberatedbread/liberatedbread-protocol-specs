@@ -37,12 +37,15 @@ An earlier note called `8ec90001`/`8ec90002` a Laird virtual serial port. They
 are the Nordic Secure DFU bootloader characteristics; no Laird VSP UUID
 (`569a1101-…`) was recorded for this toy.
 
-The factory name is reported as exactly `Mousr`, and the spec matches it as
-an exact name together with the Nordic UART service. The service alone is
-not a match: many unrelated products carry it, and this spec has movement
-commands. The exact match also keeps out `MousrDfu`, the bootloader name,
-which the spec declares as update mode. The app lets an owner rename the toy;
-a renamed unit is not auto-matched and has to be added by hand.
+The factory name is reported as exactly `Mousr`; Nordic UART is not part of
+scan-time identity because many unrelated products, including the Ninebot Z,
+carry it. Manually select the exact toy before any write, including stop, then
+wait for a recovered firmware-version (28), hardware-version (29) or
+initialization-done (30) notification. If none arrives, leave identification
+unresolved and do not use stop as a probe. The exact name also keeps out
+`MousrDfu`, the bootloader name, which the spec declares as update mode. The
+app lets an owner rename the toy; a renamed unit is not auto-matched and has to
+be added by hand.
 
 ## Command packet
 

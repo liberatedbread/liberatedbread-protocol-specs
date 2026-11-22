@@ -40,9 +40,10 @@ standalone from its physical speed button; BLE adds app control.
 | Confidence | low (derived from decompiled app, not replayed on hardware) |
 
 The one wrinkle is a per-connection handshake: after connecting, read the
-"secure" characteristic, take its last 3 bytes as a seed, and — unless the
-seed reads back `00 00 00` — derive a 4-byte password from the seed and the
-device MAC (algorithm in the YAML spec) and write it back with response.
+"secure" characteristic and take `value[-3:]` as the seed—never bytes 0–2;
+the total read length is unknown. Unless the seed reads back `00 00 00`,
+derive a 4-byte password from the seed and the device MAC (algorithm in the
+YAML spec) and write it back with response.
 Whether fresh units answer with an all-zero seed, making the password write
 unnecessary, is the top open question.
 

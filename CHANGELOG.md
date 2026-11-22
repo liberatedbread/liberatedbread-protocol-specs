@@ -6,7 +6,259 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Independent review: VanMoof unlock and Withings attribution.** VanMoof
+  unlock now follows VanMoofKit's explicit `awaitingUnlock` command `0x02`,
+  with bounded polling that accepts transitional 2 but requires eventual 0;
+  pymoof's conflicting generic `0x00` setter is documented as unproven rather
+  than declared. Withings measurement merging now preserves groups by
+  `(time, attributed_user)`, deduplicates types within each group and suppresses
+  reread duplicates per user/time/type. Regression vectors cover unlock
+  transition/timeout behavior and Bob 90 kg + guest 55 kg + Alice 65 kg at one
+  timestamp, all surviving with attribution.
+- **November 17 lock/valve independent-review hardening.** Danalock now states
+  the exact 13-byte TLS GCM AAD and carries independently recomputed encrypted
+  Finished/application-data vectors. LeakSmart recovery advances a fault epoch
+  on every failure and rejects stale or pre-clear in-flight reads. FC unlock
+  confirms only result 0; 0xF1 remains handshake-only and never triggers replay.
+- **Wyze bridge coverage and stream contracts.** The docker-wyze-bridge spec now
+  uses only its documented TUTK model allowlist, manual bridge/NVR host
+  discovery, lowercase camera slugs, the actual HLS playlist URL, default-on
+  `WB_AUTH`/`WB_API` and `STREAM_AUTH` alternatives, and product-scoped reset
+  instructions. TUTK P2P/relay/LAN modes and continuing cloud dependence are
+  explicit, including that relayed upstream media does not move the local
+  bridge endpoints. The stock-firmware no-local-API statement now names the
+  narrow legacy RTSP exception instead of overgeneralizing.
+- **Sensor, energy, mobility and diagnostic protocol correctness.** Aranet
+  Radiation, SensorPush generations, Ruuvi DF3/DF5, b-parasite/BTHome,
+  Mopeka and pvvx layouts now use their actual widths, offsets, signedness and
+  unavailable sentinels. Tuya BLE v3 has one-byte DP lengths, signed values and
+  the local-key/device-random KDF; Zigbee keeps two-byte DP lengths and gains six
+  soil_3 fingerprints. Mi Flora clear history requires its two-write sequence.
+  Bluetti/JBD no longer cross-identify over their shared endpoint; JBD checksum,
+  reassembly and 10/100-unit variants are explicit, and all constant Bluetti
+  output commands are advanced. Enphase documents the reviewed password map,
+  four-frame SRP and AES-256-CTR without reversing relay directions. Victron
+  describes second-block CTR and LSB-first sentinel-before-sign decoding.
+  OpenEVSE, Concept2, FTMS, VESC, OBD/ISO-TP/UDS and clean-room labels receive
+  corresponding focused corrections. WheelLog's other-brand speed/current/voltage/
+  temperature scales and shared FFE0/FFE1 transport are explicit, with manual
+  discovery retained. Review follow-ups add Victron's AUX selector and shifted
+  non-byte offsets, Mi Flora's acknowledgement gate, Mopeka's configured-MAC-only
+  identity, Enphase's phase-4 nonce slices, and JBD's operation-status offset.
+  Two standard-library modules carry 21 independent fixture and regression
+  checks; verification levels are unchanged.
+- **Lighting and health protocol audit corrections.** ELK-BLEDOM effect and
+  microphone frames, LOY BLE length-prefix boundaries and subscriptions,
+  Twinkly RGB/effect/realtime/provisioning behavior, WLED segment-zero color
+  and info fields, and SPOTLED's captured Version/BufferSize vectors are now
+  implementable. Also corrects iLEDColor display power, Aurora power roles,
+  Seeblue matching/subscription, XKGlow readback, ProGLOW password width,
+  Govee H6001 BLE-only scope, and Magic Display's phantom multi-frame command.
+  Chef iQ, INKBIRD, iKettle, Hyperice, Silk'n, Oral-B, openScale, Etekcity
+  ESN00 and Mi Scale layouts/discovery receive corresponding corrections.
+  New independent standard-library vectors cover every meaningful codec and
+  frame change. Source-derived findings stay reported/untested; existing
+  capture-confirmed SPOTLED, AUTOBABA, iLEDColor and Oral-B work is preserved.
+- **Independent review corrections.** LOY's outer length prefix is restored
+  except on capture-proven AUTOBABA; Trisa optional fields now compact in flag
+  order; Twinkly provisioning declares complete authenticated station bodies
+  with the 2.4.23–2.4.29 transition unresolved. ESN00 ITEM_STATE is no longer
+  a fault, Beurer's live timestamp flag is masked, Oral-B FF29 is read-only per
+  the current capture-tested implementation, and AUTOBABA's source-derived
+  feature confidence no longer masks its separate raw-GIF capture evidence.
+
 ### Added
+
+- **November 17 LAN appliances: four research-backed protocol specs.** TP-Link
+  Tapo/KLAP gains parallel TDP discovery, fixed-seed v1/v2 handshakes and CBC
+  sessions, securePassthrough RSA/AES, bounded 403 recovery and a non-executable
+  TPAP appendix. Meross plugs/switches and MSG100 gain UDP discovery, signed
+  envelopes, Encrypt.Suite and legacy owner-selected Config.Key provisioning.
+  Sonoff gains SRV/TXT discovery and separate stock AES envelopes versus the
+  Basic R3/RFR3/Mini-only keyless DIY object API. Somfy TaHoma Developer Mode
+  gains the official bearer HTTPS setup/devices/states, event-listener and
+  execution APIs with Overkiz root/PIN checks. All four remain identify-only
+  pending dedicated encrypted/session or bearer/TLS/action/state handlers.
+  All four are reported/untested, with
+  advanced attended mains/garage/shade writes and 35 independent offline tests.
+- **November 17 mobility and scale transports: three bounded protocol specs.**
+  VanMoof S3/X3 gains the legacy `6acc55` AES-128-ECB profile with strict fresh
+  challenges, authenticated battery/distance/speed/lock reads and attended,
+  readback-gated lock/unlock/bell-tone writes only. Withings Body Smart WBS13
+  and Body Comp WBS12 gain separate BLE WPP model routes with mutual SHA-1,
+  stored-state/all-record reads, exponent scaling and per-user/time/type dedupe;
+  `SYNC_OK` remains WBS13-only. Withings Body/Nokia Body WBS06 gains its
+  distinct incoming BlueZ RFCOMM listener, FragFsm and weight/time/battery
+  scope, with CoreBluetooth and ESPHome BLE proxies explicitly incompatible.
+  All three are reported/untested and identify-only pending dedicated session
+  handlers. Independent OpenSSL/stdlib vectors cover every codec and lifecycle.
+  Other VanMoof models and writes, Withings deletes/association/roster/unit/
+  Wi-Fi/firmware operations, WBS06 composition, v551/WBS05S patches and
+  YourOwnWeigh replacement services stay excluded. The missing-device and
+  keeping-alive claims are narrowed to these actual local paths.
+- **November 17 lock and valve protocol research: four new specs and guides.**
+  LeakSmart's Zigbee valve gains exact HA On/Off open/close and readback,
+  0.1 V battery decoding, obstruction alerts and monthly-cycle suppression.
+  Wyze Lock Bolt v1 (WLCKB1 only) gains manual-only NUS transport, ARC-framed
+  legacy/ID2 TLVs, marker-validated AES status and a cloud-export boundary;
+  ID2 actuation remains unresolved. Danalock V3 gains DMI escaping, reliable
+  sequencing, encrypted broadcasts, TLS/AFI session semantics, mandatory
+  certificate validation and cached-token offline operation, with BTZE-only
+  live-evidence scope and Zigbee/Z-Wave survival notes. FC SmartHome gains
+  v1/v2 encrypted frames, identity/session keys, read-only model/user/history
+  queries and the corrected advanced unlock opcode. All four include lifecycle
+  and remaining-unknown boundaries plus independent standard-library vectors;
+  encrypted/session-based entries are identify-only and all actuation stays
+  advanced, attended and outside generic one-tap consumers. No hardware was
+  driven, and no owner keys, tokens, serials or MACs are included.
+- **Two distinct Casambi BLE mesh protocols.** New identify-only,
+  reported/untested specs and owner guides separate Evolution network protocols
+  10–11 from Classic full-session protocols 5–9. Evolution covers company
+  `0x03c3`/FE4D discovery, new session/management/OTA UUIDs, strict 23-byte
+  NodeInfo, P-256 ECDH, folded SHA-256 transport keys, directional AES-128-CTR
+  nonces/counters, CMAC verification, type-7 targets/opcodes and fixture-driven
+  type-6 state. Protocol 12 is explicitly unsupported. Classic covers its
+  8/13-byte connection read, visitor four-byte and manager sixteen-byte CMAC
+  envelopes, nonzero 16-bit sequence, operation records and plaintext state.
+  Legacy framing and the separate direct FE3D API are excluded rather than
+  conflated. Both document complete-warm-cache versus first-time cloud
+  provisioning, reset/rejoin/foreign-unpair limits and advanced OTA caveats.
+  Independent standard-library suites rebuild fresh Evolution NodeInfo, both
+  ECDH directions, auth/CTR/CMAC packets, invocation and public-fixture state
+  vectors, plus all relevant Classic full-session golden vectors and malformed
+  cases. No owner keys, private topology or hardware operations are included;
+  bespoke consumers remain necessary for `supported` integration.
+- **Two bounded Wyze local-protocol specs.** Bulb Color `WLPA19C`/MeshLight and
+  original Light Strip `HL_LSL`/LightStrip gain their encrypted port-88 request
+  format, cloud model/type/firmware gates, ordinary attended property writes,
+  exact model resets and independent OpenSSL/stdlib vectors using invented
+  credentials. HTTP 200 is acknowledgement only: no local state read or generic
+  consumer handler is claimed. Legacy official RTSP is restricted to Cam v2
+  installed `4.28.4.49`, standalone Cam v3 installed `4.61.0.3` (archive package
+  `4.61.0.1`) and Pan v1 installed `4.29.4.49`, with an advanced microSD route,
+  rendered feature-loss/AI/Cam Plus/interruption warnings, official archive and
+  inner-binary SHA-256 values, and opaque app-generated full URLs rather than
+  invented ports or paths. Both remain reported/untested and identify-only.
+- **November 15 audit follow-up: Anova Mini and Nano protocols.** Separate,
+  model-scoped specs and owner guides cover the Mini's JSON/Base64 GATT commands
+  and the Nano's distinct COBS/proto2 TX/RX transport, with independent
+  standard-library vectors for both. Heater start and setpoint writes are
+  `advanced`; stop stays immediately available. Both are source-derived and
+  untested: notification/state semantics, safe operating limits, pairing details,
+  reset behavior and firmware/bulk operations remain explicit unknowns. Static
+  app evidence corroborates only their UUIDs, including the Mini's `96e3` clock
+  mapping, not live compatibility or framing.
+- **Ninebot Z EUC and reported FIXD transport identities.** The WheelLog spec
+  gains read-only Ninebot Z framing, session-key XOR, controller/dual-BMS
+  telemetry and independent standard-library codec/reassembly vectors. An
+  identity-only research note records FIXD2, legacy/OEM FFF0/FFF1/FFF2
+  profiles and legacy Kickstarter SPP outside the executable OBD spec, with
+  no inherited setup, reset, commands or diagnostic requests. Both remain
+  untested; no Ninebot vehicle writes were added.
+- **Replacement-firmware and read-only local protocols.** Three untested specs
+  and guides cover Spotify Car Thing running Bridgething (explicitly not stock),
+  Nabaztag/tag running ServerlessNabaztag, and direct PicoStill telemetry.
+  Bridgething documents Classic RFCOMM, the iAP2 alternative, gateway/webapp
+  WebSocket boundaries, DEAD v2 framing, typed envelopes, and a 122-command
+  directional catalogue with independent golden-frame tests. Nabaztag covers
+  all 34 OpenAPI operations, head-button SoftAP setup, and separate resource,
+  weather, NTP, and AI dependencies; relay secrets never reside on the rabbit.
+  PicoStill is limited to raw nine-field `GET /data` telemetry with unknown
+  units and no actuation or firmware bindings. Bridgething and PicoStill are
+  identify-only until bespoke consumers exist; Nabaztag retains supported
+  command/entity bindings while exact OpenAPI metadata lives in
+  `protocol_details`. Existing PicoBrew research now distinguishes
+  appliance-to-replacement-server routes, the no-op `picoChangeState`, and the
+  absence of an HTTP emergency stop.
+- **Five camera, irrigation and energy protocol specs.** Blackmagic Bluetooth
+  cinema cameras gain the vendor CCU/GATT framing and six-digit bonding flow;
+  Combustion Probe V1/V2+ gains packed temperature, old/new status,
+  prediction/alarm and CRC-checked UART handling; Hunter NODE-BT gains the
+  upstream two-station JSON/PIN core with split-array schedule safeguards;
+  Easee Charge Max gains an EC-JPAKE/AES-GCM session, schema-less protobuf
+  telemetry and bounded non-installer controls; ANT Smart BMS gains separate
+  read-only legacy 140-byte and dynamic 2021+ decoders with GATT fallback.
+  All five remain untested here and carry independent standard-library
+  vectors, explicit reset/rejoin/credential boundaries and documented unknowns.
+
+- **Five research-backed watch, EEG and scale protocols.** PineTime with
+  InfiniTime 1.16.0 gains standard battery/HR/DFU, music, navigation, call,
+  motion, Simple Weather and BLE FS, with independent role declarations for
+  watch-hosted and companion-hosted CTS/ANS. Original NeuroSky MindWave Mobile
+  gains a Classic SPP ThinkGear parser (169-byte bound, complement checksum,
+  eSense, signed raw EEG and 24-bit band powers), explicitly excluding Mobile 2
+  BLE. MyKronoz ZeTime gains fragmented GATT envelopes, serial/info and computed
+  timezone sync, with notification/weather/history limits left explicit.
+  Bangle.js 1/2 gains NUS Gadgetbridge JSON lines and optional advanced JS,
+  HTTP/file/intents/code-upload boundaries. YUNMAI Mini/SE connected and
+  X/Mini 2S broadcast variants gain XOR/version/address validation and final
+  rearming. All five include lifecycle, pairing/reset/rejoin and source/unknown
+  boundaries plus independent standard-library tests; no hardware was driven.
+  Independent-review hardening removes generic measurement entities, isolated
+  multi-write commands and partial DFU updates: Bangle.js and ZeTime are
+  identify-only, YUNMAI keeps only configuration commands generic, and checksum-
+  less connected variants stay excluded until captured evidence exists. NUS is
+  transport, never Bangle identity: manual model selection and a read-only
+  Android Integration `ver.fw`/`ver.hw` check now gate every write.
+
+- **Project July and HomeWizard local APIs.** A separate second-gen June
+  Tegra/APX Project July 0.9.1 identify-only spec and guide document native
+  local pairing, status/cook/media routes, signed-frame preservation,
+  installer-backed CA trust and plan-safe cook protocol for bespoke clients;
+  generic signed cook controls are explicitly backlog. Stock June no-local
+  claims are now firmware-scoped and cross-linked. New HomeWizard P1 specs cover
+  negotiated v1/v2 discovery, exact optional fields and aliases, physical-button
+  tokens and CA hostnames; the Energy Socket spec is v1 and GET-only, including
+  runtime-discovered SKT-21 measurements. Independent standard-library tests
+  cover state/order/plan races, explicit refusals, URL rejection, version
+  negotiation, units and sanitized fixtures. No hardware operations or Socket
+  writes are claimed.
+- **November mobility, kitchen and local-control discovery: seven new identify-only
+  protocol specs.** ALLPOWERS R600 hardware 0.3 gains read-only XOR-framed telemetry;
+  RENPHO R-Q002 N gains standard FTMS/CSC parsing with a capture-backed Cycling
+  Power distinction, signed power, resistance `/2` and five-byte energy group;
+  Sportstech F15/F31 gains strict full/short-frame telemetry with unresolved
+  incline/energy units omitted. Felicita Arc and ThermoWorks BlueDOT gain
+  defensive kitchen-scale/thermometer decoders, while Ozobot Evo gains current
+  native memory/watchers, long-RPC CRC32 and a separate legacy boundary.
+  Remootio 2/3 gains the official local WebSocket API v3 with mDNS, encrypted
+  AES-CBC/HMAC sessions and synthetic QUERY-only vectors. Every entry includes
+  setup, pairing, reset/rejoin and credential boundaries plus independent
+  standard-library tests. No output, belt, robot-motion, garage actuation or
+  firmware operation was run; unsupported models and writes stay excluded.
+- **Two safe crafting-machine protocol specs.** Brother My Stitch Monitor
+  machines gain family-level SNMPv1 discovery and read-only HTTPS information,
+  status and embroidery-progress monitoring with explicit user-approved TLS
+  pinning. Legacy stock Cricut USB cutters gain manual-selection-only model,
+  firmware, mat and cartridge queries with independent response parsers. Both
+  are reported/untested and include lifecycle guidance and stdlib vectors.
+  Motion, design transfer, uploads, push/lens operations, command keys and
+  firmware remain out of scope; ScanNCut and Explore Air 2/Bifrost are not
+  claimed, and the existing Skitch PP1 spec is unchanged.
+- **Personal sensors, buttons and shades: five research-backed protocol specs.**
+  Oclean gains exact model-ID Type 0/Type 1/Z1/Air 1 routing, core battery/device/
+  time/session layouts, fragmented `*B#` records and Air 1 direct-read fallback;
+  Type F remains separate and its lifecycle reads exact DIS identity before any
+  calibration, subscription or query. BlueMaestro gains passive v8/v13/v22/v23/
+  v27/v41/v42/v43 environmental decoding, with public-capture evidence limited to
+  v13/v23 and transmitted-versus-calculated dew point preserved. SensorBlue gains
+  the passive 20-byte ThermoBeacon record and numeric IDs without retail-model
+  guesses, with manual fff0+numeric-key+length verification instead of automatic
+  partial-signal matching. SOMA gains mandatory exact-name V2/V3 selection,
+  calibrated V3 position-based open/close and a position-50 Tilt 2 open command,
+  with the V3-read-versus-V2-factory-reset collision called out. Flic 2/Duo gains
+  Public advertising, fragmentation, per-app full/quick pairing, Chaskey-LTS
+  sessions, reliable multi-item event-counter reconciliation and Duo gestures/
+  accelerometer/push-twist. Independent standard-library tests use public
+  sanitized or synthetic vectors, including malformed, fragment and replay cases.
+  BlueMaestro, SensorBlue, Flic, Oclean and SOMA are identify_only pending real
+  handlers; Oclean exposes no generic model-routed writes, and SOMA withholds V2
+  entities because generic variant selection cannot evaluate the Tilt bit.
+  Connected logger/history/settings,
+  calibration, schedules, destructive discovery writes and Flic 1/Twist/hub
+  transports are excluded; every new spec is honestly marked untested.
 
 - **Replacement manual links.** Replaced four dead PDF URLs with verified
   copies: Breville's current original-Joule instruction book, Victron's current
@@ -548,6 +800,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **November 15 evidence corrections for Amcrest/Dahua and Ambient Weather.**
+  Amcrest's documented CGI/RTSP profile now also records the app's separate
+  NetSDK/DVRIP TCP 37777 surface, with native framing explicitly unknown and no
+  claim that the CGI facts were wrong. Ambient Weather's awnet package is
+  corrected to `com.dtston.ambienttoolplus` 1.1.29, and its research notes record
+  the app-derived BLE onboarding service/TX/RX UUIDs and write/notify roles.
+  Provisioning payloads, credential protection, pairing and model coverage remain
+  unknown; no completed BLE provisioning client is claimed.
 - **FOREO Peach 2 replayed on hardware; Pro is app-gated only.** An
   independent BLE client drove an active PEACH2 F.REV.K from the spec: the
   GATT table matched exactly, and a direct `0AD0 06` Pro write was accepted
@@ -651,6 +911,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Lock, home-control and LAN protocol audit.** Correct Nuki's variable PIN
+  lengths, keypad response direction and door-state sentinel; Schlage's
+  indication subscription; TTLock's separate Battery Service; SESAME's
+  application requests and mechanical-status semantics; SafeTech's nine-byte
+  password frames; SwitchBot's schema-supported discovery and model-specific
+  response/advertisement layouts; and eQ-3's status offsets and temperature
+  limits. Yale/August moves pre-encryption application frames out of executable
+  bindings until a stateful transform exists, documents independent persistent
+  TX/RX CBC chains and the exact secure-handshake checksum, and supplies
+  synthetic on-wire vectors. Document Kevo's ten-second second-generation
+  reset, BIO-key's capture scope, devolo's cached-credential local route, and
+  the wired Security+ 1.0/2.0 boundary without restoring a learn-button
+  requirement. Replace invented WeatherFlow and Bambu discovery with their UDP
+  contracts, keeping passive NOTIFY as the safe default and the active M-SEARCH
+  explicitly unsupported while response filtering is unavailable. Reverse
+  Bambu's MQTT directions, decode Yeelight's string results and reverse-TCP
+  music mode, scope Divoom's token to port 9000 while declaring its port-80
+  JSON API, allow Kasa in-place rejoin, remove Hisense's generic Cast matcher,
+  and document Sony's speaker target selection. Independent vectors cover the
+  frame, discovery and parser changes. Static findings remain `reported`;
+  existing hardware evidence, newer research and all rejected hypotheses stay
+  intact.
+- **Capture and firmware protocol audit.** Corrected twelve protocol contracts:
+  Airthings multi-block history/tails/request offsets/clock domains, iDotMatrix
+  primary-service/GATT/pixel framing, badge acknowledged-write timing and flash
+  budget, ThermoPro TP9xx scalar and battery layouts, INKBIRD history and OTA
+  reassembly, Flowtoys RF/USB-update framing, Vector onboarding and battery
+  schema, Veryfit real-time/battery/set-time layouts, M6 standard battery,
+  Ignis base64 firmware containers, Spectra manual-only discovery, and Pebble
+  framing/serial/PPoGATT roles. Existing docs pages now match. Independent
+  standard-library tests use public sanitized or invented vectors throughout;
+  all protocol changes remain reported/untested rather than hardware-confirmed,
+  and unresolved transforms, units, discovery candidates and update recovery
+  behavior stay explicitly open.
 - **New hardware evidence corrects five LED-panel specs and FOREO Peach 2.**
   iLEDColor now declares its live A950 command path, write properties,
   Connect/TestPass vectors, advertised geometry and successful static/animated

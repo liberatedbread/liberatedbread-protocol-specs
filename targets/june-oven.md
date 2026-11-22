@@ -11,12 +11,17 @@ Execution plan: `../JUNE_OVEN_PLAN.md`. This file is the evidence brief.
   share June's Android lineage. Do not extend that to the oven — see §"Oven
   firmware is bespoke" below.
 - device class: countertop convection oven, 5" touchscreen, interior camera
-- transport(s): **Wi-Fi → vendor cloud only.** No LAN API, no BLE control path,
-  no AP-mode provisioning. Gen 1 and Gen 3 carry BLE hardware; no BLE service is
-  documented in use.
-- local-only viability: **low.** Every companion-facing function is relayed
-  through two vendor hosts. Nothing on stock hardware speaks a local protocol.
-  This is a `cloud.required: true` / `local_access.status: none_known` device.
+- transport(s): **stock firmware: Wi-Fi → vendor cloud only.** No stock LAN API,
+  BLE control path or AP-mode provisioning is known. Gen 1 and Gen 3 carry BLE
+  hardware; no BLE service is documented in use. Separately, second-generation
+  Tegra/APX units converted with Project July 0.9.1 have native local control;
+  see `device-specs/devices/june-oven-project-july.yaml` and
+  `docs/devices/june-oven-project-july.md`.
+- local-only viability: **low on stock firmware.** Every stock companion-facing
+  function is relayed through two vendor hosts. Nothing on stock firmware speaks
+  a known local protocol. This is a `cloud.required: true` /
+  `local_access.status: none_known` device; July is a separate
+  `firmware_replacement` path, not a stock-firmware feature.
 
 ## Known facts (public + observed)
 

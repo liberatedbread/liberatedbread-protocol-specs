@@ -23,10 +23,10 @@ No firmware work, no exploits — exclude, re-include, rebuild automations.
 |---|---|
 | Vendor app + web portal | Dead; app delisted from the stores |
 | Remote access, voice control, notifications | Dead |
-| Reconfiguration (rules, scenes, schedules, adding devices) | Dead — even local management always went through the cloud |
+| Reconfiguration (rules, scenes, schedules, adding devices) | Fresh app onboarding is dead; local gateway management can continue with already-cached UUID + local passkey. Fresh credential acquisition depends on mydevolo |
 | Pre-programmed schedules and if/then rules | **Still execute locally** on the MT2600 ("autopilot"), until something needs changing |
 | mydevolo account backend | **Still running** (no announced shutdown date, "no guarantee" per Home Assistant) |
-| Home Assistant `devolo_home_control` integration | Alive as a stopgap: local API on the gateway (mprm REST/WebSocket), but the credentials come from mydevolo — when that dies, it dies |
+| Home Assistant `devolo_home_control` integration | Alive as a stopgap: local API on the gateway (mprm REST/WebSocket). Fresh credentials come from mydevolo; already-cached credentials can keep local access working without it |
 
 The official successor is **ROCKETHOME**: a paid migration service that moves
 the hub into its own subscription cloud — **99 €/year plus ~30 € one-time
@@ -40,11 +40,14 @@ recommends **manual migration to Z-Wave JS** instead.
 
 `com.devolo.homecontrol` — delisted from the store fronts at the shutdown,
 but the APK still downloads via the Play API by package id (checked
-2026-08-04 with apkeep; sha256 starts `d6115cd03e19ae69`). Not worth
-rescuing: static inspection shows a cloud-only Retrofit REST + RxWebSocket
-client (`de.devolo.mprm.*`) against `homecontrol.mydevolo.com` and
-`*.devolo.net` — there is no local control surface in the app. The gateway's
-*local* API is already documented by
+2026-08-04 with apkeep; sha256 starts `d6115cd03e19ae69`). Static inspection
+shows REST + WebSocket clients against `homecontrol.mydevolo.com` and
+`*.devolo.net`, **plus a real LAN fallback**: mDNS discovery, a local portal
+request, then gateway JSON-RPC and event WebSockets. That path authenticates
+with the account UUID and a per-gateway local passkey issued by the cloud;
+once cached, those credentials work without contacting the cloud. Fresh
+credential acquisition still depends on the account backend. The local API is
+also documented by
 [devolo_home_control_api](https://github.com/2Fake/devolo_home_control_api),
 the library behind the HA integration.
 
@@ -113,11 +116,13 @@ ROCKETHOME migrates any configuration at all, and only partially.
 
 ## Hub disposal
 
-The MT2600 Zentrale has no local rescue path: closed gateway, cloud-issued
-credentials, app dead. Options are the ROCKETHOME subscription migration or
-e-waste. Everything else in the estate should be migrated, not discarded —
-the used market is flooded (hubs ~10 €, thermostats 5–22 €), which also
-makes these devices cheap Z-Wave spares for anyone already on Z-Wave JS.
+The MT2600 Zentrale has no cloud-free onboarding path: its local API requires
+cloud-issued credentials. A client that already cached them can keep managing
+it locally; otherwise the choices are the ROCKETHOME subscription migration,
+the mydevolo-dependent stopgap, or replacement. Everything else in the estate
+should be migrated, not discarded — the used market is flooded (hubs ~10 €,
+thermostats 5–22 €), which also makes these devices cheap Z-Wave spares for
+anyone already on Z-Wave JS.
 
 ## References
 

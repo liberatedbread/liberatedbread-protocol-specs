@@ -66,20 +66,21 @@ device:
     current CQ60). Probe payloads are at most 18 bytes; the hub advertises
     under the same manufacturer ID with a longer (>= 20 B) payload -- a clean
     programmatic discriminator from probes. Temperature packet (type 0x1),
-    V3 layout (protocol major >= 3; hardware-verified against a live CQ60 at
-    5.0.0 by chefiq_ble): ambient [2:4], food [4:6], tip1 [6:8],
-    tip2 [8:10], tip3 [10:12], tip4 [12:14], ambient mirror [14:16]. All
-    temperatures are signed int16 little-endian in tenths of a degree C; an
-    unmeasured ring sends a sentinel >= 0x7FF0 (0x7FFB typical), and
-    consumers should drop any decoded temperature outside the plausible
-    window -40..600 C rather than surface a sentinel. Status packet
-    (type 0x3, V3, min 10 bytes): battery percent byte at [8], SoC
-    temperature (raw byte, whole degrees C) at [9], probe MAC in the same
-    packet. Older layouts (reconstructed, NOT hardware-verified): V2
-    (major == 2) carries battery [2], soc [3], ambient [4:6], food [6:8],
-    tip1-3 [8:10]..[12:14], ambient mirror [14:16]; legacy carries
-    MAC [2:8], battery [8], soc [9], food [10:12], ambient [12:14],
-    ambient mirror [14:16]. Battery scaling is CONTESTED between the cited
+    layouts are selected by exact major: legacy majors 2/3, V2 major 4 and
+    V3 major 5; unknown majors fail closed. V3 (verified by the upstream
+    parser author against a live CQ60 at 5.0.0) carries ambient [2:4],
+    food [4:6], tip1 [6:8], tip2 [8:10], tip3 [10:12], tip4 [12:14]
+    and an undecoded field [14:16]. All temperatures are signed int16
+    little-endian in tenths of a degree C. Raw values >= 32000 (0x7D00)
+    mean no reading; every decoded value outside -40..600 C is suppressed
+    rather than surfaced. Status packets (type 0x3) exist from major 4 and
+    carry probe MAC [2:8]; major 5 adds battery [8] and SoC temperature [9].
+    Older layouts (reconstructed, not hardware-verified): V2 major 4 carries
+    battery [2], SoC [3], ambient [4:6], food [6:8], tip1-3
+    [8:10]..[12:14] and an undecoded field [14:16]. Legacy carries MAC
+    [2:8], SoC [9], food [10:12], ambient [12:14] and an undecoded field
+    [14:16]; battery [8] is present only in major 3, and legacy has no
+    status packet. Battery scaling is CONTESTED between the cited
     sources: ITSpecialist111 documents the battery byte as 0-255 mapping to
     0-100 %, while chefiq_ble (the hardware-verified implementation) emits
     the raw byte directly as the percent with no scaling -- treat the exact
@@ -336,7 +337,7 @@ services:
           RE implementation (Invader444/chefiq-ble, ble_monitor) decodes
           this GATT characteristic; both document only the connectionless
           advertisement path (manufacturer data 0x05CD, signed int16 LE in
-          0.1 °C, sentinel >= 0x7FF0, per-probe slots), which does NOT
+          0.1 °C, no-reading raw >= 32000, per-major slots), which does NOT
           mirror this notify's encoding (int16 0.1 °C vs float32).
           Consumers who just need probe temperatures can also use the
           documented advertisement path in the device notes above.
@@ -833,6 +834,34 @@ features:
         response codes are not recovered. The F640 service is also
         advertised and used in identification, so it is product identity as
         well as the update path.
+
+protocol_details:
+  probe_advertisements:
+    verification: "reported"
+    version: "major = byte 1 high nibble, minor = byte 1 low nibble, patch = byte 0 high nibble; packet type = byte 0 low nibble. Unknown majors fail closed."
+    temperature_encoding: "signed int16 little-endian, raw / 10 C; raw >= 32000 means no reading; suppress every decoded value outside -40..600 C"
+    sentinel_min_raw: 32000
+    minimum_c: -40
+    maximum_c: 600
+    temperature_layouts:
+      2: {ambient: 12, food: 10, tips: [], soc: 9, mac: [2, 8], battery: null, status_packet: false}
+      3: {ambient: 12, food: 10, tips: [], soc: 9, mac: [2, 8], battery: 8, status_packet: false}
+      4: {ambient: 4, food: 6, tips: [8, 10, 12], battery: 2, soc: 3, status_packet: true, status_fields: false}
+      5: {ambient: 2, food: 4, tips: [6, 8, 10, 12], battery: null, soc: null, status_packet: true, status_fields: true}
+    status:
+      minimum_major: 4
+      sensor_fields_minimum_major: 5
+      mac: [2, 8]
+      battery: 8
+      soc: 9
+      major_4_minimum_bytes: 8
+      major_5_minimum_bytes: 10
+    synthetic_major_5_vector:
+      header_hex: "01 50"
+      fields_in_order: [ambient, food, tip1, tip2, tip3, tip4, undecoded]
+      raw_values: [250, 650, 100, 110, 120, 130, 250]
+      expected_c: [25.0, 65.0, 10.0, 11.0, 12.0, 13.0, 25.0]
+    battery_scaling: "Contested between the cited sources; do not select a universal raw-byte versus 0..255-to-0..100 mapping without a known-charge capture."
 
 entities:
   - platform: "sensor"

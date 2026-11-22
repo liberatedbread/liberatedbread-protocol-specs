@@ -35,16 +35,18 @@ device:
     5-6 the AES-CTR IV/nonce (u16 LE); byte 7 the first byte of the encryption key
     (a key-check byte, so a receiver can detect a stale key); bytes 8+ the AES-CTR
     ciphertext. Encryption: AES-CTR, 128-bit key; the nonce is the 2-byte IV at
-    bytes 5-6; the CTR counter is MSB and starts at 0; all current records fit one
-    AES block (<= 20 bytes on nRF devices). Changing the Bluetooth PIN rotates
-    the key.
+    bytes 5-6; the CTR counter is MSB and starts at 0. A record of <=16 bytes
+    needs one AES counter operation; a 17-20 byte record (possible on nRF
+    devices) needs a second counter block. Do not truncate after one block or
+    reverse the documented counter. Changing the Bluetooth PIN rotates the key.
 
     RECORD TYPES (the byte-4 readout type, NOT byte 0): 0x01 Solar Charger,
     0x02 Battery Monitor, 0x03 Inverter, 0x04 DC/DC, 0x05 SmartLithium, 0x06
     Inverter RS, 0x08 AC Charger, 0x09 Smart Battery Protect, 0x0A Lynx BMS,
     0x0B Multi RS, 0x0C VE.Bus, 0x0D DC Energy Meter. Records may be extended but
-    never re-ordered; parsers must length-check every field and treat all-ones
-    values as NA.
+    never re-ordered; parsers must length-check every field and apply only the
+    documented per-field sentinels. Alarm-reason and AUX all-ones values can be
+    valid data, not blanket NA markers.
 
     NOTE: the telemetry is entirely in the advertisement — no GATT connection is
     used. The `services` block below lists only the standard BLE Generic Access
@@ -194,62 +196,89 @@ services:
 payload_formats:
   solar_charger_0x01:
     description: >
-      Record type 0x01 (SmartSolar MPPT). Decrypted body, little-endian; all-ones
-      values are NA sentinels (0xFF / 0x7FFF / 0xFFFF / 0x1FF).
+      Record type 0x01 (SmartSolar MPPT). The decrypted body is an LSB-first
+      bitstream, not byte-aligned integers; bit_offset is relative to its first
+      bit. Test the exact all-ones sentinel BEFORE any signed extension.
+    bit_order: "lsb_first"
     fields:
       - name: "device_state"
-        description: "8-bit charger state."
+        bit_offset: 0
+        description: "8-bit charger state; raw 0xFF = unavailable."
       - name: "charger_error"
-        description: "8-bit charger error code."
+        bit_offset: 8
+        description: "8-bit charger error code; raw 0xFF = unavailable."
       - name: "battery_voltage"
+        bit_offset: 16
         unit: "V"
         scale: 0.01
-        description: "16-bit, 0.01 V."
+        description: "16-bit SIGNED, 0.01 V; raw 0x7FFF = unavailable before sign extension."
       - name: "battery_current"
+        bit_offset: 32
         unit: "A"
         scale: 0.1
-        description: "16-bit signed, 0.1 A."
+        description: "16-bit signed, 0.1 A; raw 0x7FFF = unavailable before sign extension."
       - name: "yield_today"
+        bit_offset: 48
         unit: "kWh"
         scale: 0.01
-        description: "16-bit, 0.01 kWh."
+        description: "16-bit unsigned, 0.01 kWh; raw 0xFFFF = unavailable."
       - name: "pv_power"
+        bit_offset: 64
         unit: "W"
         scale: 1
-        description: "16-bit, 1 W."
+        description: "16-bit unsigned, 1 W; raw 0xFFFF = unavailable."
       - name: "load_current"
+        bit_offset: 80
         unit: "A"
         scale: 0.1
-        description: "9-bit, 0.1 A."
+        description: "9-bit unsigned, 0.1 A; raw 0x1FF = unavailable."
   battery_monitor_0x02:
     description: >
-      Record type 0x02 (BMV / SmartShunt). Decrypted body, little-endian; NA
-      sentinels as above.
+      Record type 0x02 (BMV / SmartShunt), an LSB-first bitstream. bit_offset is
+      relative to the decrypted body's first bit. Check only the sentinels named
+      on individual fields, before sign extension or negation; all-ones is NOT a
+      blanket NA rule for alarm_reason or aux_input.
+    bit_order: "lsb_first"
     fields:
       - name: "time_to_go"
+        bit_offset: 0
         unit: "min"
         scale: 1
-        description: "16-bit, minutes."
+        description: "16-bit unsigned minutes; raw 0xFFFF = unavailable."
       - name: "battery_voltage"
+        bit_offset: 16
         unit: "V"
         scale: 0.01
-        description: "16-bit, 0.01 V."
+        description: "16-bit SIGNED, 0.01 V; raw 0x7FFF = unavailable before sign extension."
       - name: "alarm_reason"
-        description: "16-bit alarm bitfield."
+        bit_offset: 32
+        description: "16-bit alarm bitmask; raw 0xFFFF is a valid full bitmask, NOT an unavailable sentinel."
       - name: "aux_input"
-        description: "16-bit aux field (aux voltage / mid-voltage / temperature, selected by a 2-bit aux-input selector)."
+        bit_offset: 48
+        description: "16-bit AUX value interpreted by aux_input_type. Raw 0xFFFF is valid input, not a universal unavailable sentinel."
+      - name: "aux_input_type"
+        bit_offset: 64
+        description: "2-bit selector: 0 starter voltage (signed int16 * 0.01 V), 1 midpoint voltage (unsigned * 0.01 V), 2 temperature (unsigned * 0.01 K; subtract 273.15 for C), 3 no AUX / ignore aux_input."
       - name: "battery_current"
+        bit_offset: 66
         unit: "A"
         scale: 0.001
-        description: "22-bit signed, 0.001 A."
+        description: "22-bit SIGNED, 0.001 A; raw 0x3FFFFF = unavailable before 22-bit sign extension."
       - name: "consumed_ah"
+        bit_offset: 88
         unit: "Ah"
         scale: 0.1
-        description: "20-bit, 0.1 Ah (negated)."
+        description: "20-bit UNSIGNED, then negate the scaled value; raw 0xFFFFF = unavailable before negation."
       - name: "state_of_charge"
+        bit_offset: 108
         unit: "%"
         scale: 0.1
-        description: "10-bit, 0.1 %."
+        description: "10-bit UNSIGNED, 0.1 %; raw 0x3FF = unavailable."
+    example: "34 12 50 fb ff ff ff ff 02 77 f8 39 30 c0 36"
+    parse_rules:
+      - "Read the fields in order. aux_input_type occupies bits 64-65, so battery_current starts at bit 66, consumed_ah at bit 88, and state_of_charge at bit 108; these offsets are deliberately not byte-aligned."
+      - "The example decodes to time_to_go 4660 min, voltage -12.00 V, alarm 0xFFFF (valid full mask), AUX 0xFFFF, selector 2 temperature 655.35 K = 382.20 C, current -123.456 A, consumed -1234.5 Ah and SOC 87.6 %. No alarm or AUX sentinel is applied."
+      - "With aux_input_type 3, report no AUX value rather than decoding or applying a sentinel to aux_input. With selector 0, sign-extend the AUX starter value before multiplying by 0.01 V; selectors 1 and 2 are unsigned."
 
 entities:
   - platform: "sensor"

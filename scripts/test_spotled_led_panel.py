@@ -81,6 +81,36 @@ def test_query_transfer_and_continue_response_scopes_are_disjoint():
     assert transfer_types.isdisjoint(continue_types)
 
 
+def test_version_and_buffer_size_capture_vectors():
+    vectors = DETAILS["test_vectors"]
+    responses = DETAILS["legacy_responses"]
+    layout = responses["query_layout"]
+
+    version = bytes.fromhex(vectors["version_response_hex"])
+    version_expected = vectors["version_expected"]
+    assert len(version) == version_expected["full_frame_bytes"] == 15
+    assert value_at(version, layout["total_length"]) == len(version)
+    assert value_at(version, layout["response_type"]) == version_expected["response_type"] == 17
+    assert value_at(version, layout["serial"]) == version_expected["serial"] == 0
+    assert value_at(version, layout["status"]) == version_expected["status"] == 0
+    fields = responses["version"]["fields"]
+    assert value_at(version, fields["hardware_type"]) == 24
+    assert value_at(version, fields["hardware_version"]) == 0x000100A0
+    assert value_at(version, fields["firmware_version"]) == 0x0221018A
+    assert len(version) - 2 == version_expected["trimmed_decoder_payload_bytes"] == 13
+
+    buffer_size = bytes.fromhex(vectors["buffer_size_response_hex"])
+    buffer_expected = vectors["buffer_size_expected"]
+    assert len(buffer_size) == buffer_expected["full_frame_bytes"] == 9
+    assert value_at(buffer_size, layout["total_length"]) == len(buffer_size)
+    assert value_at(buffer_size, layout["response_type"]) == buffer_expected["response_type"] == 21
+    assert value_at(buffer_size, layout["serial"]) == buffer_expected["serial"] == 5
+    assert value_at(buffer_size, layout["status"]) == buffer_expected["status"] == 0
+    capacity = responses["receive_capacity"]["fields"]["capacity_bytes"]
+    assert value_at(buffer_size, capacity) == buffer_expected["receive_window_bytes"] == 7280
+    assert len(buffer_size) - 2 == buffer_expected["trimmed_decoder_payload_bytes"] == 7
+
+
 def test_display_info_response_matches_capture_derived_fields():
     raw = bytes.fromhex(DETAILS["test_vectors"]["display_info_response_hex"])
     expected = DETAILS["test_vectors"]["display_info_expected"]

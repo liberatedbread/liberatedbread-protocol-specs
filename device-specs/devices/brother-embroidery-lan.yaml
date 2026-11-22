@@ -1,0 +1,684 @@
+# Brother My Stitch Monitor family — read-only LAN monitoring.
+# Static app/desktop analysis and vendor manuals; no hardware capture.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Brother My Stitch Monitor Embroidery Machines"
+  manufacturer: "Brother Industries, Ltd."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No compatible machine was contacted and no machine packet capture was
+      reviewed. Protocol facts are reported from the public Android monitor
+      app, the public Design Database Transfer desktop client, official model
+      lists and manuals. The 84-byte SNMP request is desktop-derived, not a
+      capture. JSON examples are synthetic and independently parsed by
+      scripts/test_brother_embroidery_lan.py.
+  protocol: "wifi"
+  transport: "https"
+  category: "tool"
+  type: "embroidery-machine"
+  aliases:
+    - "My Stitch Monitor"
+    - "Aveneer EV1-LE"
+  companion_apps:
+    - name: "Brother My Stitch Monitor"
+      package: "com.brother.ph.brmystitchmonitor"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.brother.ph.brmystitchmonitor"
+      notes: >
+        Android 2.1.5 (34) and the earliest preserved 1.0.0 release were
+        reviewed statically. Their discovery and monitoring behavior is
+        reported here without copying the vendor client's unsafe TLS policy.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Brother documents app/model compatibility and wireless setup but does
+      not publish a third-party monitoring API. SNMP, HTTPS and JSON details
+      are implementation-derived and remain unconfirmed against hardware.
+  notes: >
+    READ-ONLY MONITORING ONLY. This spec never starts, stops or moves the
+    machine, transfers a design, uploads an image, registers push notifications,
+    invokes a lens function or updates firmware. Only the four HTTPS GETs below
+    are executable. A feature's presence in the shared vendor library is not
+    evidence that a machine or this spec supports it.
+
+    The Skitch PP1 is a different, BLE-only product covered by
+    brother-skitch-pp1.yaml and is deliberately not extended by this file.
+    ScanNCut is also outside this spec: a document format without a recovered
+    local transport is not a Brother monitoring protocol.
+  identification:
+    default_port: 443
+    default_scheme: "https"
+    lan_protocols: ["brother-sewing-snmp-v1"]
+    tls:
+      verification: "trust_on_first_use"
+      notes: >
+        Require an explicit user decision before the first HTTPS /info request.
+        Display the certificate's SHA-256 fingerprint and the already matched
+        machine address, and hold an approved pin only in memory against the
+        discovered address/MAC. Fetch /info with that volatile pin, require a
+        nonempty machine-id and monitoring capability, then atomically persist
+        the pin to machine-id before any other monitoring endpoint. Subsequent
+        connections require the pinned identity. Never accept every certificate
+        or every hostname as the vendor client does. The actual certificate
+        chain and renewal behavior have not been captured.
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 161
+          broadcast_address: "directed subnet broadcast"
+          passive_ok: false
+          response_format: "binary"
+          identity_mapping:
+            stable_keys:
+              - source: "binary:machine_id"
+              - source: "binary:mac"
+            display:
+              source: "binary:name"
+          response_match:
+            - source: "binary:hr_device_descr"
+              match: "exact"
+              value: "brother sewing"
+        verification: "reported"
+        notes: >
+          Use SNMPv1 GET on UDP 161 with community public and a fresh request
+          ID for every newly encoded datagram. Probe the directed subnet
+          broadcast first, then make one limited-broadcast attempt to
+          255.255.255.255 if no valid responder is found. Do not start with a
+          network-wide unicast sweep. Require the exact, case-sensitive host-
+          resources description brother sewing, then complete the HTTPS /info
+          capability check before presenting this family. sysName or a numeric
+          model ID is never a stand-alone matcher.
+    identity:
+      stable_keys: ["machine_id", "mac"]
+      display: "name"
+      notes: >
+        machine-id comes from /info and MAC from SNMP when available. The IP
+        address is a locator, not identity. The SNMP sysName/model field may be
+        displayed as a fallback but is not used to select an EV1 or any other
+        variant by numeric ID.
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Wireless provisioning is performed on the machine, not with an Artspira
+      account. EV1's manual uses Wireless LAN Connection; PR1055X/PR1060W uses
+      the Wireless LAN Setup Wizard. The other models have model-specific
+      screens and upgrade requirements, so do not force one model's labels onto
+      the family. The local read-only API needs no cloud account.
+    methods:
+      - type: "device_ui"
+        name: "On-machine wireless LAN setup"
+        role: "primary"
+        verified: false
+        description: >
+          Join the machine to the owner's 2.4 GHz wireless network with its own
+          touchscreen. The PR1055X/PR1060W manual excludes WPA/WPA2 Enterprise;
+          check the exact model's manual before assuming another authentication
+          mode. After the machine reports Connected, run safe SNMP discovery
+          and explicit certificate approval. No design transfer is part of setup.
+        steps:
+          - action: "Confirm the exact model is listed in this spec and, for XP1/XJ1/XE1/BP3600, install and activate Upgrade Kit I before attempting monitoring."
+            actor: "user"
+            expect: "The machine has the documented My Stitch Monitor entitlement; an unupgraded base model is not assumed compatible."
+          - action: "Open the machine's wireless LAN settings, enable wireless LAN, and start its connection wizard or Wireless LAN Connection screen."
+            actor: "user"
+            notes: "EV1/EV1LE uses the Wireless LAN Connection flow on manual page 32; PR1055X/PR1060W uses the setup wizard on pages 29–31. Other models use the equivalent screen in their own manual."
+          - action: "Select the home SSID, or Add network for a hidden SSID, then enter the network key on the machine and connect."
+            actor: "user"
+            expect: "The machine displays Connected beneath the SSID. PR1055X/PR1060W requires 2.4 GHz 802.11b/g/n and does not support WPA/WPA2 Enterprise."
+          - action: "Keep Wireless LAN Enable on, then discover the machine with the SNMP rules in this spec."
+            actor: "client"
+            expect: "A response with matching request ID and exact host-resources description brother sewing."
+          - action: "Show the discovered address and TLS certificate fingerprint; approve it only for an in-memory pin bound to that address and any discovered MAC, then fetch /info."
+            actor: "user"
+            expect: "The client holds the approved pin only in memory and has not created a persistent machine-id binding."
+          - action: "Require a nonempty machine-id, expected /info field types, and monitoring.version or monitoringpr.version above zero, or monitoring.availableversion whose first dotted component is 1; then atomically persist the pin to machine-id before any other endpoint."
+            actor: "client"
+            expect: "/info validates identity and capability before the durable trust binding exists. A zero or missing capability is not support."
+        troubleshooting:
+          - symptom: "The machine previously joined the network but does not reconnect."
+            fix: "Keep Wireless LAN Enable on and select the saved SSID again, or repeat the on-machine connection flow with the current key. A full machine reset is not the first recovery step."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        PR1060W Reset to Default deletes all saved data, customized settings and
+        network information. EV1/EV1LE also exposes a network-settings reset.
+        Do not generalize the scope or screen labels to every variant.
+      description: >
+        Reset is a physical, on-machine procedure, never an API call. The full
+        deletion procedure below is specific to PR1060W's addendum. EV1/EV1LE
+        documents a network reset, and PR1055X/PR1060W documents Reset network
+        operations. Other variants must use their own current manuals; the
+        absence of a universal procedure is intentional.
+      procedures:
+        - name: "PR1060W: full Reset to Default"
+          applies_to: ["PR1060W"]
+          verified: false
+          basis: "Brother PR1060W Addendum to Operation Manual, Before Lending or Disposing of the Product (Resetting the Machine), page 13; not run by this project."
+          power_state: "on"
+          indicator: "The manual warns not to turn off the machine during the reset; it gives no separate LED completion pattern."
+          steps:
+            - action: "Open Settings and then the general settings screen."
+              actor: "user"
+            - action: "Locate Reset to Default in the Settings pages and touch Reset."
+              actor: "user"
+              expect: "Saved data, customized settings and network information are deleted."
+            - action: "Leave the machine powered until the on-screen process finishes."
+              actor: "user"
+              notes: "The addendum explicitly says not to turn off the machine during the process."
+        - name: "EV1/EV1LE: reset network settings"
+          applies_to: ["EV1", "EV1LE"]
+          verified: false
+          basis: "Brother EV1/EV1LE Operation Manual, Wireless LAN Settings, page 26; not run by this project."
+          power_state: "on"
+          indicator: "No separate completion indicator is documented; reconfigure the SSID afterward."
+          steps:
+            - action: "Open Settings, then Wireless LAN Settings on page 11."
+              actor: "user"
+            - action: "Choose Reset network settings and follow the on-screen instructions."
+              actor: "user"
+              expect: "Network information is cleared so the machine can join a new network. This entry is not claimed to erase all saved designs."
+        - name: "PR1055X/PR1060W: reset network operations"
+          applies_to: ["PR1055X", "PR1060W"]
+          verified: false
+          basis: "Brother PR1055X/PR1060W Operation Manual, Wireless LAN settings, page 27; not run by this project."
+          power_state: "on"
+          indicator: "No separate completion indicator is documented; the connected SSID must be configured again."
+          steps:
+            - action: "Open Settings and select Wireless LAN settings."
+              actor: "user"
+            - action: "Choose Reset network operations and follow the on-screen instructions."
+              actor: "user"
+              expect: "Network operations are reset. This narrower procedure is not the PR1060W full-data Reset to Default above."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A router or SSID change is handled on the machine. EV1 offers saved
+        networks; PR1055X/PR1060W can select a saved SSID in its wireless
+        settings. The old network does not need to remain available. Use a
+        network reset only when ordinary reconnection fails, and reserve the
+        PR1060W full-data reset for transfer/disposal.
+      steps:
+        - action: "Open the machine's wireless LAN settings with the new router running."
+          actor: "user"
+        - action: "Select the new SSID and enter its key, or choose a previously saved SSID and connect."
+          actor: "user"
+          expect: "The machine displays Connected; no factory reset or cloud account is needed."
+        - action: "Rediscover the address and require the existing certificate pin, or ask the user to approve a changed certificate rather than silently accepting it."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi SSID and network key entered through the machine UI"
+      issued_to_client:
+        - "User-approved machine certificate or its SHA-256 pin"
+      notes: >
+        The Wi-Fi key is typed directly into the machine, so no provisioning
+        transport encryption is claimed. The monitoring API has no account
+        token. The client-side certificate pin is a trust decision, not a
+        device-issued credential and must not be shared across machines.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "required"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close other monitoring clients if the machine stops responding, and
+        check that the address and certificate pin still belong to the intended
+        machine. Do not delete Wi-Fi settings or perform a full-data reset just
+        because a client is connected elsewhere.
+      notes: >
+        Concurrent client limits have not been measured. Bonding here means the
+        client stores its user-approved certificate pin, not a Bluetooth bond
+        or a limit established on the machine.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        There is no physical pairing button or vendor pairing window for this
+        API. SNMP identification and the user's certificate-pin approval are
+        the authorization flow; access to the same LAN is the network gate.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Only the client's stored certificate pin and selected machine, leaving machine Wi-Fi and saved data intact."
+      procedures:
+        - name: "Remove the client-side machine certificate pin"
+          verified: false
+          basis: "Replacement-client trust policy derived from the requirement to correct the vendor client's trust-all TLS behavior; no machine state is changed."
+          power_state: "any"
+          steps:
+            - action: "Delete the selected machine and its stored certificate or SHA-256 pin in the client."
+              actor: "user"
+            - action: "Repeat the explicit fingerprint-approval step before any later /info request."
+              actor: "user"
+    notes: >
+      The vendor app's local API does not negotiate an account credential.
+      Nevertheless, silently trusting its certificate would permit active
+      interception. This spec therefore makes user-approved TOFU/pinning a
+      required application-layer association and forbids the vendor client's
+      disabled certificate and hostname checks.
+  variants:
+    - model: "EV1"
+    - model: "EV1LE"
+    - model: "BX1"
+    - model: "BX1E"
+    - model: "CX1E"
+    - model: "XP1"
+    - model: "XP2"
+    - model: "XP3"
+    - model: "XJ1"
+    - model: "XE1"
+    - model: "XJ2"
+    - model: "XE2"
+    - model: "BP3600"
+    - model: "BP3700"
+    - model: "PR1055X"
+    - model: "PR1060W"
+    - model: "PR680W"
+
+http_endpoints:
+  - method: "GET"
+    path: "/info"
+    name: "Machine information"
+    status: "unverified"
+    description: >
+      Identity and capability JSON on HTTPS port 443. This is the mandatory
+      second gate after exact SNMP identification and user-approved TOFU.
+      Unknown object properties are ignored. Missing monitoring capability is
+      not converted to version zero for convenience; it means do not monitor.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "features", type: "object", description: "Machine capability container; unknown nested properties are allowed."}
+        - {name: "features.embheight", type: "integer", description: "Embroidery-area height in the same unestablished coordinate units used by embstatus x/y; do not assume millimetres or pixels."}
+        - {name: "features.embwidth", type: "integer", description: "Embroidery-area width in the same unestablished coordinate units used by embstatus x/y."}
+        - {name: "features.needles", type: "integer", unit: "count", description: "Needle count."}
+        - {name: "features.postsize", type: "integer", description: "Signed 64-bit source value; its meaning and unit are not established and no POST is permitted by this spec."}
+        - {name: "model", type: "integer", description: "Numeric model field; never a variant matcher."}
+        - {name: "type", type: "integer", description: "Numeric machine-type field; vocabulary unknown."}
+        - {name: "oem", type: "integer", description: "Value 1 selects OEM behavior in the app; other values remain unknown, not proof of another brand."}
+        - {name: "version", type: "string", description: "Machine software version string."}
+        - {name: "machine-id", type: "string", description: "Machine identity string; synthetic examples use invented values only."}
+        - {name: "name", type: "string", description: "User-facing machine name."}
+        - {name: "apis", type: "object", description: "API capability container."}
+        - {name: "apis.camera", type: "object", description: "Camera capability metadata; no camera endpoint is in scope."}
+        - {name: "apis.camera.version", type: "integer", description: "Camera API version."}
+        - {name: "apis.camera.hoopresolution", type: "number", description: "Hoop-resolution raw value; physical unit unknown."}
+        - {name: "apis.monitoring", type: "object", description: "Home-machine monitoring capability."}
+        - {name: "apis.monitoring.version", type: "integer", description: "Positive values prove monitoring capability; zero or absent means unavailable."}
+        - {name: "apis.monitoring.previewresolution", type: "integer", description: "Preview-resolution raw value; unit unknown and image endpoints excluded."}
+        - {name: "apis.monitoring.availableversion", type: "string", description: "Dotted availability version; a first component of 1 is an alternate capability signal."}
+        - {name: "apis.monitoringpr", type: "object", description: "PR-machine monitoring capability; spelled without a hyphen in JSON."}
+        - {name: "apis.monitoringpr.version", type: "integer", description: "Positive values prove PR monitoring capability."}
+        - {name: "apis.monitoringpr.previewresolution", type: "integer", description: "PR preview-resolution raw value; unit unknown."}
+        - {name: "apis.pedxml", type: "object", description: "PE-DESIGN XML capability metadata; transfer remains excluded."}
+        - {name: "apis.pedxml.version", type: "integer", description: "PE-DESIGN XML API version."}
+        - {name: "apis.streaming", type: "object", description: "Streaming capability metadata; streaming is excluded."}
+        - {name: "apis.streaming.version", type: "integer", description: "Streaming API version."}
+        - {name: "serial", type: "string", description: "Machine serial field; never use a real unit's value in test data."}
+        - {name: "link", type: "object", description: "Link-function metadata, not a URL to follow."}
+        - {name: "link.version", type: "integer", description: "Link-function version."}
+      example: >
+        {"features":{"embheight":300,"embwidth":200,"needles":10,"postsize":0,"futurefeature":17},"model":900,"type":1,"oem":0,"version":"0.0-synthetic","machine-id":"INVENTED-MACHINE-0000","name":"Invented monitor","apis":{"camera":{"version":0,"hoopresolution":0.0},"monitoring":{"version":1,"previewresolution":100,"availableversion":"1.0","futureapi":true},"monitoringpr":{"version":0,"previewresolution":0},"pedxml":{"version":0},"streaming":{"version":0}},"serial":"INVENTED-SERIAL-0000","link":{"version":0},"futurefield":{"tolerate":true}}
+  - method: "GET"
+    path: "/status"
+    name: "Machine status"
+    status: "unverified"
+    description: >
+      General machine, hoop and storage JSON. Status uses the shared enum in
+      protocol_details.status_codes. Unknown numeric states remain unknown;
+      unknown JSON properties are ignored. Storage units are not established.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "emb", type: "integer", description: "Embroidery-related raw value; exact vocabulary unknown."}
+        - {name: "status", type: "integer", description: "Machine state using protocol_details.status_codes; preserve unlisted values as unknown."}
+        - {name: "hoop", type: "object", description: "Current hoop metadata."}
+        - {name: "hoop.height", type: "integer", description: "Hoop height raw value; unit unknown."}
+        - {name: "hoop.type", type: "integer", description: "Hoop type identifier; vocabulary unknown."}
+        - {name: "hoop.width", type: "integer", description: "Hoop width raw value; unit unknown."}
+        - {name: "linkstatus", type: "integer", description: "Link state raw value; vocabulary unknown."}
+        - {name: "storage", type: "object", description: "Machine storage metadata."}
+        - {name: "storage.capacity", type: "integer", description: "Signed 64-bit capacity raw value; do not assume bytes or a block size."}
+        - {name: "storage.free", type: "integer", description: "Signed 64-bit free-space raw value in the same unestablished unit as capacity."}
+      example: >
+        {"emb":1,"status":30,"hoop":{"height":300,"type":2,"width":200,"futurehoop":9},"linkstatus":1,"storage":{"capacity":1000,"free":750,"unit-unknown":true},"futurefield":"ignored"}
+  - method: "GET"
+    path: "/embinfo"
+    name: "Embroidery information"
+    status: "unverified"
+    description: >
+      Current embroidery job, colors and needle information. id -1 means no
+      current job in the monitor UI. totaltime and per-color time are minutes;
+      stitches are counts; spm and needlebarspm are stitches per minute.
+      Coordinate and image-location units are not established. Do not fetch
+      imglocation or any image endpoint under this read-only spec.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "id", type: "integer", description: "Embroidery job identifier; -1 means no job. Reviewed clients compare /embstatus.id to this value."}
+        - {name: "filename", type: "string", description: "Current design filename, which may be empty."}
+        - {name: "left", type: "integer", description: "Design left coordinate; physical unit unknown."}
+        - {name: "top", type: "integer", description: "Design top coordinate; physical unit unknown."}
+        - {name: "right", type: "integer", description: "Design right coordinate; physical unit unknown."}
+        - {name: "bottom", type: "integer", description: "Design bottom coordinate; physical unit unknown."}
+        - {name: "totaltime", type: "integer", unit: "min", description: "Estimated total embroidery time."}
+        - {name: "totalstitches", type: "integer", unit: "count", description: "Total stitch count; note the exact JSON spelling."}
+        - {name: "imglocation", type: "string", description: "Image-location metadata only; no image request is allowed."}
+        - {name: "totalcolors", type: "integer", unit: "count", description: "Total color count."}
+        - {name: "spm", type: "integer", unit: "count/min", description: "Machine stitches per minute."}
+        - {name: "singlecolorset", type: "boolean", description: "Whether the job uses one color set."}
+        - {name: "currentneedlebarnumber", type: "integer", description: "Current needle-bar number; the app's no-current-bar default is -1."}
+        - {name: "colors", type: "array", description: "Per-color objects with code, brand, name, r/g/b, stitches, time, charm, colorchange, needlebar and pause."}
+        - {name: "colors[].code", type: "integer", description: "Thread code."}
+        - {name: "colors[].brand", type: "integer", description: "Thread-brand identifier; unknown IDs stay unknown."}
+        - {name: "colors[].name", type: "string", description: "Thread color name."}
+        - {name: "colors[].r", type: "integer", description: "Red display component, nominal 0–255."}
+        - {name: "colors[].g", type: "integer", description: "Green display component, nominal 0–255."}
+        - {name: "colors[].b", type: "integer", description: "Blue display component, nominal 0–255."}
+        - {name: "colors[].stitches", type: "integer", unit: "count", description: "Stitches assigned to this color."}
+        - {name: "colors[].time", type: "integer", unit: "min", description: "Time assigned to this color; -1 is displayed as unknown by the app."}
+        - {name: "colors[].charm", type: "boolean", description: "Charm/appliqué marker as interpreted by the monitor."}
+        - {name: "colors[].colorchange", type: "integer", description: "Color-change index; any negative value means not a color-change entry."}
+        - {name: "colors[].needlebar", type: "integer", description: "Needle-bar assignment."}
+        - {name: "colors[].pause", type: "boolean", description: "Pause marker for this color."}
+        - {name: "needlebars", type: "array", description: "Per-needle-bar objects."}
+        - {name: "needlebars[].anchor", type: "boolean", description: "Anchor marker."}
+        - {name: "needlebars[].b", type: "integer", description: "Blue display component, nominal 0–255."}
+        - {name: "needlebars[].g", type: "integer", description: "Green display component, nominal 0–255."}
+        - {name: "needlebars[].r", type: "integer", description: "Red display component, nominal 0–255."}
+        - {name: "needlebars[].needlebarspm", type: "integer", unit: "count/min", description: "Per-needle-bar stitches per minute."}
+        - {name: "needlebars[].needlenumber", type: "integer", description: "Needle number."}
+        - {name: "needlebars[].noneedlethreading", type: "boolean", description: "No-needle-threading marker."}
+        - {name: "needlebars[].threadbrand", type: "integer", description: "Thread-brand identifier."}
+        - {name: "needlebars[].threadcode", type: "integer", description: "Thread code."}
+        - {name: "colorchangeinfo", type: "array", description: "Color-change groups; each has a singular bar array."}
+        - {name: "colorchangeinfo[].bar", type: "array", description: "Needle/thread entries for one color-change group."}
+        - {name: "colorchangeinfo[].bar[].needlenumber", type: "integer", description: "Needle number."}
+        - {name: "colorchangeinfo[].bar[].threadbrand", type: "integer", description: "Thread-brand identifier."}
+        - {name: "colorchangeinfo[].bar[].threadcode", type: "integer", description: "Thread code."}
+        - {name: "colorchangeinfo[].bar[].threadname", type: "string", description: "Thread name."}
+        - {name: "colorchangeinfo[].bar[].r", type: "integer", description: "Red display component, nominal 0–255."}
+        - {name: "colorchangeinfo[].bar[].g", type: "integer", description: "Green display component, nominal 0–255."}
+        - {name: "colorchangeinfo[].bar[].b", type: "integer", description: "Blue display component, nominal 0–255."}
+      example: >
+        {"id":7,"filename":"invented.pes","left":0,"top":0,"right":200,"bottom":300,"totaltime":12,"totalstitches":1200,"imglocation":"opaque-not-a-request","totalcolors":1,"spm":400,"singlecolorset":true,"currentneedlebarnumber":1,"colors":[{"code":101,"brand":2,"name":"Invented blue","r":0,"g":0,"b":255,"stitches":1200,"time":12,"charm":false,"colorchange":-1,"needlebar":1,"pause":false,"futurecolor":5}],"needlebars":[{"anchor":true,"b":255,"g":0,"r":0,"needlebarspm":400,"needlenumber":1,"noneedlethreading":false,"threadbrand":2,"threadcode":101}],"colorchangeinfo":[{"bar":[{"needlenumber":1,"threadbrand":2,"threadcode":101,"threadname":"Invented blue","r":0,"g":0,"b":255}]}],"futurefield":null}
+  - method: "GET"
+    path: "/embstatus"
+    name: "Embroidery status"
+    status: "unverified"
+    description: >
+      Current embroidery progress JSON. status uses the same enum as /status;
+      currenttime and stoptime are minutes, currentstitch is a count, and color
+      indexes /embinfo colors. x/y use the same unestablished coordinate space
+      as /info features.embwidth/embheight and are not motion controls.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "id", type: "integer", description: "Progress identifier; reviewed clients compare this value to /embinfo.id, which is the supported id-to-id correlation."}
+        - {name: "embinfoid", type: "integer", description: "Additional identifier whose relationship to /embinfo is unresolved; do not use it for the job join."}
+        - {name: "status", type: "integer", description: "Embroidery state using protocol_details.status_codes; unlisted values remain unknown."}
+        - {name: "currentstitch", type: "integer", unit: "count", description: "Current stitch position."}
+        - {name: "currenttime", type: "integer", unit: "min", description: "Elapsed embroidery time."}
+        - {name: "stoptime", type: "integer", unit: "min", description: "Scheduled stop or color-change time."}
+        - {name: "reservestop", type: "boolean", description: "Whether a stop is reserved."}
+        - {name: "color", type: "integer", description: "Zero-based index into /embinfo colors; do not treat it as RGB."}
+        - {name: "x", type: "number", description: "Current x coordinate in the /info feature coordinate space; unit unknown and read-only."}
+        - {name: "y", type: "number", description: "Current y coordinate in the /info feature coordinate space; unit unknown and read-only."}
+      example: >
+        {"id":7,"embinfoid":0,"status":30,"currentstitch":600,"currenttime":6,"stoptime":12,"reservestop":false,"color":0,"x":100.5,"y":150.25,"futurefield":[1,2,3]}
+
+entities:
+  - platform: "sensor"
+    name: "Machine State"
+    state_endpoint: "/status"
+    state_command: "Machine status"
+    state_path: "status"
+    notes: "Numeric value rendered through protocol_details.status_codes; unlisted values are unknown, never coerced to idle."
+  - platform: "sensor"
+    name: "Embroidery State"
+    state_endpoint: "/embstatus"
+    state_command: "Embroidery status"
+    state_path: "status"
+    notes: "Current job state from the read-only monitor endpoint."
+  - platform: "sensor"
+    name: "Embroidery Stitch Progress"
+    unit: "count"
+    state_endpoint: "/embstatus"
+    state_command: "Embroidery status"
+    state_path: "currentstitch"
+    notes: "Compare with totalstitches from /embinfo only when /embstatus.id equals /embinfo.id. The separate embinfoid field is not used for this join."
+  - platform: "sensor"
+    name: "Embroidery Elapsed Time"
+    unit: "min"
+    state_endpoint: "/embstatus"
+    state_command: "Embroidery status"
+    state_path: "currenttime"
+  - platform: "sensor"
+    name: "Embroidery Current Thread"
+    state_endpoint: "/embstatus"
+    state_command: "Embroidery status"
+    state_path: "color"
+    notes: "Index into /embinfo colors; resolve name, brand and RGB there without requesting an image."
+
+protocol_details:
+  snmp_discovery:
+    version: 0
+    version_label: "SNMPv1"
+    community: "public"
+    transport: "udp"
+    port: 161
+    request_id:
+      rule: "Generate a cryptographically fresh integer in 1..2147483647 for every newly encoded datagram, including the limited-broadcast fallback. Reuse an ID only for an identical retransmission. Match the response ID before accepting any values."
+      verification: "reported"
+    ordered_targets:
+      - order: 1
+        target: "Each active IPv4 interface's directed subnet broadcast"
+        broadcasts: true
+      - order: 2
+        target: "255.255.255.255"
+        broadcasts: true
+        only_if: "No valid machine was found by the directed attempt; make this one limited fallback, not an unbounded address sweep."
+    timeout_ms: 1000
+    timeout_basis: "Reported monitor-app socket timeout, not a hardware requirement."
+    required_response:
+      community: "public"
+      pdu: "GetResponse (0xa2)"
+      error_status: 0
+      error_index: 0
+      request_id: "Same as the outstanding request"
+      host_description_oid: "1.3.6.1.2.1.25.3.2.1.3.1"
+      host_description_exact: "brother sewing"
+      case_sensitive: true
+    oids:
+      - {oid: "1.3.6.1.2.1.1.1", role: "sysDescr diagnostics", required: false}
+      - {oid: "1.3.6.1.2.1.1.5", role: "sysName/model field; not a matcher", required: false}
+      - {oid: "1.3.6.1.2.1.1.6", role: "sysLocation/display name fallback", required: false}
+      - {oid: "1.3.6.1.2.1.25.3.2.1.3.1", role: "host-resources device description", required: true, exact_value: "brother sewing"}
+      - {oid: "1.3.6.1.2.1.27.1.1.2.103", role: "application name", required: false}
+      - {oid: "1.3.6.1.2.1.27.1.1.6.103", role: "application operation status", required: false}
+      - {oid: "1.3.6.1.4.1.2435.2.4.3.1240.5.2.3.0", role: "Brother IP data", required: false}
+      - {oid: "1.3.6.1.2.1.2.2.1.6.1", role: "physical/MAC address identity", required: false}
+    desktop_derived_request:
+      provenance: "Design Database Transfer 1.2.0 static data; DESKTOP-DERIVED, NOT A NETWORK CAPTURE"
+      request_id: 1
+      length_bytes: 84
+      oid_order:
+        - "1.3.6.1.2.1.25.3.2.1.3.1"
+        - "1.3.6.1.2.1.2.2.1.6.1"
+        - "1.3.6.1.4.1.2435.2.4.3.1240.5.2.3.0"
+      frame_hex: "30815102010004067075626c6963a08143020101020100020100308137300f060b2b060102011903020103010500300e060a2b0601020102020106010500301406102b0601040193030204038958050203000500"
+      encoding: "BER: outer SEQUENCE, version 0, OCTET STRING public, GetRequest 0xa0, request ID, error status/index zero, three varbinds with NULL values and long-form lengths."
+  https_monitoring:
+    scheme: "https"
+    port: 443
+    allowed_methods: ["GET"]
+    allowed_paths: ["/info", "/status", "/embinfo", "/embstatus"]
+    read_timeout_ms: 8000
+    timeout_basis: "Reported monitor-app read timeout, not a hardware limit."
+    capability_gate:
+      expression: "apis.monitoring.version > 0 OR apis.monitoringpr.version > 0 OR first_dotted_component(apis.monitoring.availableversion) == '1'"
+      absent_or_zero: "Do not enable monitoring; absence is not converted into proof of support."
+      model_id_rule: "Never require or infer an EV1-specific numeric model ID."
+    tofu:
+      verification: "trust_on_first_use"
+      approval_required_before_first_get: true
+      fingerprint: "SHA-256 of the presented DER certificate, lowercase colon-separated hex"
+      bootstrap:
+        ordered_steps:
+          - "Show the discovered address and certificate fingerprint and require user approval before the first GET."
+          - "Hold the approved certificate or pin only in memory against the discovered address and MAC when available; do not persist it yet."
+          - "Fetch /info with the volatile pin and require a nonempty machine-id, expected JSON field types and monitoring capability; confirm the discovered address has not changed."
+          - "Atomically persist the certificate or pin to the validated machine-id, retaining address/MAC as metadata, before any /status, /embinfo or /embstatus request."
+        pre_persist_endpoints: ["/info"]
+        post_persist_endpoints: ["/status", "/embinfo", "/embstatus"]
+        machine_id_validation: "A nonempty string is required; its internal format and mapping to numeric model/type are not assumed."
+      persist: "After validated /info, atomically bind the approved certificate or fingerprint to machine-id, not to a model family. A durable binding must not be created before /info."
+      changed_certificate: "Stop and ask the user again; never automatically accept a replacement. Repeat the volatile /info validation before replacing the durable binding."
+      forbidden: ["trust-all certificates", "trust-all hostnames", "disabled certificate verification", "unverified fallback to HTTP", "durable pin-to-machine-id before the first /info response"]
+      vendor_defect_not_reproduced: "The reviewed vendor client disables both certificate-chain and hostname verification. This is a defect to correct, not interoperability evidence."
+    json_parser:
+      unknown_properties: "Ignore unknown properties at every object/array element; they never change known-field meanings. Preserve the raw document for forward diagnostics when practical."
+      known_property_types: "Require the declared JSON types when a known property is present. A wrong type is an error, not a coerced zero/false."
+      missing_properties: "Leave unavailable rather than defaulting to a real measurement. Capability fields are the exception only in that missing means unsupported."
+      unknown_status_values: "Render unknown(<numeric value>) without assigning a known state, ready label or error class."
+      numeric_ranges: "RGB components accept 0..255; negative colorchange means not a change; ids and counters are not silently clamped."
+      content: "Parse one JSON object, reject trailing non-whitespace data and truncated JSON."
+  status_codes:
+    source: "Monitor app's current status-to-display mapping, reported rather than hardware-confirmed."
+    values:
+      10: "ready_home_embroidery"
+      11: "ready_home_embroidery"
+      12: "ready_pr"
+      20: "sewing"
+      30: "embroidering"
+      40: "waiting_for_thread"
+      41: "paused"
+      42: "stopped"
+      50: "finished"
+      60: "thread_error"
+      61: "thread_error"
+      62: "thread_broken_error"
+      63: "other_error"
+      70: "other_error"
+      98: "settings_screen"
+      99: "other_error"
+    default: "waiting in the vendor app; a safe replacement MUST instead return unknown(<value>) because an unlisted value has no established meaning"
+    helper_states_not_wire_values: ["monitoring_connection_error", "app_waiting_placeholder"]
+  model_compatibility:
+    rule: "The variant list records documented My Stitch Monitor compatibility, not a model-ID discovery matcher. Actual monitoring still requires exact SNMP identity plus /info capability and a user-approved certificate."
+    entries:
+      - {models: ["EV1", "EV1LE"], evidence: "Official app list (spelled EV1-LE) and shared operation manual."}
+      - {models: ["BX1", "BX1E", "CX1E"], evidence: "Official app list; sewing-only CX1 is not claimed."}
+      - {models: ["XP2", "XP3", "XJ2", "XE2", "BP3700", "PR1055X", "PR680W"], evidence: "Official app list."}
+      - {models: ["XP1", "XJ1", "XE1", "BP3600"], evidence: "Official app list; Upgrade Kit I is required."}
+      - {models: ["PR1060W"], evidence: "Official product page explicitly names My Stitch Monitor, although the global app list omitted this model when checked; treat that discrepancy as unresolved rather than dropping the model or claiming the whole PR family."}
+    exclusions:
+      - "PP1/PP1E use a separate BLE protocol and are not monitoring variants."
+      - "Artspira or Design Database Transfer support alone does not prove My Stitch Monitor support; NQ/NS/PE/SE/LB Wi-Fi models are therefore not added."
+      - "CX1, Dream Machine, Quattro, Essence, PR1050X and other models absent from the monitor evidence are not claimed."
+  excluded_operations:
+    executable: false
+    categories:
+      - "POST, PUT, PATCH and DELETE of every kind"
+      - "design/embroidery transfer and any motion, start, stop or stitch operation"
+      - "hoop/MDC image upload, current/progress image download and lens calibration"
+      - "push registration, push notifications and cloud token exchange"
+      - "firmware download, activation, update and update-status probing"
+      - "PE-DESIGN Link and Design Database Transfer writes"
+    rule: "Do not turn shared-library method names into endpoints. Only the four entries in http_endpoints are allowed."
+
+remaining_unknowns:
+  - "No live SNMP response, TLS certificate or JSON document has been captured; every endpoint and field remains reported and interoperability is unverified."
+  - "Physical units for feature/hoop/design/x/y coordinates, previewresolution, hoopresolution, postsize and storage capacity/free are unestablished."
+  - "Semantics of emb, linkstatus, hoop.type, numeric model/type and most OEM values are unestablished."
+  - "Compatibility-list discrepancy for PR1060W needs a live check; BP regional aliases and exact upgrade/firmware states need per-unit confirmation."
+  - "Reset-to-default and network-reset screens are not established for every listed variant; use the exact model manual instead of generalizing the procedures here."
+  - "Concurrent-client limits, certificate rotation behavior, error responses and whether every listed firmware exposes identical JSON field presence are unknown."
+  - "Write, design-transfer, image, push, lens and firmware protocols are intentionally not reverse engineered or declared by this spec."
+
+helpful_urls:
+  - title: "Brother My Stitch Monitor compatible models"
+    url: "https://support.brother.com/g/s/hf/mobileapp_info/mystitchmonitor/msm_en.html"
+    kind: "vendor_support"
+    description: "Official compatibility list used for the family-level variant roster and Upgrade Kit I caveats."
+  - title: "Brother PR1060W product page"
+    url: "https://www.brother-usa.com/p/sewing-embroidery/PR1060W"
+    kind: "vendor_support"
+    description: "Official product evidence that PR1060W supports My Stitch Monitor despite its omission from the global app list."
+  - title: "Brother EV1/EV1LE operation manual (PDF)"
+    url: "https://download.brother.com/welcome/doch103008/ev1om05usas_en.pdf"
+    kind: "manual"
+    description: "Official EV1 and EV1LE guide; Wireless LAN Connection on page 32 and network-settings reset on page 26."
+  - title: "Brother PR1055X/PR1060W operation manual (PDF)"
+    url: "https://download.brother.com/welcome/doch101931/884t15-16_om03_en.pdf"
+    kind: "manual"
+    description: "Official PR1055X and PR1060W guide covering wireless setup, monitoring and Reset network operations."
+  - title: "Brother PR1060W addendum to operation manual (PDF)"
+    url: "https://download.brother.com/welcome/doch103087/884t16_ma01_en.pdf"
+    kind: "manual"
+    description: "Official PR1060W addendum; page 13 gives Reset to Default for saved data, customized settings and network information."
+  - title: "Brother Luminaire XP3 embroidery operation manual (PDF)"
+    url: "https://download.brother.com/welcome/doch102491/xp3_omemb01usca_en.pdf"
+    kind: "manual"
+    description: "Official XP3 embroidery guide including My Stitch Monitor on page 56."
+  - title: "Brother Innov-is XP1 Upgrade Kit I operation manual (PDF)"
+    url: "https://download.brother.com/welcome/doch101746/xpugk1_om02en.pdf"
+    kind: "manual"
+    description: "Official XP1 Upgrade Kit I guide with the Monitoring App entry, supporting the base-model upgrade caveat."
+
+evidence:
+  app_static_analysis: >
+    The current and earliest public My Stitch Monitor Android implementations
+    supplied the ordered directed/limited broadcast discovery, exact host
+    description, OID roles, four read-only paths, capability versions, JSON
+    property names/types, time units and status mapping. Their write-capable
+    shared methods were reviewed only to exclude them. No vendor internal
+    symbols are reproduced here.
+  desktop_static_analysis: >
+    Design Database Transfer 1.2.0 independently supplied an 84-byte SNMPv1
+    request containing host description, physical address and Brother IP-data
+    varbinds. It is a static executable-data derivation, not a capture and not
+    evidence that design transfer is safe or understood.
+  documentation_review: >
+    Brother's official app compatibility page, PR1060W product page and model
+    manuals supplied variant coverage, upgrade-kit requirements, wireless
+    provisioning, saved-network rejoin and model-specific reset procedures.
+    All linked manuals were checked as resolving on 2026-11-17.
+  tls_defect_analysis: >
+    The vendor client's certificate-chain and hostname checks were found to be
+    permissive. The spec deliberately replaces them with explicit user-approved
+    TOFU/pinning and never treats that vendor defect as a compatibility need.
+  open_questions: >
+    No hardware evidence establishes actual certificate contents, complete
+    response documents, coordinate/storage units, field-presence variation,
+    concurrent-client behavior or per-model reset consistency. Unknown JSON
+    fields and unknown status codes must remain forward-tolerant.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "Brother My Stitch Monitor Android 2.1.5 (34) and 1.0.0"
+      obtained_via: "Public APK mirror, preserved and signature-verified by the research project on 2026-11-10"
+      description: "Discovery, HTTPS paths, JSON models, capability gate, status mapping and unsafe TLS behavior."
+    - type: "static_analysis"
+      artifact: "Brother Design Database Transfer 1.2.0"
+      obtained_via: "Official Brother public installer, 2026-11-10"
+      description: "Independent desktop-derived 84-byte SNMPv1 request; no transfer protocol adopted."
+    - type: "vendor_documentation"
+      artifact: "Official My Stitch Monitor compatibility page and PR1060W product page, reviewed 2026-11-17"
+      description: "Model roster, Upgrade Kit I requirements and the PR1060W compatibility-list discrepancy."
+    - type: "vendor_documentation"
+      artifact: "EV1/EV1LE, XP3, XP1 Upgrade Kit I, PR1055X/PR1060W and PR1060W-addendum manuals"
+      description: "Wireless setup/rejoin and variant-scoped reset procedures; no procedure was executed by this project."

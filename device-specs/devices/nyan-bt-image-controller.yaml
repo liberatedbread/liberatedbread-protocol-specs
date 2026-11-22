@@ -18,12 +18,14 @@ device:
     space app for the same backpack.
     BLE device name starts with "YS" or "TL".
     Wire frame (hardware-verified by samrodrigues/loy-space-protocol and
-    icedac/open-loyspace): BLE writes carry an outer u16-LE total-length prefix,
-    then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE), sno (u16-LE),
-    flags (0xC1), subflag, ...payload, checksum (u16-LE)]. Every frame ends with
-    a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF,
-    little-endian); the device silently rejects bad checksums. Notifications
-    omit the outer prefix.
+    icedac/open-loyspace): ordinary BLE commands use an outer u16-LE length
+    prefix, then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE),
+    sno (u16-LE), flags (0xC1), subflag, ...payload, checksum (u16-LE)].
+    AUTOBABA is the separately capture-proven unprefixed exception, not
+    evidence that this variant accepts unframed commands. Every frame ends
+    with a 2-byte additive checksum (sum of the preceding inner-frame bytes
+    & 0xFFFF, little-endian); the device silently rejects bad checksums.
+    Notifications carry the inner frame without the outer prefix.
     Commands are JSON objects app-side, serialized to binary TLV opcodes on the
     wire — the JSON text itself never crosses the link.
     Image/program upload is GIF89a streamed in 960-byte chunks (a 24-bit BMP
@@ -148,6 +150,10 @@ remaining_unknowns:
     a NYAN unit has been captured. autobaba-led-backpack is the family
     fallback until one is.
 
+initialization:
+  - characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Open display acknowledgements before any BLE query or command."
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "LOY SPACE BLE Service"
@@ -158,8 +164,8 @@ services:
         notes: >
           NotifyId in app-service.js. NOTIFY-only — writes go to FFF2
           (write-without-response); enable the CCCD before writing or frames
-          are not ACKed. Notifications carry the 0xAA55 inner frame without the
-          outer u16-LE length prefix used on writes. Hardware-verified by
+          are not ACKed. Notifications carry the 0xAA55 inner frame with no
+          outer record-length prefix. Hardware-verified by
           samrodrigues/loy-space-protocol.
 
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
@@ -172,9 +178,12 @@ services:
           WriteId in app-service.js. Write-without-response is mandatory
           (regular writes hang). App-side commands are JSON objects wrapped as
           {"cmd": <command>, "sno": <sequence>}, but the wire payload is binary
-          TLV opcodes — the app serializes JSON to TLV before send. Each write
-          carries an outer u16-LE total-length prefix and every frame ends with
-          a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF, LE);
+          TLV opcodes — the app serializes JSON to TLV before send. Ordinary
+          commands use an outer u16-LE length prefix before the inner AA55
+          frame; the public client's captured power-on is 10 00 aa 55 ff ff
+          0a 00 03 00 c1 02 04 02 00 01 d4 03. AUTOBABA is the separately
+          capture-proven unprefixed exception. Every inner frame ends with a
+          2-byte additive checksum of its preceding bytes (sum & 0xFFFF, LE);
           the device silently rejects bad checksums.
         commands:
           power_toggle:
@@ -184,8 +193,9 @@ services:
               key: "cmd.power.type"
               value_type: "int"
           set_brightness:
-            description: 'Set brightness 0-15. JSON: {"cmd":{"light":{"type":0,"value_fix":N}},"sno":N}'
+            description: 'Set brightness 1-15. JSON: {"cmd":{"light":{"type":0,"value_fix":N}},"sno":N}. The shared app maps zero to 15; this BLE variant is source-derived and not independently capture-verified.'
             encoding: "json"
+            verification: "reported"
             payload:
               key: "cmd.light.value_fix"
               value_type: "int"

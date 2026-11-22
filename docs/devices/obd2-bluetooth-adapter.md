@@ -79,6 +79,14 @@ Notes that matter in practice:
   which bonds with a fixed passkey of `123456` during the first five minutes after
   power-on and always encrypts the link.
 
+### FIXD is outside this executable profile
+
+FIXD transport identities live only in the repository's
+`research-notes/fixd-obd-adapter.md` identity-only research note. No FIXD
+profile resolves to this spec's setup, reset, FFF2 commands, capabilities or
+ELM327 diagnostic requests. Those generic behaviors must not be inferred from
+the shared FFF0/FFF1/FFF2 transport or legacy SPP identity.
+
 ### Application layer: the ELM327 command set
 
 Two request kinds share one channel, distinguished by prefix:
@@ -179,10 +187,13 @@ common) and typically fails on:
 - honouring an ECU's requested separation time in flow control
 - custom headers via `ATSH` on some protocols
 
-Single-frame reads (`03` for DTCs, `01xx` for live data) work almost everywhere, which is
-exactly why vendor tools accept any adapter for reading and name specific ones for
-maintenance functions. If a documented function works on an OBDLink and fails on a clone,
-the function is multi-frame — that is a protocol fact you get for free.
+Single-frame Mode 01 reads and small Mode 03 replies work almost everywhere. On
+classic CAN normal addressing, Mode 03 returns `43 ??`, a DTC count and two bytes
+per DTC; parse exactly `2 + 2*count` application bytes for 0/1/2/3/4+ codes.
+Three DTCs need eight application bytes and ISO-TP multiframe receive (separate
+example `43 03 01 23 04 56 07 89`), with replies from multiple ECUs kept
+separate. If a documented function works on an OBDLink and fails on a clone,
+multiframe support is one protocol capability to check.
 
 A quick capability probe:
 

@@ -56,14 +56,20 @@ Vector uses a **dual-stack** protocol:
 - **Protocol versions**: v2, v3, v4, v5 (backward compatible)
 - **Source**: [digital-dream-labs/vector-bluetooth](https://github.com/digital-dream-labs/vector-bluetooth)
 
-### BLE Characteristics
+### BLE Service and Characteristics
 
-| UUID | Name | Description |
+Onboarding service `0000fee3-0000-1000-8000-00805f9b34fb` is present in both
+1.6.0.3331d and 2.0.1.6079 onboarding firmware:
+
+| UUID | Name | Properties |
 |------|------|-------------|
-| `7d2a4bda-d29b-4152-b725-2491478c5cd7` | Read | RTS protocol read (notify) |
-| `30619f2d-0f54-41bd-a65a-7588d8c85b45` | Write | RTS protocol write |
+| `30619f2d-0f54-41bd-a65a-7588d8c85b45` | RTS Write | Write |
+| `7d2a4bda-d29b-4152-b725-2491478c5cd7` | RTS Read/Notify | Read, notify |
 
-Advertised name pattern: `Vector-XXXX` (4 alphanumeric chars from ESN).
+Advertised name pattern: `Vector-XXXX` (4 alphanumeric chars from ESN). The
+latest locally verified official production image is **2.0.1.6079**, proven by
+its signed OTA manifest and extracted OS version; this does not reconstruct
+the vendor's complete server history.
 
 ### BLE RTS Handshake Sequence
 
@@ -251,12 +257,18 @@ endpoints where available.
 #### Status & Control
 | RPC | REST | Description |
 |-----|------|-------------|
-| `BatteryState` | `POST /v1/battery_state` | Battery level + charging status |
+| `BatteryState` | `POST /v1/battery_state` | Voltage, enumerated level + independent charging booleans |
 | `VersionState` | `POST /v1/version_state` | Firmware/OS/ESN info |
 | `EnableMirrorMode` | `POST /v1/enable_mirror_mode` | Mirror display mode |
 | `EnableImageStreaming` | `POST /v1/enable_image_streaming` | Toggle image streaming |
 | `IsImageStreamingEnabled` | `POST /v1/is_image_streaming_enabled` | Query streaming state |
 | `CancelActionByIdTag` | `POST /v1/cancel_action_by_id_tag` | Cancel queued action |
+
+`battery_level` is **not a percentage**: 0 = unknown, 1 = low, 2 = nominal,
+3 = full. Accept both those numeric values and `BATTERY_LEVEL_UNKNOWN`,
+`BATTERY_LEVEL_LOW`, `BATTERY_LEVEL_NOMINAL`, and `BATTERY_LEVEL_FULL`.
+`battery_volts` is a separate float voltage. `is_charging` and
+`is_on_charger_platform` are separate booleans.
 
 #### Photos
 | RPC | REST | Description |
@@ -277,8 +289,9 @@ endpoints where available.
 
 ### BLE
 - Advertised name: `Vector-XXXX` (XXXX = last 4 of ESN)
+- Onboarding service: `0000fee3-0000-1000-8000-00805f9b34fb`
 - BLE address: random resolvable (Anki BLE stack)
-- Read UUID: `7d2a4bda-d29b-4152-b725-2491478c5cd7`
+- Read/notify UUID: `7d2a4bda-d29b-4152-b725-2491478c5cd7`
 - Write UUID: `30619f2d-0f54-41bd-a65a-7588d8c85b45`
 - Pairing: PIN displayed on screen (6 digits)
 

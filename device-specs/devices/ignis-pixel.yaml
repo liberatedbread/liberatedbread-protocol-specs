@@ -105,10 +105,14 @@ device:
     (ota_go_burn) → erase the application region (ota_firmware_erase) →
     stream firmware as data blocks, each CRC32-protected, addressed by file
     offset (ota_data_bl) → return to the main application (ota_goto_main);
-    see features[firmware_update]. Firmware images come
-    as a header/data pair internally. Firmware version is a packed uint32,
-    e.g. 0x03002100 = v3.0.33. Whether .fw files are obfuscated is an OPEN
-    item — check a downloaded header before writing a flasher.
+    see features[firmware_update]. Firmware version is a packed uint32,
+    e.g. 0x03002100 = v3.0.33.
+    MEASURED .fw CONTAINER: all 133 reviewed local images are exactly
+    262,144 bytes of valid base64 and decode to exactly 196,608 bytes. No
+    decoded image has a plausible ARM vector prefix. The further transform
+    of the decoded payload is UNRESOLVED: it cannot be treated as a raw flash
+    image. High entropy alone does not prove encryption, signature
+    enforcement or a particular transform.
 
     FIRMWARE DISTRIBUTION (HIGH, verified live): the vendor publishes
     everything on plain HTTPS — the Update.xml catalog (per device Type in
@@ -137,7 +141,9 @@ device:
     field order, device-family byte mapping, chunking for large transfers.
     OPEN — the full numeric opcode map, exact MSG_DATA_* / MSG_PC_CMD_EX
     field layouts (image pixel blocks carry R/G/B uint32 fields with a gamma
-    step), .fw obfuscation, RF on-air protocol, advertised BLE local name.
+    step), the further transform after base64-decoding .fw, RF on-air
+    protocol, and advertised BLE local name. The base64 container itself is
+    measured, not an unknown.
   # NO automatic identification or discovery block, deliberately. The only
   # scan signal known for these props is the Nordic UART Service UUID, and
   # this spec carries brick-capable advanced commands (bootloader entry,
@@ -162,32 +168,36 @@ device:
     required: false
     confidence: "medium"
     notes: >
-      No provisioning, account or pairing: a prop advertises over BLE as soon
-      as it is powered on and accepts a connection from any central. Prop-to-
-      prop radio sync groups are configured on the device itself through its
-      button-driven system menu (vendor FAQ), not during BLE onboarding.
+      No provisioning, account or pairing. NUS is not identity: manually select
+      the exact Ignis Pixel prop before any GATT write, then use only the
+      get-id / hardware-info request to confirm FW_DevType before commands.
+      Prop-to-prop radio sync groups are configured on the device itself
+      through its button-driven system menu (vendor FAQ), not during BLE
+      onboarding.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          Power the prop, scan for the Nordic UART Service UUID, connect,
-          enable notifications on 6e400003 and confirm identity with the
-          get-id / hardware-info request before issuing commands. There is no
-          handshake, PIN or key exchange — the framed protocol is accepted
-          immediately.
+          Manually select the exact prop; never scan-match NUS. Connect,
+          enable notifications on 6e400003-b5a3-f393-e0a9-e50e24dcca9e and
+          confirm identity with the get-id / hardware-info request before
+          issuing any other command. There is no handshake, PIN or key
+          exchange — the framed protocol is accepted immediately after that
+          read-only confirmation.
         ble:
           advertised_name: "unknown — NUS service UUID is the scan signal"
           pairing_required: false
         steps:
-          - action: "Power the prop and scan for an advertisement carrying the Nordic UART Service UUID."
+          - action: "Power the prop and manually select the exact Ignis Pixel model; do not rely on NUS or the Ninebot Z name."
+            actor: "user"
+          - action: "Connect and subscribe to 6e400003-b5a3-f393-e0a9-e50e24dcca9e notifications, without writing yet."
             actor: "client"
-            request:
-              protocol: "ble_gatt"
-          - action: "Connect, subscribe to 6e400003 notifications, and read the device identity (get-id / hardware-info request) to confirm FW_DevType."
+          - action: "After manual model confirmation, use only the get-id / hardware-info request and validate FW_DevType against the variant table before any other command."
             actor: "client"
             request:
               protocol: "ble_gatt"
               service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+            expect: "A valid hardware-info reply with an FW_DevType belonging to this spec's variant table; otherwise stop and do not issue any other command."
     factory_reset:
       confidence: "low"
       effect: >
@@ -238,25 +248,15 @@ device:
       required: false
   variants:
     - model: "Gen1 classic poi (FW_DevType 0x04xx)"
-      identification:
-        service_uuids:
-          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      identification: {}
     - model: "Gen2 props (0x05xx/0x06xx: NG poi, hoops, fans, buugeng, staff)"
-      identification:
-        service_uuids:
-          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      identification: {}
     - model: "Gen3 toys (0x07xx: BubblePoi/JellyPoi, sticks, clubs, cubes)"
-      identification:
-        service_uuids:
-          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      identification: {}
     - model: "Jumpropes (0x0Axx: JRope, Hoop SD)"
-      identification:
-        service_uuids:
-          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      identification: {}
     - model: "Radio-sync I models (0x25xx-0x2Axx, internal nRF24 radio)"
-      identification:
-        service_uuids:
-          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      identification: {}
 
 services:
   # The single transport service: Nordic UART over an nRF52832 bridge.
@@ -398,16 +398,19 @@ features:
         signing: "unknown"
         algorithm: "unknown"
         source: "public_url"
-        format: "Vendor .fw file (header/data pair internally); legacy V1/V2 images are .cr files."
+        format: "Base64 .fw container (262,144 encoded bytes -> 196,608 decoded bytes in all 133 measured images); decoded payload transform unresolved; legacy V1/V2 images are .cr files."
         notes: >
           Published on plain HTTPS: the catalog
           https://software-upload.ignispixel.com/Update/Update.xml maps each
           device Type (hex, equal to the FW_DevType the prop reports) to Ver,
           MinVer and FileName; release images sit under
           /Update/Firmware/V3/Release/ and hash.md5 lists an md5 for every
-          file. Whether .fw files are obfuscated, and whether the bootloader
-          checks anything beyond the per-block CRC32, is open. Each block
-          carries a CRC32 (init 0).
+          file. All 133 measured .fw files are valid base64 and decode to
+          196,608 bytes, but none of the decoded payloads has a plausible ARM
+          vector prefix. The further payload transform and bootloader
+          signature enforcement are UNKNOWN. Entropy alone does not establish
+          encryption. Do not flash the decoded payload as though it were a
+          raw image. Each OTA data block carries a CRC32 (init 0).
       enter:
         how: "command"
         command: "ota_go_burn"

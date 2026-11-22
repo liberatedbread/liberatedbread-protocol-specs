@@ -38,8 +38,9 @@ device:
     MEDISANA BS444: weight service 000078b2-...; weight-measurement
     00008a21-... (indicate), body-composition 00008a22-... (indicate), command
     00008a81-... (write). Weight packet (0x8a21): byte0 flags (bits for unit
-    kg/lb/st), bytes1-2 weight little-endian /100, bytes5-8 unix timestamp
-    (epoch = 2010) LE, byte13 user-ID (1-8, 0xFF unset). Body-comp packet
+    kg/lb/st), bytes1-2 weight little-endian /100 for the demonstrated kg
+    example only (lb/st divisors unresolved), bytes5-8 timestamp as seconds
+    since 2010-01-01 LE, byte13 user-ID (1-8, 0xFF unset). Body-comp packet
     (0x8a22): bytes6-7 kCal LE, bytes8-9 fat% /10 (mask 0xF0), 10-11 water%,
     12-13 muscle%, 14-15 bone mass. TRIGGER: write 02 7b 7b f6 0d to the command
     characteristic.
@@ -193,9 +194,11 @@ services:
         name: "Weight measurement (indicate)"
         properties: ["indicate"]
         notes: >
-          Medisana: byte0 flags (unit), bytes1-2 weight LE /100, bytes5-8 unix
-          timestamp (epoch 2010) LE, byte13 user-ID. Trisa: weight = 24-bit LE
-          mantissa x 10^(signed 8-bit exponent).
+          Medisana: byte0 flags (unit), bytes1-2 weight LE /100 for the kg
+          example only, bytes5-8 seconds since 2010 LE, byte13 user-ID. Do
+          not generalize that divisor to lb/st. Trisa: weight = 24-bit LE
+          mantissa x 10^(signed 8-bit exponent). Full reassembled layouts are
+          under protocol_details.reassembled_records.
       - uuid: "00008a22-0000-1000-8000-00805f9b34fb"
         name: "Body composition (indicate, Medisana)"
         properties: ["indicate"]
@@ -213,6 +216,51 @@ services:
             encoding: "bytes"
             verification: "reported"
             value: [0x02, 0x7B, 0x7B, 0xF6, 0x0D]
+
+protocol_details:
+  reassembled_records:
+    verification: "reported"
+    scope: "These layouts apply only after joining the notification fragments for one complete measurement; do not parse an individual fragment by these offsets."
+    beurer_sanitas:
+      length_bytes: 22
+      endianness: "big"
+      timestamp_mask: 0x7fffffff
+      timestamp_note: "BF800 live records can set bit 31 as a flag; mask it before interpreting Unix seconds. Saved records may carry the same timestamp with the bit clear."
+      fields:
+        - {offset: 0, length: 4, name: "unix_seconds", type: "uint32", unit: "s"}
+        - {offset: 4, length: 2, name: "weight", type: "uint16", scale: 0.05, unit: "kg"}
+        - {offset: 6, length: 2, name: "impedance", type: "uint16", unit: "ohm"}
+        - {offset: 8, length: 2, name: "fat", type: "uint16", scale: 0.1, unit: "%"}
+        - {offset: 10, length: 2, name: "water", type: "uint16", scale: 0.1, unit: "%"}
+        - {offset: 12, length: 2, name: "muscle", type: "uint16", scale: 0.1, unit: "%"}
+        - {offset: 14, length: 2, name: "bone", type: "uint16", scale: 0.05, unit: "kg"}
+        - {offset: 16, length: 2, name: "bmr_raw", type: "uint16", notes: "Raw value; unit unresolved."}
+        - {offset: 18, length: 2, name: "amr_raw", type: "uint16", notes: "Raw value; unit unresolved."}
+        - {offset: 20, length: 2, name: "bmi", type: "uint16", scale: 0.1}
+    medisana_bs444:
+      length_bytes: 19
+      example_hex: "1d 80 25 00 fe 80 0f f4 0d 6a 17 00 ff 01 09 00 00 00 00"
+      fields:
+        - {offset: 0, length: 1, name: "flags", type: "uint8", notes: "Bits 5-6 select display unit; only the kg scaling below is established."}
+        - {offset: 1, length: 2, name: "weight_kg", type: "uint16", endianness: "little", scale: 0.01, unit: "kg", notes: "Valid only for the kg example; lb/st divisors remain unresolved."}
+        - {offset: 5, length: 4, name: "seconds_since_2010", type: "uint32", endianness: "little", unit: "s"}
+        - {offset: 13, length: 1, name: "user_id", type: "uint8", notes: "1-8; 0xff unset."}
+    trisa_body_analyze:
+      maximum_length_bytes: 20
+      full_example_length_bytes: 20
+      layout: "Five fixed bytes followed by compact flag-conditioned fields in timestamp, resistance-1, resistance-2, user, status order. The full 20-byte example is not a universal record length."
+      example_hex: "df 28 1e 00 fe 04 0a 70 10 00 00 00 ff 60 14 00 ff 00 09 00"
+      example_weight_kg: 77.20
+      fields:
+        - {offset: 0, length: 1, name: "flags", type: "uint8", notes: "Bits 0-4 condition timestamp, resistances, user and status. Bits 5-6 select kg/lb/st; the 0x60 alias is unresolved."}
+        - {offset: 1, length: 3, name: "weight_mantissa", type: "uint24", endianness: "little"}
+        - {offset: 4, length: 1, name: "weight_exponent", type: "int8", notes: "Weight = mantissa * 10^exponent; example mantissa 7720, exponent -2."}
+        - {offset: 5, length: 4, name: "seconds_since_2010", type: "uint32", endianness: "little", unit: "s", presence: "flag bit 0", advance_on_present: true}
+        - {offset: 5, length: 4, name: "resistance_1", type: "bytes", presence: "flag bit 1", advance_on_present: true, notes: "Starts after the fixed header and any timestamp already consumed; 24-bit LE mantissa plus signed exponent."}
+        - {offset_formula: "5 + 4*(flag bit 0) + 4*(flag bit 1)", length: 4, name: "resistance_2", type: "bytes", presence: "flag bit 2", advance_on_present: true, notes: "Starts at 9 when timestamp is present but R1 is absent, at 13 when both are present, and at 5 when both are absent. 24-bit LE mantissa plus signed exponent."}
+        - {offset_formula: "5 + 4*(flag bit 0) + 4*(flag bit 1) + 4*(flag bit 2)", length: 1, name: "user_id", type: "uint8", presence: "flag bit 3", advance_on_present: true}
+        - {offset_formula: "5 + 4*(flag bit 0) + 4*(flag bit 1) + 4*(flag bit 2) + (flag bit 3)", length: 1, name: "measurement_status", type: "uint8", presence: "flag bit 4"}
+        - {offset_formula: "19 only when all optional fields are present", length: 1, name: "reserved", type: "uint8", presence: "full example only; trailing role/length not established for shorter records"}
 
 entities:
   - platform: "sensor"

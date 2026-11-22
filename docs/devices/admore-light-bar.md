@@ -48,6 +48,12 @@ Related devices (same app):
 | Armband (left) | `AdMore Armband Left` |
 | Armband (right) | `AdMore Armband Right` |
 
+Nordic UART is transport, not identity. Check for the distinct DFU name first,
+then manually select the exact AdMore Light Bar Pro before any GATT write. Use
+only `query_versions` and validate the expected AdMore version reply before
+initialization, settings or firmware writes. A Ninebot Z or any other bare-NUS
+peripheral must not activate this spec.
+
 ## Protocol Summary
 
 ### BLE Services — Nordic UART Service (NUS) Variants

@@ -33,8 +33,9 @@ device:
     SRP-6a-authenticated unlock, then an encrypted pipe carrying XBee API
     frames; Enphase payloads ride inside XBee "User Data Relay" frames
     addressed to the radio's serial interface. Two payload layers exist:
-    a simple one-byte-typed provisioning frame set (PAN ID / link key /
-    Envoy serial push, pairing status, relay states, telemetry read), and a
+    a simple one-byte-typed provisioning frame set (link key and Envoy serial
+    provisioning, PAN-ID verification, pairing status, relay states, telemetry
+    read), and a
     rich protobuf "object model" (EnsObjMdlMessage) used for live
     statistics, inventory, relay control, battery SoC/phase config and
     blackstart recovery. This spec covers the battery/switch units
@@ -93,41 +94,40 @@ device:
     required: true
     confidence: "medium"
     notes: >
-      These units are installer-commissioned, not owner-paired: the
-      Installer Toolkit connects to each unit over BLE during install and
-      pushes the site's 802.15.4 PAN ID, a locally generated 16-byte link
-      key, and the Envoy serial number so the unit joins the site mesh.
-      The BLE unlock itself uses the XBee 3 SRP-6a handshake. The generic
-      library default is "password", but the provisioning manager's
-      constructors use "030609" for the PAN/link-key checks. Both are
-      app-derived constants, not per-unit secrets; use the flow-specific value
-      rather than assuming one universal password. Whether units keep
-      advertising BLE indefinitely after commissioning is unverified — the
-      units at the research site still beacon many months after install.
+      These units are installer-commissioned, not owner-paired. The reviewed
+      Ensemble paths push a locally generated 16-byte link key and the Envoy
+      serial used to derive/verify the site's 802.15.4 PAN ID; a separate
+      numeric PAN-ID write is not established. Provisioning, link-key
+      verification and live-data access expect the shared static password
+      "030609". The value "password" belongs to separate range-test/gateway
+      helpers, not these Ensemble paths. Both are app-derived constants, not
+      per-unit secrets. Whether units keep advertising BLE indefinitely after
+      commissioning is unverified — the units at the research site still
+      beacon many months after install.
     methods:
-      # ble_provisioning, not ble_direct: commissioning pushes the site's
-      # 802.15.4 PAN ID, a 16-byte link key and the Envoy serial to the unit
-      # over this same BLE channel, which is a credential exchange. Calling it
+      # ble_provisioning, not ble_direct: commissioning pushes a 16-byte link
+      # key and the Envoy serial used to derive/verify the site's 802.15.4 PAN
+      # ID over this BLE channel, which is a credential exchange. Calling it
       # ble_direct ("usable by scanning and connecting, no credential
       # exchange") would contradict setup.required: true.
       - type: "ble_provisioning"
         verified: false
         description: >
-          Connect to the unit's XBee 3 BLE service, run the SRP-6a unlock
-          (XBee API frame 0x2C, username "apiservice", using the generic
-          library default "password" or the provisioning manager's "030609"
-          as appropriate), then exchange User Data Relay frames on the now
-          AES-encrypted channel. All values app-derived; the unlock mechanics
-          themselves are Digi-documented public protocol.
+          Connect to the unit's XBee 3 BLE service and run the SRP-6a unlock
+          (XBee API frame 0x2C, username "apiservice") with the reviewed
+          Ensemble password "030609". The four-frame exchange yields a 32-byte
+          session key and separate 12-byte nonces for AES-256-CTR in each
+          direction; verify the 32-byte proof before encrypted relay traffic.
+          All values are app-derived and no live unlock was performed.
         ble:
           protocol: "Digi XBee 3 BLE + Enphase relay payload (see services)"
           service_uuid: "53da53b9-0447-425a-b9ea-9837505eb59a"
         steps:
           - action: "Connect and discover the XBee 3 BLE service; subscribe to the RX characteristic f9279ee9-2cd0-410c-81cc-adf11e4e5aea."
             actor: "client"
-          - action: "Perform the SRP-6a unlock: send BLE Unlock frame 0x2C with the SRP client value for user 'apiservice', using the flow-specific password from protocol_details.unlock_passwords, complete the two-step exchange, and apply the negotiated AES session keys to both characteristics."
+          - action: "Perform the four-frame SRP-6a unlock for user 'apiservice' using 030609 on the reviewed Ensemble paths. Verify the server's 32-byte proof. In phase 4 take bytes 32-43 as the 12-byte TX nonce for client→XBee and bytes 44-55 as the 12-byte RX nonce for XBee→client, then use the 32-byte session key with those direction-specific nonces as AES-256-CTR counter prefixes and initial remaining counter value 1."
             actor: "client"
-            expect: "Unlock response frame 0xAC reports success; subsequent traffic is encrypted."
+            expect: "Unlock response frame 0xAC reports success; subsequent traffic is AES-256-CTR encrypted with the appropriate nonce in each direction."
             timeout_seconds: 10
           - action: "Exchange Enphase frames as XBee User Data Relay (0x2D) payloads addressed to the serial interface; responses arrive as User Data Relay Output (0xAD)."
             actor: "client"
@@ -143,25 +143,25 @@ device:
       in_place_supported: true
       requires_factory_reset: false
       notes: >
-        Site-mesh re-join is a re-run of the BLE provisioning push (PAN ID,
-        link key, Envoy serial) — no reset needed, and the app retries the
-        link-key push with freshly generated keys on mismatch.
+        Site-mesh re-join re-runs the link-key and Envoy-serial provisioning
+        flow and verifies the derived PAN ID; no separate numeric PAN-ID write
+        is established. No reset is needed, and the app retries the link-key
+        push with freshly generated keys on mismatch.
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device:
         - "802.15.4 site PAN ID and link key"
         - "Envoy (gateway) serial number"
       issued_to_client:
-        - "None — the client authenticates with the XBee BLE password (a product-wide value; see protocol_details.unlock_passwords for which flow uses 'password' and which '030609')"
+        - "None — the client authenticates with the flow-specific XBee BLE password (030609 on the reviewed Ensemble paths; see protocol_details.unlock_passwords)"
       notes: >
         The 16-byte 802.15.4 link key is generated by the app with
-        SecureRandom at commissioning time (all-0x00 and all-0xFF keys are
-        rejected and regenerated) and pushed to every Ensemble device; it is
-        a site-shared secret stored on each unit. A documented-but-default
-        fallback key begins 03 06 09 (app constant). Possession of the BLE
-        unlock password therefore yields the site mesh key — meaningful for
-        site security, and the reason this layer deserves the encrypted
-        channel it has.
+        SecureRandom at commissioning time and pushed to every Ensemble
+        device. All-zero and all-0xFF candidates are rejected, as is a
+        candidate with 13 zero bytes followed by the reserved 03 06 09 prefix.
+        That prefix is NOT a demonstrated fallback mesh key. Possession of the
+        BLE unlock password may yield the site mesh key — meaningful for site
+        security, and the reason this layer deserves the encrypted channel.
 
   pairing:
     required: true
@@ -173,17 +173,15 @@ device:
     bonding: "none"
     pin:
       source: "fixed_default"
-      value: "password"
+      value: "030609"
       notes: >
-        The installer library's generic default BLE password is "password".
-        It is not a Digi factory value: a stock XBee 3 ships with SRP salt 0,
-        which leaves BLE authentication disabled, so whatever answers here was
-        provisioned by Enphase's production. The provisioning manager's
-        PAN/link-key constructor paths instead use "030609"; see
-        protocol_details.unlock_passwords before implementing a particular
-        flow. These are product-wide constants rather than per-unit secrets,
-        so an owner who wants their own storage back does not need the
-        installer's credentials, only proximity and the correct flow value.
+        Reviewed Ensemble provisioning, link-key verification and live-data
+        paths expect the shared static value 030609. Separate range-test and
+        gateway helpers default to "password"; that helper value is not the
+        established Ensemble battery credential. A stock XBee 3 ships with SRP
+        salt 0 (authentication disabled), so the production provisioning is
+        Enphase-specific. Acceptance on every model/firmware is unverified;
+        these are product-wide constants, not per-unit secrets.
     exclusivity:
       single_connection: true
       single_bond: false
@@ -252,9 +250,9 @@ evidence:
     source: "Static analysis of the Enphase Installer Toolkit Android app (clean-room audit; derived facts only)"
     confirms:
       - "Units are reached via the stock Digi XBee 3 BLE GATT service 53da53b9-0447-425a-b9ea-9837505eb59a (TX 7dddca00-3e05-4651-9254-44074792c590, RX f9279ee9-2cd0-410c-81cc-adf11e4e5aea), bundled com.digi.xbee library."
-      - "Unlock is XBee BLE frame 0x2C carrying an SRP-6a handshake (username 'apiservice'); the generic library defaults to password 'password', while the provisioning manager's PAN/link-key constructors use '030609'; the channel is AES-encrypted afterwards."
+      - "Unlock is a four-frame SRP-6a exchange on XBee BLE frame 0x2C/response 0xAC (username 'apiservice'). Reviewed Ensemble provisioning, link-key verification and live-data paths expect '030609'; separate range-test/gateway helpers use 'password'. AES-256-CTR uses a verified 32-byte session key and direction-specific 12-byte nonces (follow-up static review 2026-11-08; no live unlock)."
       - "Enphase payloads ride XBee User Data Relay (0x2D) to the radio's serial interface (micropython interface for the IQ Extender); responses come back as User Data Relay Output (0xAD)."
-      - "Provisioning frame types 0-9 (link key, reset, relay states, ZB pairing/commissioning status, link key read, Envoy SN write/read, Enpower telemetry read); link-key frame is [0x01][0x10][16 key bytes]."
+      - "Provisioning frame types 0-9 (link key, reset, relay states, ZB pairing/commissioning status, link key read, Envoy SN write/read, Enpower telemetry read); polls use [type, 0], while write byte 1 can be a length, as in [0x01][0x10][16 key bytes]. The reserved 03 06 09 prefix is rejected during random-key validation, not used as a fallback key; no separate numeric PAN-ID write is established."
       - "A protobuf object-model layer (EnsObjMdlMessage, proto2: required protover=1, required uint64 timestamp=2, oneof payload tags 3-63) carries inventory, poll/live stats, subscribe/publish, relay and secondary control, SoC/phase config, sleep mode, manual override, events and memfault diagnostics."
       - "Discovery matches advertised name containing the device serial; no scan filter on service UUID."
     confidence: "medium"
@@ -268,10 +266,12 @@ services:
       BLE interface is exactly this, confirmed in the bundled
       com.digi.xbee.api Android library and matching Digi's public XBee 3
       BLE documentation. XBee API frames are written to TX and received on
-      RX; before the SRP-6a unlock completes only BLE Unlock frames (0x2C)
-      are accepted, and after it both directions are AES-encrypted with
-      session keys from the handshake (the library applies the cipher
-      transparently in its GATT callbacks). XBee API frame types in play
+      RX; before the four-frame SRP-6a unlock completes only BLE Unlock frames
+      (0x2C) are accepted. Verify the 32-byte proof, then use the 32-byte
+      session key for AES-256-CTR in both directions, with the appropriate
+      direction-specific 12-byte nonce as counter prefix and initial remaining
+      counter value 1 (the library applies the cipher in its GATT callbacks).
+      XBee API frame types in play
       (public digi-xbee-java APIFrameType): 0x2C BLE Unlock, 0xAC BLE
       Unlock Response, 0x2D User Data Relay (client→device),
       0xAD User Data Relay Output (device→client). Enphase payloads are the
@@ -298,14 +298,24 @@ services:
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:
   unlock_passwords:
+    ensemble_provisioning_link_key_verification_and_live_data: "030609"
     generic_library_default: "password"
     provisioning_manager_pan_and_link_key_checks: "030609"
+    separate_range_test_and_gateway_helpers: "password"
     notes: >
-      The app ships a generic XBee BLE default of "password", but both
-      provisioning-manager constructor paths for the PAN/link-key checks use
-      "030609" instead. These are different code paths, not evidence that one
-      value is universally correct for every unit. Use the value for the flow
-      being implemented; no per-unit secret is inferred.
+      Reviewed Ensemble provisioning, existing-device link-key verification and
+      live-data paths all expect the shared static value "030609". The value
+      "password" is confined to separate range-test and gateway connection
+      helpers and is not the established Ensemble battery credential. Acceptance
+      on every model/firmware still requires owner-authorized validation; no
+      live unlock was attempted and no per-unit secret is inferred.
+  channel_security:
+    srp: "SRP-6a, RFC 5054 1024-bit group, SHA-256, fixed username apiservice; four-frame exchange carried by BLE Unlock 0x2C and Unlock Response 0xAC."
+    proof_and_key: "Verify the server's 32-byte proof before using the 32-byte (AES-256) session key."
+    cipher: "AES-256-CTR with no padding."
+    nonces: "The server supplies two distinct 12-byte nonces, one for each direction. Use each as its direction's counter prefix; do not reuse one nonce for both directions. In phase 4 after the 32-byte proof, bytes 32-43 are the TX nonce for client→XBee and bytes 44-55 are the RX nonce for XBee→client."
+    initial_counter: "Initial remaining counter value 1 after the 12-byte nonce prefix."
+    relay_directions: "0x2D User Data Relay remains client-to-device; 0xAD User Data Relay Output remains device-to-client."
   # The Enphase payload layers inside the relay frames. Neither is a GATT
   # characteristic surface, so they are documented as protocol blocks the
   # schema allows to travel alongside: a simple typed provisioning frame set,
@@ -318,11 +328,12 @@ protocol_details:
     provisioning_frames:
       description: >
         Simple frame set used at commissioning, built by the app's XBee BLE
-        manager.
-        Request byte 0 is the frame type, byte 1 is a 0 placeholder; the
-        response echoes the type in byte 0, and the payload is everything
-        after the first two bytes (the app drops exactly two bytes before
-        parsing). Poll-style requests are sent as [type, 0x00].
+        manager. Request byte 0 is the frame type. Poll requests are [type, 0],
+        but byte 1 is NOT universally zero: writes can use it as a length, as
+        in [01][10][16 key bytes] (18 bytes) and the length-prefixed Envoy
+        serial write. Responses echo the type in byte 0, and the payload is
+        everything after the first two bytes. A separate numeric PAN-ID write
+        is not established; Envoy serial is used to derive/verify the PAN ID.
       write_envoy_sn:
         frame: "[0x07][serial_length:u8][serial_ascii]"
         length: "serial_length + 2 bytes total"

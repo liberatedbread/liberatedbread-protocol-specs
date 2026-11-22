@@ -115,55 +115,52 @@ device:
     # Divoom's published API and community clients that have not been
     # replayed here.
     confidence: medium
-    notes: 'The Pixoo must be provisioned onto WiFi via the Divoom app (BLE or Bluetooth-assisted).
-      Once on WiFi, it registers with Divoom cloud. A replacement controller must
-      also authenticate with Divoom cloud (UserLogin) to obtain Token/UserId, then
-      call Device/GetListV2 to discover the device and its LocalToken. The LocalToken
-      is required for the vendor app''s port-9000 channel; Divoom''s documented port-80
-      /post API takes none (see device.pairing).
-
-      '
+    notes: >
+      Provision the Pixoo onto WiFi with the Divoom app's Bluetooth-assisted
+      flow. Once it has a LAN address, this spec's documented port-80 `/post`
+      commands need no cloud login, UserId/Token or LocalToken. Those
+      credentials belong to the separate app channel on port 9000
+      (`/divoom_api`): the app obtains the address and LocalToken from
+      Device/GetListV2. Do not make the app channel's token a prerequisite
+      for ongoing `/post` control.
     methods:
     - type: cloud_account
       verified: false
-      description: '1. Authenticate with Divoom cloud (UserLogin) to get Token + UserId.
-        2. Call Device/GetListV2 to get device IP and LocalToken. 3. Send commands
-        to http://<device_ip>:9000/divoom_api with LocalToken.
-
-        '
+      description: >
+        Complete the vendor app's Bluetooth-assisted WiFi provisioning. Only
+        the optional port-9000 app channel then needs cloud authentication:
+        UserLogin supplies UserId/Token, and Device/GetListV2 supplies the
+        device address and LocalToken. A controller using the documented
+        port-80 `/post` API needs only the device address.
       cloud:
         provider: Divoom
         local_alternative: >
-          Partial. Once provisioned, all commands go to the device directly over
-          HTTP on port 9000 — no cloud round-trip per command. But the LocalToken
-          those commands carry is only obtainable from Divoom's cloud via
-          Device/GetListV2, so the cloud is a one-time dependency, not an
-          ongoing one. Cache the LocalToken and local control survives Divoom
-          going away; lose it and there is no known way to re-derive it locally.
-          WiFi provisioning itself is Bluetooth-assisted through the Divoom app
-          and has no documented offline path.
+          Yes for ongoing control through the documented port-80 `/post` API:
+          once provisioned and given the device address, power and brightness
+          commands need no cloud round-trip and no LocalToken. The app's
+          port-9000 `/divoom_api` channel is different and does need the
+          cloud-obtained LocalToken; cache it if using that channel. Initial
+          WiFi provisioning remains Bluetooth-assisted through the vendor app,
+          and cloud device discovery still requires the vendor service.
       steps:
-      - action: Authenticate with Divoom cloud API to obtain UserId and Token.
+      - action: Complete Bluetooth-assisted WiFi provisioning in the Divoom app.
+        actor: user
+        expect: The display joins the LAN and answers the documented port-80 /post API.
+      - action: For the documented local API, address JSON POSTs to http://<device_ip>:80/post without a LocalToken.
         actor: client
         request:
           protocol: http
-          url: https://appin.divoom-gz.com/UserLogin
-      - action: Call Device/GetListV2 to discover device IP and LocalToken.
+          url: http://{device_ip}:80/post
+      - action: Only when using the separate port-9000 app channel, authenticate with UserLogin and call Device/GetListV2 for the LocalToken.
         actor: client
         request:
           protocol: http
           url: https://appin.divoom-gz.com/Device/GetListV2
-      - action: Send JSON commands to http://<DevicePrivateIP>:9000/divoom_api.
-        actor: client
-        request:
-          protocol: http
-          url: http://{DevicePrivateIP}:9000/divoom_api
     factory_reset:
       confidence: medium
-      effect: 'Clears WiFi credentials and cloud binding. Device returns to provisioning
-        mode (advertises Bluetooth for setup).
-
-        '
+      effect: >
+        Clears WiFi credentials and cloud binding. The device returns to
+        provisioning mode and advertises Bluetooth for setup.
       procedures:
       - name: Button reset
         steps:
@@ -177,10 +174,11 @@ device:
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
-      notes: 'Device stays connected to WiFi. A new controller just needs cloud auth
-        + Device/GetListV2 to get the current LocalToken. No pairing or bonding required.
-
-        '
+      notes: >
+        The device stays on WiFi and no pairing or bonding is needed. A new
+        controller using `/post` needs only the current LAN address. Cloud
+        auth plus Device/GetListV2 is needed only to obtain or refresh the
+        separate port-9000 channel's LocalToken.
     credentials:
       wifi_passphrase_protection: unknown
       stored_on_device:
@@ -188,13 +186,16 @@ device:
       - WiFi passphrase
       issued_to_client:
       - UserId
-      - Token
-      - LocalToken
-      notes: 'Cloud auth (UserId/Token) required to discover device and obtain LocalToken.
-        LocalToken is rotated by the cloud and must be current for local HTTP commands.
-        WiFi credentials are only stored on device.
-
-        '
+      - Token (cloud app channel only)
+      - LocalToken (port-9000 app channel only)
+      notes: >
+        No credential is documented for the port-80 `/post` commands in this
+        spec. Cloud UserId/Token discovers devices and obtains LocalToken for
+        the separate port-9000 `/divoom_api` commands; LocalToken may rotate
+        and must be current on that channel. A 2026-05 documentation update
+        introduces DeviceToken on the public API, so whether newer firmware
+        gates `/post` remains a variant question, not a reason to require the
+        app's LocalToken on every firmware.
   pairing:
     required: false
     confidence: medium
@@ -560,6 +561,8 @@ commands:
     transport: http
     method: POST
     path: /post
+    headers:
+      Content-Type: application/json
     body: '{"Command": "Channel/GetAllConf"}'
     example_body: '{"Command": "Channel/GetAllConf"}'
     returns:
@@ -576,14 +579,20 @@ commands:
     transport: http
     method: POST
     path: /post
+    headers:
+      Content-Type: application/json
     body: '{"Command": "Channel/OnOffScreen", "OnOff": 1}'
+    example_body: '{"Command": "Channel/OnOffScreen", "OnOff": 1}'
     verification: reported
   screen_off:
     description: Blank the panel's display. The device stays on the network and keeps answering the API.
     transport: http
     method: POST
     path: /post
+    headers:
+      Content-Type: application/json
     body: '{"Command": "Channel/OnOffScreen", "OnOff": 0}'
+    example_body: '{"Command": "Channel/OnOffScreen", "OnOff": 0}'
     verification: reported
   set_brightness:
     description: >-
@@ -593,7 +602,10 @@ commands:
     transport: http
     method: POST
     path: /post
+    headers:
+      Content-Type: application/json
     body: '{"Command": "Channel/SetBrightness", "Brightness": {brightness}}'
+    example_body: '{"Command": "Channel/SetBrightness", "Brightness": 100}'
     parameters:
       brightness:
         type: integer
@@ -643,8 +655,10 @@ entities:
 http_endpoints:
 - path: /divoom_api
   method: POST
-  description: Primary local API endpoint for device commands
+  description: App-specific local endpoint on port 9000, whose LocalToken is distinct from the documented /post API.
   name: divoom_api
+  request_body:
+    content_type: application/json
 - path: /post
   method: POST
   description: 'Official documented local API (Divoom third-party docs,
@@ -654,6 +668,8 @@ http_endpoints:
     (fw >= 90096). A 2026-05 documentation update adds a DeviceToken
     field, so newer firmware may start gating this endpoint.'
   name: post_api
+  request_body:
+    content_type: application/json
 helpful_urls:
 - title: "Divoom Pixoo 64 quick start manual"
   url: "https://www.manualslib.com/manual/2462222/Divoom-Pixoo-64.html"

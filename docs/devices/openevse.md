@@ -11,7 +11,7 @@ An open-source EV charging station: an ESP32 Wi-Fi gateway wraps a controller th
 
 ## Protocol Summary
 
-HTTP API (`/status`, `/config`, `/override`) + WebSocket + MQTT (`openevse-xxxx/...`), optional OCPP. The controller RAPI serial protocol underneath sets current (`$SC`), pause/resume (`$FS`/`$FE`), etc.
+HTTP API (`/status`, `/config`, `/override`) + WebSocket + MQTT (`openevse-xxxx/...`), optional OCPP. `/status` and MQTT `amp` are milliamps: divide by 1000 for A (32120 mA = 32.12 A). Resume uses `POST /override` with `{"state":"active"}` and retains the override rather than clearing it. The controller RAPI serial protocol underneath sets current (`$SC`), pause/resume (`$FS`/`$FE`), etc.
 
 See `device-specs/devices/openevse.yaml` for the full machine-readable spec.
 

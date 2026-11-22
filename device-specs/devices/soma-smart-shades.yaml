@@ -1,0 +1,468 @@
+# SOMA Smart Shades 2 / Tilt 2 (V2) and Smart Shades 3 (V3)
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SOMA Smart Shades 2 / Tilt 2 / Smart Shades 3"
+  manufacturer: "Wazombi Labs OÜ"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No shade was discovered, connected, moved, reset or updated by this project.
+      V2 and V3 facts come from the public community clients and protocol documents;
+      their software vectors passed 14 V2 and 29 V3 tests, but those are not hardware
+      tests. ATT permissions, pairing and physical calibration behavior remain open.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "motor"
+  type: "shade-motor"
+  integration: "identify_only"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/vanderkley/soma-shades"
+    notes: >
+      V2 and V3 are different protocols on different services. This spec deliberately
+      covers only discovery, position, basic motor actions, identify and the narrowly
+      documented battery surfaces. Calibration, schedules and OTA are excluded.
+  variants:
+    - model: "Smart Shades 2 (V2)"
+      notes: "Manufacturer version below 0x10 and exact local name S; V2 characteristic-value protocol."
+    - model: "Tilt 2 (V2)"
+      notes: "V2 with advertisement byte 1 bit 0x80; position 0 closed upwards, 50 open, 100 closed downwards."
+    - model: "Smart Shades 3 (V3)"
+      notes: "Manufacturer version at least 0x10, normally no local name; V3 type-length command protocol."
+  companion_apps:
+    - name: "Smart Shades"
+      package: "com.wazombi.RISE"
+      role: "primary"
+      platform: "cross_platform"
+      notes: "Not required by the open direct-BLE clients. Travel-limit calibration is not reimplemented here."
+  notes: >
+    DANGER — SELECT THE GENERATION BEFORE ANY GATT WRITE. V2 and V3 are not
+    interchangeable and there is no write-based probing fallback.
+
+    On V3, `51 00` is a type-length-framed GET_ZIGBEE_ENABLED request. On V2,
+    writing a bare `0x51` to the legacy device service is reported by the V3
+    community integration to be a factory-reset operation whose recovery needs
+    the vendor app. Never send V3 frames to V2, never send a bare opcode as a
+    discovery probe, and never try one generation's command after the other fails.
+
+    V2 advertises local name `S` and manufacturer company ID 0x0370 with version
+    below 0x10. V3 uses the same company ID, version at least 0x10 and normally
+    no local name. V3 does not reliably advertise its control service; identify
+    it from manufacturer data, not a service-UUID scan.
+
+    Positions are percent CLOSED: 0 = fully open, 100 = fully closed. Invert only
+    at a UI that uses percent open. Tilt 2 uses 0 = closed upwards, 50 = open,
+    100 = closed downwards. V2 accepts one BLE central at a time according to the
+    community client; close the vendor app or any bridge before connecting.
+
+    Exact S plus the version guard selects V2, not its model. A dedicated handler
+    must then select Smart Shades 2 when V2Advertisement byte 1 bit 0x80 is clear
+    and Tilt 2 when it is set. The generic BLE variant selector cannot evaluate
+    that bit, so integration is identify_only and every V2 entity binding is
+    withheld rather than exposing both Open endpoints. The V2 commands and decoder
+    remain documented for that handler, including Tilt 2 open at position 50.
+  identification:
+    local_names: ["S"]
+    manufacturer_data:
+      company_id: 880
+      company_id_hex: "0x0370"
+      description: >
+        Wazombi Labs. Byte 0 selects generation: below 0x10 is V2, at least 0x10 is
+        V3. `S` is an exact V2 name, not a prefix to apply to V3.
+    notes: >
+      A scanner must inspect the manufacturer payload before offering controls.
+      Company ID alone does not select a command map; V3's control service is not
+      a reliable advertisement filter.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 880
+            description: "Decode version first: <0x10 V2, >=0x10 V3. V2 name is exactly S; V3 generally has no name."
+        notes: "Mandatory generation selection is in protocol_details.generation_selection; never probe with writes."
+        verification: "reported"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: "Persist the selected generation and, for V2, the byte-1-selected model; never infer either later from a failed command."
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No network provisioning or cloud account is needed for direct BLE. The shade
+      must already have safe physical travel limits configured; this spec does not
+      teach calibration. Setup confidence covers the public client flows, not an
+      ATT-permission dump or a motor replay here. The V2 method is documentary
+      while integration is identify_only and requires a dedicated variant handler.
+    methods:
+      - type: "ble_direct"
+        name: "V2 Smart Shades 2 / Tilt 2"
+        role: "variant"
+        verified: false
+        description: "Only after company 0x0370 yields version <0x10, exact V2 name S and byte-1 model selection. Uses one-byte characteristic values, never V3 type-length frames."
+        steps:
+          - action: "Confirm manufacturer company 0x0370, version below 0x10 and exact local name S, then select Smart Shades 2 when advertisement byte 1 bit 0x80 is clear or Tilt 2 when set; stop on any mismatch."
+            actor: "client"
+          - action: "Close the vendor app and any bridge holding the V2 shade's single BLE connection."
+            actor: "user"
+          - action: "Read current and target closed percentages before any movement; use only the selected model's V2 characteristic commands."
+            actor: "client"
+            expect: "V2 position reads return 0-100 percent closed; no V3 frame or the other V2 model's Open command is emitted."
+      - type: "ble_direct"
+        name: "V3 Smart Shades 3"
+        role: "variant"
+        verified: false
+        description: "Only after company 0x0370 yields version >=0x10. Uses the V3 command service even though it was not reliably advertised."
+        steps:
+          - action: "Confirm manufacturer company 0x0370 and version at least 0x10; do not require a local name or advertised control service."
+            actor: "client"
+          - action: "Connect and discover the V3-only control service; refuse to continue if it is absent."
+            actor: "client"
+          - action: "Write only type-length framed V3 requests, then read the response characteristic and verify its opcode and declared length."
+            actor: "client"
+            expect: "A matching V3 response; a bare opcode or a response for another opcode is rejected."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        A bare 0x51 on the V2 legacy device service is reported to factory-reset
+        the shade and require vendor-app recovery. The complete cleared state and
+        physical reset procedure are not established. No reset procedure is offered.
+      description: >
+        This warning exists to prevent accidental reset, not to authorize one.
+        Calibration, Zigbee reset, V3 reset-settings and every other reset-like
+        opcode are outside the safe control surface.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "There is no Wi-Fi network to rejoin. Preserve the generation and V2 model when moving to another controller."
+      steps:
+        - action: "Disconnect the existing central or bridge; for V2 this is required before another central can connect."
+          actor: "user"
+        - action: "Repeat passive generation selection and, for V2, byte-1 model selection in the dedicated handler, then use only the selected generation/model command map."
+          actor: "client"
+          expect: "Once a dedicated handler exists, direct BLE control resumes without a factory reset, cloud account or ambiguous V2 Open endpoint."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Owner-configured name and physical travel limits; calibration writes are outside this spec"
+        - "Possible link-layer bonding state, if any; ATT permissions and bond count are unverified"
+      issued_to_client: []
+      notes: "No application-layer pairing key, Wi-Fi credential or cloud token is described by the public direct-BLE clients."
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: "For V2, close the vendor app and every other central/bridge before reconnecting. V3 connection limits are unverified."
+      notes: "The one-central statement is community evidence for V2; do not generalize a bond limit to either generation."
+    enter_pairing_mode:
+      required: false
+      notes: "No pairing-mode exchange is described by the open clients. ATT permissions still need verification on each unit."
+    notes: >
+      The absence of application-layer pairing in public sources is not proof that
+      every firmware accepts unauthenticated writes. Check ATT permissions and
+      bonding on the actual generation before implementing a client.
+
+services:
+  - uuid: "00001861-b87f-490c-92cb-11ba5ea5167c"
+    name: "SOMA V2 Motor Service"
+    notes: "V2 ONLY. Fixed characteristic values; never write V3 type-length frames here."
+    characteristics:
+      - uuid: "00001525-b87f-490c-92cb-11ba5ea5167c"
+        name: "V2 Current Position"
+        properties: ["read", "notify"]
+        format:
+          - { offset: 0, length: 1, name: "position_closed", type: "uint8", unit: "%", notes: "0 open, 100 closed; Tilt semantics are in device.notes" }
+        notes: "First byte is current closed percentage. Later bytes are schedule summaries and are intentionally not decoded."
+      - uuid: "00001526-b87f-490c-92cb-11ba5ea5167c"
+        name: "V2 Target Position"
+        properties: ["read", "write"]
+        format:
+          - { offset: 0, length: 1, name: "target_closed", type: "uint8", unit: "%" }
+        commands:
+          v2_set_position:
+            description: "Set V2 target closed percentage, one byte 0-100."
+            encoding: "bytes"
+            template: ["{position}"]
+            parameters:
+              position: { type: "uint8", min: 0, max: 100, unit: "%", description: "Target percent closed" }
+            verification: "reported"
+          tilt2_open:
+            description: "Tilt 2 open: set target position 50 (0x32), between closed-up 0 and closed-down 100."
+            encoding: "bytes"
+            value: [0x32]
+            verification: "reported"
+      - uuid: "00001530-b87f-490c-92cb-11ba5ea5167c"
+        name: "V2 Motor Command"
+        properties: ["write"]
+        commands:
+          v2_open:
+            description: "Smart Shades 2 fully up/open (0x69); not the Tilt 2 open action."
+            encoding: "bytes"
+            value: [0x69]
+            verification: "reported"
+          v2_close:
+            description: "V2 fully down/closed (0x96); on Tilt 2 this is closed downwards at position 100."
+            encoding: "bytes"
+            value: [0x96]
+            verification: "reported"
+          v2_stop:
+            description: "V2 stop immediately (0x00)."
+            encoding: "bytes"
+            value: [0x00]
+            verification: "reported"
+          v2_stop_at_next_step:
+            description: "V2 stop at next step (0x01), distinct from immediate stop."
+            encoding: "bytes"
+            value: [0x01]
+            verification: "reported"
+          v2_step_up:
+            description: "V2 step up (0x68)."
+            encoding: "bytes"
+            value: [0x68]
+            verification: "reported"
+          v2_step_down:
+            description: "V2 step down (0x86)."
+            encoding: "bytes"
+            value: [0x86]
+            verification: "reported"
+      - uuid: "00001531-b87f-490c-92cb-11ba5ea5167c"
+        name: "V2 Identify"
+        properties: ["write"]
+        commands:
+          v2_identify:
+            description: "Play the V2 identification beep (0x01)."
+            encoding: "bytes"
+            value: [0x01]
+            verification: "reported"
+      - uuid: "0000ba71-b87f-490c-92cb-11ba5ea5167c"
+        name: "V2 Battery Voltage"
+        properties: ["read"]
+        format:
+          - { offset: 0, length: 2, name: "battery_voltage_raw", type: "uint16", endianness: "little", scale: 10, unit: "mV", device_class: "voltage" }
+        notes: "Reported V2 voltage in raw units of 10 mV. This is not the uncertain advertisement byte 1 or the standard 0x2a19 characteristic."
+
+  - uuid: "8998a466-a65f-4d49-90b2-927f41c55190"
+    name: "SOMA V3 Control Service"
+    notes: "V3 ONLY, discovered after connection and not reliably advertised. Every request is type(1) | length(1) | data(length)."
+    characteristics:
+      - uuid: "8998a466-a65f-4d49-90b2-927f41c55191"
+        name: "V3 Command Write"
+        properties: ["write"]
+        role: "command"
+        commands:
+          v3_open:
+            description: "Calibrated V3 open: set closed percentage to 0 with 08 01 00."
+            encoding: "bytes"
+            value: [0x08, 0x01, 0x00]
+            verification: "reported"
+          v3_close:
+            description: "Calibrated V3 close: set closed percentage to 100 with 08 01 64."
+            encoding: "bytes"
+            value: [0x08, 0x01, 0x64]
+            verification: "reported"
+          v3_raw_jog_open:
+            description: "Raw open-direction uncalibrated jog 01 00, only while travel limits are explicitly known to be unconfigured; a calibrated shade ignores it. The client must bound the jog and send v3_stop."
+            encoding: "bytes"
+            value: [0x01, 0x00]
+            advanced: true
+            advanced_reason: "An uncalibrated motor has no end stops. Use only for a deliberately supervised, time-bounded calibration jog, never as ordinary open."
+            verification: "reported"
+          v3_raw_jog_close:
+            description: "Raw close-direction uncalibrated jog 02 00, only while travel limits are explicitly known to be unconfigured; a calibrated shade ignores it. The client must bound the jog and send v3_stop."
+            encoding: "bytes"
+            value: [0x02, 0x00]
+            advanced: true
+            advanced_reason: "An uncalibrated motor has no end stops. Use only for a deliberately supervised, time-bounded calibration jog, never as ordinary close."
+            verification: "reported"
+          v3_stop:
+            description: "V3 stop request 03 00."
+            encoding: "bytes"
+            value: [0x03, 0x00]
+            verification: "reported"
+          v3_set_position:
+            description: "V3 set closed percentage: opcode 08, length 1, one data byte 0-100."
+            encoding: "bytes"
+            template: [0x08, 0x01, "{position}"]
+            parameters:
+              position: { type: "uint8", min: 0, max: 100, unit: "%", description: "Target percent closed" }
+            verification: "reported"
+          v3_get_position:
+            description: "V3 get closed percentage 0a 00; read the matching 0a response from the response characteristic."
+            encoding: "bytes"
+            value: [0x0a, 0x00]
+            verification: "reported"
+          v3_get_battery:
+            description: "V3 get battery percent 0b 00; read the matching 0b response."
+            encoding: "bytes"
+            value: [0x0b, 0x00]
+            verification: "reported"
+          v3_identify:
+            description: "V3 identify/beep request 17 00."
+            encoding: "bytes"
+            value: [0x17, 0x00]
+            verification: "reported"
+      - uuid: "8998a466-a65f-4d49-90b2-927f41c55192"
+        name: "V3 Command Response"
+        properties: ["read"]
+        notes: >
+          Plain GATT read after a command write; no notification behavior is assumed.
+          Parse type | length | data, require the requested opcode and reject a
+          truncated payload. A response for another opcode may be stale and is not success.
+
+payload_formats:
+  V2Advertisement:
+    description: "Manufacturer payload after company ID; version <0x10. Byte 1 is not emitted as a trustworthy battery percentage."
+    fields:
+      - { index: 0, name: "version", description: "uint8 below 0x10" }
+      - { index: 1, name: "tilt", type: "uint8", mask: 0x80, description: "Tilt 2 flag only; all other bits, including any battery interpretation, remain unverified" }
+      - { index: 2, name: "current_closed", type: "uint8", unit: "%", description: "Current position percent closed" }
+      - { index: 3, name: "target_closed", type: "uint8", unit: "%", description: "Target position percent closed" }
+      - { index: 4, name: "name_ascii", description: "ASCII name through byte 18: right-padded with spaces and ending in one ASCII 0 terminator before padding" }
+    parse_rules:
+      - "Require at least 4 bytes for position and 19 bytes for the fixed padded name field."
+      - "Strip trailing spaces, remove at most one final ASCII 0, then strip any padding before it. A name containing digits keeps those digits."
+      - "Never decode a battery percentage from byte 1; only bit 0x80 is used here."
+    example: "05 cb 64 32 52 6f 6f 6d 20 31 30 30 20 20 20 20 20 20 20"
+  V3Advertisement:
+    description: "Manufacturer payload after company ID; version >=0x10."
+    fields:
+      - { index: 0, name: "version", description: "uint8 at least 0x10" }
+      - { index: 1, name: "position_closed", type: "uint8", unit: "%", description: "0-100; reject larger values" }
+      - { index: 2, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery", description: "0-100; reject larger values" }
+    parse_rules: ["Require at least 3 bytes and validate both percentage ranges; trailing bytes are reserved."]
+    example: "10 00 3e"
+  V3PositionReply:
+    description: "Response to 0a 00: 0a | 01 | position_closed_u8."
+    fields:
+      - { index: 2, name: "position_closed", type: "uint8", unit: "%", description: "Data byte 0; percent closed" }
+    parse_rules: ["Require opcode 0x0a and at least one data byte; reject a short frame or stale opcode."]
+    example: "0a 01 64"
+  V3BatteryReply:
+    description: "Response to 0b 00: 0b | 01 | battery_percent_u8."
+    fields:
+      - { index: 2, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery", description: "Data byte 0" }
+    parse_rules: ["Require opcode 0x0b and at least one data byte; reject a short frame or stale opcode."]
+    example: "0b 01 3d"
+
+protocol_details:
+  generation_selection:
+    required_before_any_write: true
+    company_id: 880
+    rules:
+      - { generation: "V2", when: "payload byte 0 < 0x10", local_name: "exact S", command_style: "fixed one-byte characteristic values" }
+      - { generation: "V3", when: "payload byte 0 >= 0x10", local_name: "normally absent", command_style: "type | length | data on the V3-only service" }
+    failure_policy: "Missing/short payload or absent expected service means stop. Never probe the other protocol after a timeout or write failure."
+  dangerous_frame_difference:
+    v3: "51 00 = GET_ZIGBEE_ENABLED request (documented here only to explain the collision; Zigbee control is out of scope)."
+    v2: "A bare 0x51 written to the legacy device service 00001890-b87f-490c-92cb-11ba5ea5167c is reported as factory reset."
+    rule: "Never write 0x51 or 51 00 to a V2 unit. Never use a bare V3 opcode without its length byte. Do not expose either reset or Zigbee operation as a discovery/readiness probe."
+  v3_framing:
+    request: "opcode u8 | payload_length u8 | payload[payload_length]"
+    maximum_payload_bytes: 253
+    response: "Same framing, fetched with a plain read of 8998a466-a65f-4d49-90b2-927f41c55192 after write."
+    validation:
+      - "Reject frames shorter than two bytes and payloads shorter than the declared length."
+      - "Require the response opcode to match the request so a stale previous reply is not accepted."
+      - "Ignore bytes beyond the declared payload only as forward-compatible extension data; never count them as the current field."
+  v2_battery_estimate:
+    measured_input: "battery_voltage_raw * 10 mV"
+    percentage_transmitted: false
+    formula: "estimated_percent = clamp((battery_mv - 3600) * 100 // 500, 0, 100), using integer floor division before clamping"
+    examples:
+      - { battery_mv: 3500, estimated_percent: 0 }
+      - { battery_mv: 3600, estimated_percent: 0 }
+      - { battery_mv: 3850, estimated_percent: 50 }
+      - { battery_mv: 4100, estimated_percent: 100 }
+      - { battery_mv: 4200, estimated_percent: 100 }
+    notes: "Reported client conversion, not a direct percentage. Advertisement byte 1 and standard 00002a19 semantics are unresolved and not used."
+  test_vectors:
+    - { name: "v2_tilt_advertisement", generation: "V2", payload_hex: "05cb6432526f6f6d2031303020202020202020", expected: { tilt: true, current_closed: 100, target_closed: 50, name: "Room 10" }, verification: "reported" }
+    - { name: "v2_position_78", generation: "V2", payload_hex: "4e", expected: { position_closed: 78 }, verification: "reported" }
+    - { name: "v2_voltage_3850", generation: "V2", payload_hex: "8101", expected: { battery_mv: 3850, estimated_battery_percent: 50 }, verification: "reported" }
+    - { name: "v3_open_advertisement", generation: "V3", payload_hex: "10003e", expected: { position_closed: 0, battery_percent: 62 }, evidence: "Public V3 fixture", verification: "reported" }
+    - { name: "v3_set_20_percent", generation: "V3", payload_hex: "080114", expected: { opcode: 8, position_closed: 20 }, verification: "reported" }
+    - { name: "v3_position_100", generation: "V3", payload_hex: "0a0164", expected: { opcode: 10, position_closed: 100 }, verification: "reported" }
+    - { name: "v3_battery_61", generation: "V3", payload_hex: "0b013d", expected: { opcode: 11, battery_percent: 61 }, evidence: "Public V3 fixture", verification: "reported" }
+  excluded_surfaces:
+    - "Travel-limit calibration, encoder positions, direction and reset-settings commands"
+    - "Schedules, triggers, clock/timezone and solar automation"
+    - "Firmware update, bootloader entry and the V2 firmware-control characteristic"
+    - "Zigbee control/reset, SOMA Connect U1, original Tilt and Smart Shades 1"
+    - "Battery percentage from V2 advertisement byte 1 or the standard 00002a19 characteristic"
+
+entities:
+  - platform: "cover"
+    name: "V3 Shade"
+    device_class: "shade"
+    variants: ["Smart Shades 3 (V3)"]
+    commands:
+      open_cover: "v3_open"
+      close_cover: "v3_close"
+      stop_cover: "v3_stop"
+      set_cover_position: "v3_set_position"
+    notes: "Open and close use calibrated set-position frames. Poll v3_get_position and parse V3PositionReply after moves; percent closed."
+  - platform: "button"
+    name: "V3 Identify"
+    variants: ["Smart Shades 3 (V3)"]
+    commands: { press: "v3_identify" }
+  - platform: "sensor"
+    name: "V3 Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["Smart Shades 3 (V3)"]
+    notes: "Read passively from V3Advertisement or actively with v3_get_battery/V3BatteryReply."
+
+evidence:
+  documentation_review: >
+    Reviewed rzuppur/smart-shades-documentation at
+    7069723bd294918b092a9da1c9181b097a5bca34, vanderkley/soma-shades at
+    e0a3bc2f7cb3ab6a20ffacf9a0b388626f1a4df2 and pete-jorgensen/soma-ble at
+    b1b5ef02fd90d961ff88ad4405aaafc59fb8847c. Offline suites passed 14/14 V2 and
+    29/29 V3 protocol tests. No motor command or reset was sent by this project.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "vanderkley/soma-shades @ e0a3bc2f7cb3ab6a20ffacf9a0b388626f1a4df2"
+      description: "V2 advertising, Tilt flag, position/motor/identify characteristics, voltage conversion and one-central guidance."
+    - type: "public_implementation"
+      artifact: "pete-jorgensen/soma-ble @ b1b5ef02fd90d961ff88ad4405aaafc59fb8847c"
+      description: "V3 framing, plain-read response behavior, advertisement, opcodes and the V2 bare-0x51 reset warning."
+  open_questions: >
+    ATT permissions/bonding, V2 advertisement battery bits and standard battery
+    characteristic, V3 timing, original Tilt/SS1 compatibility, calibration,
+    schedules and OTA remain unverified or deliberately excluded.
+
+remaining_unknowns:
+  - "ATT permissions and bonding must be captured separately on one V2 and one V3 unit before assuming unauthenticated writes."
+  - "V2 advertisement byte 1 beyond the Tilt bit and the standard 00002a19 characteristic are not trustworthy battery-percentage sources."
+  - "Exact V3 write-to-read timing and stale-response behavior across firmware need capture."
+  - "Travel-limit calibration, schedules, OTA, original Tilt and Smart Shades 1 are outside this spec."
+  - "The complete effect of the reported V2 bare-0x51 factory reset is unknown; it must never be used as a probe."
+
+helpful_urls:
+  - title: "SOMA community protocol documents"
+    url: "https://github.com/rzuppur/smart-shades-documentation"
+    kind: "protocol_writeup"
+    description: "V2/V3 advertisement, GATT and core command references."
+  - title: "vanderkley/soma-shades"
+    url: "https://github.com/vanderkley/soma-shades"
+    kind: "implementation"
+    description: "Maintained V2/Tilt 2 client and protocol tests."
+  - title: "pete-jorgensen/soma-ble"
+    url: "https://github.com/pete-jorgensen/soma-ble"
+    kind: "implementation"
+    description: "V3 client, frame vectors and the cross-generation reset warning."
+  - title: "SOMA Smart Shades 3 installation guide"
+    url: "https://www.somasmarthome.com/install-guide/ss3"
+    kind: "vendor_support"
+    description: "Vendor's current SS3 physical installation and app-setup guide; not a BLE protocol reference."

@@ -37,19 +37,19 @@ device:
     app token) — it is NOT needed for control and is deliberately not
     reproduced here. All device control is local BLE.
 
-    DISCOVERY: the hub is found by MANUFACTURER-SPECIFIC advertisement data
-    (AD type 0xFF), not by name. The vendor app's BLE scanner concatenates
-    hex(2-byte company ID) + hex(payload minus its last byte) and requires the
-    result to equal the ASCII string "LEHUB1" (hex 4c4548554231), plus the
-    LAST payload byte to equal 0x01, which is a "pairing mode active" flag —
-    a hub not in pairing mode does not appear in the app's scan results. The
-    exact split is ambiguous from static analysis: either company ID 0x004C
-    (unassigned test value) + payload "EHUB1"+flag, or company ID 0x454C +
-    payload "HUB1"+flag (the discovery block below declares the second reading;
-    both are MEDIUM confidence). A robust matcher scans the raw manufacturer
-    AD structure for the ASCII substring "LEHUB1" and checks the trailing
-    flag byte. The advertised NAME is user-renamable (see the housekeeping
-    service) and is display-only — never filter on it.
+    DISCOVERY IS MANUAL until a real advertisement resolves the byte layout.
+    The app's parser reads the manufacturer company ID little-endian, formats
+    the resulting integer as lowercase hex, appends hex(payload excluding its
+    final pairing flag), and compares that string with 4c4548554231. The old
+    company-ID 0x454C matcher is mathematically inconsistent with this
+    comparison. The direct-reading candidate is company integer 0x4C45 +
+    payload "HUB1". The alternative company 0x004C + payload "EHUB1" can also
+    satisfy an unpadded formatted-hex comparison, so static analysis cannot
+    choose the raw layout. NEITHER raw form contains the contiguous ASCII
+    string "LEHUB1"; do not scan for that substring.
+    The final payload byte 0x01 remains the candidate pairing-active flag.
+    Capture one raw manufacturer AD structure before enabling any automatic
+    matcher. The advertised NAME is user-renamable and display-only.
 
     COMMAND TRANSPORT: all commands are 20-byte frames written to the command
     characteristic (58511D0A-...) on the command service (F4DB6DA0-...):
@@ -103,80 +103,54 @@ device:
     JSON schema was {"firmware":[{"deviceType":"PhotoHub","versionNum":N,
     "filename":"..."}]} with the binary at rootpath+filename.
 
-    CONFIDENCE: frame format, opcode map, service/characteristic UUIDs, the
-    "LEHUB1" advertisement filter, 200 ms pacing and the OTA flow are HIGH
-    (all read directly from the app's command builder and uploader). MEDIUM:
-    the company-ID/payload split of the manufacturer data (needs one real
-    advertisement capture); changeDisplayMode/changeRunMode operand semantics
-    (values observed, meanings inferred); battery characteristic encoding
-    (raw percent vs voltage unknown); whether the hub gates mode writes on
-    the 0x09 exitPairingMode handshake; whether the command characteristic
-    also notifies. LOW: factory reset behaviour (only indirect UI evidence
-    that removing hub batteries is the recovery path).
+    CONFIDENCE: frame format, opcode map, service/characteristic UUIDs,
+    200 ms pacing and the OTA flow are app-derived. The formatted
+    company/payload comparison is also app-derived, but NO raw manufacturer
+    layout is proven: discovery remains manual. Operand semantics, battery
+    encoding, command notify property, CSR attribution and OTA image/signature
+    behavior remain open. Factory-reset behavior is low confidence.
   identification:
-    manufacturer_data:
-      company_id: 17740
-      company_id_hex: "0x454C"
-      description: >
-        Advertised manufacturer data spells ASCII "LEHUB1" when hex(company
-        ID) and hex(payload) are concatenated, with a trailing pairing-mode
-        flag byte (0x01 = pairing active). Split is ambiguous from static
-        analysis: 0x454C+"HUB1" (declared here) or 0x004C+"EHUB1" — see
-        discovery method description. MEDIUM confidence pending a real
-        advertisement capture.
+    notes: >
+      No automatic matcher is declared. Candidate raw forms are company
+      integer 0x4C45 + payload "HUB1" and company 0x004C + payload "EHUB1";
+      both can satisfy an unpadded formatted-hex comparison, so the raw form
+      remains unresolved. Neither contains contiguous raw ASCII "LEHUB1".
+      Capture is required before choosing between them or adding a matcher.
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          manufacturer_data:
-            company_id: 17740
-            additional_company_ids: [76]
-            match: "prefix"
-            pattern: "48554231"
-            description: >
-              Match manufacturer-specific AD data whose company ID + payload
-              hex-decodes to ASCII "LEHUB1": either company 0x454C with
-              payload prefix "HUB1" (hex 48554231, declared as the primary
-              match; company 76 = 0x004C listed as the equivalent alternative
-              reading with payload prefix "EHUB1"), or — most robustly — the
-              ASCII substring "LEHUB1" anywhere in the raw AD structure.
-              The LAST payload byte is a pairing-mode flag: 0x01 means the
-              hub is in pairing mode and willing to connect; the vendor app
-              hides hubs whose flag is not 0x01. Do not match on the local
-              name — it is user-renamable over GATT and display-only.
-    identity:
-      stable_keys: ["address"]
-      display: "local_name"
-    static_ip_required: false
+    none: >
+      MANUAL DISCOVERY ONLY. The previous company 0x454C matcher cannot
+      reproduce the app's required formatted value and has been removed.
+      Have the user select the hub explicitly. Do not scan for raw ASCII
+      "LEHUB1", do not infer identity from the user-renamable name, and do
+      not offer controls until the user has confirmed the selected hub.
+      A real manufacturer AD capture must establish the company integer,
+      payload and trailing pairing flag before automation returns.
 
   setup:
     required: false
     confidence: "medium"
     notes: >
-      No provisioning, no account, no PIN, no bonding. The hub advertises
-      with a pairing-mode flag in its manufacturer data; a central that finds
-      the "LEHUB1" marker with flag 0x01 connects and writes 20-byte command
-      frames directly. The app sends opcode 0x09 (exitPairingMode) when
-      leaving pairing — whether the hub GATES mode writes on that handshake
-      is unverified (MEDIUM); safest is to mirror the app: connect, run the
-      upload sequence, then send exitPairingMode.
+      No provisioning, account, PIN or bonding. Manually select the hub;
+      the candidate trailing pairing-active byte is 0x01, but its raw offset
+      is not captured. The app sends opcode 0x09 when leaving pairing;
+      whether the hub gates mode writes on that handshake is unverified.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          Power the hub, scan for the "LEHUB1" manufacturer-data marker with
-          pairing flag 0x01, connect, and write command frames. No
-          credentials are exchanged at any point.
+          Power the hub and have the user select it manually. Do not use an
+          automatic manufacturer-data matcher until a real AD structure
+          resolves the two candidate layouts.
         ble:
           pairing_required: false
         steps:
-          - action: "Power the Smart Hub and scan for manufacturer data containing ASCII 'LEHUB1' with trailing pairing-mode byte 0x01."
+          - action: "Power the Smart Hub and select it explicitly from the client's nearby-device list; confirm it is the intended hub."
+            actor: "user"
+          - action: "Connect and write 20-byte command frames to the command characteristic (58511d0a-2cd1-6188-5445-9f98c91be785), paced at one frame per 200 ms during multi-frame uploads."
             actor: "client"
             request:
               protocol: "ble_gatt"
-          - action: "Connect and write 20-byte command frames to the command characteristic (58511D0A-...), paced at one frame per 200 ms during multi-frame uploads."
-            actor: "client"
-          - action: "Send opcode 0x09 (exitPairingMode) when done pairing/syncing, mirroring the vendor app."
+          - action: "Send opcode 0x09 (exit pairing mode) when done pairing/syncing, mirroring the vendor app."
             actor: "client"
     factory_reset:
       confidence: "low"
@@ -218,13 +192,9 @@ device:
   variants:
     - model: "Spectra Smart Hub (PhotoHub)"
       identification:
-        manufacturer_data:
-          company_id: 17740
-          company_id_hex: "0x454C"
-          description: >
-            BLE relay between the phone and the Spectra gloves (proprietary
-            2.4 GHz hub-to-glove link). Firmware device type "PhotoHub" in
-            the OTA manifest.
+        notes: >
+          Manual selection only; no automatic manufacturer matcher. BLE relay
+          between phone and gloves, with firmware device type "PhotoHub".
 
 services:
   - uuid: "f4db6da0-2fcf-d296-a741-42ff6328ef42"

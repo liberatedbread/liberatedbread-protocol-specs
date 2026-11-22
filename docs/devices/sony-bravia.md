@@ -22,15 +22,13 @@ expose two local control surfaces on port 80:
 Both surfaces are **off until the user enables IP control on the TV**, and
 both require authentication once enabled.
 
-> **Transport gap**: every request here is a POST with a **body** (SOAP
-> envelope or JSON document) plus an **auth header** (`X-Auth-PSK` or the
-> pairing cookie). The reference app today sends GET/POST with an empty body
-> and no per-device headers. A client must implement *SOAP with arguments
-> plus a per-device auth header* (the IRCC keys) and *JSON-body POSTs with
-> the same header* (the REST surface) — neither is yet supported by the
-> reference app. The machine-readable spec therefore declares the IRCC keys
-> as `transport: "soap"` commands and catalogues the REST methods in
-> `http_endpoints` only.
+Every request is a POST with a **body** (SOAP envelope or JSON document)
+plus an **auth header** (`X-Auth-PSK` or the pairing cookie). The spec's
+`commands` declares both the IRCC keys and the JSON-RPC state reads used by
+entities, with literal bodies, JSON content type and PSK/cookie auth;
+`http_endpoints` catalogues the wider REST surface. A Volume consumer must
+select the `result[0]` entry whose sibling `target` is `speaker`: target
+ordering is not guaranteed, so a fixed `result[0][0]` path is incorrect.
 
 ## Discovery
 

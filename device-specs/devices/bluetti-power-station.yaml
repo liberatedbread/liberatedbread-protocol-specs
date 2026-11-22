@@ -22,15 +22,16 @@ device:
     detail: minimally-verified
     notes: >
       Read path verified live 2026-08-14 against a real EP500 (advertised name
-      "EP5002142000061564", public MAC, OUI 00:15:83) over bleak/BlueZ with no
+      "EP500<serial>", public MAC, OUI 00:15:83) over bleak/BlueZ with no
       pairing, driving frames built from this document. GATT layout matched
       (0xFF00 service with FF01 notify / FF02 write; FF03/FF04 also present —
       see services). No unsolicited push arrived after subscribing to FF01,
       confirming the plain (unencrypted) V1 protocol. ReadHoldingRegisters(10,6)
       returned ASCII "EP500" with a valid CRC; ReadHoldingRegisters(17,4)
-      decoded (low-word-first u64) to 2142000061564 — exactly the serial
-      embedded in the advertised name, a strong cross-check of both the
-      register map and the field encoding; ReadHoldingRegisters(36,14)
+      decoded (low-word-first u64) to the serial embedded in the advertised
+      name, a strong cross-check of both the register map and the field
+      encoding; the owner serial is intentionally not republished.
+      ReadHoldingRegisters(36,14)
       returned live plausible telemetry (SOC 50%, ac_output_on=1 with 1049 W
       AC load, dc_output_on=1 at 2 W). NOT exercised: every write (AC/DC
       output toggles, all 3000-range controls), the pack-selector flow, the
@@ -93,23 +94,20 @@ device:
     charging behaviour; treat as advanced.
 
     Cloud dependency: none for anything documented here.
-  identification:
-    service_uuids:
-      - "0000ff00-0000-1000-8000-00805f9b34fb"
-
   discovery:
     methods:
       - type: "ble_scan"
         ble:
-          # Either/or: match the advertised name pattern OR the 0xFF00 service.
-          # The name <MODEL><serial> is the precise signal (0xFF00 is a common
-          # 16-bit value); the service is the fallback for a firmware that
-          # trims the name.
+          # FF00 is shared with JBD and other protocols and is not identity.
+          # Auto-discovery therefore requires the complete model+serial name.
           local_name:
             match: "regex"
             value: "^(AC200M|AC300|AC500|AC60|EP500P|EP500|EP600|EB3A)[0-9]+$"
-          service_uuids:
-            - "0000ff00-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Renamed units require manual selection followed by read-only identity
+          confirmation: model at registers 10-15 and low-word-first serial at
+          17-20 on V1 (V2 uses 110 and 116 respectively). Never use FF00 alone
+          to cross-identify this as a JBD BMS or enable writes.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -127,21 +125,21 @@ device:
       - type: ble_direct
         description: >
           Connect over GATT, subscribe to 0xFF01, wait ~2 s to check for the
-          2A 2A encrypted-protocol push, then poll with function-0x03 reads
-          and control with function-0x06 writes on 0xFF02.
+          2A 2A encrypted-protocol push, then use read-only function-0x03
+          identity checks before any function-0x06 write on 0xFF02.
         verified: true
         ble:
           pairing_required: false
         steps:
-          - action: "Scan for advertised name matching ^(AC200M|AC300|AC500|AC60|EP500P|EP500|EP600|EB3A)\\d+$ or service 0xFF00."
+          - action: "Auto-discover only an advertised name matching ^(AC200M|AC300|AC500|AC60|EP500P|EP500|EP600|EB3A)\\d+$; never match service 0xFF00 by itself. Manually select a renamed unit instead."
             actor: client
           - action: "Connect over GATT (no pairing) and enable notifications on 0000ff01."
             actor: client
           - action: "Wait ~2 s. If an unsolicited notification starting 2A 2A arrives, the unit runs the encrypted protocol — stop (not covered here)."
             actor: client
-          - action: "Write ReadHoldingRegisters(10,6) to 0000ff02; reassemble FF01 notifications to 17 bytes; CRC-check."
+          - action: "Write ReadHoldingRegisters(10,6) to 0000ff02; reassemble FF01 notifications to 17 bytes; CRC-check. On a manually selected renamed unit this read-only model/serial confirmation is mandatory before writes."
             actor: client
-            expect: "Payload decodes to the ASCII model string (e.g. \"EP500\"); registers 17-20 then yield the serial matching the advertised name."
+            expect: "Payload decodes to the expected model (e.g. \"EP500\"); registers 17-20 then yield the serial matching the unit's identity (V2 uses registers 110/116). Do not write if identity does not agree."
     factory_reset:
       applicable: true
       confidence: low
@@ -278,6 +276,8 @@ services:
           ac_output_on:
             description: "AC inverter output ON: set_ac_output with the value fixed at 1 — Write Single Register 3007 (0x0BBF) = 1. The AC Output switch entity is the intended surface; restores mains power to plugged-in loads."
             verification: "reported"
+            advanced: true
+            advanced_reason: "Restores mains power to connected loads. Recover by using the parameterized set_ac_output command or front panel to select the intended state."
             template: [0x01, 0x06, 0x0B, 0xBF, 0x00, 0x01, "{crc}"]
             parameters:
               crc:
@@ -288,6 +288,8 @@ services:
           ac_output_off:
             description: "AC inverter output OFF: set_ac_output with the value fixed at 0 — Write Single Register 3007 (0x0BBF) = 0. Cuts mains power to every AC load plugged into the unit."
             verification: "reported"
+            advanced: true
+            advanced_reason: "Cuts mains power to every connected AC load. Recover by using the parameterized set_ac_output command or front panel to restore output."
             template: [0x01, 0x06, 0x0B, 0xBF, 0x00, 0x00, "{crc}"]
             parameters:
               crc:
@@ -298,6 +300,8 @@ services:
           dc_output_on:
             description: "DC output ON: set_dc_output with the value fixed at 1 — Write Single Register 3008 (0x0BC0) = 1."
             verification: "reported"
+            advanced: true
+            advanced_reason: "Restores DC power to connected loads. Recover by using the parameterized set_dc_output command or front panel to select the intended state."
             template: [0x01, 0x06, 0x0B, 0xC0, 0x00, 0x01, "{crc}"]
             parameters:
               crc:
@@ -308,6 +312,8 @@ services:
           dc_output_off:
             description: "DC output OFF: set_dc_output with the value fixed at 0 — Write Single Register 3008 (0x0BC0) = 0. Cuts DC power to connected loads."
             verification: "reported"
+            advanced: true
+            advanced_reason: "Cuts DC power to connected loads. Recover by using the parameterized set_dc_output command or front panel to restore output."
             template: [0x01, 0x06, 0x0B, 0xC0, 0x00, 0x00, "{crc}"]
             parameters:
               crc:

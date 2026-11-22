@@ -3,7 +3,7 @@
 # two releases: an older one whose protocol code is unobfuscated, and the
 # current one, whose app-specific Java is packed by a commercial protector
 # but which still ships the bundled Google Weave/GCD security classes in the
-# clear — so the SPAKE2/P-224 pairing constants are confirmed in BOTH
+# clear — so the SPAKE2/P-224 pairing constants match in BOTH
 # releases, while the session-layer claims below rest on the older one.
 # The two bundled GATT profile resources (Sense and firmware-update) are
 # byte-identical between the releases.
@@ -16,11 +16,11 @@
 # UUIDs, fragmentation header, SPAKE2/P-224 constants, HKDF salt, EAX nonce
 # format, macaroon format and the CBOR command map all agree.
 #
-# Verification basis for `verification: confirmed` below: the fact was located
-# and read in the vendor app AND matches the independent Go implementation.
-# Nothing here has been replayed against a physical lock by us; the Go library
-# authors report hardware testing. `reported` marks facts taken from the RE
-# report / app strings that we did not independently re-derive.
+# Verification basis for `verification: reported` below: the fact was located
+# and read in the vendor app and, where stated, matches the independent Go
+# implementation. Nothing here has been replayed against a physical lock by us;
+# static analysis and third-party reports do not meet this repository's
+# hardware/capture standard for `confirmed`.
 #
 # What the app contributed, by area:
 #   uWeave session base — fragmentation (19-byte chunks, flags
@@ -86,9 +86,9 @@ device:
     session); the pairing-phase cipher uses fixed 1-byte nonces, which only
     matters against an eavesdropper present during the ~30 s pairing window.
 
-    VERIFICATION: protocol facts marked `confirmed` were read directly out of
-    the vendor app and agree with the Go reimplementation; they have
-    not been replayed against hardware by us. See header comment.
+    VERIFICATION: protocol facts marked `reported` were read directly out of
+    the vendor app and, where stated, agree with the Go reimplementation;
+    they have not been replayed against hardware by us. See header comment.
 
   setup:
     required: true
@@ -406,8 +406,8 @@ initialization:
   # (fresh randoms per session), so steps are described procedurally rather
   # than as fixed `write` arrays; `characteristic` names the GATT endpoint.
   - characteristic: "26002998-e001-4812-8c08-5cd2afda0830"  # RxData
-    read: true
-    description: "Enable indications on RxData (CCCD 00002902-0000-1000-8000-00805f9b34fb) before anything else."
+    subscribe: true
+    description: "Enable indications on RxData (CCCD 00002902-0000-1000-8000-00805f9b34fb) before anything else; do not issue a GATT read."
   - characteristic: "ff530c78-cd50-4bb9-bbd4-0712f32b3796"  # TxData
     description: >
       Send secure connection request: control header (0x80 | counter<<4 | cmd 0)
@@ -477,7 +477,7 @@ services:
               stateOrdinal, 1:userId(8B big-endian)}}}. stateOrdinal: 0 =
               unlock, 1 = lock (lockState enum: 0=unlocked, 1=locked,
               2=jammed, 3=unknown, 4=motorJammed, 5=passage, 6=deadlocked).
-            verification: "confirmed"
+            verification: "reported"
           lock_state:
             description: >
               Query full lock state. CBOR {1:6, 2:3} → result keys: 0=status,
@@ -489,7 +489,7 @@ services:
               Read device info. CBOR {1:8, 2:4, 16:{0:1, 1:P}} with P:
               2=manufacturer, 3=model, 4=serial, 5=main firmware, 7=current
               time, 12=battery, 15=extended firmware versions.
-            verification: "confirmed"
+            verification: "reported"
           set_time:
             description: "Set lock clock: saveData trait 1 prop 6 (unix seconds)."
             verification: "reported"
@@ -513,19 +513,19 @@ services:
           set_access_code_length:
             description: >
               Set keypad code length: {1:8, 2:2, 16:{0:5, 1:14, 2:{0:len}}}.
-            verification: "confirmed"
+            verification: "reported"
           save_access_code:
             description: >
               Add or update an access code: {1:8, 2:3, 16:{0:4, 1:(0=add |
               4=update), 2:{0:userUuid(8B BE), 1:name, 2:code, 3:schedule1,
               4:schedule2, 5:blocked, 6:startEpoch, 7:endEpoch}}}.
-            verification: "confirmed"
+            verification: "reported"
           delete_access_code:
             description: "Delete one access code: {1:8, 2:2, 16:{0:4, 1:1, 2:{2:code}}}."
-            verification: "confirmed"
+            verification: "reported"
           delete_all_access_codes:
             description: "Delete every access code: {1:8, 2:5, 16:{0:4, 1:2}}."
-            verification: "confirmed"
+            verification: "reported"
             advanced: true
             advanced_reason: >
               Wipes all keypad access codes at once; household members who
@@ -666,7 +666,7 @@ cloud:
       Cognito client secret are vendor client credentials and are
       deliberately not recorded here. TLS pinning on *.yonomi.cloud (Amazon
       Root CA 1-4 in network_security_config.xml).
-    verification: "confirmed"
+    verification: "reported"
   endpoints:
     - path: "/v1/ (REST, device list/state/commands)"
       method: "GET"
@@ -806,10 +806,10 @@ protocol_details:
         NIST secp224r1 (p = FFFFFFFF...FF000000000000000000000001, generator
         B70E0CBD.../BD376388...). On success the lock issues CAT + SAT
         macaroons (CBOR bstr(array of caveat bstrs + 16-byte truncated
-        HMAC-SHA256 tag)). Constants confirmed in BOTH app releases: the
+        HMAC-SHA256 tag)). Constants match in BOTH app releases: the
         unobfuscated Weave/GCD security code in the current release matches
         the obfuscated protocol code of the older one on every constant above
-        (app-confirmed ×2, not hardware-tested).
+        (statically matched ×2, not hardware-tested).
     message_format:
       description: >
         CBOR "Privet" RPC. Request {1:apiId, 2:requestTypeId, 16:{trait,

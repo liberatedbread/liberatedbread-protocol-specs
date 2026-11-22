@@ -1,0 +1,1013 @@
+# June Intelligent Oven (second generation) — Project July local firmware
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "June Intelligent Oven (Project July, second generation)"
+  manufacturer: "June Life, Inc.; replacement firmware by Project July"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      No oven was opened, flashed, paired, heated or otherwise driven for this
+      specification. All protocol behavior is reported from Project July's
+      pinned open-source installer, local server, Home Assistant integration
+      and mobile client, plus their offline fixtures and tests. Installer and
+      server revision 4672d1ef1b963a062fc1d21fea9776961abd0d0c, Home Assistant
+      revision be3007bfd9008c216769850cd500dfc3199439dc, mobile revision
+      85c12e92c5123173b332ebb2e2204c807cf69d82.
+  protocol: "wifi"
+  type: "smart-oven-replacement-firmware"
+  category: "appliance"
+  integration: "identify_only"
+  admin_url: "https://{address}/local"
+  transport: "http"
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/prj-july/installer"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/prj-july/installer/blob/main/golocal/README.md"
+        title: "June Local server"
+        covers: "HTTP/HTTPS listeners, byte-exact WebSocket relay, compact cook status and media viewer gate."
+      - url: "https://github.com/prj-july/ha-june-oven"
+        title: "Project July Home Assistant integration"
+        covers: "Local pairing, endpoint normalization, status aliases, cook modes and plan-race handling."
+    notes: >
+      July's native server and maintained clients are public. The preserved
+      June signed-frame and pairing formats were recovered earlier; this spec
+      marks all resulting behavior reported rather than hardware-confirmed.
+  notes: >
+    SCOPE: only a second-generation June Oven on the NVIDIA Tegra K1/APX
+    platform, converted with Project July installer **0.9.1**. Gen 1 support is
+    still being evaluated by Project July; Gen 3 (JCH03/meerkat, MediaTek) is
+    blocked and has no compatible installer. The older shared June cloud
+    protocol does not establish support for either generation. This spec does
+    not apply to stock firmware, whose absence of a known local API is recorded
+    separately in `june-oven.yaml`.
+
+    INSTALLER WARNING: use 0.9.1, never withdrawn 0.9.0. Do not use the stable
+    wireless-update channel on a pre-0.9.1 installation. The 2026-11-01 source
+    snapshot found that stable metadata still named the broken 0.9.0 Chef
+    package even though 0.9.1 had corrected the installer baseline. Re-check
+    current release metadata before any update; do not treat the passage of
+    time as proof that it was fixed. If 0.9.0 was installed, restore a verified
+    backup or reinstall 0.9.1 — do not factory-reset to escape its boot loop.
+
+    SAFETY: local preheat and cook commands start a real heating element. Start
+    only while the oven is attended and unobstructed, initially at a low
+    temperature, and verify Stop against the actual reported plan before
+    creating an automation. Preserve door, food-presence, remote-preheat and
+    cleaning protections and every distinct 10020 outcome. Delayed phone starts
+    require the app to remain open on the home network; they are not resilient
+    on-device or cloud schedules.
+
+  identification:
+    default_port: 443
+    notes: >
+      July advertises an instance named June Local over the SHARED
+      `_http._tcp.local.` service on port 80, normally resolving to june.local
+      (or june2.local / june3.local for additional ovens). Neither that generic
+      service type nor the DHCP name June-Oven identifies July. Deliberately no
+      `mdns_service_type` is promoted here: a candidate becomes this device only
+      after GET /local/status returns a JSON object with server exactly
+      "june-local", as declared in protocol_details.discovery.status_gate.
+      HTTPS on 443 is preferred; HTTP on 80 is the plaintext listener. Port
+      8080 belongs to a development/reference server and is never probed as an
+      oven default.
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+                key: "hostname"
+            display:
+              source: "name"
+        notes: >
+          Candidate discovery only. Browse June Local instances, resolve the
+          host, then require the exact /local/status server fingerprint before
+          pairing or showing cook controls. Use HTTPS when the install CA is
+          already trusted; HTTP/80 is only unauthenticated reconnaissance or a
+          CA-copy channel whose fingerprint needs independent confirmation. The
+          paired oven_id subsequently becomes the durable identity. Multicast-filtered
+          networks need a local DNS record or manual IP entry followed by the
+          same status gate.
+    identity:
+      stable_keys: ["hostname", "oven_id"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      An already converted oven needs only discovery, CA trust and local
+      companion pairing. Converting a stock second-gen oven is a physical USB
+      installer operation, not a network provisioning trick. Both routes are
+      source-documented but unexecuted here; none requires a June-cloud account
+      or enrollment deadline.
+    methods:
+      - type: "button_pairing"
+        name: "Existing July 0.9.1: verify trust, then pair"
+        role: "primary"
+        verified: false
+        description: >
+          For a second-gen oven already running the July 0.9.1 installation.
+          The status fingerprint selects a protocol endpoint but does not
+          authenticate it. Establish CA trust independently, then follow the
+          exact register/socket/PIN/SRP order below.
+        steps:
+          - action: "Browse _http._tcp.local. for June Local, or enter june.local / the oven IP manually."
+            actor: "client"
+            expect: "A candidate host; this alone is not identification."
+          - action: "GET /local/status on HTTPS/443 when already trusted (or HTTP/80 only for protocol reconnaissance) and require JSON server == 'june-local'."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "GET /local/status"
+            expect: "A JSON object whose server field is exactly june-local; this is only a protocol fingerprint, never proof of server authenticity."
+            timeout_seconds: 10
+          - action: "Normalize the configured endpoint as scheme://host[:port], defaulting to HTTPS/443 (HTTP/80 when explicitly selected). Reject userinfo, non-root paths, queries, fragments and malformed addresses."
+            actor: "client"
+            expect: "One canonical origin used for REST, WebSocket and media; no string-concatenated credentials or paths."
+          - action: "Establish CA trust before using authenticated HTTPS: Connect-by-IP requires the per-home CA from the installer USB, or an explicit SHA-256 fingerprint match against independently obtained installer material. Connect-by-name requires the pre-pinned July CA/fingerprint in protocol_details.endpoint_normalization.tls. Do not trust /local/ca.crt or /local/status merely because the same host served them over unauthenticated HTTP."
+            actor: "client"
+            expect: "The CA is pinned before credentials are sent; chain and hostname/IP verification remain enabled. An unauthenticated TOFU decision, if deliberately offered, is a separate lower-security choice and is not server verification."
+          - action: "POST /2/devices/register with a fresh companion identity and persist the returned bearer material."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /2/devices/register"
+            expect: "Response contains device_id and token.access_token (plus refresh material); no Authorization header is required for this registration call. Secrets go to platform key storage, never logs."
+          - action: "Open wss://<oven>/1/messaging/websocket/companion with Authorization: Bearer <access_token> before requesting a pairing code, and listen for 10026/10027."
+            actor: "client"
+            expect: "The authenticated companion socket is open and receiving oven pairing frames. Use ws:// only as the separately acknowledged plaintext choice."
+          - action: "POST /2/devices/pairing with Authorization: Bearer <access_token>."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /2/devices/pairing"
+            expect: "Response is {pin:{code,expires,request_id}}. pin.code is FIVE digits, not the eight-digit user PIN; expires is a Unix-epoch-seconds deadline."
+          - action: "Construct the user PIN as five-digit server code + two random decimal digits + one Damm check digit (eight digits total), then initialize SRP-6a with that complete shown PIN."
+            actor: "client"
+            expect: "The displayed eight-digit value, including its Damm digit, is the SRP password. The five-digit server code remains the value used in the companion route."
+          - action: "Enter the eight-digit shown PIN on the oven's Connect screen."
+            actor: "user"
+            expect: "The oven begins SRP within the roughly five-minute pairing session."
+            timeout_seconds: 300
+          - action: "Wait for the FIRST 10026 carrying the oven's SRP public A in data.key_info.A, then derive S and K = BLAKE2b-256(S)."
+            actor: "client"
+            expect: "Only after A arrives, seal companion_info (companion_id/name, public_signing_key, public_encryption_key, timezone, platform) under K with a fresh 24-byte nonce."
+            timeout_seconds: 300
+          - action: "POST /2/devices/pairing/{five-digit-server-code}/companion with Authorization: Bearer <access_token> and body {key_info:{salt,B,companion_info}}; salt/B/companion_info are nested under key_info, not top-level fields."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /2/devices/pairing/{code}/companion"
+            expect: "The companion is the SRP SERVER. The response may be empty/success-only or may already carry key_info.oven_info; in either case keep listening for the second 10026."
+            timeout_seconds: 300
+          - action: "Wait for the SECOND 10026 carrying sealed oven_info in data.key_info.oven_info, open it under K, then GET /2/devices/{device_id}/associated with Authorization: Bearer <access_token>."
+            actor: "client"
+            expect: "The associated devices array contains the oven's real oven_id. Persist oven_id, device_id, bearer material and Ed25519 seed; only now may the pairing mailbox be deleted. No heat command is implied by this setup."
+            timeout_seconds: 300
+      - type: "wired"
+        name: "Stock second-gen: back up and install July 0.9.1"
+        role: "alternative"
+        verified: false
+        description: >
+          For a second-generation Tegra/APX oven not yet converted. The installer
+          opens the case, uses micro-USB and SW2/APX recovery, and can expose
+          mains-powered internals after reconnection. Follow the current Project
+          July guide exactly; this project performed none of these physical steps.
+        stages:
+          - type: "wired"
+            name: "Back up and install over micro-USB/APX"
+            verified: false
+            description: >
+              Use only installer 0.9.1 and keep a known-good full-eMMC backup
+              independent of the update process. Do not use withdrawn 0.9.0 or
+              the pre-0.9.1 stable wireless-update channel.
+            steps:
+              - action: "Read the current Project July setup guide, obtain installer 0.9.1, and verify the published ISO metadata before use."
+                actor: "user"
+                expect: "Installer version 0.9.1 (not 0.9.0); the published build is 20261025-1411-b827be42. Treat its published ISO hash as upstream metadata unless independently measured."
+              - action: "Make and independently retain a verified full-eMMC backup before changing the oven."
+                actor: "user"
+                expect: "The image and adjacent .sha256 verify; a damaged backup is not used for rollback."
+              - action: "With power disconnected, open the oven as the official guide directs (seven screws), connect micro-USB directly to the installer computer, hold SW2, then apply power for about ten seconds to enter APX/RCM."
+                actor: "user"
+                expect: "The installer reports the oven in RCM and says SW2 can be released. Reconnected internals may be mains-powered; follow the guide's isolation and handling warnings."
+              - action: "Choose Connect by IP (per-home CA and IP SAN, recommended) or Connect by name (june.local / june2.local / june3.local), then run the 0.9.1 install."
+                actor: "user"
+                expect: "The installer completes; persistence is an explicit choice, not something to enable casually."
+              - action: "Reboot and GET /local/status; require server == 'june-local' before continuing."
+                actor: "client"
+                expect: "July is running with HTTPS/443 and HTTP/80. Check component, identity, certificate and update diagnostics before pairing."
+          - type: "button_pairing"
+            name: "Establish installer-backed CA trust and pair"
+            verified: false
+            description: >
+              Complete the existing-July primary route using independently
+              authenticated CA material, then the exact registration/socket/
+              PIN/SRP sequence. The unauthenticated CA download is only a copy.
+            steps:
+              - action: "Connect-by-IP: obtain the per-home CA from the installer USB or compare its SHA-256 fingerprint with independently obtained installer material before pinning. Connect-by-name: use the pre-pinned July CA/fingerprint from the primary method."
+                actor: "client"
+                expect: "TLS chain and hostname/IP validation are based on independent trust material, never on unauthenticated HTTP status or ca.crt alone."
+              - action: "Complete registration, authenticated companion WSS, five-digit server-code request, eight-digit shown-PIN construction, first-10026 A exchange, nested key_info companion POST, second-10026 oven_info, and associated-oven lookup in the primary method's exact order."
+                actor: "client"
+                expect: "A paired local companion with persisted oven_id and signing seed; no June-cloud account is required."
+                timeout_seconds: 300
+
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        A standard factory reset can remove July and return the oven to stock,
+        whose cloud is defunct. It wipes paired companions, logs and media; the
+        installer-baked Chef build replaces any wireless-updated Chef build.
+        The optional reset-persistence setting preserves local components, and
+        0.8+ identity restoration recreates the oven account row, but clients
+        may still need to pair again.
+      description: >
+        Reset is not a routine troubleshooting step. It can restore the stock
+        dead-cloud problem, and it is not the remedy for the withdrawn 0.9.0
+        boot loop. For that failure restore a verified backup or reinstall
+        0.9.1. If reset persistence is enabled, verify /local/status and the
+        identity/certificate diagnostics after boot before pairing again.
+      procedures:
+        - name: "Factory reset from the oven touchscreen"
+          verified: false
+          basis: >
+            Project July USE_LIVE_INSTALLER and WIRELESS_UPDATES documentation
+            describing reset persistence, identity restoration, roster/media
+            loss and Chef baseline restoration. Exact menu wording was not
+            independently replayed by this project.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Confirm that a verified backup and the 0.9.1 installer are available; do not proceed to fix the 0.9.0 boot loop."
+              actor: "user"
+            - action: "Open Settings on the oven touchscreen, choose the factory-reset entry and confirm."
+              actor: "user"
+              expect: "The oven reboots. Stock or persistent July behavior depends on the install option."
+            - action: "Re-enter Wi-Fi, require /local/status server == 'june-local', reinstall/pin the CA if necessary, and re-pair each companion."
+              actor: "user"
+              expect: "Local control is restored without assuming that paired clients or the wireless-updated Chef build survived."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Change Wi-Fi from the oven touchscreen; no reset is needed for the
+        network join. Rediscover by mDNS or the new IP and repeat the status
+        gate. A Connect-by-IP certificate covers the installation IP, so an IP
+        change can require a new certificate/install; use the configured mDNS
+        hostname where available. Companion pairing is per oven, not per router.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Wi-Fi credentials entered on the oven touchscreen"
+        - "Per-oven local identity and trusted companion roster"
+        - "Per-install update-control token, when wireless updates are used"
+      issued_to_client:
+        - "Companion device_id, bearer access/refresh material and Ed25519 seed"
+        - "oven_id from GET /2/devices/{device_id}/associated"
+        - "Public install CA certificate (trust material, not a private key)"
+      notes: >
+        The Ed25519 seed and bearer material authorize cook commands; store them
+        in platform key storage. The per-install update token authorizes update
+        controls but is not the release signing key. Keep both out of logs and
+        fixtures. Never disable TLS verification as a substitute for installing
+        the CA. Plain HTTP exposes camera and telemetry traffic to the LAN even
+        though SRP pairing and frame signatures still apply.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "required"
+    pin:
+      source: "vendor_app"
+      length: 8
+      notes: >
+        The server returns a FIVE-digit pin.code. The client appends two random
+        decimal digits and one Damm check digit to construct the eight-digit PIN
+        shown to the user. The user enters that shown value on the oven's
+        Connect screen; the complete eight digits, including the Damm digit,
+        are the SRP password. The five-digit server code is used only in the
+        companion route. The local pairing session lasts about five minutes.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Multiple phones and Home Assistant entries can pair independently. If a
+        client lost its material, pair a new companion from the Connect screen;
+        do not factory-reset merely to add one. After reset, check the roster and
+        re-pair as needed.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One companion's trusted entry; other phones and Home Assistant remain paired."
+      procedures:
+        - name: "Remove a companion from the Connect screen"
+          verified: false
+          basis: "Project July local-client unpair flow and the existing June connected-devices procedure; not replayed here."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Open Connect on the oven, select the companion to remove, and confirm removal."
+              actor: "user"
+              expect: "Only that companion loses authorization; deleting an app's local entry alone does not revoke the oven-side key."
+    enter_pairing_mode:
+      required: true
+      window_seconds: 300
+      procedures:
+        - name: "Enter the companion PIN on the oven Connect screen"
+          verified: false
+          basis: "Project July installer and maintained Home Assistant/mobile pairing flows; offline source review only."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Require /local/status server == 'june-local' and independently authenticated CA trust, then POST /2/devices/register and open the companion WSS with the returned bearer token."
+              actor: "client"
+            - action: "POST /2/devices/pairing with the bearer token, read the FIVE-digit pin.code, append two random digits and the Damm digit, and display the resulting eight-digit PIN."
+              actor: "client"
+            - action: "Open the oven's Connect screen, choose to add a companion if needed, and enter the eight-digit shown PIN."
+              actor: "user"
+            - action: "Wait for first 10026 key_info.A, derive the session key, POST nested key_info {salt,B,companion_info}, wait for second 10026 key_info.oven_info, then resolve the associated oven with the bearer token."
+              actor: "client"
+              timeout_seconds: 300
+    notes: >
+      Pairing uses the original June cryptography locally: inverted SRP-6a
+      roles, secretbox-sealed companion/oven information and Ed25519-signed
+      command frames. The oven, not the relay, decides authorization. Exact
+      algorithms are in protocol_details.pairing and messaging.
+
+  variants:
+    - model: "Gen 2 Tegra/APX"
+      notes: >
+        The only supported target: second-generation NVIDIA Tegra K1 hardware
+        installed with Project July 0.9.1. Gen 1 remains under evaluation and
+        Gen 3 MediaTek/JCH03 is blocked with no installer.
+
+http_endpoints:
+  - method: "GET"
+    path: "/local/status"
+    name: "Local Server Status"
+    description: >
+      Discovery fingerprint and diagnostics. Identification requires a JSON
+      object with server exactly june-local. Also reports version, oven
+      connection, cook, camera, clients, install, network, certificate, update
+      and problem details; never expose private values in retained fixtures.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "success"
+          type: "boolean"
+        - name: "ok"
+          type: "boolean"
+        - name: "server"
+          type: "string"
+          description: "Must be june-local before this spec is selected."
+        - name: "version"
+          type: "object"
+        - name: "oven"
+          type: "object"
+        - name: "cook"
+          type: "object"
+        - name: "install"
+          type: "object"
+        - name: "network"
+          type: "object"
+        - name: "cert"
+          type: "object"
+        - name: "update"
+          type: "object"
+        - name: "problems"
+          type: "array"
+      example: |
+        {"success":true,"ok":true,"mode":"local","server":"june-local","version":{"version":"0.9.1","commit":"example","build_date":"example","uptime_seconds":60,"restarts":0},"oven":{"connection":"connected","last_frame_age_seconds":1,"model":"Tegra APX","identity":{"account_present":true,"token_source":"example"}},"cook":{"state":"idle"},"clients":{"paired":0,"connected":0,"items":[]},"install":{"installer_version":"0.9.1","build_id":"20261025-1411-b827be42","components":[]},"network":{"hostname":"june","mdns":"june.local","tls":true,"http":true,"tls_port":443,"http_port":80,"hosts_overrides":true},"cert":{"days_remaining":30,"ca_in_system_store":true,"leaf_key_present":true,"san_covers_current_ip":true,"has_ip_san":true},"update":{},"errors":[],"problems":[],"generated_at":"2026-11-01T00:00:00Z"}
+    verification: "reported"
+  - method: "GET"
+    path: "/local/ca.crt"
+    name: "Local CA Certificate Copy"
+    description: >
+      Returns the install's public CA certificate over unauthenticated HTTP/80.
+      This is distribution only, not authentication: the same untrusted host
+      could serve a different status fingerprint and CA. Connect-by-IP requires
+      the per-home CA from installer USB or an explicit fingerprint match to
+      independently obtained installer material. Connect-by-name requires a
+      pre-pinned July CA/fingerprint. A deliberate unauthenticated TOFU choice
+      is lower security and must never be called server verification.
+    response_body:
+      content_type: "application/x-x509-ca-cert"
+    verification: "reported"
+  - method: "GET"
+    path: "/local/cook"
+    name: "Compact Cook Status"
+    description: >
+      JSON when Accept is application/json (the default machine representation);
+      /local/cook.json is the explicit JSON alias and /local/cook.html (or HTML
+      Accept) is the live human page. Optional numeric/boolean fields are
+      omitted when unavailable. Idle cached plan data belongs only to last_cook.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "success", type: "boolean"}
+        - {name: "state", type: "string", description: "Defaults to idle; do not infer activity from last_cook."}
+        - {name: "mode", type: "string", description: "Active cook mode, omitted when idle or unknown."}
+        - {name: "current_c", type: "number", unit: "C", description: "Current cavity temperature."}
+        - {name: "target_c", type: "number", unit: "C", description: "Active target temperature."}
+        - {name: "remaining_seconds", type: "integer", unit: "s", description: "Active timer remainder; omitted when zero/unavailable."}
+        - {name: "door_open", type: "boolean", description: "Optional; absence is unknown, not closed."}
+        - {name: "probe_c", type: "number", unit: "C", description: "Optional food-probe temperature."}
+        - {name: "oven_connected", type: "boolean"}
+        - {name: "updated_at", type: "string", description: "RFC 3339 timestamp from the server."}
+        - {name: "last_cook", type: "object", description: "Historical mode/target_c/eta_seconds/plan/ended_at, never active state."}
+      example: |
+        {"success":true,"state":"active","mode":"bake","current_c":175.5,"target_c":177,"remaining_seconds":540,"door_open":false,"probe_c":64,"oven_connected":true,"updated_at":"2026-11-01T00:06:00Z"}
+    verification: "reported"
+  - method: "GET"
+    path: "/local/cook.json"
+    name: "Compact Cook Status JSON Alias"
+    description: "Same JSON document as /local/cook with machine Accept; provided as an explicit content-negotiation-free route."
+    verification: "reported"
+  - method: "GET"
+    path: "/1/messaging/device/{oven_id}/status"
+    name: "Full Oven Status"
+    description: >
+      Original June status route served locally. Send Authorization: Bearer
+      {access_token} from registration and substitute the associated oven_id
+      returned by /2/devices/{device_id}/associated. Credential mappings are in
+      protocol_details.status.authentication. Parse cloud and July aliases using
+      protocol_details.status, never first-key-wins without precedence.
+    verification: "reported"
+  - method: "POST"
+    path: "/2/devices/register"
+    name: "Register Local Companion"
+    description: >
+      First pairing operation; no bearer header is required. Request uses fresh
+      random 32-lowercase-hex device_id/password and the published companion
+      protocol constants. Persist the returned access/refresh material securely.
+      Next open the authenticated companion WSS BEFORE requesting a pairing code.
+    request_body:
+      content_type: "application/json"
+      fields:
+        - {name: "password", type: "string", required: true, description: "Fresh random 32 lowercase hex characters; secret."}
+        - {name: "device_id", type: "string", required: true, description: "Fresh random 32 lowercase hex companion identifier."}
+        - {name: "client_id", type: "string", required: true, description: "Published companion protocol identifier, not a user secret."}
+        - {name: "client_secret", type: "string", required: true, description: "Published companion protocol constant, not a per-user credential."}
+        - {name: "device_type", type: "string", required: true, enum: ["companion"]}
+        - {name: "device_name", type: "string", required: true}
+        - {name: "platform", type: "string", required: true, enum: ["android"]}
+        - {name: "version", type: "string", required: true}
+        - {name: "platform_version", type: "string", required: true}
+      example: |
+        {"password":"00112233445566778899aabbccddeeff","device_id":"0123456789abcdef0123456789abcdef","client_id":"dcxqbcv2dY-G12elqDoAhCP8E12V0zC8XWThT-4U","client_secret":"tmoSUwt3OOZCcfMaIadAGD7-x-qPht85HkCgdvuhTKk1yFtfMcfJEyd","device_type":"companion","device_name":"Example Client","platform":"android","version":"1.24.1.11","platform_version":"34"}
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "success", type: "boolean"}
+        - {name: "device_id", type: "string"}
+        - {name: "token", type: "object", description: "Object containing access_token, refresh_token, expires_in, token_type and scope."}
+      example: |
+        {"success":true,"device_id":"0123456789abcdef0123456789abcdef","token":{"access_token":"example-access-token","refresh_token":"example-refresh-token","expires_in":31536000,"token_type":"bearer","scope":"oven companion"}}
+    verification: "reported"
+  - method: "POST"
+    path: "/2/devices/pairing"
+    name: "Create Local Pairing Session"
+    description: >
+      Called with no request body, only after registration and after the
+      companion WSS is open with Authorization: Bearer <access_token>. Response
+      pin.code is FIVE digits; it is not the eight-digit user PIN. The client
+      appends two random digits and a Damm digit to construct the shown PIN used
+      for SRP.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "success", type: "boolean"}
+        - {name: "pin", type: "object", description: "Object with five-digit code, Unix-epoch-seconds expires and request_id."}
+      example: |
+        {"success":true,"pin":{"code":"12345","expires":1798765432,"request_id":"example-request-id"}}
+    verification: "reported"
+  - method: "POST"
+    path: "/2/devices/pairing/{code}/companion"
+    name: "Submit Companion SRP"
+    description: >
+      Called only after first 10026 supplies data.key_info.A and the client has
+      derived S. Send Authorization: Bearer <access_token>. salt/B/
+      companion_info are nested under key_info, never top-level fields. The
+      sealed companion_info plaintext contains companion_id, companion_name,
+      public_signing_key, public_encryption_key, timezone and platform. A
+      success-only response does not complete pairing: wait for second 10026
+      carrying data.key_info.oven_info. Do not delete the session early.
+    request_body:
+      content_type: "application/json"
+      fields:
+        - {name: "key_info.salt", type: "string", required: true, description: "Base64-encoded 16-byte SRP salt."}
+        - {name: "key_info.B", type: "string", required: true, description: "Base64 minimal unsigned SRP public B from the companion acting as server."}
+        - {name: "key_info.companion_info", type: "string", required: true, description: "base64(nonce(24) || secretbox(companion_info JSON)) under K=BLAKE2b-256(S)."}
+      example: |
+        {"key_info":{"salt":"AAECAwQFBgcICQoLDA0ODw==","B":"<base64-srp-public-b>","companion_info":"<base64-nonce-and-sealed-companion-info>"}}
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "success", type: "boolean", description: "May be the only field; continue waiting for second 10026."}
+        - {name: "key_info", type: "object", description: "May contain oven_info; second 10026 carries the same sealed value in data.key_info.oven_info."}
+      example: |
+        {"success":true}
+    verification: "reported"
+  - method: "GET"
+    path: "/2/devices/{device_id}/associated"
+    name: "Resolve Associated Oven"
+    description: >
+      Called with Authorization: Bearer <access_token> after second 10026
+      oven_info. Response devices is an array; select the object with string
+      oven_id rather than assuming a fixed array element or fabricated id.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - {name: "success", type: "boolean"}
+        - {name: "devices", type: "array", description: "Each associated oven object may carry oven_id, device_id, name, model, model_number, serial and version."}
+      example: |
+        {"success":true,"devices":[{"device_id":"oven-example","oven_id":"oven-example","name":"Example Oven","model":"unknown","model_number":"Tegra APX","serial":"unknown","version":"local"}]}
+    verification: "reported"
+  - method: "GET"
+    path: "/media/prod/images/latest.jpg"
+    name: "Latest Camera Still"
+    description: "Still-image fallback. When polling, hold the viewer gate with the internal camera on/off calls below; stop polling and close the gate when the viewer disappears."
+    response_body:
+      content_type: "image/jpeg"
+    verification: "reported"
+  - method: "POST"
+    path: "/internal/camera/on?seconds=120"
+    name: "Open Still-Polling Camera Gate"
+    description: "Keeps camera and interior light awake for the requested bounded interval; refresh about every 100 seconds only while a viewer is open."
+    verification: "reported"
+  - method: "POST"
+    path: "/internal/camera/off"
+    name: "Close Camera Gate"
+    description: "Releases the still-polling viewer override and turns off the associated interior-light scene. Door/cook lighting scenes retain priority."
+    verification: "reported"
+
+camera:
+  streams:
+    - name: "Local live view"
+      transport: "mjpeg"
+      url_template: "https://{address}/media/stream.mjpg"
+      default_port: 443
+      served_by: "device"
+      auth: "bearer"
+      notes: >
+        Multipart/x-mixed-replace; new stock frames are about 1 fps and
+        duplicates are suppressed. An open viewer refreshes the camera gate
+        for about 15 seconds beyond disconnect. Close the stream when the
+        viewer closes; do not hold the oven camera/light on indefinitely.
+    - name: "Local still polling"
+      transport: "mjpeg_snapshot_poll"
+      url_template: "https://{address}/media/prod/images/latest.jpg"
+      default_port: 443
+      served_by: "device"
+      target_fps: 1
+      auth: "bearer"
+      notes: >
+        Fallback only. POST /internal/camera/on?seconds=120 when watching,
+        refresh about every 100 seconds, and POST /internal/camera/off when
+        done. During cooks, stock cook-time frames normally arrive through the
+        oven's own capture path rather than a second camera client.
+  enable_required: true
+  enable_notes: >
+    Frames are viewer-gated. The MJPEG stream opens the gate while watched;
+    still polling requires the bounded internal camera on/off calls. The stock
+    capture service owns the camera, preserving toast doneness and door-open
+    recognition. Use verified HTTPS especially because this is interior video.
+    This is a documented feed for a bespoke viewer, not a generic integration
+    or signed-cook-control claim; the spec is identify_only overall.
+
+payload_formats:
+  FullStatus:
+    description: "Cloud/July full-status aliases with explicit precedence and optional one-level data wrappers."
+    parse_rules:
+      - "Connection: read ha_connection_state first (online=true/offline=false), then connection_state (connected=true/disconnected=false), then boolean online. An unusable value falls through; never treat a non-boolean online value as true."
+      - "Device state: prefer device_state_data over device_state. Cook plan: prefer cook_plan_data over cook_plan. Each selected value may be a bare object or wrapped once as {data: object}; unwrap before parsing."
+      - "Plan identity is food.plan.id; current step is food.plan.steps[step_state.step_index]. A completed cook's cached plan is history, not a live plan."
+    example: |
+      {"connection_state":"connected","online":true,"ha_connection_state":"offline","device_state":{"state":"active"},"device_state_data":{"data":{"state":"idle"}},"cook_plan":{"food":{"name":"bake","plan":{"id":0,"steps":[]}}},"cook_plan_data":{"food":{"name":"proof","plan":{"id":114,"steps":[{"presentation_type":"preheat_and_hold","temperature_cavity":26667}]},"session_id":"00000000-0000-4000-8000-000000000001","step_state":{"step_index":0}}},"success":true}
+  LocalCookIdle:
+    description: "An idle response with a cached previous plan. Active fields are absent and last_cook is the only history container."
+    parse_rules:
+      - "Default a missing state to idle. If state is idle, do not populate live mode/target/timer/plan from last_cook."
+      - "last_cook may contain mode, target_c (degrees Celsius), eta_seconds (seconds), ended_at (RFC 3339) and the raw historical plan."
+    example: |
+      {"success":true,"state":"idle","current_c":28,"door_open":false,"oven_connected":true,"updated_at":"2026-11-01T00:20:00Z","last_cook":{"mode":"bake","target_c":177,"eta_seconds":900,"ended_at":"2026-11-01T00:15:00Z","plan":{"food":{"name":"example-food","plan":{"id":0,"steps":[]}}}}}
+  SignedFrameRelay:
+    description: "Byte-preservation fixture only, not a valid signed-command vector. The stock conformance vectors remain the authority for signature correctness."
+    parse_rules:
+      - "Parse a copy for message_code, target, order and telemetry only. Forward the original byte string unchanged, including whitespace and key order."
+      - "The one exception is a deliberately re-signed/new frame or the server's documented 10011 media URL rewrite; never apply generic JSON normalization to a signed command relay."
+    example: >
+      { "v":2, "message_code":11004, "order":42, "time":1000, "signature":"c3ludGhldGljLW5vdC1hLXNpZ25hdHVyZQ==", "device_name":"example-client", "device_id":"companion-example", "data":{"plan_id":114}, "target":{"id":"oven-example"} }
+
+protocol_details:
+  implementation_status:
+    generic_integration: "identify_only"
+    signed_cook_controls:
+      status: "backlog"
+      reason: >
+        The schema cannot safely bind credential-carrying, byte-sensitive
+        Ed25519 WebSocket frames together with order/ACK correlation, actual
+        plan-id sequencing, delayed plan reports and the refusal-only restart
+        state machine. No generic command, entity or placeholder WebSocket
+        binding is declared. The detailed messaging/cook rules below remain an
+        implementation contract for a bespoke client, not a claim of generic
+        catalog-driven heat control.
+      verification: "reported"
+    read_surfaces: >
+      Local status/cook JSON and viewer-gated media are documented for bespoke
+      clients. Their presence does not make the generic integration supported;
+      no placeholder control entities are offered.
+  discovery:
+    status_gate:
+      request: "GET /local/status"
+      accepted_transports:
+        - {scheme: "https", port: 443, requirement: "Verify against the install CA and the configured hostname/IP."}
+        - {scheme: "http", port: 80, requirement: "Bootstrap/diagnostics only; no authenticated transport."}
+      required_json: {server: "june-local"}
+      authentication: "The JSON fingerprint identifies the protocol only. It does not authenticate the host; establish installer-backed CA trust independently before credentials or claims of server verification."
+      rejection: "Reject non-JSON, a missing/different server value and every _http candidate that fails the check. Do not pair, infer July from june.local, or probe 8080 as an oven default."
+      verification: "reported"
+    admin_page:
+      url: "https://{address}/local"
+      purpose: "Real June Local status/admin page with component, identity, certificate, cook and update diagnostics; not a placeholder cook-control surface."
+      trust: "Use HTTPS only after installer-backed CA trust is established. http://{address}/local is an explicit plaintext diagnostics fallback; it authenticates neither the page nor the CA copy, and update controls are excluded."
+      verification: "reported"
+  endpoint_normalization:
+    accepted: "Hostname, IPv4 or bracketed IPv6, optionally with http:// or https:// and a numeric port. Bare inputs default to https://; canonical output is scheme://host[:port]."
+    defaults:
+      https_port: 443
+      http_port: 80
+      websocket: "wss for HTTPS, ws for HTTP"
+    canonicalization: "Lowercase the scheme; normalize IP spelling; strip one trailing DNS root dot; remove a single root slash and default ports; preserve an explicit nondefault port such as a development server's 8080."
+    reject:
+      - "Any scheme other than HTTP(S), missing/invalid hostname, userinfo, non-root path, query or fragment."
+      - "Non-numeric, zero, negative or greater-than-65535 ports; malformed IPv4/IPv6 and bracket usage."
+      - "Appending a user-supplied endpoint directly to route strings before validation."
+    media_rehoming: "For 10011/local image URLs, retain only a /media/ path and query on the configured origin. Reject non-media paths and every '..' path segment; never follow the frame's cloud host. Do not rewrite arbitrary URLs."
+    tls:
+      status_fingerprint: "server == 'june-local' is a protocol identifier, not server authentication; HTTP status and ca.crt are unauthenticated content."
+      connect_by_ip:
+        trust_requirement: "Obtain the per-home CA from the installer USB, or explicitly compare the downloaded CA's SHA-256 fingerprint with independently obtained installer material before pinning it. The comparison must not use only material fetched from the same unauthenticated endpoint."
+        certificate: "The per-home CA signs a leaf containing the installation IP SAN; an IP change can require new installer material."
+      connect_by_name:
+        trust_requirement: "Pre-pin the known July CA and its fingerprint before any credentials are sent; do not learn trust from the current network endpoint."
+        ca_sha256_fingerprint: "B6:65:DB:2E:74:F4:F8:62:95:14:08:DA:0B:AE:1D:F4:F7:76:AE:77:6F:12:9E:95:73:54:2F:17:A8:AA:A1:B2"
+        fingerprint_evidence: "SHA-256 computed offline from the public PROJECT_JULY_CA certificate in the pinned maintained client (protocol.py). The public certificate, never a private key, is the trust material."
+        certificate: "The basic/name install uses the known July CA and june.local / june2.local / june3.local names."
+      ca_crt_endpoint: "GET /local/ca.crt over HTTP/80 is only a convenience copy. It cannot bootstrap trust by itself."
+      unauthenticated_tofu: "If a client deliberately supports first-use fingerprint acceptance without independent material, expose it as a separate lower-security unauthenticated TOFU choice with a clear interception warning, never as verified server identity. Plain HTTP and disabled verification are also unauthenticated choices, not fallbacks equivalent to CA validation."
+      https: "After trust is established, validate chain and hostname/IP on HTTPS/443 and WSS/443. Update controls require HTTPS and are outside this spec's executable commands."
+      verification: "reported"
+
+  pairing:
+    protocol: "SRP-6a with inverted roles: the companion is the SRP SERVER, the oven is the client"
+    group: "RFC 5054 8192-bit group, generator g = 19"
+    hash: "SHA-1"
+    identity: "I = 'user'"
+    password: "the displayed 8-digit PIN, INCLUDING its Damm check digit; x = SHA1(salt || SHA1('user:' + PIN))"
+    salt: "16 random bytes"
+    seal: "K = BLAKE2b-256(S); companion_info = base64(nonce(24) || crypto_secretbox_xsalsa20poly1305(json, nonce, K))"
+    interoperability_constants:
+      client_id: "dcxqbcv2dY-G12elqDoAhCP8E12V0zC8XWThT-4U"
+      client_secret: "tmoSUwt3OOZCcfMaIadAGD7-x-qPht85HkCgdvuhTKk1yFtfMcfJEyd"
+      source: "Pinned prj-july/project-july-app src/api/protocol.ts and prj-july/ha-june-oven custom_components/june_oven/protocol.py. These are published companion interoperability identifiers, not per-user secrets."
+      required: true
+    server_code_digits: 5
+    shown_pin: "five-digit server pin.code + two random decimal digits + one Damm check digit = eight digits; the complete shown PIN is the SRP password"
+    bearer: "After registration, every pairing REST call and the companion WSS handshake carries Authorization: Bearer <token.access_token>. Registration itself has no bearer header."
+    sequence:
+      - step: "register"
+        request: "POST /2/devices/register with fresh device_id/password and published companion constants"
+        auth: "No bearer header"
+        response: "device_id plus token.access_token/refresh_token; generate Ed25519 and encryption key pairs and persist them"
+      - step: "open_authenticated_companion_socket"
+        request: "Open wss://<oven>/1/messaging/websocket/companion (ws:// only as the explicit plaintext choice)"
+        auth: "Authorization: Bearer <access_token>; listen before requesting a code"
+        response: "Socket is open for 10026 and 10027 frames"
+      - step: "request_server_code"
+        request: "POST /2/devices/pairing"
+        auth: "Authorization: Bearer <access_token>"
+        response: "{pin:{code:<five digits>,expires:<Unix epoch seconds>,request_id:<id>}}. Construct the eight-digit shown PIN from server code + two random digits + Damm, initialize SRP with it, and show it to the user"
+      - step: "await_oven_public_a"
+        request: "After the user enters the eight-digit shown PIN, wait for FIRST 10026"
+        response: "data.key_info.A contains the oven SRP public A. Only then derive S and K; do not post companion material before A"
+      - step: "post_companion_key_info"
+        request: "POST /2/devices/pairing/{five-digit-server-code}/companion with Authorization: Bearer <access_token> and {key_info:{salt,B,companion_info}}"
+        response: "May be success-only or include key_info.oven_info. salt/B/companion_info are nested, never top-level"
+      - step: "await_oven_info"
+        request: "Wait for SECOND 10026"
+        response: "data.key_info.oven_info carries sealed oven_info; open it under K"
+      - step: "resolve_association"
+        request: "GET /2/devices/{device_id}/associated with Authorization: Bearer <access_token>"
+        response: "devices[] contains the real oven_id. Persist it and only then delete the pairing mailbox if desired"
+    companion_info_fields: ["companion_id", "companion_name", "public_signing_key", "public_encryption_key", "timezone", "platform"]
+    completion: "first 10026 A → derive S and POST nested key_info → second 10026 oven_info → authenticated associated lookup; deleting earlier than the second 10026 can invalidate pairing"
+    session_seconds: 300
+    cautions: >
+      Never DELETE the pairing session before the second 10026 arrives — the
+      oven answers with 10027 PairingSessionInvalidated and the exchange must
+      restart. Conformance vectors for SRP, Damm, the secretbox seal and the
+      frame signature live in mvanhorn/printing-press-library
+      (internal/june/testdata/vectors.json); implement against those first,
+      hardware never. These are the same stock signed vectors, not replacements.
+    verification: "reported"
+
+  messaging:
+    transport: "wss://<oven>/1/messaging/websocket/companion on 443; ws://<oven>/1/messaging/websocket/companion on explicit plaintext HTTP/80"
+    envelope: >
+      Compact JSON with EXACT key order: v, message_code, order, time,
+      signature, device_name, device_id, data, target. `order` is strictly
+      increasing and is echoed back by the oven as `request_order` in 10020
+      acks.
+    order_generation: "raw = current Unix time in milliseconds; candidate = raw & 0x7fffffff; if candidate <= previous order, candidate = previous + 1; emit candidate and store it as previous. This preserves strict increase through equal timestamps and the 31-bit wrap."
+    signature: >
+      72 bytes: base64( BLAKE2b(ed25519_pubkey, digest_size=8) ||
+      Ed25519_sign(privkey, canonical_json) ), computed over the envelope with
+      the signature field set to "". The 8-byte prefix is crypto_generichash
+      with an 8-byte OUTPUT LENGTH, not a truncated BLAKE2b-512. Standard
+      base64, not url-safe. A wrong signature is SILENTLY DROPPED — no ack, no
+      error — so a client must treat absence of an ack as a distinct,
+      timeout-bounded state rather than a hang.
+    byte_preservation: >
+      The local relay parses only for routing and state, then forwards the
+      ORIGINAL frame bytes. Signature verification depends on exact key order
+      and bytes; never re-marshal a signed JSON command in this path. The oven,
+      not the relay, decides whether the companion is authorized. Preserve the
+      stock synthetic vectors linked below unchanged.
+    units: >
+      Signed-frame temperatures are integer milli-degrees Celsius:
+      milliC = round((F - 32) * 5/9 * 1000); 350 F = 176667. Durations are
+      milliseconds. /local/cook instead reports JSON numbers in degrees Celsius
+      and remaining_seconds in seconds; do not carry milli-units into that API.
+    outgoing_codes:
+      11002: "Preheat/start — {primitive_type, temperature_cavity milliC, optional plan_index}. Use 'airfry', normalizing legacy 'air-fry'."
+      11004: "CancelCooking — {plan_id: ACTUAL food.plan.id reported for the running cook}; zero only when zero was actually reported."
+      11005: "SetTemperatureCavity — {plan_id: ACTUAL id, temperature_cavity milliC}. In-place first; only an explicit 10020 refusal can trigger the restricted restart fallback."
+      11006: "SetTimer — {plan_id: ACTUAL id, duration ms}; after start, wait for the new plan rather than naming the old one."
+      11007: "SetTemperatureTargetProbe"
+      11011: "Ping/keepalive about every 7 s — {}"
+      11012: "Unpair"
+      11013: "KeepCooking"
+      11015: "SetCookMode"
+      11016: "StartCookPlan (guided cook; requires installed preset content)"
+      11017: "Set/ClearRecipeState"
+      11019: "SetTemperatureAccessory"
+      11031: "CookPlanEdit customization (add)"
+      11032: "CookPlanEdit customization (remove)"
+      11035: "CookAdjustmentOfferResponse"
+    incoming_codes:
+      10011: "VideoFrame — re-home only an allowed /media/ URL to the configured origin; never fetch its cloud host."
+      10012: "CookNotification — NOTIFICATION_PREHEAT_COMPLETE marks preheat completion, deduplicated per session_id against the plan's preheat_and_hold transition."
+      10013: "Telemetry about 1 Hz — sensor_data/cook_state_data plus repeated cook_plan_data."
+      10014: "Cook plan started — may follow the start acknowledgement and establishes the new plan."
+      10015: "Cook plan updated — frames can repeat or arrive late; an older 10015 after 10016 cannot regress the step or preheat state."
+      10016: "Cook plan temperature/step changed — advances state; a stale 10015 must not move it backward."
+      10017: "Cook ended/cancelled — cached plan is now history."
+      10018: "Device state {state: idle|active}."
+      10020: "Ack {request_order,status}; preserve success, not-allowed, door-open, not-ready and cleaning distinctly, plus any additional refusal text."
+      10022: "Oven-initiated unpair."
+      10026: "Pairing info; second frame carrying oven_info completes pairing."
+      10027: "PairingSessionInvalidated."
+      10033: "Cook adjustment offer."
+    plan_command_rules:
+      plan_id_source: "Current plan's food.plan.id from 10014/10015/10016 or 10013 cook_plan_data (REST cook_plan/cook_plan_data as fallback); current step is food.plan.steps[step_state.step_index]."
+      start_race: >
+        A start can be acknowledged before its new plan is reported. Mark the
+        previous plan stale at start. Stop, timer and temperature wait for the
+        new plan, ignoring late telemetry from the replaced plan. If it never
+        arrives, fail locally without sending 11004/11005/11006. A definite
+        start refusal restores the previous plan; a start timeout may have
+        applied, so leave the plan unknown.
+      temperature_restart: >
+        Attempt 11005 in place. Restart only after an explicit 10020 refusal,
+        only for a phone-startable restart-eligible mode whose actual plan id
+        is 0. Never cancel/restart fixed-plan modes (broil, toast, reheat,
+        warm, pizzaiolo), grill, unknown modes or touchscreen-originated
+        programs (nonzero plan id even when the mode name is startable). No
+        ack, bad signature, disconnect or timeout is not refusal and can mean
+        the change applied. After an eligible refusal cancel that actual plan,
+        wait 400 ms, restart the same mode, then wait for its new plan.
+      verification: "reported"
+    verification: "reported"
+
+  status:
+    authentication:
+      header: "Authorization: Bearer {access_token}"
+      credentials:
+        oven_id:
+          source: "credential:oven_id"
+          issued_by: "GET /2/devices/{device_id}/associated, selecting devices[].oven_id after the second 10026"
+        access_token:
+          source: "credential:access_token"
+          issued_by: "POST /2/devices/register, reading token.access_token and storing it in platform key storage"
+      notes: "The Full Oven Status request substitutes oven_id in its path and sends this bearer header; local status/cook discovery does not imply those routes are unauthenticated."
+      verification: "reported"
+    connection_precedence:
+      - {field: "ha_connection_state", values: {online: true, offline: false}}
+      - {field: "connection_state", values: {connected: true, disconnected: false}}
+      - {field: "online", values: {"true": true, "false": false}, requirement: "JSON boolean only"}
+    wrapping: "device_state_data and cook_plan_data take precedence over device_state and cook_plan; every alias can be bare or one-level {data: object} wrapped. Fall through only when the preferred value is unusable."
+    plan: "A completed cook's cached plan is history, not live activity. Parse food.plan.id and the step selected by step_state.step_index, not always step zero."
+    preheat: >
+      Emit preheat completion once per session when a plan transitions from
+      preheat to preheat_and_hold or 10012 carries
+      notification_id=NOTIFICATION_PREHEAT_COMPLETE. Deduplicate both signals by
+      session_id. A plan first seen already holding after a client restart does
+      not fire. A later stale 10015 cannot undo a 10016 transition.
+    verification: "reported"
+
+  cook_modes:
+    wire_temperature: "11002/11005 temperatures are integer milli-C; UI values below are Fahrenheit. General climate targets are 100–500 F in 5 F steps unless a mode-specific or fixed-plan rule narrows them."
+    legacy_aliases: {air-fry: "airfry"}
+    modes:
+      bake: {kind: "variable", phone_min_f: 170, phone_max_f: 450, default_f: 350, restart_eligible: true}
+      roast: {kind: "variable", phone_min_f: 250, phone_max_f: 450, default_f: 400, restart_eligible: true}
+      airfry: {kind: "variable", phone_min_f: 300, phone_max_f: 450, default_f: 400, restart_eligible: true}
+      proof: {kind: "variable", min_f: 80, max_f: 110, default_f: 85, restart_eligible: true, content_requirement: "Requires installer preset content; not present in the public payload alone."}
+      dehydrate: {kind: "variable", min_f: 100, max_f: 160, default_f: 135, restart_eligible: true}
+      broil: {kind: "fixed", fixed_f: 500, restart_eligible: false}
+      toast: {kind: "plan_index", fixed_f: 500, plan_index: "0..8 maps UI levels 1..9; plan owns 2.5–6.5 minute timing", default_plan_index: 4, restart_eligible: false}
+      reheat: {kind: "fixed", fixed_f: 350, restart_eligible: false, phone_timer: "Default 60 min, maximum 600 min"}
+      warm: {kind: "fixed", fixed_f: 170, restart_eligible: false}
+      pizzaiolo: {kind: "fixed", fixed_f: 500, restart_eligible: false}
+      grill:
+        kind: "plan_index"
+        restart_eligible: false
+        plans:
+          - {plan_index: 0, label: "High", temperature_f: 450}
+          - {plan_index: 1, label: "Medium", temperature_f: 400}
+          - {plan_index: 2, label: "Low", temperature_f: 275}
+        default_plan_index: 0
+    rule: "Restart eligibility never overrides the plan-id and explicit-refusal requirements. Fixed-plan and grill cooks are never restarted for a temperature change. Preset availability depends on installer content; do not promise a mode merely because its primitive is listed."
+    verification: "reported"
+
+  camera_viewer_gate:
+    stream: "GET /media/stream.mjpg while visible; server renews the override for about 15 seconds beyond active pulling and releases it after disconnect."
+    still_polling: "POST /internal/camera/on?seconds=120 on viewer open, renew about every 100 s, fetch latest.jpg at no more than the source's useful cadence, then POST /internal/camera/off on close."
+    ownership: "The stock capture service owns the camera; the bridge connects only when needed, preserving cook-time capture, toast doneness and door-open recognition. Do not open a competing raw camera device."
+    verification: "reported"
+
+  updates:
+    installer: "Use 0.9.1 only (build 20261025-1411-b827be42). Withdrawn 0.9.0 is excluded. Back up first; the physical install/recovery path was not exercised here."
+    stable_channel_warning: >
+      The 2026-11-01 stable manifest still named withdrawn 0.9.0 sequence
+      2026102401 while 0.9.1 moved min_sequence to 2026102501. Never recommend
+      the stable wireless channel on a pre-0.9.1 install. Re-check current
+      metadata; this historical evidence is not a claim about its present state.
+    wireless_scope: "User-started outbound HTTPS updates cover Chef app/content only, not kernel, boot image, bootloader, system image or full-firmware partitions."
+    integrity: "Manifest bytes are Ed25519-signed; artifact size/hash/ZIP are checked, monotonic sequence prevents downgrade/replay, and failed apply rolls back. The per-install token authorizes one oven and is not the release key."
+    transport_requirement: "Update check/stage controls require verified HTTPS so the update token cannot cross the LAN in plaintext. They are deliberately not exposed as commands here."
+    reset: "A factory reset restores the installer-baked Chef build; check for updates only after resolving the stable-channel warning. Reset can remove July unless persistence was selected and is never the 0.9.0 recovery procedure."
+    verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: ["usb", "http"]
+      image:
+        signing: "signed"
+        algorithm: "ed25519"
+        source: "device_pulls"
+        format: "Wireless: signed manifest and Chef APK. USB: Project July installer 0.9.1 image and verified full-eMMC backups; these are different paths."
+        notes: >
+          Signing statement applies to the wireless Chef update manifest, not a
+          claim that every installer/backup artifact uses that signature. The
+          wireless channel does not update kernel, boot, bootloader, system or
+          full firmware. Pre-0.9.1 stable wireless updates must not be used.
+      enter:
+        how: "in_place"
+        notes: >
+          Wireless Chef updates are user-staged for the next boot. Physical
+          conversion instead uses micro-USB and SW2/APX RCM as described in
+          setup; no ordinary LAN command enters that mode.
+      dfu_mode:
+        notes: >
+          APX/RCM is a physical installer state reached with SW2 at power-on,
+          not the June Local HTTP surface. Do not show cook controls in that
+          state. Exact RCM USB identifiers were not established here.
+      recovery:
+        interrupted: "keeps_old_image"
+        notes: >
+          For signed Chef updates, download/staging or apply failure leaves or
+          restores the prior app and uses byte-for-byte backup/rollback. A
+          factory reset restores the installer-baked Chef build. Physical
+          installer recovery instead requires a verified full-eMMC backup or
+          0.9.1 reinstall; 0.9.0 boot loops are not fixed by factory reset.
+      verification: "reported"
+      notes: >
+        Update controls are intentionally not rendered: current stable-channel
+        metadata must be checked first, only 0.9.1 is in scope, and controls
+        require verified HTTPS plus the per-install token.
+
+local_access:
+  status: "firmware_replacement"
+  summary: >
+    Project July 0.9.1 replaces the second-gen oven's cloud-dependent software
+    path with an on-oven June Local server. This spec IDENTIFIES that protocol
+    endpoint and documents its native surfaces for bespoke clients; it does not
+    provide generic catalog-driven heat control. Stock firmware remains without
+    a known local API, and Gen 1/Gen 3 are not compatibility claims.
+  covers:
+    - "Documented local companion registration, five/eight-digit PIN and SRP sequence for bespoke clients"
+    - "Documented signed cook protocol, actual-plan/ACK rules and refusal state machine for bespoke clients; generic implementation is backlog"
+    - "Documented full/compact status, preheat notifications and cook-history separation"
+    - "Documented viewer-gated MJPEG/still camera with stock capture ownership preserved"
+    - "Documented optional signed Chef app/content update design after the channel warning is resolved; no update command is rendered"
+  not_covered:
+    - "Generic catalog-driven signed preheat/cook/stop/timer/temperature controls (explicit backlog; bespoke client required)"
+    - "Gen 1 and Gen 3 ovens"
+    - "Stock-firmware local discovery or pairing"
+    - "Kernel, boot image, bootloader, system image or full-firmware wireless updates"
+    - "Cloud history, Energy/remote internet access or unattended cloud scheduling"
+
+cloud:
+  required: false
+  egress:
+    - host: "downloads.project-july.org"
+      contacted_by: "device"
+      roles: ["firmware_download"]
+      ports: [{port: 443, protocol: "tcp"}]
+      when_blocked:
+        impact: "none"
+        effect: "Local pairing, cook control, telemetry and camera continue; only user-started signed update downloads stop."
+      verification: "reported"
+      basis: "Project July WIRELESS_UPDATES.md at the pinned installer revision. The source-snapshot stable-channel warning still applies before enabling any update."
+  notes: >
+    Normal local control and camera need no vendor cloud. Project websites,
+    mobile app distribution and user-started signed update downloads use the
+    internet. Do not describe the whole system as never making an external
+    connection.
+
+helpful_urls:
+  - title: "Project July installer 0.9.1 and release notes"
+    url: "https://github.com/prj-july/installer"
+    description: "Physical second-gen Tegra/APX installer, June Local server, certificates, backup/restore, wireless-update design and the withdrawn-0.9.0 warning. Use 0.9.1 only."
+  - title: "Project July setup guide"
+    url: "https://project-july.org/setup/"
+    description: "Official physical installation, Connect by IP/name, certificate handling and recovery guidance. No physical step was replayed for this spec."
+  - title: "Project July Home Assistant integration"
+    url: "https://github.com/prj-july/ha-june-oven"
+    description: "Maintained local pairing, endpoint normalization, status/cook handling, camera and plan-race tests."
+  - title: "Project July mobile app"
+    url: "https://github.com/prj-july/project-july-app"
+    description: "MIT mobile client and offline protocol tests for local pairing, signed cook commands, modes and media."
+  - title: "mvanhorn/printing-press-library — original June conformance vectors"
+    url: "https://github.com/mvanhorn/printing-press-library"
+    description: "The unchanged stock synthetic vectors for Ed25519/BLAKE2b frames, SRP-6a, Damm and secretbox. These remain the signature test oracle; July adds no replacement vector set."
+  - title: "Stock June Intelligent Oven protocol"
+    url: "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/june-oven.yaml"
+    description: "Separate stock-firmware cloud dependency and original signed protocol. July does not make that stock firmware local."
+
+evidence:
+  documentation_review: >
+    Read Project July's pinned local server REST/status/cook/camera and relay
+    code, installer release/setup/update documents, maintained Home Assistant
+    protocol/config-flow/client tests, and mobile endpoint/mode/client tests.
+    Derived only implementable protocol facts and owner guidance; no vendor app
+    strings, real identifiers, tokens or owner certificates are retained.
+  open_questions: >
+    No physical 0.9.1 installation, recovery, pairing, heat command, camera
+    stream or update was exercised. Gen 1 support, any Gen 3 path, exact preset
+    content per installer, per-home CA behavior across every client and the
+    current stable-update manifest remain unresolved here.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "prj-july/installer 4672d1ef1b963a062fc1d21fea9776961abd0d0c"
+      url: "https://github.com/prj-july/installer"
+      description: "June Local REST/status/cook/media, exact-byte relay, CA/install/update/reset behavior and release warnings."
+    - type: "public_implementation"
+      artifact: "prj-july/ha-june-oven be3007bfd9008c216769850cd500dfc3199439dc"
+      url: "https://github.com/prj-july/ha-june-oven"
+      description: "Status aliases, endpoint normalization, local pairing, mode constants, preheat and plan-race behavior."
+    - type: "public_implementation"
+      artifact: "prj-july/project-july-app 85c12e92c5123173b332ebb2e2204c807cf69d82"
+      url: "https://github.com/prj-july/project-july-app"
+      description: "Mobile per-mode ranges, plan_index mapping, explicit-refusal handling, actual-plan commands and camera fallback."
+    - type: "public_research"
+      artifact: "mvanhorn/printing-press-library synthetic June vectors"
+      url: "https://github.com/mvanhorn/printing-press-library"
+      description: "Original stock signature/SRP/Damm/secretbox oracle, preserved rather than replaced."
+
+remaining_unknowns:
+  - "Physical installer 0.9.1 behavior, APX recovery and full-backup restoration were not tested by this project."
+  - "Project July Gen 1 support remains under evaluation; Gen 3 is blocked and no alternative path is established."
+  - "Exact guided-cook/preset content in each 0.9.1 payload, including Proof availability, must be checked on the installed oven."
+  - "Per-home CA issuance and hostname/IP validation on every potential client were not tested; no live leaf or TLS session was examined."
+  - "The stable wireless-update manifest may have changed after 2026-11-01; its current target and sequence must be rechecked before any update, and no recommendation to use it is made here."
+  - "Exact APX/RCM USB identifiers and reset-persistence behavior across every installation layout still need hardware confirmation."
