@@ -15,9 +15,11 @@ device:
   manufacturer_status: active
   notes: |
     ISO 15765-2 (ISO-TP) is the segmentation layer between raw CAN frames and
-    UDS/KWP2000 application data. Any diagnostic message longer than 7 bytes
-    must be segmented by ISO-TP; any message 7 bytes or shorter can be sent as
-    a single frame. This is the most common failure point for clone adapters:
+    UDS/KWP2000 application data. With classic CAN normal addressing and no
+    address-extension byte, a diagnostic message longer than 7 bytes must be
+    segmented; a message of 7 bytes or fewer can use a single frame. Address
+    extension reduces the payload capacity, while CAN FD and escape sequences
+    have separate layouts below. This is the most common failure point for clone adapters:
     they cannot reassemble multi-frame responses, or they ignore the ECU's
     requested separation time, or they cannot SEND segmented requests at all.
 
@@ -36,7 +38,7 @@ protocol_details:
     frame_types:
       - type: SingleFrame
         nibble: "0"
-        description: One frame carries the entire message (7 bytes or fewer)
+        description: One frame carries the entire message (7 bytes or fewer with classic CAN normal addressing and no address extension)
         format:
           - byte: 0
             bits: [7, 4]
@@ -45,7 +47,7 @@ protocol_details:
           - byte: 0
             bits: [3, 0]
             name: data_length
-            description: Payload length (1-7). On classic CAN, DLC=8 means the frame is 8 bytes but data_length may be less; the actual payload ends at data_length.
+            description: Payload length (1-7 here). With classic CAN and padding enabled, DLC=8 means the frame is 8 bytes but data_length may be less; CAN-frame-data optimization permits shorter DLCs. The actual payload ends at data_length.
           - byte_offset: 1
             name: payload
             size: variable
@@ -183,10 +185,10 @@ protocol_details:
 
     practical_notes:
       - item: "Always send ATCAF0 (or equivalent) when researching — raw frames eliminate adapter behavior as a variable."
-      - item: "A 7-byte payload is the ISO-TP boundary. 7 or fewer = single frame. 8 or more = FirstFrame + CFs."
-      - item: "When an adapter produces 7F 78 (RequestCorrectlyReceived-ResponsePending), the ECU needs more time. Poll 3E 00 every second until the final response arrives."
+      - item: "The 7-byte single-frame boundary applies to classic CAN normal addressing without an address-extension byte. Address extension consumes payload space; CAN FD and escape sequences have their own limits."
+      - item: "Recognize response pending as 7F <request-SID> 78 (for example 7F 22 78 after a 22 request), then wait for the final response. Do not blindly poll TesterPresent every second; any 3E 00 traffic must follow the ECU's session timing."
       - item: "The 12-bit total length in a FirstFrame limits ISO-TP messages to 4095 bytes in the classic encoding (the FF escape sequence with a 32-bit length covers larger messages). In practice, most ECUs cap much lower (255 bytes is common)."
-      - item: "On classic CAN with DLC=8, a single frame always occupies 8 bytes on the wire. The data_length field tells you how many are real."
+      - item: "Classic-CAN single frames occupy 8 bytes only when padding is enabled. CAN-frame-data optimization permits shorter DLCs; do not reject a short valid single frame, and use data_length rather than padding to find the payload end."
 
 evidence:
   standard: ISO 15765-2:2016

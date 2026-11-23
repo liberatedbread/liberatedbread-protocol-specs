@@ -1,0 +1,455 @@
+# Withings Body Smart WBS13 and Body Comp WBS12 — read-only local BLE WPP
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Withings Body Smart (WBS13) and Body Comp (WBS12) — local BLE"
+  manufacturer: "Withings"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/pierosavi/withings-local/tree/52cfaa1f9157972373d34ce3021dbcd481c2f907"
+    notes: >
+      No vendor protocol specification is published. Facts come from the
+      MIT-licensed withings-local v0.5.0 source and its protocol notes at
+      52cfaa1f9157972373d34ce3021dbcd481c2f907. Body Comp evidence is one
+      community hardware report; Body Smart has the author's hardware evidence.
+      Neither is hardware verification by this project.
+  testing:
+    status: "untested"
+    notes: >
+      This project did not contact a scale, open an account or use an owner
+      key, Bluetooth address or health measurement. withings-local's source
+      review reports one Body Smart and one community Body Comp, not broad
+      firmware coverage. Synthetic SHA-1/WPP/measurement tests below are
+      independent offline checks only.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "scale"
+  category_hierarchy: ["measurement", "health", "body_composition"]
+  type: "body-composition-scale"
+  integration: "identify_only"
+  aliases: ["Withings Body Smart", "Withings Body Comp", "WBS13", "WBS12"]
+  notes: >
+    ONLY WBS13 Body Smart (WPP model 0x10) and WBS12 Body Comp (WPP model
+    0x12) are in scope. WBS06 uses incoming Bluetooth Classic RFCOMM and has
+    its own spec. WBS05, WBS05S, watches and other Withings products are not
+    covered by shared marketing names or by the newer WITHINGS GATT layout.
+
+    The two variants share WPP framing, mutual authentication and stored-
+    measurement reads, but NOT discovery, GATT UUIDs or end-of-sync behavior.
+    Select the profile from the advertisement/model before connecting, then
+    require its exact WPP characteristic. Do not probe one profile's writes
+    against the other. WBS13 sends SYNC_OK; WBS12 never sends or echoes it.
+
+    This is a READ-ONLY measurement session after authentication. There are
+    no delete, association-key, roster/user, unit, Wi-Fi, clock, setup or
+    firmware writes. The only other writes are protocol housekeeping:
+    PROBE/challenge replies, WBS13-only SYNC_OK and DISCONNECT. Existing
+    health records remain on the scale for its owner/other clients; a phone
+    app reaching the scale first can remove them through its own separate
+    session, which is outside this spec.
+
+    The 32-character per-association `kl` is required. It can be pasted from
+    an existing owner export or retrieved once from the owner's account;
+    subsequent measurement reads are local. `kl` is distinct from the probe
+    reply's factory/session secret and from TLS identity material.
+
+    Consumer integration is identify_only because this project ships no
+    dedicated mutual-auth/WPP/session/deduplication handler. The WPP request
+    bytes are implementation facts for that handler, not generic one-shot
+    GATT commands. Supported status requires strict peer verification,
+    variant routing, non-destructive lifecycle and private measurement storage.
+  variants:
+    - model: "WBS13"
+      identification:
+        local_name_prefix: "Body Smart"
+      notes: >
+        Body Smart, WPP model 0x10. The WITH service's fourth UUID group is
+        0010 and its WPP characteristic is
+        00000024-5749-5448-0010-000000000000. SYNC_OK is enabled after a
+        complete read and echoed when received as a device request.
+    - model: "WBS12"
+      identification:
+        local_name_prefix: "Body Comp"
+      notes: >
+        Body Comp, WPP model 0x12, identified by FD77 service data and a Body
+        Comp name, not by the WBS13 WITH service. GATT service
+        00000000-0000-5749-5448-494e47530000 and WPP characteristic
+        00000004-0000-5749-5448-494e47530000. No SYNC_OK.
+  identification:
+    local_name_prefixes: ["Body Smart", "Body Comp"]
+    notes: >
+      Names are candidate filters only; select WBS13 versus WBS12 from the
+      model-specific advertisement data in protocol_details.advertising.
+      WBS12 reports only FD77 service data plus a Body Comp xx name. The new
+      WITHINGS GATT service is shared with other products and is deliberately
+      NOT an identification UUID. Do not match WBS12 by that service alone.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["Body Smart", "Body Comp"]
+          verification: "reported"
+        notes: >
+          Scales generally advertise briefly in Bluetooth mode after a
+          weigh-in; WBS13 setup advertisements also follow a button hold.
+          FD77 model/flag parsing is declared in protocol_details.advertising.
+          Installed + sync-requested is the weigh-in trigger. Do not assume an
+          idle scale in Wi-Fi mode advertises.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      High confidence reflects a working public implementation, not a replay
+      by this project. The owner must have an existing 32-character kl, switch
+      the scale to Bluetooth mode through the vendor app, and complete model-
+      specific six-digit BLE pairing. No Wi-Fi credentials are sent by this
+      spec. A pasted kl avoids the optional online account lookup.
+    methods:
+      - type: "ble_direct"
+        name: "Use an existing kl and model-specific BLE pairing"
+        role: "primary"
+        verified: false
+        description: "Offline key route for an already associated scale; the vendor app is used only to select Bluetooth mode, never by this client to change Wi-Fi."
+        ble:
+          pairing_required: true
+        steps:
+          - action: "In the vendor app open Wi-Fi configuration, hold the scale's underside button for about three seconds, and choose the no-Wi-Fi/Bluetooth-only option."
+            actor: "user"
+            expect: "The scale is in Bluetooth mode. Avoid the on-scale Reset entry, which wipes setup."
+          - action: "Provide the scale's existing 32-character kl through a secret store and select WBS13 or WBS12 from its advertisement/model data."
+            actor: "user"
+          - action: "For WBS13 hold the underside button for three seconds; for WBS12 briefly press it. Start BLE pairing and enter the six-digit code shown on the scale."
+            actor: "user"
+            expect: "The host stores a BLE bond. A subsequent Setup failed display can still accompany a valid bond; verify through an authenticated read, not the display alone."
+          - action: "Subscribe only to the selected variant's WPP characteristic and run the strict mutual-auth/read lifecycle in protocol_details.wpp.read_only_session."
+            actor: "client"
+            expect: "Both SHA-1 proofs verify before battery, stored state or stored records are accepted."
+      - type: "cloud_account"
+        name: "Retrieve the owner's existing kl once"
+        role: "alternative"
+        verified: false
+        description: "Optional online owner-account lookup when no kl export exists; not a per-measurement cloud dependency."
+        cloud:
+          provider: "Withings account association data"
+          account_required: true
+          local_alternative: "The primary ble_direct method: paste an existing kl and complete local BLE pairing; subsequent measurement reads need no cloud session."
+          notes: "Use only the owner's account. This spec does not declare the account API, store the account password, create a roster or self-key a reset scale."
+        steps:
+          - action: "Use the public integration's owner-login helper or account export to retrieve the existing scale's kl, then store only that 32-character key in a secret store."
+            actor: "user"
+            expect: "The owner has the existing 32-character kl; no real key is written to this repository."
+          - action: "Continue with the offline pairing/read route above."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: "The on-scale Reset entry wipes setup. Expect the BLE bond/association and kl-backed local access to need restoration; whether stored measurements survive is not established."
+      description: "Reset is not needed to change local readers and is not a remedy for a missing kl. Do not choose it merely to troubleshoot pairing."
+      procedures:
+        - name: "On-scale Reset menu"
+          verified: false
+          basis: "withings-local README at 52cfaa1f9157972373d34ce3021dbcd481c2f907: a short press opens the on-scale menu and its Reset entry wipes the scale's setup; not run by this project."
+          indicator: "The scale returns to setup/onboarding; the precise screen sequence and record retention were not recorded."
+          steps:
+            - action: "Briefly press the underside button to open the on-scale menu, then deliberately choose Reset only after preserving the owner's association data and accepting setup loss."
+              actor: "user"
+              expect: "Setup is wiped; complete owner association and restore the existing kl before attempting local reads."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Changing local readers does not require reset. Reuse the existing kl and pair the new host. Battery loss can invalidate pairing and require re-pairing/key restoration."
+      steps:
+        - action: "Keep the existing kl in the owner's secret store, close other Bluetooth readers and pair the replacement host for the correct model."
+          actor: "user"
+        - action: "If Wi-Fi mode is wanted again, use the vendor app's Wi-Fi configuration; this spec sends no Wi-Fi command. Bluetooth mode is required for the documented weigh-in advertisements."
+          actor: "user"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["Existing association key material and roster/settings (not modified by this spec)", "BLE bond"]
+      issued_to_client: ["32-character per-association kl", "OS-level BLE bond"]
+      notes: "The scale never reveals kl in a probe. Never commit kl, account passwords, Bluetooth addresses, user IDs, roster names or health measurements. Fixtures use placeholders only."
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "passkey_entry"
+    bonding: "required"
+    pin:
+      source: "device_screen"
+      length: 6
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: "Keep the local adapter close, disconnect other readers and re-pair if the bond was lost after a battery event. Do not use a BLE proxy as a substitute for a bond held by the authenticating host."
+    enter_pairing_mode:
+      required: true
+      notes: "WBS13 uses a three-second underside-button hold; WBS12 uses a short press. The scale displays six digits."
+      procedures:
+        - name: "Body Smart WBS13 pairing"
+          applies_to: ["WBS13"]
+          verified: false
+          basis: "withings-local README pairing instructions at the pinned revision; not run by this project."
+          hold_seconds: 3
+          indicator: "A six-digit pairing code appears on the scale, with about 30 seconds reported to enter it."
+          steps:
+            - action: "Hold the underside button for about three seconds, start pairing on the host and enter the six-digit code shown on the scale."
+              actor: "user"
+              expect: "The host reports a stored BLE bond."
+        - name: "Body Comp WBS12 pairing"
+          applies_to: ["WBS12"]
+          verified: false
+          basis: "withings-local README and the single community WBS12 hardware report at the pinned revision; not run by this project."
+          indicator: "A six-digit code appears after the short press; subscribing before pairing can hang."
+          steps:
+            - action: "Briefly press the underside button, start pairing with a KeyboardDisplay-capable host agent and enter the six-digit code."
+              actor: "user"
+              expect: "The host reports a stored BLE bond; a later Setup failed display alone does not refute it."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      notes: "Remove only the replacement host's BLE bond to withdraw that host. This spec does not erase the scale's LE keys or association; full owner reset is a separate physical operation."
+    notes: "BLE bonding and WPP mutual authentication are separate gates. A bond or an accepted GATT write is not proof that the peer knows kl."
+
+initialization:
+  - description: "Dedicated variant handler: subscribe to the exact WPP characteristic, send PROBE, require and answer the scale's 16-byte challenge, verify the scale's answer to our fresh 16-byte challenge, and only then issue read-only requests."
+    when: "connect"
+    notes: "A setup-mode PROBE_REPLY without a challenge is not an authenticated normal-mode session and must not be used for stored reads."
+
+services:
+  - uuid: "00000020-5749-5448-0010-000000000000"
+    name: "Body Smart WBS13 WITH service (model 0x10)"
+    variants: ["WBS13"]
+    notes: "The final UUID group can carry unit-specific data in advertisements; the exact zeroed service shown here is the GATT layout from the author's Body Smart. Model selection uses the fourth group 0010."
+    characteristics:
+      - uuid: "00000024-5749-5448-0010-000000000000"
+        name: "WBS13 WPP request/response"
+        properties: ["notify", "write", "write_without_response"]
+        role: "command"
+        notes: "Write WPP requests with response and reassemble notifications using the five-byte WPP header length. Observed ATT MTU 185 is not a protocol constant. No fixed command block: this is a stateful authenticated session."
+        verification: "reported"
+
+  - uuid: "00000000-0000-5749-5448-494e47530000"
+    name: "Body Comp WBS12 WITHINGS service"
+    variants: ["WBS12"]
+    notes: "Shared Withings layout, not product identity. Only characteristic 00000004 was established for WPP; do not probe sibling characteristics as substitutes."
+    characteristics:
+      - uuid: "00000004-0000-5749-5448-494e47530000"
+        name: "WBS12 WPP request/response"
+        properties: ["notify", "write"]
+        role: "command"
+        notes: "WPP over the newer GATT layout. Pairing can begin when notifications are enabled. No SYNC_OK at completion or in response to a device request."
+        verification: "reported"
+
+protocol_details:
+  advertising:
+    with_uuid:
+      grammar: "000000SS-5749-5448-MMMM-<12 hex digits>; MMMM is the WPP model, 0010 for Body Smart. A zero tail in setup mode is not a device address."
+      accepted_models: [0x0010]
+    fd77:
+      service_data_uuid: "0000fd77-0000-1000-8000-00805f9b34fb"
+      accepted_models: [0x0012]
+      header: "First u16 BE: protocol version in the high nibble, model in the low 12 bits (0x1012 = version 1, model 0x012)."
+      tlv: "Each following header byte packs type in the high nibble and value length in the low nibble. Reject truncated fields instead of slicing beyond the advertisement."
+      flags: "Type 1, one byte: bit0 installed, bit1 sync requested, bit2 wake-up. Connect for measurement sync only when installed and sync requested are both set."
+      other_fields: "Type 2 carries six address bytes in unassociated setup advertisements; type 3 carries a short identity hash. Do not publish either."
+      sanitized_example: "10 12 11 03 34 01 02 03 04 = model 0x12, installed + sync requested, four-byte type-3 value. The example bytes are invented."
+  wpp:
+    framing:
+      message: "01 | command:u16 BE | payload_length:u16 BE | payload; payload is zero or more TLVs."
+      tlv: "type:u16 BE | length:u16 BE | value. Require exact message and TLV bounds; no trailing partial objects."
+      string_or_bytes: "Inside a TLV, variable strings/byte arrays have a one-byte length prefix followed by exactly that many bytes."
+      reassembly: "Notifications and RFCOMM reads are fragments. Buffer across fragments using payload_length and emit back-to-back complete messages independently."
+      device_request: "Command bit 0x4000 marks a device-initiated request; base_command = command & ~0x4000. Do not confuse it with a response."
+      list_end: "A multi-message stored-measurement list ends with TLV type 256, length zero. Do not wait for a fixed record count."
+    commands:
+      ERROR: 256
+      PROBE: 257
+      BATTERY_PERCENT: 261
+      STORED_MEASURE: 271
+      DISCONNECT: 272
+      CONNECT_REASON: 273
+      SYNC_OK: 277
+      PROBE_CHALLENGE: 296
+    objects:
+      "NULL": 256
+      PROBE_REPLY: 257
+      BATTERY_PERCENT: 263
+      CMD_ERROR: 272
+      STORED_MEASURE_ACTION: 276
+      STORED_MEASURE_STATUS: 277
+      STORED_MEASURE_META: 278
+      STORED_MEASURE_DATA: 279
+      CONNECT_REASON: 280
+      PROBE_CHALLENGE: 290
+      PROBE_CHALLENGE_RESPONSE: 291
+      APP_PROBE: 298
+      STORED_MEASURE_META_EXTEND: 299
+      APP_PROBE_OS_VERSION: 2344
+    probe:
+      request: "PROBE with APP_PROBE {os:u8=1, app:u8=1, version:u32 BE} and APP_PROBE_OS_VERSION {value:u16 BE=34}. Use app version 202609240 for the BLE profile."
+      challenge_reply: "Normal mode answers command 296 with PROBE_CHALLENGE {length-prefixed exact MAC string, length-prefixed 16-byte challenge}. Setup mode instead answers PROBE with PROBE_REPLY; do not read the store in that unauthenticated state."
+      errors: "ERROR carries CMD_ERROR {command:u16 BE, error:int32 BE}. Handle -2 busy, -3 unsupported, -4 rejected, -5 not authenticated, -8 invalid arguments and -9 arguments not set explicitly; never retry a write automatically."
+    mutual_authentication:
+      secret: "kl is exactly 32 ASCII characters. The MAC input is the exact advertised/challenge string as received, including case and separators; do not uppercase, lowercase, strip or normalize it."
+      answer: "SHA1(challenge_bytes || exact_MAC_string_ASCII || kl_ASCII), 20 raw bytes."
+      client_steps:
+        - "Require the scale challenge to be exactly 16 bytes and preserve the exact MAC string."
+        - "Generate a cryptographically fresh, independent 16-byte client challenge."
+        - "Send command 296 with PROBE_CHALLENGE_RESPONSE {one-byte length 20 || SHA1(device_challenge || exact_mac || kl)} followed by PROBE_CHALLENGE {length-prefixed exact_mac || length-prefixed client_challenge}."
+        - "Require the scale's command-257 response to carry its 20-byte proof and compare in constant time with SHA1(client_challenge || exact_mac || kl)."
+        - "If either proof is absent, malformed or mismatched, send no battery, stored-state or stored-record request and send no SYNC_OK. Close with DISCONNECT where the session permits."
+    read_only_session:
+      ordered_operations:
+        - "Subscribe and PROBE; complete and strictly verify mutual authentication."
+        - "BATTERY_PERCENT (261, empty payload); reply object 263 is uint16 BE percent. A failed battery read retains the previous valid value and never becomes zero."
+        - "CONNECT_REASON (273, empty payload); object 280 is uint16 BE: 1 button, 2 weigh-in. Treat 2 as the normal measurement trigger; other reasons are not proof of new records."
+        - "STORED_MEASURE (271), object 276 value {action:u8=0, rc:int8=0}: read state. Object 277 is {count:int16 BE, oldest_time:int32 BE, wifi_configured:int8 BE}; oldest_time is a signed Unix-seconds field, not a duration."
+        - "If count > 0, send the same command with action=1 to read ALL records. Collect across messages through NULL TLV 256. Action=2 (delete) is prohibited."
+        - "WBS13 only: send SYNC_OK (277, empty payload) after the complete successful read and await its reply; also echo a device-initiated SYNC_OK as command 0x4115. WBS12: never send or echo SYNC_OK."
+        - "Send DISCONNECT (272, empty payload) without waiting for an answer, then close. Never issue association 308, roster/session 269, units 274, setup 275, clock 1281, Wi-Fi or firmware commands."
+      stored_meta:
+        layout: "uid:u32 BE | valid:u8 | slot_count:u8 | user_ids[slot_count]:u32 BE each | attrib:u8 | time:u32 BE."
+        semantics: "time is UTC Unix seconds and applies to following DATA objects. Only the first `valid` user IDs are meaningful; unused slots can contain junk. Reject truncated/trailing metadata. A bad META drops its following values rather than attaching them to the previous user/group."
+      stored_data:
+        layout: "value:int32 BE | type:u16 BE | exponent:int16 BE (exactly 8 bytes)."
+        scaling: "Decimal mathematical value = value * 10^exponent. Preserve decimal precision and the raw triple. Example 72345e-3 = 72.345 kg for type 1; 215e-1 = 21.5% for type 6."
+        extras: "META_EXTEND 299, position/algorithm parameters and unknown objects attach to the current record where documented; otherwise preserve their type/raw value without inventing a measurement."
+      deduplication:
+        group_key: "(time, attributed_user)"
+        attributed_user: "First nonzero ID in the valid user_ids, or 0 for guest/unknown (empty or all-zero valid IDs). Retain user_ids and attrib for display/attribution; uid is not required as a stable identity key."
+        within_group: "Deduplicate measurement types within each (time, attributed_user) group. A later complete record of the same type replaces the earlier one, but never replaces another user, guest or a different type."
+        cross_sync_key: "(attributed_user, time, measurement type)"
+        cross_sync_rule: "Suppress already published samples per user/time/type across syncs. Every sync returns the whole store, so do not republish old records, but a different attributed user or guest at the same time and type is a new sample and must survive."
+        unknown_users: "attributed_user 0 is its own guest/unknown group at each timestamp, distinct from every named user. Do not collapse all people into one timestamp/type bucket or use uid to merge them."
+        regression: "multi_user_regression below preserves invented Bob 90 kg, guest 55 kg and Alice 65 kg at one timestamp with their attribution."
+      measure_types:
+        1: {name: "weight", unit: "kg"}
+        5: {name: "fat_free_mass", unit: "kg"}
+        6: {name: "fat_ratio", unit: "%"}
+        8: {name: "fat_mass", unit: "kg"}
+        11: {name: "heart_rate", unit: "bpm"}
+        76: {name: "muscle_mass", unit: "kg"}
+        77: {name: "hydration", unit: "kg", notes: "Body water mass, not a percentage."}
+        88: {name: "bone_mass", unit: "kg"}
+        170: {name: "visceral_fat", unit: "dimensionless index"}
+        226: {name: "basal_metabolic_rate", unit: "kcal", notes: "Unit spelling from the public implementation; not converted to kcal/day."}
+        227: {name: "metabolic_age", unit: "years"}
+      unknown_types: "Preserve {raw_value, type, exponent} without a unit or friendly name. WBS12 has reported unresolved types 177, 178, 189, 201, 202, 203 and 207 and TLV 2451; do not label them impedance by guesswork."
+      verification: "reported"
+    test_vectors:
+      provenance: "Synthetic placeholder MAC aa:bb:cc:dd:ee:ff, invented 32-character kl and challenges, and invented measurements. No real association, address, roster or health data."
+      mac: "aa:bb:cc:dd:ee:ff"
+      kl: "0123456789abcdef0123456789abcdef"
+      device_challenge_hex: "000102030405060708090a0b0c0d0e0f"
+      client_challenge_hex: "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
+      device_answer_sha1_hex: "61ed7e08c65508721022c15778ad3ce238d08a97"
+      client_answer_sha1_hex: "9b3db49377a861643aa0f301086c7770b8b45911"
+      uppercase_mac_answer_sha1_hex: "7ab1567c89136628c75d0e1ac4d1f843f8581710"
+      challenge_reply_hex: "01 01 28 00 40 01 23 00 15 14 61 ed 7e 08 c6 55 08 72 10 22 c1 57 78 ad 3c e2 38 d0 8a 97 01 22 00 23 11 61 61 3a 62 62 3a 63 63 3a 64 64 3a 65 65 3a 66 66 10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 aa ab ac ad ae af"
+      scale_proof_hex: "01 01 01 00 19 01 23 00 15 14 9b 3d b4 93 77 a8 61 64 3a a0 f3 01 08 6c 77 70 b8 b4 59 11"
+      probe_codec_hex: "01 01 01 00 10 01 2a 00 06 01 01 01 02 03 04 09 28 00 02 00 22"
+      probe_codec_fields: {app_version_hex: "01020304", os_version: 34}
+      get_state_hex: "01 01 0f 00 06 01 14 00 02 00 00"
+      get_all_hex: "01 01 0f 00 06 01 14 00 02 01 00"
+      battery_request_hex: "01 01 05 00 00"
+      battery_reply_hex: "01 01 05 00 06 01 07 00 02 00 51"
+      sync_ok_hex: "01 01 15 00 00"
+      disconnect_hex: "01 01 10 00 00"
+      measurement_hex: "01 01 0f 00 33 01 16 00 17 00 00 00 07 01 03 00 00 00 2a 00 00 de ad 00 00 be ef 00 65 53 f1 00 01 17 00 08 00 01 1a 99 00 01 ff fd 01 17 00 08 00 00 00 d7 00 06 ff ff"
+      measurement_fields:
+        uid: 7
+        valid_user_ids: 1
+        user_id_slots: [42, 57005, 48879]
+        attrib: 0
+        time: 1700000000
+        values:
+          - {raw: 72345, type: 1, exponent: -3, decoded: 72.345, unit: "kg"}
+          - {raw: 215, type: 6, exponent: -1, decoded: 21.5, unit: "%"}
+      multi_user_regression:
+        provenance: "Entirely invented people and measurements; repeated uid demonstrates uid is not the group identity key."
+        time: 1700000000
+        groups:
+          - {label: "Bob (invented)", attributed_user: 42, uid: 7, raw: 90000, type: 1, exponent: -3, decoded: 90.0, unit: "kg"}
+          - {label: "Guest/unknown (invented)", attributed_user: 0, uid: 7, raw: 55000, type: 1, exponent: -3, decoded: 55.0, unit: "kg"}
+          - {label: "Alice (invented)", attributed_user: 43, uid: 7, raw: 65000, type: 1, exponent: -3, decoded: 65.0, unit: "kg"}
+        expected_group_count: 3
+        cross_sync_rule: "First publication emits all three; an identical reread emits none. Bob, guest and Alice retain separate (time, attributed_user) groups despite sharing timestamp and type."
+      list_end_hex: "01 01 0f 00 04 01 00 00 00"
+  prohibited_writes:
+    destructive: "STORED_MEASURE action=2/delete-all and every record deletion."
+    onboarding: "ASSOCIATION_KEYS_SET 308, SCALE_SESSION/roster 269, SETUP_OK 275, user/unit 274 and local self-keying."
+    network_and_clock: "All Wi-Fi mode/credential commands and TIME_SET 1281."
+    firmware: "Every firmware update command and every replacement-firmware/replacement-service path."
+    sync_ok: "Prohibited on WBS12; supported only on WBS13 as declared above."
+  entity_coverage: >
+    No generic entities are declared. A WPP characteristic is a stateful
+    authenticated byte stream, not a fixed-offset notification format. A
+    dedicated handler should publish only known measure_types with their
+    declared units, plus UTC weigh-in time and battery, after deduplication.
+    Unknown types remain private raw diagnostics, not guessed sensors.
+
+evidence:
+  public_implementation: >
+    withings-local v0.5.0 at 52cfaa1f9157972373d34ce3021dbcd481c2f907
+    supplied the WPP codec, mutual SHA-1 proofs, model profiles, non-deleting
+    session, measurement parser, per-user/time/type deduplication and host setup.
+    Its own tests include fragmented/back-to-back messages, strict metadata,
+    exponent scaling and proof verification. No upstream code is imported by
+    this spec's independent test.
+  hardware_reports: >
+    The author reports Body Smart WBS13 firmware 1311 locally. One community
+    report covers Body Comp WBS12 firmware 1311/bootloader 2 with BlueZ. These
+    are attributed upstream observations, not testing by this project and not
+    a family-wide firmware allowlist. WBS12 reconnects without SYNC_OK in that
+    report; that does not generalize SYNC_OK to other models.
+  documentation_review: >
+    The retained 100-page FCC exhibit for Withings Body Comp and Body Smart
+    passed local PDF inspection in the source research. The separate vendor-
+    hosted Body Smart guide also resolved as a PDF during this spec pass.
+    Neither manual is evidence for WPP bytes.
+  open_questions:
+    - "More WBS12 units/firmware and exact behavior of unknown measurement types/TLVs."
+    - "Whether WBS13 paired operation can coexist with Wi-Fi mode across firmware; this spec requires the reported Bluetooth-mode path."
+    - "Pairing/bond retention after battery events and exact factory-reset record retention."
+  artifacts:
+    - type: "source_review"
+      artifact: "pierosavi/withings-local v0.5.0, 52cfaa1f9157972373d34ce3021dbcd481c2f907"
+      url: "https://github.com/pierosavi/withings-local/tree/52cfaa1f9157972373d34ce3021dbcd481c2f907"
+      description: "Pinned MIT implementation and protocol documentation; source and attributed hardware reports, not local hardware verification."
+    - type: "vendor_documentation"
+      artifact: "Withings Body Comp / Body Smart FCC user-manual exhibit, 100 pages"
+      url: "https://fccid.co/api/files/s1/xnawbs13_usersmanual_6451828_a55b101ab1.pdf"
+      description: "Owner-product reference for both products; returned HTTP 200 application/pdf in this pass."
+
+remaining_unknowns:
+  - "WBS12 coverage beyond one community scale and the meaning of its unresolved measurement types and TLV 2451."
+  - "Exact firmware matrix for both models; firmware 1311 is an observed version, not a minimum or allowlist."
+  - "Whether every WBS13 firmware accepts the reported non-deleting SYNC_OK behavior; never copy it to WBS12."
+  - "Factory-reset retention of stored measurements and every battery-loss re-pairing case."
+  - "Local provisioning of a factory-reset scale without an existing association/roster is unsolved and deliberately excluded."
+  - "Other Withings models, including WBS06 Classic, WBS05/WBS05S and watches, require their own evidence and transports."
+
+helpful_urls:
+  - title: "Withings Body Smart and Body Comp user manual (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/xnawbs13_usersmanual_6451828_a55b101ab1.pdf"
+    kind: "manual"
+    description: "The 100-page Body Comp / Body Smart product-guide exhibit for the two products covered here; HTTP 200 application/pdf verified 2026-11-18."
+  - title: "Withings Body Smart product guide (vendor PDF)"
+    url: "https://media.withings.com/kits/guides/2023/body-smart/AW_IFU_WBS13_ALL_INT_K_.pdf"
+    kind: "manual"
+    description: "Vendor-hosted WBS13 Body Smart guide for owner setup and controls; HTTP 200 application/pdf verified 2026-11-18. WBS12 owners should use the joint FCC guide above."
+  - title: "withings-local protocol notes (pinned)"
+    url: "https://github.com/pierosavi/withings-local/blob/52cfaa1f9157972373d34ce3021dbcd481c2f907/docs/protocol.md"
+    kind: "protocol_writeup"
+    description: "Public WPP framing, authentication, measurement, model and non-destructive lifecycle notes."
+  - title: "withings-local read-only client (pinned)"
+    url: "https://github.com/pierosavi/withings-local/tree/52cfaa1f9157972373d34ce3021dbcd481c2f907/src/withings_wpp"
+    kind: "implementation"
+    description: "Pinned MIT codec/auth/measures/devices implementation and tests underlying this reported spec."

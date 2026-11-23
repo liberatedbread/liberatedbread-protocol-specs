@@ -36,7 +36,9 @@ Wire the bridge to Ground / Control / Obstruction (LiftMaster Sec+ 2.0:
 red/white/common), in parallel with the wall button. No learn-button press is
 needed for the wired link: the bridge picks its own Sec+ 2.0 client ID and
 syncs the rolling-code counter itself. The learn button enrols radio remotes
-and keypads, not wall controls.
+and keypads, not wall controls. Security+ 1.0 instead uses short 1200-baud
+8E1 wall-console commands with delayed release commands; its wired link does
+not use the RF remote's rolling/fixed-code encoding or rolling-code enrollment.
 
 ## Sibling device verified live: MyQ Smart Garage Control MYQ-G0401
 

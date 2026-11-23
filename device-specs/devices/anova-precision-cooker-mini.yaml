@@ -1,0 +1,697 @@
+# Anova Precision Cooker Mini — model-specific JSON/Base64 BLE spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: Anova's Mini developer pages and MIT reference client at
+# 1dfa54b0a24b397fae916d219faffab5cc0ec74f, plus a static UUID check of
+# com.anovaculinary.android 3.6.6. No hardware capture or live-device test.
+
+device:
+  name: "Anova Precision Cooker Mini"
+  manufacturer: "Anova Applied Electronics"
+  manufacturer_status: "active"
+  type: "sous-vide-immersion-circulator"
+  model: "Precision Cooker Mini"
+  category: "appliance"
+  protocol: "ble"
+  transport: "ble-gatt"
+  testing:
+    status: untested
+    notes: >
+      No Mini was scanned, connected, paired or driven by this project. The
+      protocol comes from Anova's Mini developer documentation and MIT reference
+      client, exercised offline in the research pack. The unified Android app's
+      React Native bundle corroborates the service and all six characteristics,
+      including the 96e3 clock UUID, but not the command encoding or live model
+      compatibility. Independent standard-library checks are in
+      scripts/test_anova_precision_cooker_mini.py; their vectors are synthetic,
+      not captures.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/anova-culinary/developer-project-mini"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://developer.anovaculinary.com/docs/devices/mini/overview"
+        title: "Anova developer docs: Precision Cooker Mini overview"
+        covers: "Service discovery, six characteristics, documented GATT properties, JSON/Base64 encoding, host pairing and UTC clock workflow."
+      - url: "https://developer.anovaculinary.com/docs/devices/mini/commands"
+        title: "Anova developer docs: Mini available commands"
+        covers: "Command routing, unit/start/stop objects, timer seconds, timed-cook sequence and the INVALID_TEMP example."
+      - url: "https://developer.anovaculinary.com/docs/devices/mini/api-reference"
+        title: "Anova developer docs: Mini API reference"
+        covers: "State, temperature, timer and system-info response examples and the second official 96e3 clock mapping."
+    notes: >
+      The official pages are incomplete: no safe operating range, full state
+      enumeration, notification schema, general timer-write object, universal
+      error envelope or authenticated manual was recovered. This spec implements
+      the demonstrated polling/command subset and leaves those questions open.
+      It does not cover the original cooker's ASCII protocol, the Nano's
+      COBS/protobuf protocol, later Mini/Lite hardware, Wi-Fi or Anova cloud APIs.
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      This spec can start and retarget an immersion heater. Starting a cook and
+      changing its setpoint require a deliberate action; stopping remains an
+      ordinary, immediately available command.
+    detail: >-
+      Use only a correctly installed cooker with the water and vessel conditions
+      required by its own vendor instructions. No authentic Mini manual was
+      acquired in the research, so this spec deliberately supplies no temperature
+      range, water-depth rule or unattended-use claim. Read STATE for the current
+      unit immediately before every setpoint or start write and again afterwards.
+      An accepted ATT write is not proof that heating started, stopped or reached
+      a safe condition: read STATE and CURRENT_TEMPERATURE, preserve unknown
+      states, and keep stop_cooking available. The model-specific vendor manual,
+      when obtained, takes precedence over this protocol reconstruction.
+  companion_apps:
+    - name: "Anova Culinary"
+      package: "com.anovaculinary.android"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.anovaculinary.android"
+      notes: >-
+        Version 3.6.6 (versionCode 2127) was checked statically in the November
+        15 follow-up. Its React Native bundle contains all seven UUIDs in this
+        spec and lacks the conflicting 96c3 clock spelling. That is UUID evidence
+        only, not a claim that this app version was driven against a Mini.
+  notes: >
+    The Mini speaks UTF-8 JSON wrapped in standard padded Base64 on six
+    per-function characteristics. No Anova account, cloud API, fixed PIN,
+    application key or provisioning credential appears in the official local
+    client. Discovery uses the custom advertised service; an advertised name is
+    optional and is not specified here.
+
+    STATE is both a readable state object and the destination for unit, start and
+    stop objects. SET_TEMPERATURE and SET_CLOCK are separate destinations. Poll
+    readable characteristics for the demonstrated client. The overview advertises
+    notifications on four characteristics, but gives no subscription sequence or
+    notification schema: do not assume notification bodies equal read bodies.
+
+    Every temperature number is in the cooker's CURRENT temperatureUnit, not in a
+    unit carried by each command. Timer values in the demonstrated start object
+    are integer seconds. Zero is the reference client's default timer, but its
+    device-side meaning (disabled, unlimited or something else) is unknown and is
+    not asserted here. The official reference always emits setpoint, timer,
+    cookableId and cookableType for start; this spec does not invent behavior for
+    omitted optional fields.
+
+    SCOPE: this is only the first Precision Cooker Mini documented by Anova's
+    Mini-specific API. It is not the original Precision Cooker, Nano, A2/A3,
+    Nano 3.0/Wi-Fi, or the later Mini/Lite family merely sharing a retail name.
+
+  identification:
+    service_uuids:
+      - "910772a8-a5e7-49a7-bc6d-701e9a783a5c"
+    notes: >-
+      Require this advertised custom service, then verify all six characteristics
+      after connecting. A local-name prefix may be used only as a secondary,
+      user-supplied filter: the official client supports one, but no fixed Mini
+      advertised name is established. Do not identify this cooker as an original
+      Anova or Nano from its name alone.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "910772a8-a5e7-49a7-bc6d-701e9a783a5c"
+        verification: "reported"
+        notes: >-
+          The official client compares advertised service UUIDs
+          case-insensitively. Select by service first; an optional cooker_id is a
+          case-sensitive name prefix supplied by the user, not protocol identity.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >-
+        The reference client keys a connection on the host Bluetooth device.
+        Whether the Mini address is public or random and stable across resets is
+        not established. SYSTEM_INFO contains a serial number, but it is private
+        per-unit data: do not log, publish or commit it.
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >-
+      There is no Wi-Fi provisioning or account setup in this BLE path. The
+      official flow connects, accepts the host pairing request, verifies the GATT
+      map and synchronizes the clock to UTC. It has not been replayed on hardware.
+    methods:
+      - type: "ble_direct"
+        name: "Direct BLE with host pairing"
+        role: "primary"
+        verified: false
+        description: >-
+          Scan for the Mini service, connect, accept host pairing, verify all six
+          characteristics, set the UTC clock and then poll state. Do not issue a
+          heater write during setup.
+        ble:
+          service_uuid: "910772a8-a5e7-49a7-bc6d-701e9a783a5c"
+          write_characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+          read_characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+          pairing_required: true
+        steps:
+          - action: "Power the Mini and scan for advertisements carrying 910772a8-a5e7-49a7-bc6d-701e9a783a5c, then connect."
+            actor: "client"
+            timeout_seconds: 10
+          - action: "Accept the host's pairing request. Anova says the Mini disconnects if that request is not accepted; no fixed PIN is documented."
+            actor: "user"
+          - action: "Discover the service and require SET_TEMPERATURE, CURRENT_TEMPERATURE, TIMER, STATE, SET_CLOCK and SYSTEM_INFO at the exact UUIDs in services before any command."
+            actor: "client"
+          - action: "Write set_clock with the current UTC time and response required, then read STATE and record temperatureUnit before interpreting any temperature."
+            actor: "client"
+            expect: "STATE decodes as a JSON object after strict Base64 and UTF-8 decoding; temperatureUnit is C or F. Do not substitute a temperature of zero for a failed read."
+        troubleshooting:
+          - symptom: "The Mini does not appear or cannot be paired again."
+            fix: "Close other clients. The official reference says to hold the top button for ten seconds until the light turns off, then retry. Its reset scope is unknown; see factory_reset and pairing.unpair rather than treating it as a proven full factory reset."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >-
+        The official reference calls a ten-second top-button hold a reset that
+        permits pairing again. It does not establish whether bonds, cook history,
+        clock, unit or other settings are erased, nor whether every firmware
+        revision behaves alike.
+      description: >-
+        No complete Mini manual was recovered. The procedure below is a
+        source-documented recovery action, not a claim of a fully understood
+        factory reset, and it was not executed by this project.
+      procedures:
+        - name: "Top-button reset (scope not fully documented)"
+          verified: false
+          basis: "Anova's Mini MIT reference client, scan-failure guidance at the pinned commit; not run against hardware."
+          power_state: "on"
+          indicator: "The light turns off after the hold."
+          steps:
+            - action: "Hold the Mini's top button for ten seconds until its light turns off."
+              actor: "user"
+            - action: "Scan and pair again. Do not assume anything beyond the source's statement that this permits pairing again."
+              actor: "client"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        There is no router to rejoin on the BLE path. Moving hosts means pairing
+        the new host and, only if needed, using the top-button recovery above.
+        Whether the old bond must first be forgotten is not established.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Bluetooth pairing state; exact storage and reset behavior are unknown"
+      issued_to_client: []
+      notes: >-
+        No Wi-Fi passphrase, account token, application key or fixed pairing PIN
+        is used by the documented local protocol.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >-
+        Close the vendor app and other centrals, then reconnect and accept the
+        host pairing request. If pairing still fails, the official client's
+        ten-second top-button recovery is the documented next step; its exact
+        bond-clearing scope is unknown.
+      notes: >-
+        The official client establishes that pairing is required, but does not
+        name the association model, bond capacity or connection limit. Calling
+        it Just Works, numeric comparison or a fixed-PIN exchange would be an
+        invention.
+    enter_pairing_mode:
+      required: false
+      notes: >-
+        The Mini advertises its service without a documented button-only pairing
+        window. Pairing is accepted at the host after connection. Use the
+        top-button hold only for the documented recovery case.
+    unpair:
+      supported: "unknown"
+      clears: "Unknown. The top-button recovery permits pairing again, but the sources do not say whether it clears only the bond or additional settings."
+      notes: >-
+        No standalone unpair procedure was found. Do not borrow the original
+        cooker's Bluetooth-button behavior or assert that a full factory reset is
+        required.
+    notes: >-
+      Accepting the host pairing prompt is mandatory in the official Mini client.
+      No application-layer pairing payload follows it. Actual reconnect behavior
+      still needs a hardware check.
+
+# JSON object construction plus Base64 requires a dedicated encoder. A consumer
+# without this handler must not send a JSON description as raw bytes.
+protocol_handler: "anova_mini_base64_json"
+
+services:
+  - uuid: "910772a8-a5e7-49a7-bc6d-701e9a783a5c"
+    name: "Anova Precision Cooker Mini control"
+    notes: >-
+      UUIDs and documented properties come from Anova's Mini overview and pinned
+      client, with static UUID corroboration from the unified app. Command bodies
+      are logical JSON objects: serialize as protocol_details.json_base64_transport
+      specifies before writing. No notification payload schema is asserted.
+    characteristics:
+      - uuid: "0f5639f7-3c4e-47d0-9496-0672c89ea48a"
+        name: "SET_TEMPERATURE"
+        properties: ["read", "write_without_response", "notify"]
+        verification: "reported"
+        notes: >-
+          The official client writes with response=False. The overview also calls
+          this readable/notifiable, but does not document a standalone read or
+          notification response schema. Only the write object below is declared.
+        commands:
+          set_target_temperature:
+            description: >-
+              Write the JSON object {"setpoint": <number>} using the current
+              device unit, then apply the Base64 transport. The documented
+              sequence sends this before start_cooking. No safe minimum or
+              maximum was recovered, so the parameter deliberately has no range.
+            encoding: "json"
+            payload:
+              key: "setpoint"
+              value_type: "number"
+            parameters:
+              setpoint:
+                type: "string"
+                description: "A finite JSON number in the current STATE.temperatureUnit, without quotes or a unit suffix. The handler validates the number and emits no NaN or Infinity."
+                unit_source: "device_setting"
+                unit_reference: "STATE.temperatureUnit"
+                unit_values:
+                  C: "C"
+                  F: "F"
+            advanced: true
+            advanced_reason: >-
+              Changing the target can heat an already-running bath, and a value
+              interpreted in the wrong current unit can produce an unsafe cook.
+              Read STATE first, confirm the unit and vessel conditions, then read
+              STATE again afterwards. stop_cooking remains the recovery command.
+            verification: "reported"
+      - uuid: "6ffdca46-d6a8-4fb2-8fd9-c6330f1939e3"
+        name: "CURRENT_TEMPERATURE"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: >-
+          Read and strictly decode Base64, UTF-8 and a JSON object with numeric
+          current. The number is already in STATE.temperatureUnit: do not convert
+          it a second time. A missing or malformed current is unknown, never 0.
+      - uuid: "a2b179f8-944e-436f-a246-c66caaf7061f"
+        name: "TIMER"
+        properties: ["read", "write", "notify"]
+        verification: "reported"
+        notes: >-
+          The official client only reads this characteristic. Its demonstrated
+          object has running and integer remaining seconds. The overview calls it
+          writable, but no standalone timer-write object or completion semantics
+          is documented; no write command is invented here.
+      - uuid: "54e53c60-367a-4783-a5c1-b1770c54142b"
+        name: "STATE"
+        properties: ["read", "write_without_response", "notify"]
+        verification: "reported"
+        notes: >-
+          Read the state object; write unit/start/stop objects with response=False.
+          idle and cooking are the only published state words. Preserve every
+          other state as unknown rather than mapping it to idle. Read this before
+          and after every unit, setpoint and start write.
+        commands:
+          set_temperature_unit:
+            description: >-
+              Write {"command":"changeUnit","payload":{"temperatureUnit":"C"}}
+              or the F equivalent using the Base64 transport. UI parameter 0 maps
+              to JSON C and 1 to JSON F. Read STATE afterwards to verify the new
+              unit and re-read all temperatures; do not carry a numeric setpoint
+              across the change unchanged.
+            encoding: "json"
+            payload:
+              key: "payload.temperatureUnit"
+              value_type: "string"
+            parameters:
+              unit:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["Celsius", "Fahrenheit"]
+                description: "UI enum only: 0 becomes JSON string C; 1 becomes JSON string F."
+            verification: "reported"
+          start_cooking:
+            description: >-
+              Write the complete documented start object with setpoint, timer in
+              integer seconds, cookableId and cookableType, using the Base64
+              transport. The reference emits all four payload fields even though
+              its command page calls the last three optional. recipe123/recipe
+              are offline example strings, not a real recipe or cloud lookup.
+              Send set_target_temperature first for a timed cook and confirm the
+              result through STATE rather than trusting the write result.
+            encoding: "json"
+            payload:
+              key: "command"
+              value_type: "string"
+            parameters:
+              setpoint:
+                type: "string"
+                description: "Finite JSON number in the current STATE.temperatureUnit, with the same validation and lack of an asserted safe range as set_target_temperature."
+                unit_source: "device_setting"
+                unit_reference: "STATE.temperatureUnit"
+                unit_values:
+                  C: "C"
+                  F: "F"
+              timer:
+                type: "int32"
+                min: 0
+                unit: "s"
+                description: "Non-negative integer seconds emitted in the start object. Zero is the reference default only; its device-side disabled/unlimited meaning is unknown. There is deliberately no automatic default: a dedicated action must gather the timer explicitly."
+              cookable_id:
+                type: "string"
+                description: "Opaque identifier emitted as cookableId. The official offline example value is recipe123, not a private or real recipe identifier; supply all four start fields as the reference does."
+              cookable_type:
+                type: "string"
+                description: "Opaque cookableType string. The official offline example value is recipe; supply it explicitly rather than inferring device-side omission behavior."
+            advanced: true
+            advanced_reason: >-
+              This can start an immersion heater. Confirm the current temperature
+              unit, setpoint, timer and physical setup with the owner present, and
+              keep stop_cooking immediately available. A write acknowledgment is
+              not proof of heating; verify STATE and stop if it is unexpected.
+            verification: "reported"
+          stop_cooking:
+            description: >-
+              Write {"command":"stop"} with response=False using the Base64
+              transport. This is the ordinary recovery path and is deliberately
+              not advanced. Read STATE afterwards; a successful local write alone
+              does not prove the heater stopped.
+            encoding: "json"
+            payload:
+              key: "command"
+              value_type: "string"
+            verification: "reported"
+      - uuid: "d8a89692-cae8-4b74-96e3-0b99d3637793"
+        name: "SET_CLOCK"
+        properties: ["write"]
+        verification: "reported"
+        notes: >-
+          Write with response required. The overview, API reference, pinned client
+          and current app bundle all support 96e3. One official BLE protocol page
+          prints d8a89692-cae8-4b74-96c3-0b99d3637793 instead; that conflict is
+          retained in remaining_unknowns pending a real GATT table. Do not probe
+          the alternative by sending clock writes to an unidentified cooker.
+        commands:
+          set_clock:
+            description: >-
+              Write {"currentTime":"2024-02-06T12:00:00+00:00"} with the actual
+              current UTC time, Base64-encoded, using write-with-response. The
+              command page also shows a trailing Z. Both forms are documented;
+              accepted variants beyond those two are unknown. Microseconds are
+              omitted in the reference client.
+            encoding: "json"
+            payload:
+              key: "currentTime"
+              value_type: "string"
+            parameters:
+              current_time:
+                type: "string"
+                description: "Current UTC ISO-8601 timestamp ending Z or +00:00, without fractional seconds. The client generates this at send time; never replay the example timestamp."
+            verification: "reported"
+      - uuid: "153c9432-7c83-4b88-9252-7588229d5473"
+        name: "SYSTEM_INFO"
+        properties: ["read"]
+        verification: "reported"
+        notes: >-
+          Read a Base64/JSON object containing deviceName, firmwareVersion and
+          serialNumber, with possible additional fields. Use an invented serial
+          in fixtures and never publish a unit's real serial. Other services or a
+          standard Battery Service may exist, but are not established here.
+
+payload_formats:
+  State:
+    description: >-
+      JSON object read from STATE after strict Base64 decoding. Published
+      examples contain state and may contain temperatureUnit, currentTemperature
+      and a timer object; tolerate additional or absent fields.
+    fields:
+      - name: "state"
+        description: "String state. Only idle and cooking are documented; preserve all other values as unknown."
+      - name: "temperatureUnit"
+        description: "String C or F controlling every temperature in both directions. It is required before a setpoint write; an absent value is unknown, not a default C."
+      - name: "currentTemperature"
+        description: "Optional JSON number in temperatureUnit. It is not substituted for a failed CURRENT_TEMPERATURE read."
+        unit_source: "device_setting"
+        unit_reference: "State.temperatureUnit"
+        unit_values:
+          C: "C"
+          F: "F"
+      - name: "timer"
+        description: "Optional object with boolean running and integer remaining seconds, matching Timer."
+    parse_rules:
+      - "Strictly Base64-decode with standard alphabet and required padding, decode UTF-8, then require one JSON object; malformed data is an error, not {}."
+      - "Accept legal JSON whitespace and additional fields. Do not compare responses to one literal serialized string."
+      - "Preserve unknown state strings and missing fields. Only the exact documented idle value means idle."
+    example: '{"state":"idle","currentTemperature":25.5,"timer":{"running":false,"remaining":0}}'
+  CurrentTemperature:
+    description: "JSON object read from CURRENT_TEMPERATURE. The current number is already in State.temperatureUnit and needs no Base64-to-binary scaling."
+    fields:
+      - name: "current"
+        description: "JSON number in the current device unit. Missing, null, non-numeric or malformed values are unknown and must not become zero."
+        unit_source: "device_setting"
+        unit_reference: "State.temperatureUnit"
+        unit_values:
+          C: "C"
+          F: "F"
+    parse_rules:
+      - "Apply the same strict Base64/UTF-8/JSON-object decoder as State, then require a finite numeric current before publishing a reading."
+    example: '{"current":65.0}'
+  Timer:
+    description: "JSON object read from TIMER. Seconds are integer values, not milliseconds or minutes."
+    fields:
+      - name: "running"
+        description: "Boolean countdown-running flag. Its post-completion behavior is undocumented."
+      - name: "remaining"
+        description: "Integer remaining seconds. No sentinel or post-completion value is documented."
+        unit: "s"
+    parse_rules:
+      - "Require running to be a JSON boolean and remaining an integer when those fields are exposed; preserve additional fields."
+    example: '{"running":true,"remaining":3600}'
+  SystemInfo:
+    description: "JSON object with deviceName, firmwareVersion and serialNumber plus possible additional fields."
+    parse_rules:
+      - "Treat serialNumber as private per-unit identity. Use synthetic values in logs and test fixtures."
+    example: '{"deviceName":"Example Mini","firmwareVersion":"0.0.0-example","serialNumber":"invented-serial"}'
+  CommandError:
+    description: "One documented error object, not a complete error catalogue or proof that all errors arrive on STATE."
+    fields:
+      - name: "error"
+        description: "Human-readable error string."
+      - name: "code"
+        description: "Machine-readable code. INVALID_TEMP is the only published example; invalid unit, wrong state, connection failure and timer range have no published codes."
+    parse_rules:
+      - "Surface error/code when present. Do not treat an arbitrary state value or an empty object as an error envelope."
+    example: '{"error":"Invalid temperature value","code":"INVALID_TEMP"}'
+
+protocol_details:
+  json_base64_transport:
+    command_steps:
+      - "Construct exactly one command-specific JSON object with the declared field types."
+      - "Serialize the object as UTF-8 JSON. Ordinary JSON whitespace is not a protocol requirement; accept any legal whitespace on reads."
+      - "Apply standard Base64 with the normal alphabet and = padding to the complete UTF-8 byte sequence."
+      - "Write the Base64 ASCII bytes to the command's characteristic. SET_TEMPERATURE and STATE use write-without-response; SET_CLOCK uses write-with-response."
+      - "For reads, require the entire value to be valid padded Base64, then UTF-8, then one JSON object of the expected shape. Bound input sizes and distinguish malformed data from an actual empty object."
+    no_binary_envelope: >-
+      No binary header, opcode, checksum, fixed-point conversion, terminator or
+      application encryption layer is documented. Base64 is the outer encoding,
+      not encryption. No MTU, maximum command length, long-write or fragmentation
+      rule was recovered; do not invent a universal ATT limit from short examples.
+    polling_and_notifications: >-
+      The demonstrated client polls STATE, CURRENT_TEMPERATURE, TIMER and
+      SYSTEM_INFO. A full-state helper is three separate reads in that order,
+      merging currentTemperature and timer into the state dictionary; it is not a
+      device operation. Four characteristics advertise notify, but no
+      subscription sequence or notification schema is public. Do not enable
+      notifications and assume they carry these read objects without a capture.
+    write_result_is_not_device_state: >-
+      A successful write or ATT acknowledgment is not evidence of heating,
+      stopping, unit acceptance or reaching a setpoint. Read STATE after unit and
+      cook writes and CURRENT_TEMPERATURE for bath progress. The reference
+      client's interactive exit sends stop before disconnecting; that is an
+      application choice, not proof that a bare disconnect stops the cooker.
+  command_objects:
+    set_target_temperature: '{"setpoint": <setpoint as a JSON number>}'
+    set_temperature_unit: '{"command":"changeUnit","payload":{"temperatureUnit":<"C" for UI 0 or "F" for UI 1>}}'
+    start_cooking: '{"command":"start","payload":{"setpoint":<setpoint>,"timer":<integer seconds>,"cookableId":<string>,"cookableType":<string>}}'
+    stop_cooking: '{"command":"stop"}'
+    set_clock: '{"currentTime":<current UTC ISO-8601 string>}'
+  test_vectors:
+    - name: "Set target to 65.0 in the current unit"
+      characteristic: "0f5639f7-3c4e-47d0-9496-0672c89ea48a"
+      json_text: '{"setpoint": 65.0}'
+      base64_ascii: "eyJzZXRwb2ludCI6IDY1LjB9"
+      write_mode: "without_response"
+      origin: "Official pinned-client exact vector"
+    - name: "Stop cooking"
+      characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+      json_text: '{"command": "stop"}'
+      base64_ascii: "eyJjb21tYW5kIjogInN0b3AifQ=="
+      write_mode: "without_response"
+      origin: "Official pinned-client exact vector"
+    - name: "Change unit to Celsius"
+      characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+      json_text: '{"command": "changeUnit", "payload": {"temperatureUnit": "C"}}'
+      base64_ascii: "eyJjb21tYW5kIjogImNoYW5nZVVuaXQiLCAicGF5bG9hZCI6IHsidGVtcGVyYXR1cmVVbml0IjogIkMifX0="
+      write_mode: "without_response"
+      origin: "Synthetic vector generated from the documented object and transport"
+    - name: "Start a documented example cook"
+      characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+      json_text: '{"command": "start", "payload": {"setpoint": 65.0, "timer": 3600, "cookableId": "recipe123", "cookableType": "recipe"}}'
+      base64_ascii: "eyJjb21tYW5kIjogInN0YXJ0IiwgInBheWxvYWQiOiB7InNldHBvaW50IjogNjUuMCwgInRpbWVyIjogMzYwMCwgImNvb2thYmxlSWQiOiAicmVjaXBlMTIzIiwgImNvb2thYmxlVHlwZSI6ICJyZWNpcGUifX0="
+      write_mode: "without_response"
+      origin: "Synthetic offline example only; never a hardware command replay"
+    - name: "Set the documented UTC clock example"
+      characteristic: "d8a89692-cae8-4b74-96e3-0b99d3637793"
+      json_text: '{"currentTime": "2024-02-06T12:00:00+00:00"}'
+      base64_ascii: "eyJjdXJyZW50VGltZSI6ICIyMDI0LTAyLTA2VDEyOjAwOjAwKzAwOjAwIn0="
+      write_mode: "with_response"
+      origin: "Synthetic vector from the reference client's +00:00 timestamp form"
+  source_conflicts:
+    clock_uuid: >-
+      Use d8a89692-cae8-4b74-96e3-0b99d3637793. The overview, API reference,
+      pinned official client and unified app bundle agree; one BLE protocol page
+      prints d8a89692-cae8-4b74-96c3-0b99d3637793, which was absent from that
+      bundle. Hardware GATT discovery is still required to close the conflict.
+    timer_write: >-
+      TIMER is documented writable, but only start_cooking demonstrates setting a
+      timer. No standalone TIMER write object is declared.
+    app_uuid_evidence: >-
+      The November 15 verification found every Mini UUID in the unified app's
+      React Native bundle. This supersedes the earlier research note's negative
+      search only as a UUID finding. It does not prove command framing, current
+      firmware support or a completed app-to-Mini connection.
+
+entities:
+  - platform: "climate"
+    name: "Mini Sous Vide"
+    icon: "mdi:pot-steam"
+    temp_step: 0.1
+    state_characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+    commands:
+      set_temperature: "set_target_temperature"
+      turn_off: "stop_cooking"
+    notes: >-
+      STATE supplies the state object and current unit; no fixed unit or safe
+      setpoint bounds are asserted. Start and setpoint are advanced commands.
+      There is no generic turn_on binding: start_cooking requires setpoint,
+      cookableId, cookableType and an explicit timer, and a no-argument action
+      cannot supply them. A dedicated start action must gather every field.
+      STATE's idle is the only established idle word; unknown states must not be
+      displayed as stopped. Confirm turn_off by reading STATE.
+  - platform: "sensor"
+    name: "Mini Water Temperature"
+    device_class: "temperature"
+    precision: 0.1
+    state_characteristic: "6ffdca46-d6a8-4fb2-8fd9-c6330f1939e3"
+    notes: >-
+      Decode payload_formats.CurrentTemperature and use STATE.temperatureUnit.
+      Do not convert Fahrenheit a second time, and do not substitute zero when a
+      read or decode fails.
+  - platform: "sensor"
+    name: "Mini Status"
+    icon: "mdi:state-machine"
+    state_characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+    notes: "Text from State.state: only idle and cooking are documented; preserve all other values as unknown."
+  - platform: "select"
+    name: "Mini Temperature Unit"
+    state_characteristic: "54e53c60-367a-4783-a5c1-b1770c54142b"
+    state_mapping:
+      options:
+        "0": "Celsius"
+        "1": "Fahrenheit"
+    commands:
+      select_option: "set_temperature_unit"
+    notes: >-
+      STATE.temperatureUnit C maps to option 0 and F to option 1. Read back after
+      selection, then re-read the setpoint and water temperature in the new unit.
+  - platform: "sensor"
+    name: "Mini Timer Remaining"
+    unit: "s"
+    icon: "mdi:timer-sand"
+    state_characteristic: "a2b179f8-944e-436f-a246-c66caaf7061f"
+    notes: "Integer remaining seconds from Timer. Timer.running says whether it is counting; no standalone timer setter is declared."
+  - platform: "sensor"
+    name: "Mini Firmware Version"
+    icon: "mdi:chip"
+    state_characteristic: "153c9432-7c83-4b88-9252-7588229d5473"
+    notes: "SystemInfo.firmwareVersion. Do not expose SystemInfo.serialNumber as this entity or in logs."
+
+evidence:
+  documentation_review: >-
+    Anova's Mini overview, BLE protocol, API reference, commands and
+    implementation pages were read in the November 1 research pack. The pinned
+    MIT reference client supplied the exact GATT use, JSON/Base64 transport,
+    response flags, command objects and two exact vectors. Offline research
+    exercised those methods against fakes, not hardware. The recovered pages and
+    source do not establish safe operating limits or a complete state/error model.
+  app_static_analysis: >-
+    The November 15 follow-up checked the sibling-held unified app
+    com.anovaculinary.android 3.6.6 (versionCode 2127). All seven UUIDs in this
+    spec occur in its React Native bundle; the conflicting 96c3 clock UUID does
+    not. Only those identifier facts are used. No vendor symbol, private device
+    identifier or unrecovered command payload is transcribed.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "anova-culinary/developer-project-mini @ 1dfa54b0a24b397fae916d219faffab5cc0ec74f (MIT)"
+      url: "https://github.com/anova-culinary/developer-project-mini"
+      obtained_via: "research store clone, reviewed 2026-11-01"
+      description: "Primary source for GATT use, JSON/Base64 framing, writes, command objects, polling and offline vectors."
+    - type: "vendor_documentation"
+      artifact: "Anova Mini developer documentation"
+      url: "https://developer.anovaculinary.com/docs/devices/mini/overview"
+      obtained_via: "cached public pages, 2026-11-01"
+      description: "Documented properties, response examples, pairing and command semantics; incomplete as recorded in remaining_unknowns."
+    - type: "static_analysis"
+      artifact: "com.anovaculinary.android 3.6.6 (versionCode 2127), XAPK"
+      obtained_via: "sibling research directory, checked 2026-11-15"
+      description: "Corroborates the Mini service and all six characteristics, including 96e3; no live compatibility or framing claim."
+    - type: "vendor_documentation"
+      artifact: "Anova Precision Cooker Mini Quickstart Guides article metadata"
+      url: "https://support.anovaculinary.com/hc/en-us/articles/32668242410765-Anova-Precision-Cooker-Mini-Quickstart-Guides"
+      obtained_via: "public support metadata, 2026-11-01"
+      description: "Names regional quickstart guides but yielded no complete manual for this research. It is not used to assert electrical, water or temperature limits."
+  open_questions: >-
+    See remaining_unknowns. First obtain an owner-authorized GATT and notification
+    capture plus the authentic manual. Begin read-only, resolve the clock table,
+    bond behavior and actual response/error shapes, then verify stop before any
+    attended start or setpoint write.
+
+remaining_unknowns:
+  - "The actual Mini GATT table and properties, including final resolution of the SET_CLOCK 96e3 versus 96c3 documentation conflict."
+  - "Authenticated manual limits: electrical ratings, safe temperature range, vessel/water requirements and regional-model differences. The reference client's example 65.0 is not a range."
+  - "The complete state enumeration and whether a distinct preheating/error state exists; unknown states must remain unknown."
+  - "Notification subscription requirements and payloads, including whether they equal the documented read objects."
+  - "Standalone SET_TEMPERATURE and TIMER read/write response schemas, timer zero semantics, completion behavior and valid timer bounds."
+  - "Error delivery and correlation beyond the single INVALID_TEMP example; invalid unit, wrong state, connection and timer errors have no published codes."
+  - "MTU, maximum command size, long-write and fragmentation behavior."
+  - "Pairing association model, central/bond limits, reconnect behavior, and exactly what the ten-second top-button reset clears."
+  - "Whether a bare disconnect leaves a cook running; only the reference interactive client's deliberate stop-on-exit is established."
+  - "Firmware update, Wi-Fi provisioning and unattended-heating behavior are outside this spec and unrecovered."
+
+helpful_urls:
+  - title: "Anova developer docs: Precision Cooker Mini overview"
+    url: "https://developer.anovaculinary.com/docs/devices/mini/overview"
+    kind: "protocol_writeup"
+    description: "Model-specific GATT map, JSON/Base64 transport, host pairing and UTC clock workflow."
+  - title: "Anova developer docs: Mini BLE communication protocol"
+    url: "https://developer.anovaculinary.com/docs/devices/mini/ble-protocol"
+    kind: "protocol_writeup"
+    description: "Encoding and connection guidance; carries the conflicting 96c3 clock spelling recorded in this spec."
+  - title: "Anova developer docs: Mini available commands"
+    url: "https://developer.anovaculinary.com/docs/devices/mini/commands"
+    kind: "protocol_writeup"
+    description: "Setpoint, unit, start/stop, clock and response/error examples."
+  - title: "anova-culinary/developer-project-mini (MIT)"
+    url: "https://github.com/anova-culinary/developer-project-mini"
+    kind: "implementation"
+    description: "Official Python/Bleak reference client at the pinned revision used for this spec; no hardware test is implied."
+  - title: "Anova Precision Cooker Mini Quickstart Guides"
+    url: "https://support.anovaculinary.com/hc/en-us/articles/32668242410765-Anova-Precision-Cooker-Mini-Quickstart-Guides"
+    kind: "vendor_support"
+    description: "Official regional-guide landing page. The research recovered metadata but no complete manual, so this is not the basis for operating limits."
+  - title: "Anova Precision Cooker original Bluetooth spec"
+    url: "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/anova-precision-cooker.yaml"
+    kind: "protocol_writeup"
+    description: "The different original-cooker CR-terminated ASCII protocol; not interchangeable with this Mini profile."

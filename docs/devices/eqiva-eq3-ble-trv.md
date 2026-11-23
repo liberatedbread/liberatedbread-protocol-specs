@@ -11,7 +11,7 @@ The Eqiva eQ-3 (CC-RT-BLE) Bluetooth radiator valve — a very common European s
 
 ## Protocol Summary
 
-Commands written to a vendor GATT characteristic, status on a notify char: `41 <°C×2>` set target, `40 00`/`40 40` auto/manual, `45 01` boost, `f0` factory reset. Firmware 1.20+ may need a one-time BLE pairing.
+Commands are read back and written on the vendor GATT characteristic, with status on a notify characteristic: `41 <°C×2>` set target, `40 00`/`40 40` auto/manual, `45 01` boost, `f0` factory reset. Raw targets are 9–60: 10–59 mean ordinary 5.0–29.5 °C targets, 9 is off and 60 is on (30.0 °C); 61 is unsupported. The status prefix uses zero-based offsets: response type 0, marker 1, mode 2, valve 3, marker 4 and target 5. Firmware 1.20+ may need a one-time BLE pairing.
 
 See `device-specs/devices/eqiva-eq3-ble-trv.yaml` for the full machine-readable spec.
 

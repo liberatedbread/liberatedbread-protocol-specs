@@ -1153,6 +1153,11 @@ ENTITYLESS_CONTROL_SURFACES = {
     "logitech-harmony-hub": "The local WebSocket envelope is unconfirmed "
                             "(the spec says so), so binding entities to it "
                             "would promise a control nobody has driven.",
+    "homewizard-p1-meter": "P1 has two negotiated APIs with different paths "
+                           "and field aliases. A single entity binding would "
+                           "either pretend they are path fallbacks or choose "
+                           "the wrong transport; it awaits negotiated-API "
+                           "entity support.",
     "parrot-arsdk-drone": "ARSDK is a binary UDP protocol after a TCP "
                           "handshake; the commands document it, and no "
                           "generic renderer reaches it.",
@@ -2653,6 +2658,30 @@ def test_bespoke_blocks_live_under_protocol_details(specs):
     )
 
 
+def test_openapi_only_keys_stay_out_of_http_endpoints(specs):
+    """Opaque OpenAPI metadata belongs in protocol_details, not fake bindings."""
+    invisible_endpoint_keys = {"query_parameters", "responses"}
+    invisible_body_keys = {"required", "required_fields"}
+    invisible_field_keys = {"example", "maxLength", "pattern"}
+    offenders = []
+    for device_id, spec in specs.items():
+        for endpoint in spec.get("http_endpoints") or []:
+            if invisible_endpoint_keys & set(endpoint):
+                offenders.append(f"{device_id}: {endpoint['method']} {endpoint['path']}")
+            body = endpoint.get("request_body") or {}
+            if invisible_body_keys & set(body):
+                offenders.append(f"{device_id}: {endpoint['method']} {endpoint['path']} request_body")
+            for field in body.get("fields") or []:
+                if invisible_field_keys & set(field):
+                    offenders.append(
+                        f"{device_id}: {endpoint['method']} {endpoint['path']} field {field.get('name')}"
+                    )
+    assert not offenders, (
+        "OpenAPI-only keys in http_endpoints; move them to "
+        "protocol_details.openapi.operations: " + ", ".join(offenders)
+    )
+
+
 @pytest.mark.parametrize("value", ["ble_gatt", "ble", "tcp-json", "upnp", "mdns"])
 def test_retired_transport_spellings_are_rejected(closed_world_spec, value):
     """One wire, one spelling — the drift these values came from was silent.
@@ -3593,10 +3622,16 @@ PLACEHOLDER_LAN_ADDRESSES = frozenset(
 PRODUCT_FIXED_LAN_ADDRESSES = {
     # Frigidaire v2.0 cleartext exception target (garadget's Particle/Photon
     # SoftAP shares the address but is vouched for by garadget.yaml's ap_ip).
+    # ServerlessNabaztag's head-button setup AP uses the same product-fixed IP.
     "192.168.0.1": frozenset({
-        "frigidaire-portable-ac", "frigidaire-window-ac",
+        "frigidaire-portable-ac", "frigidaire-window-ac", "nabaztag-tag-serverless",
+        "tplink-tapo-klap",
         "docs/devices/frigidaire-local-api-audit.md", "docs/devices/frigidaire-ac.md",
     }),
+    # docker-wyze-bridge's documented STREAM_AUTH example client addresses.
+    "192.168.0.10": frozenset({"wyze-bridge-camera"}),
+    "192.168.0.15": frozenset({"wyze-bridge-camera"}),
+    "192.168.0.20": frozenset({"wyze-bridge-camera"}),
     # AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket.
     "192.168.1.1": frozenset({
         "parrot-arsdk-drone", "govee-rgb-light", "govee-rgbic-light",
@@ -3641,6 +3676,9 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
         "limitlessled-milight-bridge", "govee-home-apk-v7.5.30",
         "docs/CLEANROOM_RULES.md",
     }),
+    # Meross setup AP; Sonoff/eWeLink setup AP.
+    "10.10.10.1": frozenset({"meross-wifi-appliances"}),
+    "10.10.7.1": frozenset({"sonoff-ewelink-lan"}),
     # Wemo setup AP.
     "10.22.22.1": frozenset({
         "wemo-devices", "docs/devices/wemo-setup.md", "docs/protocols/device-setup.md",

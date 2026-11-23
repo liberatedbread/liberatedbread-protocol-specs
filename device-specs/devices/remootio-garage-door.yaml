@@ -1,0 +1,417 @@
+# Remootio local WebSocket API v3 and BLE boundary
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: official remootio-api-documentation at
+# d5f3cdd1f51711571065f363081db4295ec76f58 and ivgg-me/aioremootio at
+# 7bf2b4856fe7494d52b2d048e06725504cb366f4. No hardware, actuation or real keys.
+
+device:
+  name: "Remootio 2 / 3 garage-door controller (WebSocket API v3)"
+  manufacturer: "Remootio / Assemblabs Ltd."
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No Remootio hardware, radio capture, account, cloud session or actuation
+      was used. API v3 is vendor-documented and independently implemented.
+      Crypto vectors below are newly generated from invented keys and a QUERY
+      action; no credentials or payloads from the official examples are copied.
+  protocol: "wifi"
+  transport: "websocket"
+  category: "motor"
+  type: "garage-door-controller"
+  integration: "identify_only"
+  aliases: ["Remootio 3", "Remootio 2", "Assemblabs Remootio"]
+  safety_advisory:
+    severity: "warning"
+    summary: "TRIGGER, OPEN and CLOSE can move a real gate or garage door. Keep the opening clear and under direct observation."
+    detail: >
+      The contact sensor reports state; it is not a safety interlock and does
+      not make remote actuation safe. Test on a bench controller where possible.
+      QUERY is the only action encoded by this spec's tests. No actuation is
+      performed by this project, and action definitions are not plain JSON
+      commands that a generic WebSocket renderer may send directly.
+  notes: >
+    Official local WebSocket API v3 on ws://<device-ip>:8080 for device software
+    2.24 and later. An owner with the master key enables the API in the vendor
+    app and receives an API Secret Key and API Auth Key (each 64 hex characters,
+    32 bytes). mDNS advertises _remootio._tcp with the serial as instance name
+    and hostname remootio_<serial>.local. One API connection is allowed at a
+    time. EasyConnect/Internet access is optional.
+
+    Consumer integration is identify_only: this project does not ship the
+    dedicated encrypted WebSocket session handler. The protocol blocks and
+    QUERY-only stdlib vectors preserve implementation facts, not live app
+    telemetry/control; supported status requires that dedicated handler.
+
+    BASIC frames such as HELLO, PING and AUTH are JSON text. Sensitive actions,
+    responses and events are NOT plain commands: they are compact JSON plaintext
+    inside an ENCRYPTED envelope using AES-256-CBC with PKCS7, a random 16-byte
+    IV, and HMAC-SHA256 over the exact compact data object (iv first, payload
+    second). The transport is ws://, so envelope authentication and validation
+    are mandatory. Verify MAC before decryption and use constant-time compare.
+
+    AUTH starts a new session. The challenge is encrypted with the API Secret
+    Key and authenticated with the API Auth Key; it issues a base64 session key
+    and initialActionId. Later plaintext uses the session key for AES while the
+    same API Auth Key remains the HMAC key. Complete authentication with a
+    read-only QUERY whose id is initialActionId+1. Every later action increments
+    by one modulo 0x7fffffff. A wrong action id or authentication error closes
+    the session; reconnect and authenticate afresh rather than replaying.
+
+    BLE also exists for owner setup/control, but its enrolment and complete
+    command framing are not established. The BLE map below is informational and
+    deliberately has no BLE commands. Remootio 1, Remootio Pro, wireless-sensor
+    pairing and OTA are not claimed by this API-v3 profile.
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://github.com/ivgg-me/aioremootio/tree/7bf2b4856fe7494d52b2d048e06725504cb366f4"
+    upstream_docs:
+      - url: "https://github.com/remootio/remootio-api-documentation/blob/d5f3cdd1f51711571065f363081db4295ec76f58/websocket_api_v3_specification.md"
+        title: "Official Remootio WebSocket API v3 specification"
+        covers: "Port, mDNS, session authentication, AES/HMAC envelope, action IDs, QUERY and actuation responses/events."
+    notes: >
+      The LAN interface is published for third-party clients. BLE details are
+      reported from separate public app analysis and are not presented as part
+      of the documented LAN API.
+  variants:
+    - model: "Remootio 2"
+      notes: "API v3 on device software 2.24+. Secondary relay behavior is hardware/configuration-specific and excluded."
+    - model: "Remootio 3"
+      notes: "Current controller with the verified owner manual linked below; API v3 on device software 2.24+."
+  identification:
+    mdns_service_type: "_remootio._tcp.local."
+    default_port: 8080
+    notes: "Service instance is the device serial; hostname is remootio_<serial>.local. API must already be enabled by the owner."
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_remootio._tcp.local."
+          port: 8080
+          identity_mapping:
+            stable_keys:
+              - source: "name"
+                key: "serial"
+              - source: "hostname"
+            display:
+              source: "name"
+        notes: "Use the service instance name as serial identity; do not publish a real serial in examples or logs."
+    identity:
+      stable_keys: ["serial", "hostname"]
+      display: "name"
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      LAN API setup requires an owner/master key in the vendor app and a Wi-Fi
+      joined controller. The app supplies the two API keys and device address.
+      BLE setup itself is manual-backed; its internal enrolment is not.
+    methods:
+      - type: "ble_provisioning"
+        name: "Owner app Wi-Fi setup, then enable WebSocket API"
+        role: "primary"
+        verified: false
+        description: "Use phone-direct BLE owner setup, then explicitly enable local API v3 and record its credentials."
+        ble:
+          pairing_required: false
+          service_uuid: "9fb4ffe0-1cc1-4023-a656-5f055d30d35a"
+          write_characteristic: "9fb4ffe1-1cc1-4023-a656-5f055d30d35a"
+          read_characteristic: "9fb4ffe1-1cc1-4023-a656-5f055d30d35a"
+        steps:
+          - action: "Power the installed controller, keep the gate opening clear, and enable phone Bluetooth."
+            actor: "user"
+          - action: "In the vendor app choose to set up a new device and complete owner/Wi-Fi setup."
+            actor: "user"
+            expect: "Manual-backed completion indication: the controller blinks once every five seconds after setup and stays continuously illuminated after Wi-Fi setup."
+          - action: "As the master-key owner, enable WebSocket API with or without event logging in the device software settings."
+            actor: "user"
+            expect: "The app displays the API Secret Key, API Auth Key and local IP address; mDNS advertises _remootio._tcp on port 8080."
+          - action: "Store both keys in a secret store, connect to ws://<device-ip>:8080, send HELLO and require SERVER_HELLO apiVersion 3."
+            actor: "client"
+            expect: "API version 3 and the expected serial; no actuation is needed to verify the socket."
+          - action: "Send AUTH, validate/decrypt the challenge, then send an encrypted QUERY with the next action id."
+            actor: "client"
+            expect: "A valid encrypted QUERY response completes authentication and returns state without triggering the relay."
+        troubleshooting:
+          - symptom: "The socket closes during authentication."
+            causes:
+              - "Wrong key encoding, non-compact MAC input, iv/payload order changed, bad padding or reused/wrong action id."
+              - "Another API client holds the sole connection; disconnect it and start a new session."
+          - symptom: "No mDNS service or port 8080 listener appears."
+            causes:
+              - "The API is disabled, the controller is not on Wi-Fi, or software is older than 2.24. BLE-only access does not imply the LAN API is enabled."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        A physical reset button is shown in the Remootio 3 manual, but its hold
+        time and exact cleared-state list were not established. Assume owner
+        keys, Wi-Fi credentials and API settings may be affected and do not
+        promise that opener wiring/configuration survives.
+      description: >
+        The manual identifies the reset button but the reviewed procedure did
+        not establish a safe sequence. No candidate hold is published. Disabling
+        the API or disconnecting a client is not a factory reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE owner setup remains the recovery route when the old Wi-Fi network is
+        unreachable. Re-run the app's Wi-Fi setup for the new network, then
+        confirm whether API v3 remains enabled and re-authenticate a new session.
+        Exact preservation of API keys across re-provisioning is unverified.
+      steps:
+        - action: "Keep the master key and both API keys in the owner's secret store before replacing the router."
+          actor: "user"
+        - action: "Use phone-direct BLE vendor setup to join the new Wi-Fi network; do not trigger the control output."
+          actor: "user"
+        - action: "Rediscover _remootio._tcp, verify HELLO apiVersion 3 and complete a fresh AUTH + QUERY session."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Owner/master and shared access keys"
+        - "API enabled/logging mode and API authorization material"
+      issued_to_client:
+        - "API Secret Key: 64 hex characters decoded to 32 bytes; encrypts only the initial challenge"
+        - "API Auth Key: 64 hex characters decoded to 32 bytes; HMAC-SHA256 key for every encrypted frame"
+        - "API Session Key: base64-decoded 32-byte per-connection AES key from CHALLENGE"
+        - "lastActionId: local per-session replay counter, never reused within that session"
+      notes: >
+        BLE provisioning protection is unresolved, hence unknown rather than a
+        claim of TLS or plaintext. The WebSocket itself is plaintext ws://;
+        sensitive payloads are protected at the application envelope. Never
+        commit keys, QR payloads, serials or owner IP addresses.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Close the other WebSocket API client, then reconnect and complete a new AUTH + QUERY session. No OS Bluetooth bond is involved."
+    enter_pairing_mode:
+      required: true
+      notes: "A master-key owner must enable the WebSocket API in the app; this is an administrative gate, not an always-open pairing window."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      notes: "Disable the WebSocket API to withdraw LAN access. Whether key rotation is available and how it affects saved clients is unverified."
+    notes: >
+      This block describes the Wi-Fi API's application-layer authorization, not
+      Bluetooth bonding. Each socket starts unauthenticated and must complete
+      the encrypted challenge plus a valid next-id action within 30 seconds.
+
+websocket:
+  connect:
+    port: 8080
+    scheme: "ws"
+    path: "/"
+    heartbeat_seconds: 60
+  channels:
+    - name: "basic"
+      default: true
+      encoding: "json"
+      frame:
+        type: "{action}"
+      description: >
+        Only unencrypted BASIC frames (HELLO, PING, AUTH) belong here. QUERY,
+        TRIGGER, OPEN, CLOSE, responses and events require the custom encrypted
+        envelope in protocol_details.websocket_api_v3 and are intentionally not
+        top-level commands.
+  notes: >
+    Send an application PING every 60-90 seconds and require PONG. Device closes
+    an unauthenticated session after 30 seconds and an idle session after 120
+    seconds. One API connection at a time.
+
+commands:
+  hello:
+    description: "Unencrypted version probe; SERVER_HELLO must report apiVersion 3."
+    action: "HELLO"
+    example_body: '{"type":"HELLO"}'
+    verification: "reported"
+  authenticate:
+    description: "Start the encrypted challenge flow. This is inert; complete it with the custom encrypted QUERY envelope, not a plain action command."
+    action: "AUTH"
+    example_body: '{"type":"AUTH"}'
+    verification: "reported"
+  ping:
+    description: "Application keepalive; expect PONG and treat a missing reply as a broken connection."
+    action: "PING"
+    example_body: '{"type":"PING"}'
+    verification: "reported"
+
+services:
+  - uuid: "9fb4ffe0-1cc1-4023-a656-5f055d30d35a"
+    name: "Remootio BLE controller service (informational only)"
+    notes: >
+      BLE owner setup/control is real but not implemented by the LAN API
+      clients. The complete enrolment, message boundaries and encrypted command
+      schema are unresolved; do not send LAN API frames to this characteristic.
+    characteristics:
+      - uuid: "9fb4ffe1-1cc1-4023-a656-5f055d30d35a"
+        name: "BLE bidirectional encrypted application channel"
+        properties: ["notify", "write"]
+        notes: >
+          Reported app constants: request 512-byte MTU, 20-byte raw chunks,
+          16-byte IV/block size, 32-byte keys and 68-byte minimum encrypted
+          message; PNG keepalive no more often than every 15 seconds. These are
+          source-derived app constants, not capture-verified on-air limits. No
+          commands are declared.
+      - uuid: "9fb4ffe2-1cc1-4023-a656-5f055d30d35a"
+        name: "BLE name/UUID information"
+        properties: ["read"]
+        notes: "Identity information only; sanitize unit identifiers."
+      - uuid: "9fb4ffe6-1cc1-4023-a656-5f055d30d35a"
+        name: "BLE merged status"
+        properties: ["read", "notify"]
+        notes: "Reported status role; exact encoding and properties still need owner-controlled enumeration."
+      - uuid: "9fb4ffe8-1cc1-4023-a656-5f055d30d35a"
+        name: "BLE EasyConnect identifier"
+        properties: ["read"]
+        notes: "Optional cloud identifier, not required by local WebSocket API. No cloud operation is declared."
+
+protocol_details:
+  websocket_api_v3:
+    basic_frames:
+      hello: {request: '{"type":"HELLO"}', response_type: "SERVER_HELLO", required_version: 3}
+      ping: {request: '{"type":"PING"}', response_type: "PONG", interval_seconds: "60-90"}
+      auth: {request: '{"type":"AUTH"}', next: "ENCRYPTED CHALLENGE"}
+      error: {shape: '{"type":"ERROR","errorMessage":"..."}', handling: "Surface authentication/input/timeout errors; do not retry an action automatically."}
+    encrypted_envelope:
+      shape: '{"type":"ENCRYPTED","data":{"iv":"<base64-16>","payload":"<base64-ciphertext>"},"mac":"<base64-32>"}'
+      key_encodings:
+        api_secret_key: "64 hex chars -> 32 bytes; AES key for the initial CHALLENGE only"
+        api_auth_key: "64 hex chars -> 32 bytes; HMAC key for challenge and all subsequent frames"
+        session_key: "base64 -> 32 bytes; AES key after CHALLENGE"
+        iv: "base64 -> exactly 16 bytes; cryptographically random per newly encrypted frame"
+        mac: "base64 -> exactly 32 bytes"
+      algorithm_steps:
+        - "Serialize the inner action/response/event as compact JSON with no whitespace and Latin-1-compatible content."
+        - "Apply PKCS7 padding to a multiple of 16 bytes; always add 1..16 bytes, including a full block when already aligned."
+        - "Generate a fresh random 16-byte IV and encrypt padded plaintext with AES-256-CBC. Use API Secret Key only for CHALLENGE decryption; use session key after the challenge."
+        - "Base64-encode IV and ciphertext independently."
+        - "Construct EXACTLY the compact JSON string {\"iv\":\"<iv64>\",\"payload\":\"<payload64>\"}, preserving iv then payload order and base64 spelling."
+        - "Compute HMAC-SHA256 over those exact bytes using API Auth Key; base64-encode the 32-byte result into mac."
+        - "On receive, require object shape and exact base64 lengths, reconstruct data compactly with iv first, verify HMAC in constant time BEFORE AES decryption, then validate PKCS7 and parse JSON."
+      openssl_equivalent: >
+        openssl enc -aes-256-cbc -K <64-hex-session-key> -iv <32-hex-iv>
+        with PKCS7 enabled (the default). Feed raw compact inner JSON and
+        base64-encode the ciphertext. HMAC-SHA256 is over the data JSON, not the
+        whole ENCRYPTED frame and not the decoded ciphertext.
+    session:
+      steps:
+        - "Connect and optionally exchange HELLO/SERVER_HELLO. Send AUTH within 30 seconds."
+        - "Verify HMAC with API Auth Key, decrypt CHALLENGE with API Secret Key, and validate PKCS7/JSON."
+        - "Read challenge.sessionKey as base64 and challenge.initialActionId as the initial lastActionId."
+        - "Set next id = (lastActionId + 1) % 0x7fffffff. Encrypt a QUERY using the new session key and API Auth Key for HMAC."
+        - "A valid QUERY response authenticates the session. Store lastActionId = sent id. Never replay a timed-out action; authenticate a new session instead."
+        - "Validate every response/event MAC, padding, matching response type/id and success flag before publishing state."
+      action_id:
+        formula: "next = (last + 1) % 0x7fffffff"
+        range: "0 through 0x7ffffffe; the modulus is 0x7fffffff, not 2^31"
+        wrap_example: {last: 2147483646, next: 0}
+      challenge_shape: '{"type":"CHALLENGE","challenge":{"sessionKey":"<base64>","initialActionId":41}}'
+    actions:
+      query:
+        safety: "read-only; recommended authentication-completion action"
+        inner_json: '{"action":{"type":"QUERY","id":42}}'
+        response_fields:
+          type: "QUERY"
+          id: "same action id"
+          success: "boolean"
+          state: "open | closed | no sensor"
+          t100ms: "unsigned uptime counter; multiply by 0.1 seconds"
+          relayTriggered: "always false for QUERY"
+          errorCode: "error text when success is false"
+      trigger:
+        advanced: true
+        advanced_reason: "Pulses or holds the physical control output and can move the gate. Optional duration is integer minutes; omitted in this spec's tests and examples."
+        inner_shape: '{"action":{"type":"TRIGGER","id":<next-id>}}'
+        response: "Check success, state, relayTriggered and errorCode (including ERR_RELAY_BUSY)."
+      open:
+        advanced: true
+        advanced_reason: "Commands a physical opening action when state is closed; can move a gate/garage door."
+        inner_shape: '{"action":{"type":"OPEN","id":<next-id>}}'
+        response: "No sensor gives ERR_NO_SENSOR. Already open may succeed with relayTriggered false. State alone is not a safety check."
+      close:
+        advanced: true
+        advanced_reason: "Commands a physical closing action when state is open; crush/pinch risk requires direct observation."
+        inner_shape: '{"action":{"type":"CLOSE","id":<next-id>}}'
+        response: "No sensor gives ERR_NO_SENSOR. Already closed may succeed with relayTriggered false."
+      excluded: "TRIGGER_SECONDARY, RESTART, duration/latch behavior and all key-management operations are outside this spec."
+    events:
+      common_fields: "cnt (event counter, reset on restart), type, state, t100ms (0.1-second uptime units)"
+      state_change: '{"event":{"cnt":72,"type":"StateChange","state":"open","t100ms":18342}}'
+      handling: "Accept only authenticated events; keep event counter separate from action id. Logging-enabled events may identify keys and must be privacy-scrubbed."
+    synthetic_query_vector:
+      provenance: "Newly generated with invented sequential keys and fixed IV; no real credential, device, session or actuation. scripts/test_remootio_garage_door_spec.py reproduces it locally."
+      api_secret_key_hex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      api_auth_key_hex: "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      session_key_base64: "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8="
+      initial_action_id: 41
+      plaintext: '{"action":{"type":"QUERY","id":42}}'
+      iv_hex: "000102030405060708090a0b0c0d0e0f"
+      iv_base64: "AAECAwQFBgcICQoLDA0ODw=="
+      payload_base64: "sg5Om4B3mVoggnU+mDxKYCFq96dz3GJGD6tHD1LxgRk338M9ZDOMS5oS9j0Irt9Y"
+      mac_base64: "eIrTgACvnou/sHiPaiY6SD+Hk6ZR9aklfgwWtl07WpE="
+      frame: '{"type":"ENCRYPTED","data":{"iv":"AAECAwQFBgcICQoLDA0ODw==","payload":"sg5Om4B3mVoggnU+mDxKYCFq96dz3GJGD6tHD1LxgRk338M9ZDOMS5oS9j0Irt9Y"},"mac":"eIrTgACvnou/sHiPaiY6SD+Hk6ZR9aklfgwWtl07WpE="}'
+
+entities:
+  - platform: "cover"
+    name: "Garage Door"
+    notes: >
+      State comes from authenticated QUERY responses and StateChange events
+      through protocol_details.websocket_api_v3: open, closed or unavailable
+      (no sensor). Actuation is deliberately not bound as a generic plain JSON
+      command; a client must implement the encrypted session and show the
+      advanced safety warning before offering OPEN/CLOSE/TRIGGER.
+  - platform: "sensor"
+    name: "Controller Uptime"
+    device_class: "duration"
+    unit: "s"
+    notes: "t100ms * 0.1 seconds from authenticated responses/events."
+
+evidence:
+  documentation_review: >
+    Official API v3 at d5f3cdd1f51711571065f363081db4295ec76f58 supplied the
+    endpoint, one-client limit, mDNS identity, frame authentication, action
+    counter, QUERY and advanced action/event shapes. Official manual supplied
+    owner setup and LED outcomes.
+  public_implementation: >
+    ivgg-me/aioremootio at 7bf2b4856fe7494d52b2d048e06725504cb366f4
+    independently corroborates compact data JSON, AES-CBC and HMAC-SHA256.
+    It implements LAN only and is not evidence for the BLE framing.
+  app_static_analysis: >
+    Public app analysis supplied BLE endpoint roles and chunk constants. Full
+    BLE enrolment and command framing remain deliberately unimplemented.
+  open_questions: >
+    Owner-controlled redacted BLE commissioning/session capture, Remootio
+    Pro/2/3 API matrix, reset effect, key rotation and API-key preservation
+    across Wi-Fi re-provisioning.
+
+remaining_unknowns:
+  - "Complete BLE enrolment, application commands and on-air MTU/chunk behavior; no BLE command is declared."
+  - "Factory-reset hold and exactly which Wi-Fi, owner, sensor and API settings it clears."
+  - "Whether API keys survive Wi-Fi rejoin and whether they can be rotated without a full reset."
+  - "Remootio Pro and Remootio 1 compatibility, secondary-relay configuration, wireless-sensor pairing and OTA."
+
+helpful_urls:
+  - title: "Official Remootio WebSocket API v3 specification (pinned)"
+    url: "https://github.com/remootio/remootio-api-documentation/blob/d5f3cdd1f51711571065f363081db4295ec76f58/websocket_api_v3_specification.md"
+    kind: "protocol_writeup"
+    description: "Vendor documentation for API versioning, mDNS, encrypted frames, sessions, QUERY and advanced actions."
+  - title: "ivgg-me/aioremootio (pinned Python LAN client)"
+    url: "https://github.com/ivgg-me/aioremootio/tree/7bf2b4856fe7494d52b2d048e06725504cb366f4"
+    kind: "implementation"
+    description: "Independent local WebSocket client corroborating the AES-CBC/HMAC envelope and connection lifecycle."
+  - title: "Remootio 3 installation and user manual"
+    url: "https://www.remootio.com/blogs/tutorials/remootio-3-installation-manual"
+    kind: "manual"
+    description: "Current vendor manual for Remootio 3, including phone-direct BLE setup, Wi-Fi LED outcomes and the reset-button location; HTTP 200 verified 2026-11-17."

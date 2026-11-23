@@ -1,0 +1,267 @@
+# SensorBlue / ThermoBeacon passive hygrometers
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SensorBlue ThermoBeacon Hygrometers"
+  manufacturer: "SensorBlue / SEVEN-LIKE (OEM relationship not fully established)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware, advertisement capture, history download or settings write was
+      performed. The 20-byte decoder is transcribed from the maintained public
+      parser and checked against its sanitized fixtures; physical accuracy and
+      retail-model mapping are not established.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
+  type: "temperature-humidity-sensor"
+  integration: "identify_only"
+  aliases: ["ThermoBeacon", "SensorBlue WS03", "SensorBlue WS07", "SensorBlue WS08"]
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Bluetooth-Devices/thermobeacon-ble"
+  companion_apps:
+    - name: "Sensor Blue"
+      package: "com.beyondtel.sensorblue"
+      role: "primary"
+      platform: "android"
+      notes: >
+        Not required for passive monitoring. The reviewed Play metadata was 3.8.2
+        while the separately acquired binary was 3.8.3; they are not treated as identical.
+  notes: >
+    The passive parser requires advertised service UUID
+    0000fff0-0000-1000-8000-00805f9b34fb and one of seven numeric manufacturer
+    keys: 0x10, 0x11, 0x14, 0x15, 0x18, 0x1b or 0x30. These are numeric protocol
+    identifiers, NOT a proven one-to-one mapping to WS03/WS07/WS08 and not a claim
+    about the vendor's Bluetooth SIG company assignments.
+
+    For decoding, prepend the scanner's two-byte little-endian numeric key to the
+    manufacturer payload. Only the resulting 20-byte form emits measurements. The
+    22-byte form corroborates the family during manual compound verification but
+    is otherwise undocumented here; all other lengths are rejected.
+
+    The similarly spelled connected service and its history/settings protocol are
+    deliberately absent. The passive 0000fff0 advertisement filter is not evidence
+    that this spec can download history or change settings. Integration is
+    identify_only until a real handler implements manual selection, compound
+    verification and measurement decoding.
+  identification:
+    notes: >
+      No automatic matcher is declared: fff0 is shared by unrelated products and
+      the numeric manufacturer keys are not unique company identity. The vendor
+      app also uses the local name ThermoBeacon on its connected scan path, but
+      that name alone is not a passive matcher here. Use the manual compound
+      verification in protocol_details.advertisement_verification.
+  discovery:
+    none: >
+      Manual selection only. Neither the shared fff0 service UUID nor any numeric
+      manufacturer key may select this spec by itself. After the owner selects a
+      candidate, require fff0, an accepted numeric key and a reconstructed 20- or
+      22-byte record together before treating it as this family; only the 20-byte
+      form may emit measurements.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: "Keep the numeric manufacturer key as protocol metadata, not as a WS03/WS07/WS08 guess."
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: "Nothing is provisioned or paired for the broadcast stream. Public parser fixtures support the decode; this project did not scan hardware."
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: "After manual selection, passively verify fff0 plus a known numeric key and a 20/22-byte reconstructed record; decode only the 20-byte form."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the sensor and select the SensorBlue/ThermoBeacon candidate manually; do not select it from fff0 or a numeric key alone."
+            actor: "user"
+          - action: "Require the fff0 service UUID, one of the seven numeric manufacturer keys and a reconstructed record of exactly 20 or 22 bytes together."
+            actor: "client"
+          - action: "Prepend the key in little-endian and accept a measurement only when the reconstructed record is exactly 20 bytes."
+            actor: "client"
+            expect: "Temperature, humidity, battery millivolts and the raw button bit update; fff0-only, numeric-key-only, 22-byte and malformed records emit no measurement."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No reset procedure is established. Passive monitoring holds no bond,
+        network membership or client credential on the sensor; settings/history
+        reset behavior is outside this spec.
+      description: "No verified manual or capture establishing reset was found; do not experiment with connected writes."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "There is no host or network binding to move."
+      steps:
+        - action: "Start the same passive filter on the replacement controller."
+          actor: "client"
+          expect: "The next valid 20-byte advertisement produces a reading without access to the old controller."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "Measurements are unencrypted broadcasts. No history/settings or cloud credentials are included."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: "No pairing, bonding or app-layer credential is needed for the passive measurement stream."
+
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access (standard)"
+    notes: "Placeholder only; the documented telemetry is in advertisements, not a connected history/settings surface."
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "May read ThermoBeacon on units that permit a connection; no connected command behavior is claimed."
+
+payload_formats:
+  ThermoBeacon20:
+    description: >
+      Twenty-byte record formed as numeric_key_u16le || manufacturer_payload.
+      Multi-byte measurement fields are little-endian. Offsets are relative to
+      the reconstructed record, including the two key bytes.
+    fields:
+      - { index: 0, name: "device_type", description: "Low byte of the numeric key; one of 0x10/11/14/15/18/1b/30, with no WS retail mapping" }
+      - { index: 1, name: "device_type_high", description: "High byte of the numeric key; zero in all accepted public fixtures" }
+      - { index: 3, name: "button_pressed", type: "uint8", mask: 0x80, description: "High bit at byte 3; the library exposes it as an occupancy-style event, not proof of room occupancy" }
+      - { index: 10, name: "battery_mv", type: "uint16", endianness: "little", unit: "mV", device_class: "voltage", description: "Unsigned measured millivolts at bytes 10-11" }
+      - { index: 12, name: "temperature", type: "int16", endianness: "little", scale: 0.0625, unit: "C", device_class: "temperature", description: "Signed 1/16 C at bytes 12-13; reject the whole record above 100 C" }
+      - { index: 14, name: "humidity", type: "uint16", endianness: "little", scale: 0.0625, unit: "%", device_class: "humidity", description: "Unsigned 1/16 percent at bytes 14-15; reject the whole record above 100 percent" }
+    parse_rules:
+      - "Require exactly 20 bytes for measurement output. A 22-byte record is identification-only; all other lengths are ignored."
+      - "temperature = int16le(bytes 12-13) / 16 C; humidity = uint16le(bytes 14-15) / 16 percent; battery_mv = uint16le(bytes 10-11)."
+      - "If decoded temperature > 100 C or humidity > 100 percent, discard the entire measurement rather than publishing partial fields."
+      - "Battery percentage is NOT transmitted. If an estimate is wanted, apply only protocol_details.battery_estimate and label it estimated."
+    example: "10 00 00 00 b0 02 00 00 47 a4 e2 0c 80 01 b6 02 4a 00 00 00"
+
+protocol_details:
+  advertisement_verification:
+    automatic_spec_selection: false
+    manual_candidate_required: true
+    required_service_uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    accepted_numeric_keys: ["0x10", "0x11", "0x14", "0x15", "0x18", "0x1b", "0x30"]
+    numeric_key_endianness: "little"
+    reconstruction: "numeric_key_u16le || manufacturer_payload"
+    accepted_reconstructed_lengths: [20, 22]
+    measurement_reconstructed_length: 20
+    rules:
+      - "After manual candidate selection, ALL of fff0, an accepted numeric key and an accepted reconstructed length are required; no subset selects this spec."
+      - "A 22-byte reconstructed record corroborates identity only. Require exactly 20 bytes before decoding or emitting measurements."
+      - "fff0-only, numeric-key-only and all other reconstructed lengths fail closed."
+  numeric_device_ids:
+    - { id: "0x10", library_label: "Lanyard/mini hygrometer", retail_model_mapping: "unresolved" }
+    - { id: "0x11", library_label: "Smart hygrometer", retail_model_mapping: "unresolved" }
+    - { id: "0x14", library_label: "Smart hygrometer", retail_model_mapping: "unresolved" }
+    - { id: "0x15", library_label: "Smart hygrometer", retail_model_mapping: "unresolved" }
+    - { id: "0x18", library_label: "Smart hygrometer", retail_model_mapping: "unresolved" }
+    - { id: "0x1b", library_label: "Smart hygrometer", retail_model_mapping: "unresolved" }
+    - { id: "0x30", library_label: "Smart hygrometer", retail_model_mapping: "unresolved" }
+  battery_estimate:
+    quantity: "estimated_battery_percent"
+    measured_input: "battery_mv"
+    direct_percentage_transmitted: false
+    rules:
+      - { when: "battery_mv >= 3000", estimate: "100" }
+      - { when: "2600 <= battery_mv < 3000", estimate: "60 + (battery_mv - 2600) * 0.1" }
+      - { when: "2500 <= battery_mv < 2600", estimate: "40 + (battery_mv - 2500) * 0.2" }
+      - { when: "2450 <= battery_mv < 2500", estimate: "20 + (battery_mv - 2450) * 0.4" }
+      - { when: "battery_mv < 2450", estimate: "0" }
+    notes: "Piecewise library estimate, not a measured state of charge. Preserve battery_mv as the authoritative value and label any derived percentage as estimated."
+  test_vectors:
+    - name: "public_id_10_measurements"
+      numeric_id: "0x10"
+      reconstructed_hex: "10000000b002000047a4e20c8001b6024a000000"
+      expected: { battery_mv: 3298, temperature_c: 24.0, humidity_percent: 43.375, estimated_battery_percent: 100, button_pressed: false }
+      evidence: "Sanitized public parser fixture"
+      verification: "reported"
+    - name: "public_id_30_measurements"
+      numeric_id: "0x30"
+      reconstructed_hex: "300000008b0100005d44d60b5901590344000c00"
+      expected: { battery_mv: 3030, temperature_c: 21.5625, humidity_percent: 53.5625, estimated_battery_percent: 100, button_pressed: false }
+      evidence: "Sanitized public parser fixture"
+      verification: "reported"
+    - name: "synthetic_signed_temperature_and_estimated_battery"
+      numeric_id: "0x10"
+      reconstructed_hex: "10000080000000000000b809f0ff400600000000"
+      expected: { battery_mv: 2488, temperature_c: -1.0, humidity_percent: 100.0, estimated_battery_percent: 35.2, button_pressed: true }
+      evidence: "Synthetic boundary vector"
+      verification: "reported"
+  excluded_surfaces:
+    - "The 22-byte record's additional semantics; it is identification-only here"
+    - "Connected history, settings, calibration and all GATT writes"
+    - "TomatoClock, a different product surface"
+    - "Any assignment of a numeric ID to WS03, WS07 or WS08 without new evidence"
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Signed int16 little-endian / 16 from reconstructed bytes 12-13."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    notes: "Unsigned int16 little-endian / 16 from reconstructed bytes 14-15."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "mV"
+    notes: "Direct unsigned value from bytes 10-11; preferred over the estimate."
+  - platform: "sensor"
+    name: "Estimated Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "Derived piecewise estimate only; never describe it as a transmitted percentage."
+  - platform: "binary_sensor"
+    name: "Button Event"
+    device_class: "occupancy"
+    notes: "Raw high bit of byte 3 using the public library's occupancy-style mapping; physical occupancy semantics are unverified."
+
+evidence:
+  documentation_review: >
+    Reviewed Bluetooth-Devices/thermobeacon-ble at
+    0379cb71c2df8dc8764267e96dbaf4e58d8d4d67 and its sanitized parser fixtures
+    on 2026-11-10. Its 14 tests passed. Static vendor-app review established only
+    the ecosystem/linkage; no connected command bytes are reproduced here.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "Bluetooth-Devices/thermobeacon-ble @ 0379cb71c2df8dc8764267e96dbaf4e58d8d4d67"
+      description: "Passive fff0/numeric-key filter, 20-byte measurement layout, 22-byte identification boundary and battery estimate."
+    - type: "static_analysis"
+      artifact: "Sensor Blue 3.8.3 (versionCode 383)"
+      description: "Corroborated the Sensor Blue/ThermoBeacon ecosystem and the separate connected surface; no history/settings behavior claimed."
+  open_questions: >
+    Retail SKU mapping, 22-byte semantics, physical button meaning, battery-estimate
+    boundaries and all connected history/settings behavior remain unresolved.
+
+remaining_unknowns:
+  - "One-to-one mapping from numeric IDs 0x10/11/14/15/18/1b/30 to WS03/WS07/WS08 is unproven."
+  - "The 22-byte advertisement corroborates a manually selected candidate, but its extra bytes and measurement semantics are not established."
+  - "Button-event semantics and the battery-percentage estimate need comparison with on-device indicators."
+  - "Connected history/settings framing is excluded pending fresh read-only model-specific captures."
+  - "No standalone official WS03/WS07/WS08 manual was verified."
+
+helpful_urls:
+  - title: "Bluetooth-Devices/thermobeacon-ble"
+    url: "https://github.com/Bluetooth-Devices/thermobeacon-ble"
+    kind: "implementation"
+    description: "Maintained passive parser and sanitized vectors used by this spec."
+  - title: "Home Assistant ThermoBeacon integration"
+    url: "https://www.home-assistant.io/integrations/thermobeacon/"
+    description: "Local discovery and the WS03/WS07/WS08 retail-name list; it does not establish the numeric-ID mapping."
+  - title: "Sensor Blue on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.beyondtel.sensorblue"
+    description: "Companion listing; not needed for passive local monitoring."

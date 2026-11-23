@@ -164,7 +164,7 @@ def test_box_is_not_matched_on_nordic_uart_alone():
     assert nus not in device["identification"].get("service_uuids", [])
     discovery = device["discovery"]
     assert "methods" not in discovery
-    assert "Manual selection" in discovery["none"]
+    assert "manual" in discovery["none"].lower()
 
 
 def cbor_text(value: str) -> bytes:

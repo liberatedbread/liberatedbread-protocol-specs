@@ -1,0 +1,542 @@
+# Somfy TaHoma Developer Mode — official local bearer-token HTTPS API
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Somfy TaHoma Developer Mode Gateway"
+  manufacturer: "Somfy"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No supported gateway, owner token, activation, TLS connection or shade was
+      used. Endpoint and lifecycle facts are reported from Somfy-Developer
+      3eae7a51 and its OpenAPI document. Offline tests use an invented PIN/token,
+      local HTTP stub and no real gateway certificate or device URL.
+  protocol: "wifi"
+  category: "hub"
+  type: "home-automation-gateway-local-api"
+  transport: "https"
+  integration: "identify_only"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode/blob/3eae7a51ba55eee28649319942239aab7b139eb7/README.md"
+        title: "Official TaHoma Developer Mode activation, discovery, token and TLS guidance"
+        covers: "Owner token creation, _kizboxdev._tcp TXT identity, Overkiz root trust, polling and excluded gateways."
+      - url: "https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode/blob/3eae7a51ba55eee28649319942239aab7b139eb7/docs/openapi.yaml"
+        title: "Official local OpenAPI"
+        covers: "apiVersion, setup/devices/states, event listeners and exec/apply/current operations."
+    notes: "Official local API for third-party clients; no private protocol was reverse engineered. Offline activation is not claimed."
+  notes: >
+    SCOPE: TaHoma gateways explicitly supported by the official Developer Mode,
+    including TaHoma Switch, after owner activation and token generation. The
+    first-generation square TaHoma/Somfy box and Connectivity Kit are excluded.
+    Do not substitute the app's separate _kizbox._tcp browsing for the official
+    _kizboxdev._tcp developer advertisement.
+
+    Integration is identify_only. The generic mobile consumer has no
+    auth_schemes support, vendor-CA handler, advanced network-action gate,
+    DELETE transport, or resolver for named State records inside a device. All
+    OpenAPI operations and documentary commands below are implementation facts,
+    not a claim that the current generic app can execute them. A dedicated
+    handler must supply those capabilities and attended advanced-write
+    confirmation before supported status can be restored. No generic cover
+    entity, state mapping or DELETE cancellation binding is declared.
+  identification:
+    mdns_service_type: "_kizboxdev._tcp.local."
+    mdns_txt_match:
+      - key: "gateway_pin"
+        match: "regex"
+        value: "^[0-9]{4}-[0-9]{4}-[0-9]{4}$"
+        description: "Authoritative developer-mode gateway identity; never infer the PIN from service/instance name."
+      - key: "api_version"
+        match: "present"
+        description: "Official TXT API version; fw_version is informational and does not select another API root."
+    default_port: 8443
+    default_scheme: "https"
+    tls:
+      verification: "vendor_ca"
+      notes: >
+        Validate against the published Overkiz Root CA at
+        https://ca.overkiz.com/overkiz-root-ca-2048.crt and verify the
+        gateway-<pin>.local hostname. Do not disable verification or substitute
+        an IP request host/SNI; the PIN-derived hostname is required for TLS identity.
+    notes: "Require the TXT gateway_pin to agree with gateway-<pin>.local before HTTPS; use that hostname for the request, never a discovered IP substitute."
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_kizboxdev._tcp.local."
+          port: 8443
+          txt_record_keys: ["gateway_pin", "api_version", "fw_version"]
+          txt_match:
+            - key: "gateway_pin"
+              match: "regex"
+              value: "^[0-9]{4}-[0-9]{4}-[0-9]{4}$"
+              description: "PIN used to construct the HTTPS hostname and bind TLS identity."
+            - key: "api_version"
+              match: "present"
+              description: "Required official developer API marker."
+          identity_mapping:
+            stable_keys:
+              - source: "txt:gateway_pin"
+                key: "gateway_pin"
+            display:
+              source: "name"
+        notes: >
+          Use TXT gateway_pin as identity. Construct gateway-<pin>.local:8443 and
+          require it to agree with the resolved hostname; service and hostname
+          alone are not reliable PIN evidence. GET apiVersion without a token to
+          check the API, then require Bearer owner token on every other call.
+    identity:
+      stable_keys: ["gateway_pin"]
+      display: "name"
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      A supported gateway must first be installed in the TaHoma app. Developer
+      Mode activation and token generation are owner-authorized app operations;
+      whether activation works completely offline is unproven. Tokens are visible
+      only at creation. No local token-recovery or offline-unlock path is claimed.
+    methods:
+      - type: "cloud_account"
+        name: "TaHoma app Developer Mode and owner token"
+        role: "primary"
+        verified: false
+        description: "Install the supported gateway, activate Developer Mode from its app parameters, generate an owner token and use it directly on local HTTPS thereafter."
+        cloud:
+          provider: "TaHoma account installation and developer activation"
+          local_alternative: "After activation/token creation, every documented local API call stays on the LAN. Offline activation and excluded/unactivated gateway unlock are unproven."
+        issues_credentials:
+          owner_token:
+            user_entered: true
+            notes: "Bearer token generated by the owner in Developer Mode and copied at creation; it cannot be read back later or inferred from gateway_pin."
+        steps:
+          - action: "Install the supported gateway in TaHoma by Somfy using Ethernet or a secured 2.4 GHz Wi-Fi network and the owner's account."
+            actor: "user"
+            expect: "The gateway is online and appears in the app's installation parameters."
+          - action: "In Configure installation → box parameters, tap the gateway PIN seven times to enable Developer Mode."
+            actor: "user"
+            expect: "Developer Mode becomes available and _kizboxdev._tcp is advertised with gateway_pin/api_version/fw_version."
+          - action: "Generate a token in Developer Mode and copy it immediately into the client's secret store."
+            actor: "user"
+            expect: "A new owner token is saved; it cannot be read back later, though multiple tokens may be generated."
+          - action: "Match TXT gateway_pin to gateway-<pin>.local and configure the published Overkiz Root CA without disabling verification."
+            actor: "client"
+            expect: "HTTPS gateway identity validates on port 8443; a PIN/hostname mismatch fails closed."
+          - action: "GET apiVersion without authorization, then call /setup with Authorization: Bearer <token>."
+            actor: "client"
+            expect: "protocolVersion is returned unauthenticated and the bearer-authorized setup document enumerates the installation."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No official Developer Mode source establishes a physical factory-reset
+        sequence or whether it revokes tokens, forgets paired motors, clears Wi-Fi
+        or preserves the installation. Do not use the seven-tap developer gesture
+        or motor pairing/reset as a gateway factory reset.
+      description: "Consult exact gateway support before clearing it; regenerating a token is not a factory reset."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Use the TaHoma app's network setup for a replacement secured 2.4 GHz
+        network or Ethernet. Developer Mode does not provide a Wi-Fi write API.
+        Existing token survival across network changes is expected only after the
+        same gateway_pin returns; activation/token survival is not guaranteed by a reset.
+      steps:
+        - action: "Change network through the official app, then rediscover _kizboxdev._tcp and require the same gateway_pin."
+          actor: "user"
+          expect: "gateway-<pin>.local resolves again on port 8443; a different PIN is a different gateway, not an address change."
+        - action: "Retry the stored owner token only after PIN and Overkiz TLS identity validate; regenerate through the app if rejected."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Network settings and TaHoma installation/paired products"
+        - "Developer Mode enablement and owner-generated token verifier/state"
+      issued_to_client:
+        - "Owner-generated Developer Mode bearer token, visible only at creation"
+      notes: >
+        App Wi-Fi provisioning uses Bluetooth according to the installation guide;
+        its passphrase wire protection was not established. Local API requests are
+        HTTPS with bearer authorization and Overkiz-root validation. Tokens are
+        secrets even though examples here use placeholders.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: "The owner generates a bearer token in Developer Mode; gateway_pin is identity, not a password or bearer secret."
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: "Multiple tokens/clients may coexist. Re-read setup once at startup and share/rate-limit event listeners rather than opening a poll storm."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      clears: "The OpenAPI has no token revoke/delete endpoint. App-side token deletion/revocation was not established; do not claim a factory reset is required or sufficient."
+      notes: "Delete the client copy and use the official app for any available token lifecycle operation; no API unpair call is declared."
+    enter_pairing_mode:
+      required: true
+      notes: "The owner enables Developer Mode with the seven-tap PIN gesture and generates a token in the app; no physical link-button exchange exists in this API."
+    notes: >
+      All endpoints except apiVersion require the owner bearer token. TLS root
+      validation and TXT-PIN matching are separate from bearer authorization;
+      disabling certificate verification is never an accepted pairing shortcut.
+  variants:
+    - model: "TaHoma Switch and officially compatible gateways"
+      notes: "Only units that can enable Developer Mode and publish _kizboxdev._tcp with a valid gateway_pin."
+    - model: "Excluded first-generation square box / Connectivity Kit"
+      notes: "Explicitly excluded by Somfy. No activation, offline unlock, discovery fallback or control claim is made."
+
+protocol_details:
+  api:
+    verification: "reported"
+    base_url: "https://gateway-<gateway_pin>.local:8443/enduser-mobile-web/1/enduserAPI"
+    request_host: "gateway-<gateway_pin>.local; resolve this name or preserve it as Host and TLS SNI. Never replace it with the mDNS IP for certificate validation."
+    admin_handoff: "No device.admin_url is declared: a generic opener would substitute the resolved IP. After the setup step validates TXT PIN, SRV hostname and Overkiz TLS identity, a dedicated client may open https://gateway-<pin>.local:8443/enduser-mobile-web/1/enduserAPI/apiVersion with that same Host/SNI. Do not substitute an unvalidated {gateway_pin} template into the generic admin renderer."
+    service: "_kizboxdev._tcp.local. (not _kizbox._tcp)"
+    identity_rule: "TXT gateway_pin is authoritative. Require exact case-insensitive agreement with gateway-<pin>.local; reject mismatch rather than guessing from the instance name."
+    authorization: "Authorization: Bearer <owner-token> on every endpoint except GET apiVersion, whose security list is empty in the official OpenAPI."
+    content_type: "application/json for exec/apply and any body; use normal HTTPS request/response semantics."
+  consumer_limits:
+    integration: "identify_only"
+    missing_handlers:
+      - "Per-command bearer credentials (no generic auth_schemes consumer)"
+      - "Overkiz vendor-CA plus PIN-derived Host/SNI verification"
+      - "Advanced network-action confirmation for attended open/close"
+      - "DELETE execution cancellation"
+      - "Named State array resolution for cover open/closed and optional position/tilt"
+    documentary_boundary: "Commands and http_endpoints are a protocol catalogue for a dedicated client. No generic cover entity/state binding or DELETE command is executable today."
+  tls:
+    verification: "reported"
+    mode: "standard"
+    root_ca_url: "https://ca.overkiz.com/overkiz-root-ca-2048.crt"
+    root_subject: "Overkiz Root CA"
+    root_validity: "2016-04-27 through 2036-04-27 as inspected 2026-11-11"
+    root_sha256_fingerprint: "BB:FA:96:11:1E:AE:15:E3:C6:ED:15:F3:43:27:6C:0C:27:26:03:2E:A1:9D:F5:BB:D0:67:E2:F1:CF:FC:44:DB"
+    rule: "Add/pin only the published Overkiz root for this gateway context and verify the gateway-<pin>.local hostname. Do not set CERT_NONE, verify_mode none or --insecure; do not substitute the app-bundled Overkiz Device CA without separate evidence."
+  listener:
+    verification: "reported"
+    register: "POST /events/register; response {id:<listenerId>}."
+    fetch: "POST /events/{listenerId}/fetch at most once per second; response is an array of Event objects, including device/execution changes."
+    unregister: "POST /events/{listenerId}/unregister during orderly shutdown."
+    inactivity_timeout_seconds: 600
+    minimum_fetch_interval_ms: 1000
+    recovery: "A listener dies after 10 minutes without fetch and on gateway reboot. On an invalid-listener 400, register a new listener and rebuild event state from /setup; do not silently continue with a dead id."
+    initial_sync: "GET /setup once at application start, then register/fetch events instead of polling setup/devices continuously."
+  executions:
+    verification: "reported"
+    apply: "POST /exec/apply with {label,actions:[{deviceURL,commands:[{name,parameters}]}]}; response {execId}."
+    query: "GET /exec/current and /exec/current/{executionId}; these cover only running executions launched through the local API."
+    cancel: "DELETE /exec/current/setup/{executionId} for one; DELETE /exec/current/setup for all local setup-level executions."
+    movement_safety: "open/close are advanced and attended. stop/cancel is not advanced. execId acknowledgement means accepted, not physically complete; use events/states and the actual installation."
+  response_shapes:
+    api_version: '{"protocolVersion":"2022.1.3-1"}'
+    listener_registered: '{"id":"00000000-0000-4000-8000-000000000002"}'
+    execution_accepted: '{"execId":"00000000-0000-4000-8000-000000000001"}'
+    error: '{"error":"<description>","errorCode":"<code>"} on listener fetch 400; preserve for diagnostics without leaking token/PIN.'
+
+http_endpoints:
+  - method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/apiVersion"
+    name: "API Version"
+    description: "Unauthenticated version probe after PIN/TLS validation; no Bearer header."
+    response_body: { content_type: "application/json", fields: [{name: "protocolVersion", type: "string"}], example: '{"protocolVersion":"2022.1.3-1"}' }
+    verification: "reported"
+  - method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/setup"
+    name: "Installation Setup"
+    description: "Documentary bearer-authorized complete setup, fetched once at startup and after listener replacement."
+    verification: "reported"
+  - method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/setup/gateways"
+    name: "Gateway Description"
+    description: "Documentary bearer-authorized gatewayId/connectivity/protocolVersion array."
+    response_body: { content_type: "application/json", example: '[{"gatewayId":"2001-0000-0000","connectivity":{"status":"OK","protocolVersion":"2022.1.3-1"}}]' }
+    verification: "reported"
+  - method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/setup/devices"
+    name: "Devices"
+    description: "Documentary bearer-authorized array of Device records with deviceURL/label/controllable/states."
+    response_body: { content_type: "application/json", example: '[{"deviceURL":"io://2001-0000-0000/1000001","label":"Example Shade","controllableName":"io:VerticalExteriorAwningIOComponent","states":[{"name":"core:OpenClosedState","type":3,"value":"closed"}]}]' }
+    verification: "reported"
+  - method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/setup/devices/{device_url}/states"
+    name: "Device States"
+    description: "Documentary bearer-authorized State array for one deviceURL; URL-encode the path parameter exactly once."
+    response_body: { content_type: "application/json", example: '[{"name":"core:OpenClosedState","type":3,"value":"open"}]' }
+    verification: "reported"
+  - method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/events/register"
+    name: "Register Event Listener"
+    description: "Documentary bearer-authorized; returns id. Listener dies after ten inactive minutes or gateway reboot."
+    response_body: { content_type: "application/json", example: '{"id":"00000000-0000-4000-8000-000000000002"}' }
+    verification: "reported"
+  - method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/fetch"
+    name: "Fetch Listener Events"
+    description: "Documentary bearer-authorized Event array; no more than once per second and often enough to avoid the ten-minute expiry."
+    response_body: { content_type: "application/json", example: '[{"name":"DeviceStateChangedEvent","deviceURL":"io://2001-0000-0000/1000001","deviceStates":[{"name":"core:OpenClosedState","type":3,"value":"open"}]}]' }
+    verification: "reported"
+  - method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/unregister"
+    name: "Unregister Event Listener"
+    description: "Documentary bearer-authorized orderly listener cleanup; no body required."
+    response_body: { content_type: "application/json", example: '[]' }
+    verification: "reported"
+  - method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
+    name: "Apply Action Group"
+    description: "Documentary bearer-authorized non-persistent action group. Shade movement commands are advanced attended writes."
+    request_body:
+      content_type: "application/json"
+      fields:
+        - {name: "label", type: "string"}
+        - {name: "actions", type: "array", required: true}
+      example: '{"label":"Attended example shade open","actions":[{"deviceURL":"io://2001-0000-0000/1000001","commands":[{"name":"open","parameters":[]}]}]}'
+    response_body: { content_type: "application/json", example: '{"execId":"00000000-0000-4000-8000-000000000001"}' }
+    advanced: true
+    advanced_reason: "Can move a real shade, awning or cover. Confirm deviceURL, direction, clearance and an available stop/cancel before applying."
+    verification: "reported"
+  - method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/current"
+    name: "Current Executions"
+    description: "Documentary bearer-authorized list of currently running local API action groups."
+    verification: "reported"
+  - method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/current/{execution_id}"
+    name: "Current Execution"
+    description: "Documentary bearer-authorized status of one running local execution."
+    verification: "reported"
+  - method: "DELETE"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/current/setup/{execution_id}"
+    name: "Cancel Execution"
+    description: "Documentary bearer-authorized cancellation of one local setup-level execution; not advanced so stop remains accessible."
+    verification: "reported"
+  - method: "DELETE"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/current/setup"
+    name: "Cancel All Executions"
+    description: "Documentary bearer-authorized cancellation of all running setup-level local executions."
+    verification: "reported"
+
+commands:
+  read_api_version:
+    description: "Documentary unauthenticated API version request after mDNS PIN match and Overkiz TLS validation; no Authorization header."
+    transport: "http"
+    method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/apiVersion"
+    returns: [{name: "protocolVersion", type: "string"}]
+    verification: "reported"
+  read_setup:
+    description: "Documentary bearer request for the complete installation at startup and listener recovery."
+    transport: "http"
+    method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/setup"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    verification: "reported"
+  read_devices:
+    description: "Documentary bearer request for deviceURL, label, controllable and current states; no generic cover resolver is implied."
+    transport: "http"
+    method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/setup/devices"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    returns:
+      - {name: "deviceURL", type: "string"}
+      - {name: "label", type: "string"}
+      - {name: "controllableName", type: "string"}
+      - {name: "states", type: "array", description: "Named State records, including core:OpenClosedState when supported."}
+    verification: "reported"
+  read_device_states:
+    description: "Documentary bearer request for one device's named State array; URL-encode device_url exactly once."
+    transport: "http"
+    method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/setup/devices/{device_url}/states"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      device_url: { type: "string", required: true, source: "instance:deviceURL", description: "DeviceURL from setup/devices, URL-encoded for the path." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    returns:
+      - {name: "name", type: "string"}
+      - {name: "type", type: "integer"}
+      - {name: "value", type: "any", description: "Preserve the State's JSON type; open/closed is a string, positions may be numeric percent."}
+    verification: "reported"
+  register_listener:
+    description: "Documentary bearer listener registration; a dedicated lifecycle handler retains the returned id."
+    transport: "http"
+    method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/events/register"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    returns: [{name: "id", type: "string", description: "ListenerId, usually a UUID-shaped string."}]
+    verification: "reported"
+  fetch_events:
+    description: "Documentary bearer event fetch, at most once per second; invalid-listener 400 requires re-registration and setup resync."
+    transport: "http"
+    method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/fetch"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      listener_id: { type: "string", required: true, description: "Runtime id returned by register_listener, not an owner credential." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    returns:
+      - {name: "name", type: "string"}
+      - {name: "deviceURL", type: "string"}
+      - {name: "deviceStates", type: "array"}
+    verification: "reported"
+  unregister_listener:
+    description: "Documentary bearer listener cleanup; expiry/reboot still requires dedicated recovery."
+    transport: "http"
+    method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/events/{listener_id}/unregister"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      listener_id: { type: "string", required: true, description: "Runtime id returned by register_listener." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    verification: "reported"
+  cover_open:
+    description: "Documentary attended open command; a future advanced network-action handler must confirm identity, direction and clearance before sending."
+    transport: "http"
+    method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
+    headers: { Authorization: "Bearer {owner_token}" }
+    body: '{"label":"Attended cover open","actions":[{"deviceURL":"{device_url}","commands":[{"name":"open","parameters":[]}]}]}'
+    parameters:
+      device_url: { type: "string", required: true, source: "instance:deviceURL" }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    advanced: true
+    advanced_reason: "Moves a real cover. Confirm the device, direction and clear travel path; keep stop available and monitor to completion. This is future dedicated-handler behavior, not a current generic control."
+    verification: "reported"
+  cover_close:
+    description: "Documentary attended close command; a future advanced network-action handler must confirm identity and an unobstructed travel path."
+    transport: "http"
+    method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
+    headers: { Authorization: "Bearer {owner_token}" }
+    body: '{"label":"Attended cover close","actions":[{"deviceURL":"{device_url}","commands":[{"name":"close","parameters":[]}]}]}'
+    parameters:
+      device_url: { type: "string", required: true, source: "instance:deviceURL" }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    advanced: true
+    advanced_reason: "Moves a real cover and can trap an obstruction. Watch the full travel path and monitor actual state; execId is not completion. This is future dedicated-handler behavior, not a current generic control."
+    verification: "reported"
+  cover_stop:
+    description: "Documentary stop POST, deliberately non-advanced so a dedicated client need not place an extra confirmation before halting movement."
+    transport: "http"
+    method: "POST"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/apply"
+    headers: { Authorization: "Bearer {owner_token}" }
+    body: '{"label":"Stop cover","actions":[{"deviceURL":"{device_url}","commands":[{"name":"stop","parameters":[]}]}]}'
+    parameters:
+      device_url: { type: "string", required: true, source: "instance:deviceURL" }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    verification: "reported"
+  list_executions:
+    description: "Documentary bearer request for currently running local API action groups."
+    transport: "http"
+    method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/current"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    verification: "reported"
+  get_execution:
+    description: "Documentary bearer request for one current local execution by execId."
+    transport: "http"
+    method: "GET"
+    path: "/enduser-mobile-web/1/enduserAPI/exec/current/{execution_id}"
+    headers: { Authorization: "Bearer {owner_token}" }
+    parameters:
+      execution_id: { type: "string", required: true, description: "execId returned by exec/apply." }
+      owner_token: { type: "string", required: true, source: "credential:owner_token" }
+    verification: "reported"
+
+local_access:
+  status: "native"
+  summary: "The official Developer Mode API supports token-authorized local HTTPS operations; this repository's generic consumer remains identify_only until dedicated handlers exist."
+  covers:
+    - "_kizboxdev._tcp identity, Overkiz TLS and unauthenticated apiVersion"
+    - "Documentary setup/devices/states, bearer authorization and event listener lifecycle"
+    - "Documentary exec/apply and current-execution operations for a dedicated client"
+  not_covered:
+    - "Generic cover entity/state rendering, DELETE cancellation and advanced network-action confirmation"
+    - "Offline activation, token recovery/revocation API or excluded square gen1/Connectivity Kit"
+    - "Every Somfy device/controllable, position/tilt mapping or scenario/cloud API"
+    - "Unverified TLS, unattended shade movement or public firmware download"
+cloud:
+  required: false
+  vendor_service: "TaHoma app/account is used for installation and Developer Mode activation/token generation; local API calls then remain on the gateway LAN."
+  failure_mode: "Saved tokens support local API after WAN loss. Initial/offline activation is unproven, excluded gateways cannot be unlocked here, and app-side token lifecycle/firmware update may still require vendor service."
+
+payload_formats:
+  DeviceState:
+    description: "State is a named typed record, not a map with uniform value types."
+    fields:
+      - {name: "name", type: "string", description: "Example core:OpenClosedState."}
+      - {name: "type", type: "integer", description: "Official JSON type code; preserve value rather than coercing everything to string/bool."}
+      - {name: "value", type: "any", description: "open/closed string for core:OpenClosedState; other states may use numeric percent, integer or boolean."}
+    parse_rules:
+      - "Find states by name within the device's State array; never assume array position."
+      - "A future dedicated cover resolver must match core:OpenClosedState by name and treat missing state as unknown, not closed. No generic state_mapping is declared."
+      - "execId is an acknowledgement. Reconcile execution and device events before reporting physical completion."
+    example: |
+      [{"name":"core:OpenClosedState","type":3,"value":"open"}]
+
+evidence:
+  documentation_review: >
+    Official Developer Mode README 3eae7a51 supplies activation, one-time token
+    display, _kizboxdev._tcp TXT fields, Overkiz root URL, one-second fetch
+    guidance, ten-minute listener lifetime and excluded gateways. Its OpenAPI
+    supplies every declared path, method, body and response shape. TaHoma Switch
+    installation guide supplies secured 2.4 GHz/app setup.
+  open_questions: >
+    No live gateway was used. Offline activation, app-side token revocation,
+    reset/state survival, per-controllable command support and actual TLS chain
+    presentation on every supported firmware remain unverified.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "Somfy-Developer/Somfy-TaHoma-Developer-Mode 3eae7a51ba55eee28649319942239aab7b139eb7"
+      url: "https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode"
+      description: "Official README and OpenAPI, the sole normative source for this spec."
+    - type: "vendor_documentation"
+      artifact: "Overkiz Root CA retrieved 2026-11-11"
+      description: "Root subject/validity/fingerprint recorded; no private key or gateway certificate included."
+    - type: "vendor_documentation"
+      artifact: "TaHoma switch installation guide 5156700A"
+      description: "App/account installation and secured 2.4 GHz Wi-Fi requirements."
+
+helpful_urls:
+  - title: "Official Somfy TaHoma Developer Mode"
+    url: "https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode/tree/3eae7a51ba55eee28649319942239aab7b139eb7"
+    description: "Activation, owner tokens, _kizboxdev discovery, TLS root, polling limits and supported-gateway exclusions."
+  - title: "Official local OpenAPI at 3eae7a51"
+    url: "https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode/blob/3eae7a51ba55eee28649319942239aab7b139eb7/docs/openapi.yaml"
+    description: "Normative request/response schemas for API, setup, events and executions."
+  - title: "Overkiz Root CA (PEM)"
+    url: "https://ca.overkiz.com/overkiz-root-ca-2048.crt"
+    description: "Published trust anchor for local gateway TLS; use instead of disabling verification."
+  - title: "TaHoma Switch installation guide (PDF)"
+    url: "https://asset.somfy.com/Document/105bf554-3ac5-4646-8288-4151f5a43c5c_TaHoma_switch_installation_guide_EN.pdf"
+    kind: "manual"
+    description: "Official TaHoma Switch installation and secured 2.4 GHz Wi-Fi/app setup guide."
+
+remaining_unknowns:
+  - "Whether Developer Mode activation/token generation works with WAN completely offline; no unactivated-gateway unlock is claimed."
+  - "App-side token deletion/revocation, factory-reset procedure and token/installation survival across reset or network changes."
+  - "Actual certificate chain/hostname details on every supported firmware; clients must still use the published root and never disable verification."
+  - "Complete controllable/state/command mappings, including position/tilt units, across the installation's motors and sensors."
+  - "Listener invalid-response codes beyond the documented 400 shape and whether every gateway reports reboot expiry identically."

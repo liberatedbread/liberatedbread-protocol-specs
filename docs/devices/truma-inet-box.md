@@ -27,11 +27,11 @@ configuration, pairing changes, SMS/USSD and firmware are not ordinary commands.
 | Write | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
 | Notify | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
 
-No advertised-name prefix or manufacturer-data pattern was established, so the
-spec declares no automatic scan match: the user selects the box by hand. Nordic
-UART is shared by scooters, wheels, motor controllers, robots and many serial
-modules, so it must never auto-select this spec; confirm the TRBT dialect
-read-only after connecting.
+No dependable advertised-name prefix was established. Nordic UART is shared by
+the Ninebot Z and many unrelated serial modules, so it is not a scan matcher.
+Manually select the exact Truma iNet Box before any GATT write, then issue only
+the documented vehicle-status request and validate the TRBT response before any
+configuration, pairing, switch or firmware write.
 
 Subscribe to notifications and concatenate them before parsing. A notification
 can contain a partial message or several messages. Setup requires no Wi-Fi
@@ -108,10 +108,7 @@ are unknown. Do not probe update entry from this documentary block.
 
 ## Remaining questions
 
-- Advertised name or manufacturer-data pattern, bonding and live Nordic UART/status
-  verification, including whether the zero-filled MORE status query is answered with
-  RESPONSE (as expected) or ACCEPT.
-- The u16 sentinel encoding and leisure-battery current signedness.
+- Advertised name, bonding and live Nordic UART/status verification.
 - Tank/ambient-light units and other message layouts across firmware versions.
 - Factory reset, standalone unpairing and safe firmware recovery.
 - Standalone LevelControl and older Bluetooth generations.

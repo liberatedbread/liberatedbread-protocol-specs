@@ -21,10 +21,18 @@ device:
   protocol: "ble"
   category: "vehicle"
   notes: >
-    Ninebot / Segway ES and MAX (G30) e-scooters (and Ninebot-built EUCs) use the
-    same Nordic-UART serial-over-BLE bridge as the Xiaomi M365 — see
-    xiaomi-m365-ble.yaml for the register read/write model and the ESC/BMS
-    register map, which are shared. Only the outer frame differs.
+    Ninebot / Segway ES and MAX (G30) e-scooters use the same Nordic-UART
+    serial-over-BLE bridge as the Xiaomi M365 — see xiaomi-m365-ble.yaml for
+    the register read/write model and the ESC/BMS register map, which are
+    shared. Only the outer frame differs.
+
+    The Ninebot Z electric unicycle is NOT this protocol. It shares this
+    spec's NUS trio and its 5A A5 header, clear payload length, L+9 accounting
+    and little-endian checksum envelope. The distinction is the Z's
+    repeating-XOR transform, role addresses and telemetry payloads versus this
+    scooter's register layouts, not the outer length semantics. See
+    euc-wheellog-ble.yaml (its ninebot_z frame-format block); neither NUS nor
+    the shared outer frame may activate scooter writes.
 
     GATT: Nordic UART service 6e400001-b5a3-f393-e0a9-e50e24dcca9e; write/RX
     6e400002-...; notify/TX 6e400003-... (same as the M365).
@@ -55,19 +63,19 @@ device:
       Newer-firmware session crypto is not covered by the fetched sources.
 
   identification:
-    service_uuids:
-      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    notes: >
+      No advertised-name matcher is established. Nordic UART is shared with the
+      Ninebot Z EUC, InMotion V2 and unrelated peripherals, so it is a
+      post-connect transport detail only and is deliberately not a scan axis.
 
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids:
-            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-        notes: >
-          Advertises the Nordic UART service. The advertised-name convention was
-          not captured from a cited source, so match on the NUS service plus a
-          valid 5A A5 reply.
+    none: >
+      Manual selection of the exact scooter is required before any GATT write.
+      A Ninebot Z has the same NUS trio and 5A A5/L+9 outer frame; a bare NUS
+      fingerprint or 5A A5 header must never activate this scooter spec. After
+      manual selection, confirm the scooter's role addresses and register reply
+      layout before any setting write. Do not infer identity from the shared
+      outer length/checksum framing.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -77,22 +85,30 @@ device:
     required: false
     confidence: "medium"
     notes: >
-      Connect over BLE, subscribe to the TX characteristic, and write 5A A5-framed
-      register commands to RX (register model shared with the M365). On newer
-      firmware a session-crypto handshake may be required — verify per unit.
+      NUS is not identity. A person must manually select the exact scooter
+      before any GATT write. Only then connect, subscribe and issue a read-only
+      register request; validate the scooter's role addresses and register reply
+      before any setting write. On newer firmware a session-crypto handshake
+      may be required — verify per unit.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          Connect to the NUS device, subscribe to 6e400003, and write 5A A5-framed
-          register reads/writes to 6e400002 (register map per xiaomi-m365-ble).
+          Manual model selection is the first gate. After connecting to that
+          manually selected scooter, use a read-only register request as the
+          post-connect protocol check. Never use NUS or a bare 5A A5 header to
+          choose this spec, and stop if the reply has the Ninebot Z role
+          addresses or repeating-XOR payload transform.
         ble:
           pairing_required: false
         steps:
-          - action: "Connect and subscribe to the TX characteristic (6e400003)."
+          - action: "Manually select the exact Ninebot/Segway scooter model; do not rely on NUS or the outer frame for identity."
+            actor: "user"
+          - action: "Connect and subscribe to the TX characteristic (6e400003-b5a3-f393-e0a9-e50e24dcca9e), without writing yet."
             actor: "client"
-          - action: "Write a 5A A5-framed register read; parse the checksummed reply."
+          - action: "After manual model confirmation, send only a read-only 5A A5 register request and validate the scooter role addresses and register reply before any setting write."
             actor: "client"
+            expect: "A plaintext scooter register reply with the expected ESC/BMS role address and register layout; otherwise stop and do not issue further writes."
     factory_reset:
       applicable: true
       confidence: medium
@@ -175,17 +191,21 @@ services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     name: "Nordic UART serial bridge"
     notes: >
-      Tunnels the 5A A5 register protocol. Write to 6e400002, read notifications
-      on 6e400003. Register model shared with xiaomi-m365-ble.yaml.
+      Tunnels the 5A A5 register protocol. Write to
+      6e400002-b5a3-f393-e0a9-e50e24dcca9e and read notifications on
+      6e400003-b5a3-f393-e0a9-e50e24dcca9e. The register model is shared with
+      xiaomi-m365-ble.yaml. The Ninebot Z uses the same trio, so this is not
+      identity: manual selection and the setup block's read-only protocol check
+      are required before using the write path.
     characteristics:
       - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
         name: "RX (write)"
         properties: ["write_without_response"]
-        notes: "5A A5-framed register read/write commands."
+        notes: "5A A5-framed register read/write commands only after manual model selection and read-only protocol confirmation."
       - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
         name: "TX (notify)"
         properties: ["notify"]
-        notes: "5A A5-framed replies (ESC / battery)."
+        notes: "5A A5-framed replies (ESC / battery); shared outer framing is not sufficient confirmation."
 
 entities:
   - platform: "sensor"

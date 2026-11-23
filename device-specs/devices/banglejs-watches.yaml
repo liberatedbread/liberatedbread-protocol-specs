@@ -1,0 +1,552 @@
+# Espruino Bangle.js 1 and 2 — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: EspruinoDocs at bcd76a20783559c76b29bd354fe5fa55c31915c0 and
+# BangleApps at 9fe678997d86dfabb5aadc5fba272b7d5897a340, especially the
+# official board guides, Gadgetbridge message list and Android Integration app.
+# No hardware, captures, account, cloud relay or private activity logs were used.
+
+device:
+  name: "Espruino Bangle.js 1 and 2"
+  manufacturer: "Espruino / Pur3 Ltd"
+  manufacturer_status: "active"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/espruino/BangleApps"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://www.espruino.com/Gadgetbridge"
+        title: "Official Bangle.js Gadgetbridge guide"
+        covers: "NUS JSON framing, common messages, optional HTTP/intents and setup."
+      - url: "https://www.espruino.com/BLE+UART"
+        title: "Espruino Nordic UART guide"
+        covers: "NUS UUIDs, scan-response discovery and the programmable REPL boundary."
+    notes: >
+      This is a summary of public firmware/app documentation, not a reverse-engineered
+      proprietary protocol. Upstream remains authoritative for version-specific fields.
+  testing:
+    status: untested
+    notes: >
+      No watch was connected or driven from this document. Protocol and recovery
+      facts are from pinned official sources; optional Internet relay, intents,
+      arbitrary code upload and firmware update were not exercised.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "wearable"
+  type: "programmable-smartwatch"
+  integration: "identify_only"
+  companion_apps:
+    - name: "Bangle.js Gadgetbridge"
+      package: "com.espruino.gadgetbridge.banglejs"
+      role: "primary"
+      platform: "android"
+      url: "https://f-droid.org/en/packages/com.espruino.gadgetbridge.banglejs/"
+      notes: "Optional HTTPS relay/intents are disabled until explicitly configured; not needed for local sync."
+    - name: "Gadgetbridge"
+      package: "nodomain.freeyourgadget.gadgetbridge"
+      role: "alternative"
+      platform: "android"
+      url: "https://f-droid.org/en/packages/nodomain.freeyourgadget.gadgetbridge/"
+      notes: "No-Internet-permission alternative for the common local JSON interface."
+    - name: "Bangle.js App Loader and Web IDE"
+      role: "alternative"
+      platform: "cross_platform"
+      url: "https://banglejs.com/apps"
+      notes: "Web Bluetooth app/file install and programmable REPL; advanced and optional."
+  notes: >
+    Both watches use Nordic UART Service (NUS), not a binary smartwatch profile.
+    Bangle.js 1 is no longer sold; Bangle.js 2 is current. Bangle.js 3 is excluded:
+    Android Integration metadata naming it is not sufficient board/protocol evidence.
+
+    Phone/browser to watch is byte 0x10 followed by GB(<JSON object>)\n on NUS RX.
+    Watch to phone is one JSON object per line on NUS TX, without that 0x10/GB wrapper.
+    Fragment and coalesce arbitrarily at the UART, but do not feed ordinary Espruino
+    console output to the Gadgetbridge JSON parser. High MTU is optional, never assumed.
+    One active BLE connection is typical: disconnect the Web IDE before Gadgetbridge
+    and disconnect Gadgetbridge before the App Loader/Web IDE.
+  identification:
+    local_name_prefix: "Bangle.js "
+    notes: >
+      Default names are Bangle.js plus a short suffix shown on the watch and are
+      candidates only, not automatic model proof. Select Bangle.js 1 or 2 manually.
+      NUS is deliberately ABSENT from automatic identity: it is shared with Ninebot Z
+      and many incompatible protocols. NUS may appear in a scan response, but must not
+      activate this spec. After connecting, require Android Integration's read-only
+      ver message and confirm hw is 1 or 2 before ANY write; otherwise stay read-only.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Bangle.js "
+        verification: "reported"
+        notes: >
+          Scan actively because NUS may only be in a scan response, but do not filter
+          or identify on that UUID. A Bangle.js-suffixed name is only a candidate:
+          select the model manually, then confirm Android Integration ver.fw/ver.hw
+          read-only before any write. Renamed units require the same manual path.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Raw NUS needs no account or provisioning. Full Gadgetbridge behavior requires
+      the watch-side Android Integration app and its Messages dependency; the older
+      Gadgetbridge widget is unmaintained. Bonding is optional, not a setup credential.
+      This is identify-only: a user selects the Bangle model and a dedicated handler
+      proves it read-only before offering any write.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Make the watch connectable, actively scan by the candidate name (never by
+          NUS), select Bangle.js 1 or 2 manually, connect and subscribe to TX. For
+          Gadgetbridge install Android Integration first; for Web IDE/App Loader
+          enable Programmable only if code upload is intended and after the ver gate.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "On the watch, enable BLE and choose Make Connectable; install Android Integration for Gadgetbridge use."
+            actor: "user"
+            expect: "The connectable screen and a Bangle.js suffix name are visible."
+          - action: "Disconnect any other client, actively scan by the candidate name and select Bangle.js 1 or 2 manually; do not match on NUS."
+            actor: "user"
+            expect: "The user, not the shared service UUID, chooses the model and only one client holds the link."
+          - action: "Subscribe to NUS TX and retain UART bytes until each complete GB line or JSON line arrives."
+            actor: "client"
+            expect: "Android Integration sends status, ver and calendar-sync messages after connection."
+          - action: "Read the ver message and confirm fw is present and hw is exactly 1 or 2 before any write; otherwise remain read-only."
+            actor: "client"
+            expect: "Read-only model confirmation has succeeded; no write occurs before it."
+          - action: "Only after that confirmation, consider the dedicated multi-write handler; leave Programmable, Internet access, intents and file/code writes disabled unless that specific advanced operation is intended."
+            actor: "user"
+        troubleshooting:
+          - symptom: "No NUS service appears in a passive scan."
+            causes:
+              - "The UUID is in a scan response; use active scanning. Also disconnect the other companion and leave the watch connectable."
+          - symptom: "JSON messages are malformed after a large transfer."
+            causes:
+              - "ATT notifications are fragments. Reassemble by GB()/newline boundaries rather than treating each notification as a message; negotiate high MTU only as an optimization."
+          - symptom: "Gadgetbridge connects but notifications do not render."
+            causes:
+              - "Install Android Integration and Messages, not the retired Gadgetbridge widget."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Recovery-menu Factory Reset wipes installed data and settings and returns the
+        watch to its factory state. App Loader Install default apps similarly erases
+        everything and reinstalls defaults; both require setup again.
+      description: >
+        On firmware 2v19 and later, hold through the initial DFU text and ====
+        progress into Recovery, then select Factory Reset. Releasing at the first
+        six-second mark merely reboots. On older firmware, the App Loader's Install
+        default apps path is the documented erase/reinstall route. Clean Boot only
+        suppresses code for one boot and is not a factory reset.
+      procedures:
+        - name: "Bangle.js 1 Recovery menu, firmware 2v19+"
+          applies_to: ["Bangle.js 1"]
+          verified: false
+          basis: "Official Bangle.js 1 board guide, Recovery menu and Deleting all code."
+          hold_seconds: 6
+          power_state: "on"
+          indicator: "DFU version text, ==== progress, then the Recovery menu."
+          steps:
+            - action: "Hold BTN1+BTN2+BTN3 for about six seconds until DFU text appears; release BTN1/BTN2 while keeping BTN3 held through boot."
+              actor: "user"
+              expect: "The Recovery menu appears and Bluetooth is enabled."
+            - action: "Release BTN3 and select Factory Reset."
+              actor: "user"
+              expect: "Watch data/settings are wiped and factory defaults are restored."
+        - name: "Bangle.js 2 Recovery menu, firmware 2v19+"
+          applies_to: ["Bangle.js 2"]
+          verified: false
+          basis: "Official Bangle.js 2 board guide, Recovery menu and Deleting all code."
+          hold_seconds: 6
+          power_state: "on"
+          indicator: "DFU version text, ==== progress, then the Recovery menu."
+          steps:
+            - action: "Hold the side button through DFU text and ==== while the watch boots."
+              actor: "user"
+              expect: "The Recovery menu appears and Bluetooth is enabled."
+            - action: "Release the button and select Factory Reset."
+              actor: "user"
+              expect: "Watch data/settings are wiped and factory defaults are restored."
+        - name: "Install default apps from the App Loader (older firmware)"
+          verified: false
+          basis: "Official board guides' pre-2v19 Deleting all code procedure."
+          power_state: "on"
+          indicator: "Only the default apps remain after the erase/reinstall completes."
+          steps:
+            - action: "Connect the App Loader, optionally after Clean Boot, and choose More, Install default apps."
+              actor: "user"
+              expect: "Everything is erased and the default apps are reinstalled."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Disconnect the old client and connect the new one. Bonding is optional; use
+        Recovery Delete BT Pairing (2v30+) only for stale/corrupt bond state, not a reset.
+      steps:
+        - action: "Disconnect the old phone/browser and make the watch connectable."
+          actor: "user"
+        - action: "Connect the new client, subscribe to TX and wait for ver/status."
+          actor: "client"
+          expect: "The new client receives Android Integration's version and battery messages."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["Optional Bluetooth bond", "Installed apps, files, settings and activity records"]
+      issued_to_client: []
+      notes: >
+        No Espruino account or application token is required. App bundles fetched from
+        banglejs.com are public and can be cached for offline installation. Optional
+        HTTP relay can send app data off-device; keep it disabled for local-only use.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "optional"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Disconnect the Web IDE/Gadgetbridge before starting the other. If bonding is
+        stale, firmware 2v30+ Recovery offers Delete BT Pairing (Soft, then Hard for
+        corrupted pairing flash); also forget the watch in the host OS and reconnect.
+      notes: "No single-bond eviction is documented; the limit is the active connection."
+    enter_pairing_mode:
+      required: true
+      advertised_name: "Bangle.js "
+      advertised_name_match: "prefix"
+      indicator: "The watch shows its connectable screen and suffix code."
+      procedures:
+        - name: "Enable BLE and Make Connectable"
+          verified: false
+          basis: "Official Bangle.js development and Gadgetbridge setup guides."
+          power_state: "on"
+          steps:
+            - action: "Open Settings/Bluetooth, enable BLE and choose Make Connectable; leave that screen visible."
+              actor: "user"
+              expect: "The watch advertises its Bangle.js suffix name."
+            - action: "If a companion offers an optional bond, accept or decline it; no account or fixed PIN is needed."
+              actor: "user"
+      notes: >
+        Programmable is a separate advanced permission, not needed for ordinary
+        Gadgetbridge sync. Do not enable it merely to resolve a connection problem.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Bluetooth pairing information only; installed apps/files/settings remain."
+      procedures:
+        - name: "Delete BT Pairing in Recovery (firmware 2v30+)"
+          verified: false
+          basis: "Official Bangle.js 1 and 2 Recovery-menu documentation."
+          power_state: "on"
+          indicator: "Recovery menu's Delete BT Pairing entry; Soft or Hard completion."
+          steps:
+            - action: "Enter Recovery with the model's factory-reset button sequence, then select Delete BT Pairing."
+              actor: "user"
+              expect: "Pairing information is removed without selecting Factory Reset."
+            - action: "Try Soft first; use Hard only if pairing flash may be corrupted, then forget the watch in the host OS."
+              actor: "user"
+    notes: >
+      Bare NUS works without a bond. Gadgetbridge optionally offers an encrypted
+      bonded connection, reported to reconnect more reliably on modern Android. No
+      authenticated PIN or numeric comparison is documented, so just_works is the
+      broad mode label, not a claim of MITM protection.
+  host_compatibility:
+    - stack: "corebluetooth"
+      status: "degraded"
+      verification: "reported"
+      basis: >
+        Official Bangle.js 2 documentation says Safari lacks Web Bluetooth and suggests
+        a Web Bluetooth-capable iOS browser. Gadgetbridge/Android Integration behavior
+        on iOS is not established by that note.
+      notes: >
+        Native CoreBluetooth can speak NUS, but the official App Loader route needs a
+        Web Bluetooth browser and paired-for-notifications devices may have to be
+        disconnected before appearing. No full iOS companion verdict is claimed.
+  variants:
+    - model: "Bangle.js 1"
+      identification: {model_prefix: "1"}
+      notes: >
+        nRF52832, three physical buttons plus two touch zones, GPS/heart rate;
+        no longer sold. Recovery uses BTN1+BTN2(+BTN3 held for the menu).
+    - model: "Bangle.js 2"
+      identification: {model_prefix: "2"}
+      notes: >
+        nRF52840, full touchscreen and one side button, GPS/heart rate/barometer;
+        BLE-only firmware update. Recovery holds the side button.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service"
+    notes: >
+      Shared NUS transport, not product identity by itself. RX is phone/browser to
+      watch; TX is watch to phone/browser. JSON and GB lines are protocol messages,
+      not fixed-width characteristic values.
+    initialization:
+      - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        subscribe: true
+        notes: "Keep notification bytes in a stream buffer and parse complete lines only."
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART RX (host writes to watch)"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          Documentation-only write channel. A dedicated multi-write handler must
+          serialize each complete message into ordered <=20-byte writes and reassemble
+          responses; bare framing cannot encode the 29/30-byte examples below.
+          protocol_details.uart_commands is not an executable command catalogue.
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART TX (watch notifies host)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Watch-to-host Gadgetbridge messages are JSON objects, one per line, with no
+          0x10/GB wrapper. Android Integration sends status and ver after connect and
+          on relevant changes. Non-JSON console text belongs to the REPL, not this parser.
+
+features:
+  - type: "firmware_update"
+    variants: ["Bangle.js 1"]
+    dfu:
+      mechanisms: ["unknown"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "public_url"
+        format: "Espruino firmware image for Bangle.js 1"
+        notes: "Use only the official board-matched artifact; the pinned board guide delegates to the Espruino nRF52 update instructions."
+      enter:
+        how: "unknown"
+        notes: "The board guide documents Recovery/DFU screens but not enough update transport detail to declare a safe command."
+      dfu_mode:
+        notes: "DFU version text appears on screen; exact advertising/address behavior is not asserted."
+      recovery:
+        interrupted: "unknown"
+        notes: "Clean Boot can bypass broken installed code; it is not proof of interrupted-image recovery."
+      verification: "reported"
+      notes: "No update was attempted; mechanism is deliberately not guessed as secure or legacy Nordic DFU."
+  - type: "firmware_update"
+    variants: ["Bangle.js 2"]
+    dfu:
+      mechanisms: ["custom"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "public_url"
+        format: "Espruino firmware/bootloader image for Bangle.js 2"
+        notes: "The official App Loader Firmware Update app is recommended; Kickstarter 2v10 bootloaders must be updated first."
+      enter:
+        how: "unknown"
+        notes: "App Loader update choreography is not mapped here; generic DFU writes are not provided."
+      dfu_mode:
+        notes: "DFU version text appears on screen; update is BLE-only, not USB charging-cable data."
+      recovery:
+        interrupted: "unknown"
+        notes: "Clean Boot and Recovery remain available for installed-code failures, not a verified image-recovery claim."
+      verification: "reported"
+      notes: "Custom App Loader path plus an official DFU alternative; exact mechanisms were not exercised."
+
+protocol_details:
+  uart_commands:
+    execution: "documentation_only"
+    write_sequence:
+      - "Build one complete GB/JSON message, then write its bytes in order in chunks of at most 20; never interleave another message between chunks."
+      - "Reassemble TX notifications independently by JSON/GB line boundary. A dedicated multi-write handler is required before any command is offered."
+      - "There is no ordinary Find Watch entity or executable characteristic command in this spec."
+    find_watch_start:
+      description: "Documented Gadgetbridge find-device on: 0x10 + GB({\"t\":\"find\",\"n\":true}) + LF; 29 bytes and therefore not one bare write."
+      verification: "reported"
+      locate: "both"
+      frame_hex: "10 47 42 28 7b 22 74 22 3a 22 66 69 6e 64 22 2c 22 6e 22 3a 74 72 75 65 7d 29 0a"
+    find_watch_stop:
+      description: "Documented Gadgetbridge find-device off; 30 bytes and also requires the ordered multi-write sequence above."
+      verification: "reported"
+      frame_hex: "10 47 42 28 7b 22 74 22 3a 22 66 69 6e 64 22 2c 22 6e 22 3a 66 61 6c 73 65 7d 29 0a"
+    evaluate_javascript:
+      description: "OPTIONAL advanced REPL input: raw JavaScript line(s), NOT GB-wrapped. Requires Programmable and a deliberate code-execution choice."
+      verification: "reported"
+      advanced: true
+      optional: true
+      advanced_reason: "Executes arbitrary code on the watch and can alter/delete apps, files, settings or startup behavior. Use only reviewed code and keep a Clean Boot/Factory Reset recovery path."
+      template: "{javascript}"
+      encoding: "Raw UTF-8 JavaScript including its intended line terminator; split only into the ordered UART chunks above."
+  uart_roles:
+    host_to_watch:
+      characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+      framing: "0x10 + ASCII GB( + compact JSON object + ASCII )\n"
+      parser: "Require the 0x10 prefix and complete GB(...)\n before decoding the enclosed single JSON object."
+    watch_to_host:
+      characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+      framing: "One JSON object per line, no 0x10 prefix and no GB wrapper."
+      parser: "Buffer arbitrary fragments/coalesced lines. Only lines beginning { after no leading console text are candidates; malformed JSON is rejected without consuming the next valid line."
+    mtu: "20 bytes is a safe default chunk; higher MTU is optional and negotiated."
+    write_gate:
+      manual_model_selection: true
+      automatic_identity_service_uuids: false
+      read_only_confirmation:
+        message_type: "ver"
+        required_fields: ["fw", "hw"]
+        accepted_hw: ["1", "2"]
+        before_any_write: true
+        on_missing_or_mismatch: "remain read-only"
+    connection_messages:
+      - "About two seconds after connection Android Integration sends status with battery, ver with fw/hw, and force_calendar_sync_start via the phone-bound GB handler."
+      - "Use ver.hw to distinguish Bangle.js 1/2 when sources expose it; do not infer Bangle.js 3 from metadata."
+  common_messages:
+    phone_to_watch:
+      - {t: "notify", purpose: "create/update notification", key_fields: "id, src, title, subject, body, sender, tel, reply"}
+      - {t: "notify-", purpose: "delete notification", key_fields: "id"}
+      - {t: "alarm", purpose: "replace alarm list", key_fields: "d:[{h,m,rep,on}]; rep is weekday bit mask"}
+      - {t: "find", purpose: "find watch on/off", key_fields: "n:boolean"}
+      - {t: "vibrate", purpose: "vibration pattern/count", key_fields: "n:integer"}
+      - {t: "weather", purpose: "phone-supplied conditions", key_fields: "temp,hi,lo,hum,rain,uv,code,txt,wind,wdir,loc; source does not pin all units"}
+      - {t: "musicstate", purpose: "playback state", key_fields: "state:play/pause, position, shuffle, repeat"}
+      - {t: "musicinfo", purpose: "track metadata", key_fields: "artist,album,track,dur,c,n"}
+      - {t: "call", purpose: "call state", key_fields: "cmd:accept/incoming/outgoing/reject/start/end, name, number"}
+      - {t: "act", purpose: "enable realtime activity", key_fields: "hrm:boolean, stp:boolean, int:seconds"}
+      - {t: "actfetch", purpose: "fetch missed activity", key_fields: "ts:milliseconds since 1970; 0 means all"}
+      - {t: "listRecs", purpose: "list newer recorder logs", key_fields: "id:YYYYMMDDx"}
+      - {t: "fetchRec", purpose: "fetch recorder log", key_fields: "id:YYYYMMDDx"}
+      - {t: "calendar", purpose: "add/update event", key_fields: "id,type,timestamp:seconds,durationInSeconds,title,description,location,calName,color,allDay"}
+      - {t: "calendar-", purpose: "delete event", key_fields: "id"}
+      - {t: "force_calendar_sync_start", purpose: "request calendar reconciliation", key_fields: "none"}
+      - {t: "gps", purpose: "forward phone GPS", key_fields: "lat,lon,alt,speed:kph,course,time,satellites,hdop,externalSource:true"}
+      - {t: "gps_power", purpose: "request phone GPS power", key_fields: "status:boolean"}
+      - {t: "is_gps_active", purpose: "query phone GPS state", key_fields: "none"}
+      - {t: "nav", purpose: "navigation instruction or stop", key_fields: "instr,distance,action,eta; bare nav means stopped"}
+    watch_to_phone:
+      - {t: "status", purpose: "battery/charging", key_fields: "bat:0-100 %, volt, chg:0/1"}
+      - {t: "ver", purpose: "firmware/hardware identity", key_fields: "fw,hw"}
+      - {t: "findPhone", purpose: "find phone on/off", key_fields: "n:boolean"}
+      - {t: "music", purpose: "watch-originated playback control", key_fields: "n:play/pause/next/previous/volumeup/volumedown"}
+      - {t: "call", purpose: "watch-originated call control", key_fields: "n:ACCEPT/END/INCOMING/OUTGOING/REJECT/START/IGNORE"}
+      - {t: "notify", purpose: "notification action", key_fields: "id,n:DISMISS/DISMISS_ALL/OPEN/MUTE/REPLY, optional tel,msg"}
+      - {t: "act", purpose: "activity sample", key_fields: "ts:milliseconds since 1970 (optional), hrm,stp,mov,rt, optional act"}
+      - {t: "actTrksList", purpose: "new recorder-log list", key_fields: "list"}
+      - {t: "actTrk", purpose: "recorder-log chunks/erase", key_fields: "log:YYYYMMDDx, lines:four lines or erase, cnt:packet count"}
+      - {t: "force_calendar_sync", purpose: "reconcile calendars", key_fields: "ids:[int,...]"}
+      - {t: "gps_power", purpose: "watch requests phone GPS state", key_fields: "status:boolean"}
+      - {t: "info/warn/error", purpose: "phone popup", key_fields: "msg"}
+    unknown_type_rule: "Preserve an unknown t object for a newer handler/log it; never coerce it into a known notification, music or health entity."
+    test_vector:
+      phone_frame_hex: "10 47 42 28 7b 22 74 22 3a 22 66 69 6e 64 22 2c 22 6e 22 3a 74 72 75 65 7d 29 0a"
+      decoded: {t: "find", n: true}
+      watch_lines: "{\"t\":\"status\",\"bat\":87,\"chg\":0}\n{\"t\":\"ver\",\"fw\":\"2v99\",\"hw\":\"2\"}\n"
+      note: "All identifiers/values in tests are invented; 2v99 is not asserted to exist."
+  privileged_surfaces:
+    entries:
+      - name: "arbitrary_javascript_repl"
+        optional: true
+        advanced: true
+        default_enabled: false
+        direction: "host to watch"
+        framing: "Raw JavaScript over NUS RX; no 0x10/GB wrapper. Programmable must be enabled."
+        advanced_reason: "Arbitrary code can alter/delete watch content and persist at startup."
+      - name: "app_loader_file_and_code_upload"
+        optional: true
+        advanced: true
+        default_enabled: false
+        direction: "host to watch"
+        framing: "App metadata declares storage/data files; Web Bluetooth writes selected files through NUS. Exact App Loader choreography is not reduced to GB JSON."
+        advanced_reason: "Can overwrite watch files/apps and break boot; use public reviewed bundles and cache them for offline reinstall."
+      - name: "http_relay"
+        optional: true
+        advanced: true
+        default_enabled: false
+        direction: "watch to phone, then phone to watch response"
+        framing: "{t:http,url,xpath?,id?,insecure?} JSON line; response {t:http,resp,id?} or {t:http,err}."
+        advanced_reason: "Sends app data off-device. Requires Bangle.js Gadgetbridge Internet permission and explicit Allow Internet Access; HTTPS only, insecure:false default."
+      - name: "phone_file_write"
+        optional: true
+        advanced: true
+        default_enabled: false
+        direction: "watch to phone"
+        framing: "{t:file,n:filename,c:contents,m:a/w} JSON line; a appends, w overwrites."
+        advanced_reason: "Writes arbitrary phone-side files; keep disabled unless the user approves the destination/content."
+      - name: "android_intents"
+        optional: true
+        advanced: true
+        default_enabled: false
+        direction: "watch to phone"
+        framing: "{t:intent,target,action,flags,categories,package,class,mimetype,data,extra} JSON line."
+        advanced_reason: "Can launch Android activities/services and interact with other apps; requires explicit Allow Intents."
+    least_privilege_rule: "These are not needed for notifications, time/weather/music/calendar/activity sync and are not bound to ordinary entities."
+  reset_vs_clean_boot:
+    clean_boot: "Suppresses installed code for one boot without deleting it; useful before removing broken startup code."
+    delete_pairing: "2v30+ Soft/Hard pairing erase only; not a factory reset."
+    factory_reset: "Wipes data/settings; see setup.factory_reset."
+  out_of_scope:
+    - "Bangle.js 3 and other NUS devices."
+    - "Generic Web Bluetooth app-loader choreography beyond its privileged/optional boundary."
+    - "Medical interpretation of heart/activity data."
+    - "A byte-level firmware updater or a claimed Nordic secure/legacy stack."
+
+evidence:
+  official_board_guides: >
+    Bangle.js 1 and 2 board references supply hardware scope, button-specific reset,
+    Recovery, pairing deletion, firmware-update and single-connection behavior. The
+    development guide supplies Bangle.js suffix names, Make Connectable and Programmable.
+  official_protocol_documentation: >
+    Espruino's BLE UART guide supplies NUS and scan-response discovery. Its Gadgetbridge
+    guide supplies the 0x10/GB phone wrapper, watch JSON lines, common message fields,
+    optional HTTPS/intents and least-privilege switches.
+  watch_app_source: >
+    BangleApps Android Integration 0.48 supplies connection-time status/ver/calendar
+    behavior and the Messages dependency. Pinned commits are named in the file header;
+    no vendor app internals are used.
+  negative_findings: >
+    No proprietary account is required. Standard Gadgetbridge has no Internet permission;
+    the Bangle.js fork's Internet access is optional. Bangle.js 3 metadata is not enough
+    evidence to include it. No full App Loader update algorithm is claimed.
+  open_questions: >
+    Exact App Loader file-transfer choreography, all weather field units, native iOS
+    companion behavior, firmware-update transport details, and hardware/version-specific
+    recorder-log compatibility need owner validation.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "espruino/BangleApps at 9fe678997d86dfabb5aadc5fba272b7d5897a340"
+      url: "https://github.com/espruino/BangleApps"
+      description: "Android Integration source, app metadata and loader references."
+    - type: "vendor_documentation"
+      artifact: "espruino/EspruinoDocs at bcd76a20783559c76b29bd354fe5fa55c31915c0"
+      url: "https://github.com/espruino/EspruinoDocs"
+      description: "Official board, UART, Gadgetbridge and recovery documentation."
+
+remaining_unknowns:
+  - "Exact App Loader storage/data-file transfer choreography and version-specific compatibility."
+  - "All weather/music duration field units and recorder-log edge cases across firmware versions."
+  - "A native iOS companion path with feature parity; official docs establish only the Web Bluetooth browser issue."
+  - "Firmware-update wire stack, image signing and interrupted-update recovery on each board."
+  - "Bangle.js 3 board identity and protocol; deliberately not claimed."
+
+helpful_urls:
+  - title: "Bangle.js 1 official board and recovery guide"
+    url: "https://www.espruino.com/Bangle.js"
+    kind: "vendor_support"
+    description: "Hardware scope, buttons, Clean Boot, Recovery Factory Reset and pairing deletion for Bangle.js 1."
+  - title: "Bangle.js 2 official board and recovery guide"
+    url: "https://www.espruino.com/Bangle.js2"
+    kind: "vendor_support"
+    description: "Bangle.js 2 hardware, one-button recovery, BLE-only App Loader update and Web Bluetooth caveat."
+  - title: "Official Bangle.js Gadgetbridge protocol guide"
+    url: "https://www.espruino.com/Gadgetbridge"
+    kind: "protocol_writeup"
+    description: "NUS JSON/GB framing, common message fields and optional Internet/intents permissions."
+  - title: "Espruino Nordic UART guide"
+    url: "https://www.espruino.com/BLE+UART"
+    kind: "protocol_writeup"
+    description: "NUS UUIDs, RX/TX roles and active scan-response discovery."
+  - title: "Bangle.js App Loader"
+    url: "https://banglejs.com/apps"
+    kind: "implementation"
+    description: "Public Web Bluetooth app/file installer; advanced optional surface, cache bundles for offline use."

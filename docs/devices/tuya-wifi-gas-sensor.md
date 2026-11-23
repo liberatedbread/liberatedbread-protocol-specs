@@ -119,8 +119,28 @@ The Wi-Fi module and sensor MCU talk TuyaMCU serial (9600 8N1 on the RQ400A).
 This matters for the nuclear option: an ESPHome/OpenBeken build flashed onto
 the WB2S/CB2S over UART (RX1/TX1 pads, 3.3 V, via ltchiptool) keeps talking
 to the untouched sensor MCU — a complete 12-DP ESPHome config for the
-DY-RQ400A is published (see References). CloudCutter OTA-flashing works only
-on unpatched firmware batches.
+DY-RQ400A is published (see References).
+
+**Do not assume CloudCutter is available.** The dumped DY-RQ400A stock firmware
+**3.1.17** is already on the CloudCutter known-patched list; [issue #773](https://github.com/tuya-cloudcutter/tuya-cloudcutter/issues/773)
+says serial flashing is currently the only route for that device. This is not a
+claim that other clones/batches have the same firmware, so identify the exact
+unit first rather than trying a generic OTA exploit.
+
+[OpenBeken 1.18.321](https://github.com/openshwprojects/OpenBK7231T_App/releases/tag/1.18.321)
+provides BK7231T (WB2S) and BK7231N (CB2S) images. Two security boundaries need
+explicit attention after flashing:
+
+- **MQTT TLS is disabled by default** (certificate verification is separately
+  default-off too). Do not assume an MQTT password makes the connection
+  encrypted; deliberately configure and verify TLS or keep the broker/device
+  on an isolated trusted LAN with restrictive broker ACLs.
+- **HTTP OTA is plain HTTP, not HTTPS, and the reviewed update handler has no
+  image-signature verification step.** Use only the exact platform image from
+  a trusted local source on an isolated LAN, never an untrusted URL or exposed
+  OTA listener. Back up stock flash/RF data first and keep a working UART
+  recovery path; an incorrect or interrupted image can remove Wi-Fi reporting
+  even though the independent gas alarm MCU remains the safety-critical path.
 
 ## Cloud dependency & keep-alive (Home Assistant users)
 

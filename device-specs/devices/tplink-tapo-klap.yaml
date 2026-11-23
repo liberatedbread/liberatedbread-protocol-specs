@@ -1,0 +1,517 @@
+# TP-Link Tapo / KLAP-era smart plugs — local discovery and encrypted HTTP
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "TP-Link Tapo and KLAP-era Kasa Smart Plugs"
+  manufacturer: "TP-Link"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No plug, account credential, discovery broadcast or HTTP session was run by
+      this project. Protocol facts are reported from Tapo 3.20.512 static
+      analysis and python-kasa b7b41f2. All vectors use invented credentials,
+      seeds and keys; they prove implementability, not hardware compatibility.
+  protocol: "wifi"
+  category: "switch"
+  type: "encrypted-lan-smart-plug"
+  transport: "http"
+  integration: "identify_only"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/python-kasa/python-kasa"
+    license: "GPL-3.0"
+    notes: >
+      KLAP and securePassthrough are community-recovered protocols, not an
+      official TP-Link integration API. Use python-kasa for a maintained client.
+  notes: >
+    SCOPE: Tapo plugs and KLAP-era Kasa plugs that select AES or KLAP in their
+    TDP discovery reply. Legacy TCP-9999 devices belong to
+    tplink-kasa-smart-plug; cameras, bulbs' lighting parameters, hubs and
+    TPAP-only firmware are outside this plug/relay specification.
+
+    Integration is identify_only because this repository has no dedicated TDP,
+    cookie-bound KLAP session or RSA/AES passthrough handler. The commands below
+    are documentary invocations for that handler, not plaintext HTTP requests a
+    generic consumer may send. supported requires seed proof verification,
+    cookie persistence, signed CBC frames and the 403 rehandshake policy.
+
+    Energy monitoring is advertised only. No energy unit/field normalization is
+    claimed and no meter entity is exposed. TPAP is a reported appendix, never a
+    fallback after a KLAP failure and not a reason to block KLAP support.
+  identification:
+    lan_protocols: ["tplink-tdp"]
+    default_port: 80
+    notes: >
+      Strong identification is a valid TDP reply whose result names a covered
+      plug and whose mgt_encrypt_schm selects AES or KLAP. Do not identify from
+      port 80, a TP-Link OUI or a UDP port alone.
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 20002
+          broadcast_address: "255.255.255.255"
+          probe_hex: "0200000101e5110001020304afd86f477b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
+          passive_ok: false
+          response_format: "binary"
+        notes: >
+          Send in parallel with the port-20004 probe. The fixed packet is a
+          synthetic-key test vector; a live client generates its own RSA-2048
+          key and recomputes length, serial and CRC as protocol_details.tdp says.
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 20004
+          broadcast_address: "255.255.255.255"
+          probe_hex: "0200000101e5110001020304afd86f477b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
+          passive_ok: false
+          response_format: "binary"
+        notes: "Parallel low-energy listener; a custom TDP handler validates the header/CRC, decodes JSON, then deduplicates by device_id and serial. No generic identity mapping is declared."
+    identity:
+      stable_keys: ["device_id", "mac"]
+      display: "device_model"
+    static_ip_required: false
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The official Tapo app provisions Wi-Fi and binds the device to a TP-Link
+      account. Existing bound devices then work locally with the account
+      credentials last synchronized to them. Cloud-free initial binding and
+      recovery of credentials from an already configured device are not claimed.
+    methods:
+      - type: "cloud_account"
+        name: "Tapo app setup and account binding"
+        role: "primary"
+        verified: false
+        description: >
+          Join the temporary Tapo_Plug_XXXX AP when instructed, provision the
+          2.4 GHz network and bind the plug. Preserve the bound account email
+          and password for subsequent local KLAP/passthrough sessions.
+        cloud:
+          provider: "TP-Link Tapo account onboarding"
+          local_alternative: >
+            Day-to-day KLAP and securePassthrough control needs no cloud after
+            binding. No universal account-free setup or credential-recovery
+            alternative is established; Matter-capable variants are separate.
+        softap:
+          ssid_prefix: "Tapo_Plug_"
+          open_network: true
+          gateway_ip: "192.168.0.1"
+        steps:
+          - action: "Power the plug and wait for blinking orange and blue; if necessary use the documented reset/rejoin hold."
+            actor: "user"
+            expect: "The plug is ready for setup and may advertise Tapo_Plug_XXXX."
+          - action: "Use the Tapo app and the owner's TP-Link ID to add the exact plug model on a 2.4 GHz network."
+            actor: "user"
+            expect: "The plug joins the LAN and is bound; solid blue indicates server-connected operation in the P110 guide."
+          - action: "Store the account credentials locally and select the transport advertised by TDP; never substitute TPAP for an advertised KLAP/AES session."
+            actor: "client"
+            expect: "A KLAP proof or RSA/AES login succeeds without a cloud round trip."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        On P110, a 5-second hold clears only Wi-Fi; a 10-second hold restores
+        factory defaults and re-enables setup. Treat account binding and local
+        credentials as lost after the full reset until the exact model confirms otherwise.
+      procedures:
+        - name: "P110 Wi-Fi reset, preserving other settings"
+          verified: false
+          basis: "TP-Link Tapo P110(US) v1.0/1.6 user guide, Appearance, 2024."
+          hold_seconds: 5
+          indicator: "The plug re-enters Wi-Fi setup; other settings are retained."
+          steps:
+            - action: "With the plug powered, hold its Power button for 5 seconds, then release and provision the new network."
+              actor: "user"
+              expect: "Wi-Fi is reset while non-Wi-Fi settings survive."
+        - name: "P110 full factory reset"
+          verified: false
+          basis: "TP-Link Tapo P110(US) v1.0/1.6 user guide, Appearance, 2024."
+          hold_seconds: 10
+          indicator: "Setup mode is re-enabled; blinking orange and blue means ready for setup."
+          steps:
+            - action: "With the plug powered, hold its Power button for 10 seconds, then release."
+              actor: "user"
+              expect: "Factory defaults are restored and setup mode starts."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        The P110 5-second Wi-Fi reset is sufficient for a router change and is
+        not the 10-second full reset. The official app must provision the new
+        SSID; no in-place set_device_info Wi-Fi write is asserted.
+      steps:
+        - action: "Hold Power for 5 seconds on P110, not 10 seconds, then add the plug to the replacement network in Tapo."
+          actor: "user"
+          expect: "Non-Wi-Fi settings remain and the plug rejoins; rediscover by device_id."
+        - action: "Retry the saved local account credential; if binding changed, repeat owner setup rather than trying default credentials."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Bound-account authentication material and local protocol selection"
+      issued_to_client:
+        - "Owner's bound TP-Link email/password for KLAP"
+        - "Short-lived securePassthrough token and per-session AES material; never durable owner recovery secrets"
+      notes: >
+        Password changes synchronize through account binding/cloud flows. Keep
+        the last credential accepted by the device. Blank/setup credentials are
+        roles seen in public clients, not a universal recovery mechanism.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: "KLAP uses the bound account email/password; securePassthrough logs in with that account after an RSA/AES handshake."
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: "Start a fresh handshake after 403 or reset; serialize requests conservatively rather than racing the sequence."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      clears: "No per-client KLAP bond exists. Revoking account access or full reset is account/device lifecycle, not deleting a client bond."
+      notes: "Discard local session cookies, token, seeds and sequence when closing; account unbinding is not specified here."
+    enter_pairing_mode:
+      required: false
+      notes: "No physical button authorizes a LAN client. The reset/setup buttons provision Wi-Fi and account binding instead."
+    notes: >
+      Session establishment is not proof of cloud-free onboarding. TPAP-only or
+      certificate-only future firmware is outside this spec; plug-class TPAP in
+      the reviewed app selects SPAKE2+ and is not inherently NOC-dependent.
+  variants:
+    - model: "Tapo P100/P105 relay plugs"
+      identification: { model_prefix: "P10" }
+      notes: "Relay control only; no energy entity is claimed."
+    - model: "Tapo P110/P115 energy-advertising plugs"
+      identification: { model_prefix: "P11" }
+      notes: "Energy methods are advertised, but field names, scaling and units are not implemented in this version."
+    - model: "KLAP-era Kasa plugs"
+      identification: { model_prefix: "KP" }
+      notes: "Only units whose TDP reply selects AES/KLAP; plaintext TCP-9999 units use the existing Kasa spec."
+
+protocol_details:
+  tdp:
+    verification: "reported"
+    listeners: [20002, 20004]
+    send_policy: "Probe both ports in parallel; eight sends 300 ms apart plus a 900 ms final wait is the reviewed app default."
+    header:
+      length_bytes: 16
+      endianness: "big"
+      fields:
+        - {offset: 0, length: 1, name: "version", value: 2, description: "JSON payload; version 1 is TLV and out of scope."}
+        - {offset: 1, length: 1, name: "reserved", value: 0}
+        - {offset: 2, length: 2, name: "opcode", value: 1, description: "Version-2 discovery."}
+        - {offset: 4, length: 2, name: "payload_length", description: "Byte count after the 16-byte header."}
+        - {offset: 6, length: 1, name: "flags", values: {17: "request|broadcast (0x11)", 33: "request|unicast (0x21)"}}
+        - {offset: 7, length: 1, name: "result", request_value: 0, accepted_reply_values: [0, 1]}
+        - {offset: 8, length: 4, name: "serial", description: "Random below 2^28; reply must echo it. Vector uses 0x01020304."}
+        - {offset: 12, length: 4, name: "crc32", description: "IEEE CRC32, then written big-endian."}
+    crc_algorithm:
+      - "Set bytes 12..15 to 5a 6b 7c 8d."
+      - "Compute zlib/IEEE CRC32 over the complete header and payload."
+      - "Replace bytes 12..15 with the CRC as big-endian uint32. Verify replies by restoring the placeholder and requiring matching version/serial."
+    request_json: '{"params":{"rsa_key":"<fresh RSA-2048 public key in PEM form>"}}'
+    response_codec:
+      - "Require at least 16 bytes, then parse the big-endian header before touching JSON. Require version=2, opcode=1, an accepted result (0 or 1), the request serial, and payload_length == datagram_bytes - 16."
+      - "Restore 5a6b7c8d in header bytes 12..15 and recompute IEEE CRC32 over the full datagram; reject mismatch before parsing any reply field."
+      - "Only then UTF-8/JSON-decode the exact payload bytes: {\"error_code\":0,\"result\":{...}}. Select mgt_encrypt_schm.encrypt_type AES or KLAP and read http_port/device_id/device_model/mac."
+    custom_handler_limitation: "The generic udp_broadcast binary reader yields an opaque datagram; it cannot skip this 16-byte header or resolve binary:result.* paths. Discovery therefore declares no identity_mapping. A dedicated TDP codec must perform response_codec before identity, transport selection or control."
+    test_vectors:
+      broadcast_packet_hex: "0200000101e5110001020304afd86f477b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
+      unicast_packet_hex: "0200000101e5210001020304a9ab0c817b22706172616d73223a7b227273615f6b6579223a222d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d5c6e4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b434151454170376b79705673656f39635664652f72747654395c6e3573395365314f483154666d51576479776e5379636b55375256724b6558736434714d61507076624277502b4e764c78477a335262714d6831444f706a3636755c6e4a4764786138515550314c465a37344d545568752f43516576357a7159574a585163715179387548694339445978594f475a664f31723045427842384b515a535c6e6872396e2f7330457732737633682b41456f59412b33306f4339426f643330596778446f7a5651415050736e32416634585472454472766a7a553277757237615c6e45566a4e314932524e41556f4e2f527a7435334262703563334f494e417665736e5347556c7471657574344743546b6e317876634f566d666a316e7945786f395c6e6137354a7669544732652f4e6b45672f504743542f6b756f346f59494e55503075505a6c4832584b6c44375a486f55355464574e705461574e6f324d477854615c6e47514944415141425c6e2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d5c6e227d7d"
+  klap:
+    verification: "reported"
+    base: "http://<address>:<http_port>/app"
+    content_type: "text/plain"
+    cookie: "Retain TP_SESSIONID from handshake1 and send it on handshake2 and every request; do not assume a fixed expiry."
+    versions:
+      v1:
+        auth_hash: 'MD5(MD5(username) || MD5(password)); inner and outer digests are raw 16 bytes.'
+        device_proof: 'SHA256(local_seed || auth_hash).'
+        client_proof: 'SHA256(remote_seed || auth_hash).'
+      v2:
+        auth_hash: 'SHA256(SHA1(username) || SHA1(password)); inner digests are raw 20 bytes.'
+        device_proof: 'SHA256(local_seed || remote_seed || auth_hash).'
+        client_proof: 'SHA256(remote_seed || local_seed || auth_hash).'
+      selection: "mgt_encrypt_schm.new_klap >= 1 selects v2; both versions use SHA256 seed proofs and the same session KDF."
+    handshake:
+      - "POST /app/handshake1 with a fresh 16-byte local seed. Require exactly 48 response bytes: 16-byte remote seed || 32-byte device proof; compare in constant time."
+      - "POST /app/handshake2 with the 32-byte client proof and the handshake1 cookie. Require HTTP 200."
+      - "key = SHA256('lsk' || local || remote || auth_hash)[0:16]. sig = SHA256('ldk' || local || remote || auth_hash)[0:28]."
+      - "full_iv = SHA256('iv' || local || remote || auth_hash). iv_prefix = full_iv[0:12]. Initial sequence is full_iv[12:16] big-endian, masked to 31 bits in the reviewed app."
+    request_algorithm:
+      - "Increment sequence once. Use seq_bytes = unsigned big-endian uint32(sequence), and keep URL, IV and signature values identical."
+      - "iv = iv_prefix || seq_bytes. AES-128-CBC encrypt PKCS7(JSON UTF-8) with key/iv."
+      - "body = SHA256(sig || seq_bytes || ciphertext) || ciphertext. POST raw body to /app/request?seq=<decimal sequence>."
+      - "For a response, require at least 32 bytes and a block-aligned ciphertext suffix. Verify SHA256(sig || response_seq_bytes || response_ciphertext) before PKCS7 decryption; response sequence is the request sequence in the documented exchange."
+    recovery:
+      http_403: "Invalidate cookie/seeds/session, perform both handshakes with a new local seed, then retry the application request once. Never blindly retry a moving relay write without first reconciling device_on."
+      concurrency: "Serialize requests. Device tolerance for out-of-order sequence values is unknown."
+      sequence_signedness: "The app masks initial sequence to 31 bits; some public code uses signed int32. This spec's non-negative vector avoids ambiguity; a high-bit live session remains an open question."
+    test_vectors:
+      username: "owner@example.invalid"
+      password: "example-password-not-for-hardware"
+      local_seed_hex: "000102030405060708090a0b0c0d0e0f"
+      remote_seed_hex: "101112131415161718191a1b1c1d1e1f"
+      plaintext_json: '{"method":"get_device_info"}'
+      v1:
+        auth_hash_hex: "9d936df8b1baa57950401b705d6709d3"
+        device_proof_hex: "c090280491ae72b1c3d919f5c7664658482fdca91058014cca4e6af4c64b0f72"
+        client_proof_hex: "2ff70124562e69f2d9a4bc65ab4712998322cf0a0907876d3501e0a1f74e2f5e"
+        key_hex: "291721f738be537f7546a10a68e231c4"
+        sig_hex: "1c82d289ab3b5b0a0f52c02ccc45187764c22507aa7967f7d3eb9325"
+        iv_prefix_hex: "5c2886784b1d52d2180b13ad"
+        initial_sequence: 1625198108
+        request_sequence: 1625198109
+        request_iv_hex: "5c2886784b1d52d2180b13ad60de8e1d"
+        request_body_hex: "9900b9dffcc5e305120d9463c57e2924df463d323b76f442974a4a44d1f41749eb331445fc8ccf6764c5f668274c50945ab15a183b21fb2d4aacdb6d7fe588dd"
+      v2:
+        auth_hash_hex: "b47100280986acb9eac87875e8dfdbb6c008b78c4307bc1adca287d9e6f6fdbc"
+        device_proof_hex: "1a4b4336c1f4116333fedc945c86be2e297171f23fb52b9872c9b303cac0b208"
+        client_proof_hex: "e9347bc38f2289c91a736b8a1d862de705f5b69b433aaa1cc7b0a2fc3adc0e4f"
+        key_hex: "693400f2c29150d097dcc96739709b39"
+        sig_hex: "4cfc8d72e67d376fda52bd617c9a8f80386812c3324364a6a1246158"
+        iv_prefix_hex: "51dedb759510baef360bddbe"
+        initial_sequence: 1514040040
+        request_sequence: 1514040041
+        request_iv_hex: "51dedb759510baef360bddbe5a3e6ae9"
+        request_body_hex: "f657e5c15eedba9e4e71d96341f1934c5c0cd6c015083400ea876d6a686c49b1affef8d9123a1ab486ab151cec3b762e8a85ae628c223dc4186da6cc0da969d0"
+  secure_passthrough:
+    verification: "reported"
+    endpoint: "POST http://<address>:<port>/app; subsequent calls use /app?token=<token>."
+    algorithm:
+      - "Generate an RSA-1024 key pair and send handshake with params.key containing the PEM public key."
+      - "Base64-decode result.key and RSA-PKCS1-v1_5-decrypt it. Require a 32-byte plaintext: AES key[0:16] || IV[16:32]."
+      - "Encrypt login_device with AES-128-CBC/PKCS7 and Base64. lv != 2 uses Base64(password); lv == 2 uses password2 = Base64(SHA1(password) hexadecimal ASCII). username = Base64(SHA1(email) hexadecimal ASCII)."
+      - "Read result.token, then send method securePassthrough with params.request = Base64(AES-CBC-PKCS7(JSON)). Decrypt result.response identically."
+    login_version_selection: "Read mgt_encrypt_schm.lv from the validated TDP JSON reply before constructing login params. Only lv == 2 selects password2 = Base64(SHA1(password) hexadecimal ASCII); every other advertised value uses password = Base64(password). Do not select a different login version merely because a request failed."
+    handshake_http:
+      public_key_serialization: "SubjectPublicKeyInfo DER, Base64 without interior line wrapping, enclosed between '-----BEGIN PUBLIC KEY-----\\n' and '\\n-----END PUBLIC KEY-----\\n'."
+      json_serialization: 'Compact UTF-8 JSON with no added whitespace: {"method":"handshake","params":{"key":"<PEM>"}}. Newlines inside the PEM are JSON \\n escapes.'
+      required_headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+        requestByApp: "true"
+        Content-Length: "Exact UTF-8 body byte count, decimal. Required: some devices answer 500 when it is absent. Do not use chunked transfer encoding."
+        Referer: "http://<address>:<port>/app"
+      vector_content_length: 314
+    session_lifecycle:
+      cookie_persistence: "After the RSA handshake, retain TP_SESSIONID if present, otherwise SESSIONID. Normalize either value into a TP_SESSIONID cookie and send it on login_device and every securePassthrough request; keep one cookie jar across handshake/login/control rather than dropping the session between them."
+      timeout: "Read TIMEOUT as seconds. Compute expiry = monotonic_now + TIMEOUT - 1200 seconds (20-minute clock-skew buffer); use 86400 seconds only when TIMEOUT is absent. Never send TIMEOUT back as the session cookie. On expiry, clear token/cookie and require RSA handshake plus login before another request."
+      key_reuse: "The RSA keypair may be cached for later handshakes. Session cookies/tokens are session state, not durable owner credentials; any process restart or uncertain expiry must reauthenticate rather than replaying an old token."
+    recovery:
+      http_statuses:
+        success: "Require HTTP 200 for RSA handshake, login_device and securePassthrough before interpreting error_code."
+        non_200: "Any non-200 response is a transport failure, not an automatic AES session-refresh classification. The pinned AES handshake test uses HTTP 400 as a failure with no default-credential retry. Do not invent 401/403 mappings; KLAP's HTTP-403 seed recovery is separate."
+      recovery_codes:
+        "9999": "SESSION_TIMEOUT_ERROR: session timeout."
+        "1111": "LOGIN_FAILED_ERROR: login failed."
+        "1100": "HAND_SHAKE_FAILED_ERROR: RSA handshake failed."
+        "1003": "TRANSPORT_UNKNOWN_CREDENTIALS_ERROR: credentials unknown to the device."
+        "-1501": "LOGIN_ERROR: application login error."
+        "-1005": "AES_DECODE_FAIL_ERROR: AES decode failure."
+        "-40412": "HOMEKIT_LOGIN_FAIL: HomeKit login failure."
+        "-40401": "SESSION_EXPIRED: session-specific expiry."
+        "-40413": "INVALID_NONCE: session-specific nonce invalidation."
+      bounded_reauthentication: "For exactly one of recovery_codes, invalidate token, session cookie and encryption session, then perform one bounded RSA handshake AND login_device with the accepted account credential and retry an idempotent read once. If either step or the retry fails, stop and surface the error; do not loop and do not treat default credential roles as universal recovery."
+      non_recovery: "Any other application error performs no RSA handshake/login. Preserve and surface the original error instead of masking it as a credential failure. This includes common method/device errors and transport-retry codes 1002, 1112 and -1001, whose outer retry policy is not an RSA reauthentication."
+      relay_reconciliation: "For plug_on/plug_off, never blindly repeat after reauthentication. First get_device_info. If device_on already equals the desired state, do not resend; if it differs, issue at most one write after this successful read. If state cannot be read, do not write."
+    test_vector:
+      note: "Synthetic RSA-1024 keypair. The private exponent is published only so an independent vector test can simulate both sides; it belongs to no device."
+      modulus_hex: "c3c46839409191b14befd0031e2b68ac9b6f586172429702fe1bc97d95536b79c50529d873acaf3989a01ae31fab50984801d68036cbf3c320dcf11bfc91a12b74902d270aac3174d1f22db377069ed796f55361f21335349e25ba42d159ba8861fe344aa4c3a4e15facc6c98cf1fd386ea538af20572f67a3ebed9937715f03"
+      public_exponent: 65537
+      private_exponent_hex: "1103c10b38d16e183ac15d12e84c5d8ca2f5ca78adb59bea66ab8397a6a2d9747beb36f7d915e924d7115344ea3bb98582bca627fe9b3b547a46b9adf505b33c2c6ffc817d9408d4e97c26246de7e17a2ec1741a871269201b3f945a1be22f1d91c830110408c4ec9c389c7f857ec3160aff5ae256f836de92fae574dcdd6a01"
+      public_key_der_base64: "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDDxGg5QJGRsUvv0AMeK2ism29YYXJClwL+G8l9lVNrecUFKdhzrK85iaAa4x+rUJhIAdaANsvzwyDc8Rv8kaErdJAtJwqsMXTR8i2zdwae15b1U2HyEzU0niW6QtFZuohh/jRKpMOk4V+sxsmM8f04bqU4ryBXL2ej6+2ZN3FfAwIDAQAB"
+      public_key_pem: "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDDxGg5QJGRsUvv0AMeK2ism29YYXJClwL+G8l9lVNrecUFKdhzrK85iaAa4x+rUJhIAdaANsvzwyDc8Rv8kaErdJAtJwqsMXTR8i2zdwae15b1U2HyEzU0niW6QtFZuohh/jRKpMOk4V+sxsmM8f04bqU4ryBXL2ej6+2ZN3FfAwIDAQAB\n-----END PUBLIC KEY-----\n"
+      handshake_json: '{"method":"handshake","params":{"key":"-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDDxGg5QJGRsUvv0AMeK2ism29YYXJClwL+G8l9lVNrecUFKdhzrK85iaAa4x+rUJhIAdaANsvzwyDc8Rv8kaErdJAtJwqsMXTR8i2zdwae15b1U2HyEzU0niW6QtFZuohh/jRKpMOk4V+sxsmM8f04bqU4ryBXL2ej6+2ZN3FfAwIDAQAB\n-----END PUBLIC KEY-----\n"}}'
+      pkcs1_padding_hex: "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d"
+      session_key_iv_hex: "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      wrapped_key_base64: "dBncfi43HCzfwDARUp2gj/grD15qTOFbYuTTbElhRpBPpsSUO+wLgWLL5uqeL4Nh6hNZu5tgNU3SGIYUEFDXfjvfvnDZMn9nOd7Tpyx2RN6kk6N3cm0kUnAxx9BBuB4wAHqhv7W4SG29/Ukt3ettewyqMdm39L1rCfvHWj6rNf8="
+      plaintext_json: '{"method":"get_device_info"}'
+      secure_request_base64: "m8O3wZ6PDSH482tQaDMTFG6E1e1PnvvmWJ806G5dY5c="
+      outer_json: '{"method":"securePassthrough","params":{"request":"m8O3wZ6PDSH482tQaDMTFG6E1e1PnvvmWJ806G5dY5c="}}'
+  application:
+    request_envelope: '{"method":"<method>","params":{...},"requestTimeMils":<optional epoch ms>,"terminalUUID":"<optional client UUID>"}'
+    response_envelope: '{"error_code":0,"result":{...}}; nonzero error_code is an application failure even when HTTP is 200.'
+    component_negotiation: "Call component_nego before assuming capabilities; get_device_info supplies device_on, model and identity."
+    energy_monitoring:
+      exposure: "advertised_only"
+      advertised_methods: ["get_energy_usage", "get_current_power", "get_energy_data", "get_emeter_data"]
+      reason: "Per-model reply fields and their V/A/W/kWh scaling were not normalized; no command or entity is declared."
+  tpap_reported_appendix:
+    verification: "reported"
+    scope: "Appendix only; not an executable transport and not a KLAP fallback."
+    transport: "HTTPS port 4433 when tpap.tls is 1 or 2; tls=2 validates against the advertised TP-Link device root, while tls=1 does not authenticate equivalently."
+    authentication: "Plug/IoT TPAP in the reviewed app selects SPAKE2+ passcode login. A NOC cloud certificate is not inherently required merely because a plug advertises TPAP; generic NOC support and other device families are separate."
+    endpoints:
+      - "POST / with login sub_methods pake_register and pake_share."
+      - "POST /stok=<stok>/ds with sequence || ciphertext || tag after login."
+    unresolved: "extra_crypt password preparation, exact passcode composition by pake type, DAC proof handling and whether CCM uses AAD are unresolved. Do not implement TPAP from this appendix."
+
+http_endpoints:
+  - method: "POST"
+    path: "/app/handshake1"
+    name: "KLAP handshake 1"
+    description: "Raw 16-byte local seed; response is 16-byte remote seed plus 32-byte SHA256 device proof. Retain TP_SESSIONID."
+    request_body: { content_type: "text/plain" }
+    verification: "reported"
+  - method: "POST"
+    path: "/app/handshake2"
+    name: "KLAP handshake 2"
+    description: "Raw 32-byte client proof with the handshake1 cookie; HTTP 200 opens the session."
+    request_body: { content_type: "text/plain" }
+    verification: "reported"
+  - method: "POST"
+    path: "/app/request?seq={seq}"
+    name: "KLAP encrypted request"
+    description: "Raw SHA256 signature || AES-CBC ciphertext as specified in protocol_details.klap; never send plaintext JSON."
+    request_body: { content_type: "text/plain" }
+    verification: "reported"
+  - method: "POST"
+    path: "/app"
+    name: "securePassthrough handshake and login"
+    description: "RSA-1024 handshake followed by AES-encrypted login_device; returns token for /app?token=<token>."
+    verification: "reported"
+  - method: "POST"
+    path: "/app?token={token}"
+    name: "securePassthrough request"
+    description: "JSON securePassthrough envelope whose request/response fields are Base64 AES-128-CBC-PKCS7."
+    verification: "reported"
+
+commands:
+  component_nego:
+    description: "Negotiate components before selecting optional plug capabilities; custom KLAP or securePassthrough transform required before this HTTP body is sent."
+    transport: "http"
+    method: "POST"
+    path: "/app/request?seq={seq}"
+    body: '{"method":"component_nego","params":{}}'
+    body_transform: "KLAP request_algorithm, or securePassthrough when discovery selects AES; never send this plaintext body directly."
+    parameters:
+      seq: { type: "integer", required: true, min: 0, max: 4294967295, description: "Sequence supplied by the custom KLAP session handler." }
+    verification: "reported"
+  get_device_info:
+    description: "Read identity and device_on after component negotiation; custom encrypted HTTP transform required."
+    transport: "http"
+    method: "POST"
+    path: "/app/request?seq={seq}"
+    body: '{"method":"get_device_info"}'
+    body_transform: "KLAP request_algorithm, or securePassthrough when discovery selects AES; never send this plaintext body directly."
+    parameters:
+      seq: { type: "integer", required: true, min: 0, max: 4294967295, description: "Sequence supplied by the custom KLAP session handler." }
+    returns:
+      - {name: "result.device_on", type: "boolean", description: "Actual relay state."}
+      - {name: "result.model", type: "string"}
+      - {name: "result.device_id", type: "string"}
+    verification: "reported"
+  plug_on:
+    description: "set_device_info device_on=true, sent only through an established encrypted session."
+    transport: "http"
+    method: "POST"
+    path: "/app/request?seq={seq}"
+    body: '{"method":"set_device_info","params":{"device_on":true}}'
+    body_transform: "KLAP request_algorithm, or securePassthrough when discovery selects AES; never send this plaintext body directly."
+    parameters:
+      seq: { type: "integer", required: true, min: 0, max: 4294967295, description: "Sequence supplied by the custom KLAP session handler." }
+    advanced: true
+    advanced_reason: "Energizes a mains load. Require an attended user action, confirm the intended device, and read back device_on; a relay can start a heater, tool or appliance."
+    verification: "reported"
+  plug_off:
+    description: "set_device_info device_on=false, sent only through an established encrypted session."
+    transport: "http"
+    method: "POST"
+    path: "/app/request?seq={seq}"
+    body: '{"method":"set_device_info","params":{"device_on":false}}'
+    body_transform: "KLAP request_algorithm, or securePassthrough when discovery selects AES; never send this plaintext body directly."
+    parameters:
+      seq: { type: "integer", required: true, min: 0, max: 4294967295, description: "Sequence supplied by the custom KLAP session handler." }
+    advanced: true
+    advanced_reason: "Removes power from the attached equipment without its own shutdown procedure. Require attended operation and read back device_on."
+    verification: "reported"
+
+entities:
+  - platform: "switch"
+    name: "Plug Relay (documentary)"
+    state_command: "get_device_info"
+    state_mapping: { is_on: "result.device_on" }
+    commands:
+      turn_on: "plug_on"
+      turn_off: "plug_off"
+    notes: "identify_only: no generic consumer may execute these bindings without the custom session handler and attended advanced-write gate."
+
+local_access:
+  status: "native"
+  summary: "Existing bound plugs can be discovered and controlled on the LAN using TDP plus the advertised KLAP or securePassthrough transport."
+  covers:
+    - "Parallel UDP 20002/20004 TDP discovery and transport selection"
+    - "KLAP v1/v2 proofs, sessions and relay get/set"
+    - "Older securePassthrough RSA/AES login and relay get/set"
+  not_covered:
+    - "Universal cloud-free onboarding or recovery of an unknown bound account credential"
+    - "TPAP implementation, certificate-only firmware, camera/hub/bulb-specific controls"
+    - "Energy readings beyond capability advertisement"
+cloud:
+  required: false
+  vendor_service: "TP-Link account/cloud is used for onboarding and binding, not for established local sessions."
+  failure_mode: "Saved accepted credentials keep working locally. Initial binding, credential synchronization and any firmware/NOC-dependent path can fail; TPAP is not silently replaced with KLAP."
+
+payload_formats:
+  DeviceInfo:
+    description: "Decrypted get_device_info result subset; additional fields are model/firmware dependent."
+    fields:
+      - {name: "device_on", type: "boolean", description: "true = relay energized."}
+      - {name: "model", type: "string"}
+      - {name: "device_id", type: "string"}
+    example: |
+      {"error_code":0,"result":{"device_id":"00000000000000000000000000000000","model":"P110(US)","device_on":false}}
+
+evidence:
+  app_static_analysis: >
+    Tapo 3.20.512 supplied TDP framing/transport selection, KLAP v1/v2 proof and
+    session rules, securePassthrough login, 403 handling and the reported TPAP
+    appendix. No vendor symbols or app strings are reproduced.
+  documentation_review: >
+    TP-Link P110(US) v1.0/1.6 user guide supplied the 5/10-second reset split,
+    setup LED and mains-safety guidance. python-kasa b7b41f2 independently
+    confirms discovery and KLAP/passthrough behavior.
+  open_questions: >
+    No live proof was collected. High-bit sequence handling, TPAP extra_crypt/AAD,
+    energy fields/scaling, response sequence correlation and cloud-free binding
+    remain open.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.tplink.iot 3.20.512 (versionCode 6993)"
+      description: "Derived protocol facts only; no decompiled tree, vendor asset or account data is included."
+    - type: "public_implementation"
+      artifact: "python-kasa/python-kasa b7b41f2 (2026-09-18)"
+      url: "https://github.com/python-kasa/python-kasa"
+      description: "Pinned KLAP/discovery/passthrough cross-check; no TPAP implementation claimed."
+    - type: "vendor_documentation"
+      artifact: "Tapo P110(US) 1.0/1.6 user guide, 1910013614 REV1.0.0"
+      description: "Setup, reset and safety procedures."
+
+helpful_urls:
+  - title: "python-kasa KLAP transport and discovery"
+    url: "https://github.com/python-kasa/python-kasa"
+    description: "Maintained reference implementation used for cross-checking; recommended for real clients."
+  - title: "Tapo P110(US) v1.0/1.6 user guide (PDF)"
+    url: "https://static.tp-link.com/upload/manual/2024/202402/20240226/Tapo%20P110(US)1.0&1.6_UG_V1.pdf"
+    kind: "manual"
+    description: "Vendor P110 guide covering setup, the 5-second Wi-Fi reset, 10-second factory reset and plug safety."
+  - title: "Tapo App Guide for Smart Plugs"
+    url: "https://static.tp-link.com/upload/manual/2026/202607/20260731/1910013675_Tapo%20App%20Guide%20for%20Plugs_V1.pdf"
+    kind: "manual"
+    description: "Vendor guide for P110/P110M/P115 plug features; explains energy capabilities without specifying LAN units."
+
+remaining_unknowns:
+  - "Whether a live high-bit KLAP initial sequence requires signed or unsigned encoding; this spec keeps the reviewed app's 31-bit initial mask and one identical seq everywhere."
+  - "The exact response signature sequence rule on every firmware; reject a bad signature rather than decrypting unauthenticated ciphertext."
+  - "TPAP extra_crypt, passcode composition, DAC verification and CCM AAD; the appendix is deliberately non-executable."
+  - "Energy reply fields, per-model units and scaling; energy remains advertised only."
+  - "Whether any covered reset/binding route is fully cloud-free, and whether a credential change can synchronize without the vendor cloud."

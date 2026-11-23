@@ -42,6 +42,21 @@ fault handling or update compatibility. Any future specification must preserve
 the model-specific request/response formats without presenting session logging
 as hardware actuation.
 
+## PicoStill direct read-only telemetry (reported, untested)
+The one direct appliance-local route established by the maintained poller is
+`GET http://<still-address>/data`. It returns
+`#t1,t2,t3,t4,pres,ok,d1,d2,errmsg#`. Split on commas and require exactly nine
+fields, preserving every value as a raw string. Units, scaling, ranges and
+conversions are unknown, including for t1-t4 and pressure; do not create
+unit-bearing entities or infer a safe state from `ok`/`errmsg`.
+
+This direction is different from the replacement-server routes above: the
+**appliance calls the trusted replacement server** for
+`/API/PicoStill/getFirmwareAddress` and `/firmware/picostill/<file>`. Those are
+case-sensitive server routes, not addresses on the still and not local control
+bindings. The validated `picobrew-picostill` spec deliberately omits heater,
+pump, recipe/session and firmware commands.
+
 ## APK
 No companion APK needed — the vendor interface was a web app; picobrew_pico
 serves its own web UI. N/A for apkeep.

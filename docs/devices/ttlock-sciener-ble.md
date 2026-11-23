@@ -11,7 +11,7 @@ TTLock is a white-label BLE lock stack by Sciener, rebadged by many OEMs (generi
 
 ## Protocol Summary
 
-GATT command write on 0000fff2, notify on 0000fff4. Frame [12B header (magic 7F 5A)][data][CRC-8/MAXIM][CRLF]; data is AES/CBC/PKCS5 with IV=key, plus a pre-AES XOR obfuscation. Advertised name encodes the reversed last-6-MAC. Manufacturer data reportedly carries the protocol type/sub-version/scene, bolt position and battery, so state can be tracked without connecting (byte layout not yet recorded). Firmware images are served per lock by the vendor cloud; no public image is known.
+GATT command write on 0000fff2, notify on 0000fff4 under service 0x1910. Battery Level 0x2A19 belongs to the separate standard Battery Service 0x180F, not the command service. Frame [12B header (magic 7F 5A)][data][CRC-8/MAXIM][CRLF]; data is AES/CBC/PKCS5 with IV=key, plus a pre-AES XOR obfuscation. Advertised name encodes the reversed last-6-MAC. Manufacturer data reportedly carries the protocol type/sub-version/scene, bolt position and battery, so state can be tracked without connecting (byte layout not yet recorded). Firmware images are served per lock by the vendor cloud; no public image is known.
 
 See `device-specs/devices/ttlock-sciener-ble.yaml` for the full machine-readable spec.
 

@@ -4,35 +4,43 @@
 #
 # Sources (all public; clean-room — derived facts only):
 #   - Wheellog/Wheellog.Android per-brand adapters (KingsongAdapter.java,
-#     GotwayAdapter.java, VeteranAdapter.java).
+#     GotwayAdapter.java, VeteranAdapter.java, NinebotZAdapter.java), the
+#     Ninebot Z adapter's unit tests, and Constants.kt/bluetooth_services.json
+#     for its reported NUS transport. Ninebot Z vectors use invented identifiers.
 
 device:
-  name: "Electric Unicycles (King Song / Gotway-Begode / Veteran) — WheelLog"
-  manufacturer: "King Song, Gotway/Begode, Veteran/Leaperkim (community-decoded)"
+  name: "Electric Unicycles (King Song / Gotway-Begode / Veteran / Ninebot Z) — WheelLog"
+  manufacturer: "King Song, Gotway/Begode, Veteran/Leaperkim, Ninebot (community-decoded)"
   manufacturer_status: "active"
   testing:
     status: untested
     notes: >
       Not driven against hardware by this project. The per-brand frame formats
       (headers, field offsets, command bytes) are from WheelLog's Android
-      per-brand adapters. NOTE: the BLE serial characteristic UUID is
-      module/brand-specific and was not captured from a cited source, so it is
-      not asserted here — WheelLog auto-detects the brand from the first packets.
+      per-brand adapters; Ninebot Z also uses its upstream unit tests as
+      reported evidence. Common King Song/Gotway transport is service 0xFFE0
+      with characteristic 0xFFE1, selected using the complete GATT layout and
+      then frame validation; it is not identity. The Ninebot Z Nordic-UART trio
+      is reported by WheelLog's constants and GATT fingerprints, but is
+      transport only and never identity.
   protocol: "ble"
   category: "vehicle"
   notes: >
-    Electric unicycles from King Song, Gotway/Begode and Veteran/Leaperkim are
-    decoded by the open-source WheelLog Android app. Each brand is a notify-stream
-    of fixed-length framed packets over a BLE serial characteristic; brand is
-    identified from the first packets rather than a fixed advertised UUID. Fully
-    local BLE, no cloud. The per-brand frame formats below are the load-bearing
-    facts; the transport characteristic UUID is device-specific (obtain it from
-    the connected wheel / WheelLog).
+    Electric unicycles from King Song, Gotway/Begode, Veteran/Leaperkim and
+    Ninebot Z are decoded by the open-source WheelLog Android app. King Song
+    and Gotway commonly use service 0xFFE0 and characteristic 0xFFE1 for their
+    serial stream. Select a candidate manually, compare its complete GATT
+    layout, then validate the brand's frame format before decoding; FFE0/FFE1
+    alone is not a discovery signature. Fully local BLE, no cloud. Ninebot Z's
+    reported Nordic-UART trio is separately declared below without making it a
+    matcher.
 
     KING SONG (KingsongAdapter): 20-byte frame, header AA 55, trailer 14 5A 5A;
-    the packet-type selector is byte 16. Live-data type 0xA9: voltage bytes 2-3
-    (LE), speed 4-5, total distance 6-9 (32-bit), current 10-11, temperature
-    12-13. Other types: 0xB9 distance/time/fan, 0xBB name/model, 0xB3 serial,
+    the packet-type selector is byte 16. Live-data type 0xA9: voltage, speed,
+    current and temperature are each signed int16 little-endian, respectively
+    at bytes 2-3 (raw * 0.01 V), 4-5 (raw * 0.01 km/h), 10-11 (raw * 0.01 A)
+    and 12-13 (raw * 0.01 C); total distance is a 32-bit value at 6-9.
+    Other types: 0xB9 distance/time/fan, 0xBB name/model, 0xB3 serial,
     0xA4/0xB5 speed/alarm settings, 0xF1/0xF2 dual-battery BMS. Commands (write
     byte 16): beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40.
 
@@ -40,19 +48,29 @@ device:
     5A 5A (bytes 20-23); type byte at index 18 — 0x00 live "Frame A", 0x04
     "Frame B" (totals/settings), 0x07 motor-temp/batt-current, 0x01/0x02/0x03
     BMS, 0xFF advanced settings. Frame A (big-endian): voltage 2-3 (1/100 V),
-    speed 4-5 (km/h = x3.6), distance 8-9 (m), phase current 10-11 (1/100 A
-    signed), temperature 12-13 (v/340 + 36.53 C), PWM 14-15. Voltage base 67.2 V
-    with a config-selected multiplier (0->1.0x ... 4->2.0x) to cover 84/100.8 V
-    packs. Commands (ASCII): beep 'b', calibration 'c', lights E/Q/T, max-speed
-    'W', miles/km 'm'/'g'.
+    speed 4-5 (SIGNED, raw * 3.6 / 100 = raw * 0.036 km/h, NOT raw * 3.6),
+    distance 8-9 (m), phase current 10-11 (1/100 A signed), temperature 12-13
+    (v/340 + 36.53 C), PWM 14-15. Voltage base 67.2 V with a config-selected
+    multiplier (0->1.0x ... 4->2.0x) to cover 84/100.8 V packs. Commands
+    (ASCII): beep 'b', calibration 'c', lights E/Q/T, max-speed 'W', miles/km
+    'm'/'g'.
 
     VETERAN / LEAPERKIM (VeteranAdapter): header DC 5A 5C + length byte;
-    big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed
-    int), total distance @12, phase current @16 (x10), temperature @18; CRC32 on
-    longer frames. 24S (100.8 V nominal) reference.
+    big-endian: voltage @4 (raw * 0.01 V), speed @6 (SIGNED raw * 0.1 km/h),
+    distance @8 (word-reversed int), total distance @12, phase current @16
+    (SIGNED raw * 0.1 A), temperature @18 (SIGNED raw * 0.01 C); CRC32 on
+    longer frames. Pack/cell configuration is model/firmware-dependent; do not
+    generalize every Veteran to 24S.
+
+    NINEBOT Z (NinebotZAdapter): variable-length 5A A5 frames with a clear
+    payload-length byte, a 16-bit ones-complement checksum and repeating-XOR
+    obfuscation keyed by a 16-byte session value. Controller and dual-BMS
+    read-only identification/telemetry are in protocol_details.euc_frame_formats.ninebot_z.
+    This is not the scooter register protocol in ninebot-segway-ble.yaml.
 
     SAFETY: beep/lights/max-speed/calibration commands are unauthenticated by
-    design in these decoders.
+    design in these decoders. The Ninebot Z variant added here declares no
+    vehicle settings, calibration, power or speed writes.
 
   openness:
     status: "undocumented"
@@ -62,25 +80,46 @@ device:
       - url: "https://github.com/Wheellog/Wheellog.Android"
         title: "Wheellog/Wheellog.Android"
         covers: "The per-brand BLE frame decoders (KingsongAdapter, GotwayAdapter, VeteranAdapter)."
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/NinebotZAdapter.java"
+        title: "WheelLog Ninebot Z decoder"
+        covers: "Ninebot Z framing, session-key transform, read requests, live telemetry and dual-BMS layouts."
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/Constants.kt"
+        title: "WheelLog BLE constants"
+        covers: "The reported Ninebot Z Nordic-UART service, write and notify UUIDs."
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/res/raw/bluetooth_services.json"
+        title: "WheelLog GATT fingerprints"
+        covers: "Ninebot Z fingerprint entries containing the same Nordic-UART trio; not advertisement evidence."
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/test/java/com/cooper/wheellog/utils/NinebotZAdapterTest.kt"
+        title: "WheelLog Ninebot Z decoder tests"
+        covers: "Reported plaintext live and BMS examples; its key example does not verify key extraction."
     notes: >
       No vendor documentation; WheelLog reverse-engineered each brand's frames.
-      The BLE transport characteristic UUID lives in WheelLog's BLE service class
-      (not the per-brand adapters) and is not restated here.
+      Common King Song/Gotway FFE0/FFE1 transport comes from the same constants
+      and layout table, with decoder selection by complete GATT layout followed
+      by frame validation. The Ninebot Z NUS trio is separately restated only
+      as a reported post-connect transport.
+
+  variants:
+    - model: "Ninebot Z"
+      notes: >
+        Distinct WheelLog wire variant, selected manually and confirmed only by
+        its post-connect role addresses and payload layouts. Its NUS trio and
+        5A A5 header are shared with the scooter spec and are not identity.
 
   identification: {}
 
   discovery:
     none: >
-      Deliberate. Nothing in the advertisement names a EUC: the BLE serial
-      module each brand fits is generic and its transport characteristic UUID
-      is module-specific (WheelLog reads it from the connected wheel rather
-      than restating one), and the brand itself is only learned from the first
-      notification packets — King Song's AA 55 header, Gotway's 55 AA with the
-      5A5A5A5A footer, Veteran's DC 5A 5C. That evidence arrives after a
-      connection, which is a scan's output and not its input, so an
-      advertisement axis written from it would claim wheels this spec cannot
-      decode and miss the ones it can. Manual selection until a discriminating
-      advertisement turns up.
+      Deliberate manual selection. FFE0/FFE1 is shared with other wheel and
+      serial protocols, so it cannot identify King Song, Gotway or Veteran by
+      itself and must not be an advertisement matcher. Compare the complete
+      GATT layout and then validate frames. Ninebot Z separately shares its
+      Nordic-UART service/characteristic trio with Ninebot/Segway scooters,
+      InMotion V2 and unrelated UART peripherals; it also shares the 5A A5
+      outer framing with the scooter. Neither is an advertisement matcher.
+      Require manual model selection and post-connect role-address/payload
+      confirmation before any GATT write. Do not route a bare NUS fingerprint
+      to this spec or to ninebot-segway-ble.yaml.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -90,22 +129,31 @@ device:
     required: false
     confidence: "medium"
     notes: >
-      Connect to the wheel's BLE serial characteristic and subscribe to
-      notifications; the brand is auto-detected from the first packets. No
+      Manually select the wheel, compare its complete GATT layout, then
+      subscribe to notifications and validate the brand's frame format. No
       pairing secret. Confidence medium: King Song and Gotway frames are fully
       read from the adapters; Veteran offsets are read but less cross-checked.
+      Ninebot Z's NUS trio is reported transport, not identity. Its real key
+      installation remains pending capture; see
+      protocol_details.euc_frame_formats.ninebot_z.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          Connect over BLE, subscribe to the wheel's serial/notify characteristic,
-          and decode the incoming frames per the brand detected from the header.
+          Manually select the exact wheel before any GATT write. Connect over
+          BLE, compare the complete GATT layout and subscribe to the compatible
+          serial/notify characteristic (commonly FFE1 under FFE0), then validate
+          incoming frames before decoding. For Ninebot Z, use only the
+          documented read requests and confirm role addresses and payloads;
+          never treat NUS or the shared outer frame as model confirmation.
         ble:
           pairing_required: false
         steps:
-          - action: "Connect and subscribe to the wheel's BLE serial characteristic."
+          - action: "Manually select the exact wheel model; for a Ninebot Z, do not rely on NUS or the shared 5A A5/L+9 outer frame for identity."
+            actor: "user"
+          - action: "Connect and subscribe to the selected wheel's BLE serial characteristic, without writing yet."
             actor: "client"
-          - action: "Detect the brand from the first packets and decode live data per the frame format."
+          - action: "After manual model confirmation, use only the selected brand's documented read requests; for a Ninebot Z, confirm its role addresses and payload layouts and stop on a scooter register reply."
             actor: "client"
     factory_reset:
       applicable: "unknown"
@@ -131,39 +179,416 @@ device:
     bonding: "none"
     enter_pairing_mode:
       required: false
-# The BLE serial characteristic UUID is module-specific (not captured from a
-# cited source); the standard Generic Access below is listed only to record a
-# connectable surface. The load-bearing content is the per-brand frame formats
-# in device.notes and protocol_details.euc_frame_formats.
+# Generic Access records the standard surface. The common serial transport is
+# declared separately, but is not an advertisement identity: WheelLog compares
+# the complete GATT layout and then validates frames before choosing a decoder.
+# The Ninebot Z NUS trio remains reported transport, never identity.
 services:
   - uuid: "00001800-0000-1000-8000-00805f9b34fb"
     name: "Generic Access (standard)"
-    notes: >
-      Placeholder connectable surface. The real transport is a BLE serial/notify
-      characteristic whose UUID is module-specific; obtain it from the connected
-      wheel (WheelLog auto-detects it). Decode per protocol_details.euc_frame_formats.
     characteristics:
       - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
         name: "Device Name"
         properties: ["read"]
         notes: "Standard device-name characteristic."
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "WheelLog serial transport (shared; not an identity)"
+    notes: >
+      Common King Song/Gotway service from WheelLog's transport constants and
+      GATT-layout table. This endpoint is shared with other protocols. Select
+      manually, compare the complete GATT layout, then validate frames.
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Serial write/notify"
+        properties: ["write", "notify"]
+        notes: "Serial command write and notification stream. Other layouts may expose additional characteristics; do not use FFE1 alone to choose a decoder."
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART serial bridge (Ninebot Z, reported)"
+    verification: "reported"
+    notes: >
+      Ninebot Z transport only. The same NUS trio is used by Ninebot/Segway
+      scooters, InMotion V2 and unrelated UART peripherals, so it must not be
+      used as scan-time identity. Require manual model selection and
+      post-connect Z protocol confirmation before any GATT write.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "RX (write, reported)"
+        properties: ["write_without_response"]
+        verification: "reported"
+        notes: "Only the documented read-only Z requests are in scope; no vehicle-setting or calibration writes."
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TX (notify, reported)"
+        properties: ["notify"]
+        verification: "reported"
+        notes: "Carries the Z framed replies; a 5A A5 header alone is not protocol confirmation."
 
 # The per-brand frame formats are the load-bearing content. They live under
 # `protocol_details`, the schema's namespace for single-spec protocol blocks
 # (the top level is closed).
 protocol_details:
+  transport:
+    common_service: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    common_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    selection: "Manual selection, then complete GATT-layout comparison, then brand-frame validation; never decoder selection from FFE0/FFE1 alone."
   euc_frame_formats:
     king_song:
       frame: "20 bytes, header AA 55, trailer 14 5A 5A; packet-type selector at byte 16."
       live_type_0xA9: "voltage @2-3 LE, speed @4-5, total distance @6-9 (32-bit), current @10-11, temperature @12-13."
+      live_fields:
+        voltage: {offset: 2, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "V"}
+        speed: {offset: 4, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "km/h"}
+        current: {offset: 10, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "A"}
+        temperature: {offset: 12, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "C"}
       commands: "beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40 (written at byte 16)."
     gotway_begode:
       frame: "24 bytes, header 55 AA, footer 5A 5A 5A 5A (@20-23); type byte @18."
-      frame_a_0x00: "big-endian: voltage @2-3 (1/100 V), speed @4-5 (km/h=x3.6), distance @8-9 (m), phase current @10-11 (1/100 A signed), temperature @12-13 (v/340+36.53 C), PWM @14-15."
+      frame_a_0x00: "big-endian: voltage @2-3 (1/100 V), speed @4-5 (signed raw * 3.6 / 100 = raw * 0.036 km/h), distance @8-9 (m), phase current @10-11 (1/100 A signed), temperature @12-13 (v/340+36.53 C), PWM @14-15."
+      frame_a_fields:
+        speed: {offset: 4, length: 2, type: "int16", endianness: "big", scale: 0.036, unit: "km/h", example: "00 64 = +100 -> +3.6 km/h; ff 9c = -100 -> -3.6 km/h"}
       voltage_multiplier: "base 67.2 V x {0:1.0, 1:1.25, 2:1.5, 3:1.738, 4:2.0, 5:2.5, 6:2.25} (config-selected) for 84/100.8 V packs."
       commands: "ASCII: beep 'b', calibration 'c', lights E/Q/T, max-speed 'W', miles/km 'm'/'g'."
     veteran_leaperkim:
-      frame: "header DC 5A 5C + length byte; big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed), total @12, phase current @16 (x10), temperature @18; CRC32 on longer frames."
+      frame: "header DC 5A 5C + length byte; big-endian: voltage @4 (0.01 V), speed @6 (signed 0.1 km/h), distance @8 (word-reversed), total @12, phase current @16 (signed 0.1 A), temperature @18 (signed 0.01 C); CRC32 on longer frames."
+      live_fields:
+        voltage: {offset: 4, length: 2, endianness: "big", scale: 0.01, unit: "V"}
+        speed: {offset: 6, length: 2, type: "int16", endianness: "big", scale: 0.1, unit: "km/h"}
+        phase_current: {offset: 16, length: 2, type: "int16", endianness: "big", scale: 0.1, unit: "A"}
+        temperature: {offset: 18, length: 2, type: "int16", endianness: "big", scale: 0.01, unit: "C"}
+      pack_configuration: "Model/firmware-dependent; no universal 24S pack or cell-count assumption."
+    ninebot_z:
+      verification: "reported"
+      source: "WheelLog NinebotZAdapter.java, Constants.kt, bluetooth_services.json and NinebotZAdapterTest.kt at 1b3707973e3b4528bd88778f9ebdf7a79817cf3f; no hardware replay by this project."
+      scope: >
+        Read-only identification and telemetry for the Ninebot Z electric
+        unicycle. This is a distinct WheelLog variant, not the Ninebot/Segway
+        scooter register protocol in ninebot-segway-ble.yaml. They share the
+        5A A5 header, clear length and L+9/checksum outer framing; the Z is
+        distinguished by repeating-XOR, role addresses and payload layouts.
+        No vehicle setting, calibration, power, light, lock, alarm, speed-limit
+        or firmware write is declared.
+      transport:
+        verification: "reported"
+        service_uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        write_characteristic_uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        notify_characteristic_uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        advertisement_identity: false
+        evidence: "WheelLog Constants.kt and Ninebot Z entries in bluetooth_services.json."
+        notes: >
+          Shared with the scooter and other NUS peripherals. Declare only as
+          post-connect transport. Manual model selection and Z role/payload
+          confirmation are required before any write; NUS alone never selects
+          this spec or the scooter spec.
+      frame:
+        header_hex: "5a a5"
+        total_length_formula: "frame_bytes = payload_length + 9"
+        length:
+          frame_offset: 2
+          type: "uint8"
+          transformed: false
+          counts: "Payload bytes only, excluding header, length, source, destination, command, parameter and checksum."
+        plaintext_body:
+          description: "The bytes after 5A A5 after repeating-XOR decoding. Offsets below are relative to the length byte, not the frame header."
+          fields:
+            - {name: "payload_length", offset: 0, length: 1, type: "uint8"}
+            - {name: "source", offset: 1, length: 1, type: "uint8"}
+            - {name: "destination", offset: 2, length: 1, type: "uint8"}
+            - {name: "command", offset: 3, length: 1, type: "uint8"}
+            - {name: "parameter", offset: 4, length: 1, type: "uint8"}
+            - {name: "payload", offset: 5, length: "payload_length", type: "bytes"}
+            - {name: "checksum", offset: "5 + payload_length", length: 2, type: "uint16", endianness: "little"}
+        checksum:
+          algorithm: "ones-complement of the unsigned byte sum, modulo 16 bits"
+          formula: "checksum = (~sum(plaintext_body[0 : 5 + payload_length])) & 0xffff"
+          coverage: "Length through the final payload byte, before obfuscation; excludes the 5A A5 header and the checksum itself."
+          wire_endianness: "little"
+          invalid: "Reject the frame; do not parse its payload."
+        obfuscation:
+          algorithm: "repeating-xor"
+          security: "Obfuscation only, not authentication or a secure session."
+          key_length_bytes: 16
+          initial_key_hex: "00000000000000000000000000000000"
+          scope: "Apply to the complete body after 5A A5, including the checksum, but leave body byte 0 (payload_length) unchanged."
+          formula: "For body index i >= 1, transformed[i] = plaintext[i] XOR session_key[(i - 1) mod 16]. The same operation decodes and encodes."
+        reassembly:
+          - "Accumulate the notification byte stream; a frame may start or end in any BLE notification and several frames may share one notification."
+          - "Scan for 5A A5, then read the clear payload_length byte. Wait for exactly payload_length + 9 bytes from the first 5A byte."
+          - "A 5A A5 sequence inside a collecting frame is payload, not a new header. Decode and checksum only after the declared frame length is present."
+          - "After a complete or invalid frame, resume scanning after it (or after the rejected header) so noise and fragmented headers do not permanently wedge the parser."
+      addresses:
+        app: 0x3e
+        controller: 0x14
+        key_generator: 0x16
+        bms1: 0x11
+        bms2: 0x12
+      commands:
+        read: 0x01
+        read_response: 0x04
+        get_session_key: 0x5b
+      session:
+        initial_key_hex: "00000000000000000000000000000000"
+        ble_version_request: {source: 0x3e, destination: 0x14, command: 0x01, parameter: 0x68, payload_hex: "02", response_source: 0x14, response_parameter: 0x68}
+        key_request: {source: 0x3e, destination: 0x16, command: 0x5b, parameter: 0x00, payload_hex: "", response_source: 0x16}
+        decoder_accepted_key_branch:
+          source: 0x16
+          parameter: 0x00
+          status: "decoder_branch_only_not_established_response_selector"
+          behavior: "When this branch matches, the decoder copies the payload into its 16-byte transform key. This source-code branch is not evidence that a real key reply uses parameter 0x00."
+        observed_unhandled_key_reply:
+          source: 0x16
+          destination: 0x3e
+          command: 0x5b
+          parameter: 0x01
+          payload_bytes: 16
+          evidence: "The sole key-reply sample in NinebotZAdapterTest.kt."
+          handling: "Does not match the decoder's parameter-0x00 key branch, so the cited decoder does not install this sample as a key."
+          resolution: "pending_capture"
+        key_installation_status: "pending_capture"
+        serial_request: {source: 0x3e, destination: 0x14, command: 0x01, parameter: 0x10, payload_hex: "0e", response_source: 0x14, response_parameter: 0x10, response_payload_bytes: 14}
+        notes: >
+          The source implements read-only requests and starts its transform key
+          at 16 zero bytes. Its timer transitions and sole key sample do not
+          establish a negotiation sequence or a working key installation.
+          Parameter 0x00 is only the decoder-accepted branch; parameter 0x01 is
+          observed but unhandled. Capture is required before relying on either.
+      read_requests:
+        live_data: {source: 0x3e, destination: 0x14, command: 0x01, parameter: 0xb0, payload_hex: "20", response_source: 0x14, response_command: 0x04, response_parameter: 0xb0, response_payload_bytes: 32, layout: "live_data"}
+        bms1_identity: {source: 0x3e, destination: 0x11, command: 0x01, parameter: 0x10, payload_hex: "22", response_source: 0x11, response_command: 0x04, response_parameter: 0x10, response_payload_bytes: 34, layout: "bms_identity"}
+        bms1_status: {source: 0x3e, destination: 0x11, command: 0x01, parameter: 0x30, payload_hex: "18", response_source: 0x11, response_command: 0x04, response_parameter: 0x30, response_payload_bytes: 24, layout: "bms_status"}
+        bms1_cells: {source: 0x3e, destination: 0x11, command: 0x01, parameter: 0x40, payload_hex: "20", response_source: 0x11, response_command: 0x04, response_parameter: 0x40, response_payload_bytes: 32, layout: "bms_cells"}
+        bms2_identity: {source: 0x3e, destination: 0x12, command: 0x01, parameter: 0x10, payload_hex: "22", response_source: 0x12, response_command: 0x04, response_parameter: 0x10, response_payload_bytes: 34, layout: "bms_identity"}
+        bms2_status: {source: 0x3e, destination: 0x12, command: 0x01, parameter: 0x30, payload_hex: "18", response_source: 0x12, response_command: 0x04, response_parameter: 0x30, response_payload_bytes: 24, layout: "bms_status"}
+        bms2_cells: {source: 0x3e, destination: 0x12, command: 0x01, parameter: 0x40, payload_hex: "20", response_source: 0x12, response_command: 0x04, response_parameter: 0x40, response_payload_bytes: 32, layout: "bms_cells"}
+        request_payload_meaning: "For ordinary reads, the one-byte request payload is the requested response payload length in bytes. The request's own payload_length is therefore 1; the empty key request has length 0."
+      layouts:
+        live_data:
+          payload_bytes: 32
+          fields:
+            - {name: "error_code", offset: 0, length: 2, type: "uint16", endianness: "little"}
+            - {name: "alarm_code", offset: 2, length: 2, type: "uint16", endianness: "little"}
+            - {name: "esc_status", offset: 4, length: 2, type: "uint16", endianness: "little"}
+            - {name: "reserved_06", offset: 6, length: 2, type: "bytes"}
+            - {name: "battery_percent", offset: 8, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "%"}
+            - {name: "speed_kmh", offset: 10, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "km/h"}
+            - {name: "average_speed_kmh", offset: 12, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "km/h"}
+            - {name: "total_distance_m", offset: 14, length: 4, type: "uint32", endianness: "little", scale: 1, unit: "m"}
+            - {name: "trip_distance_m", offset: 18, length: 2, type: "uint16", endianness: "little", scale: 10, unit: "m"}
+            - {name: "operating_time_s", offset: 20, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "s", notes: "Read as operating time by the source but not consumed there; seconds are reported, not hardware-confirmed."}
+            - {name: "temperature_c", offset: 22, length: 2, type: "int16", endianness: "little", scale: 0.1, unit: "C"}
+            - {name: "voltage_v", offset: 24, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "V"}
+            - {name: "current_a", offset: 26, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "A"}
+            - {name: "duplicate_speed_kmh", offset: 28, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "km/h", notes: "The source identifies this as a duplicate of offset 10 and does not consume it."}
+            - {name: "duplicate_average_speed_kmh", offset: 30, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "km/h", notes: "The source identifies this as a duplicate of offset 12 and does not consume it."}
+        controller_serial:
+          payload_bytes: 14
+          encoding: "ASCII serial number, exactly 14 bytes in the source examples; the vectors use an invented serial."
+        bms_identity:
+          payload_bytes: 34
+          applies_to_sources: [0x11, 0x12]
+          parse_rules:
+            - "Bytes 0-13: 14-byte ASCII BMS serial; test serials are invented."
+            - "Version: hexadecimal byte 15, then the high nibble of byte 14, then the low nibble of byte 14, joined with dots (for bytes 23 01, version 1.2.3)."
+            - "Manufacture date: raw = uint16 LE at 32; year = 2000 + (raw >> 9), month = (raw >> 5) & 0x0f, day = raw & 0x1f."
+            - "Bytes 20-21 and 26-31 are not interpreted by the source."
+          fields:
+            - {name: "factory_capacity_mah", offset: 16, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "mAh"}
+            - {name: "actual_capacity_mah", offset: 18, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "mAh"}
+            - {name: "full_cycles", offset: 22, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "count"}
+            - {name: "charge_count", offset: 24, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "count"}
+        bms_status:
+          payload_bytes: 24
+          applies_to_sources: [0x11, 0x12]
+          fields:
+            - {name: "status", offset: 0, length: 2, type: "uint16", endianness: "little"}
+            - {name: "remaining_capacity_mah", offset: 2, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "mAh"}
+            - {name: "remaining_percent", offset: 4, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "%"}
+            - {name: "current_a", offset: 6, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "A"}
+            - {name: "voltage_v", offset: 8, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "V"}
+            - {name: "temperature_1_c", offset: 10, length: 1, type: "int8", scale: 1, value_offset: -20, unit: "C"}
+            - {name: "temperature_2_c", offset: 11, length: 1, type: "int8", scale: 1, value_offset: -20, unit: "C"}
+            - {name: "balance_map", offset: 12, length: 2, type: "uint16", endianness: "little"}
+            - {name: "reserved_14", offset: 14, length: 8, type: "bytes"}
+            - {name: "health_percent", offset: 22, length: 2, type: "uint16", endianness: "little", scale: 1, unit: "%"}
+        bms_cells:
+          payload_bytes: 32
+          applies_to_sources: [0x11, 0x12]
+          repeated_field:
+            name: "cells_v"
+            offset: 0
+            count: 16
+            stride: 2
+            type: "uint16"
+            endianness: "little"
+            scale: 0.001
+            unit: "V"
+          cell_count_rule: "Start at 14 cells. If cell 15 (offset 28) is nonzero use 15; if cell 16 (offset 30) is nonzero use 16. Zero-valued trailing cells are absent."
+      test_vectors_description: "Synthetic codec-only vectors independently generated from the declared transform. The 16-byte transform key and every controller/BMS serial are invented; protocol role addresses are constants, not host Bluetooth addresses. These vectors prove framing, checksum, XOR and layout implementation only, never key negotiation or installation."
+      test_vectors_proof_scope: "codec_only"
+      test_vectors:
+      - name: "session_key_request"
+        session_key_hex: "00000000000000000000000000000000"
+        source: 0x3e
+        destination: 0x16
+        command: 0x5b
+        parameter: 0x00
+        payload_hex: ""
+        frame_hex: "5aa5003e165b0050ff"
+      - name: "synthetic_key_response_parameter_00"
+        session_key_hex: "00000000000000000000000000000000"
+        source: 0x16
+        destination: 0x3e
+        command: 0x5b
+        parameter: 0x00
+        payload_hex: "00112233445566778899aabbccddeeff"
+        frame_hex: "5aa510163e5b0000112233445566778899aabbccddeeff48f7"
+        proof_scope: "codec_only_not_an_observed_reply_or_negotiation_proof"
+        expect:
+          codec_transform_key_hex: "00112233445566778899aabbccddeeff"
+      - name: "controller_serial"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x14
+        destination: 0x3e
+        command: 0x04
+        parameter: 0x10
+        payload_hex: "5a31305445535430303030303031"
+        frame_hex: "5aa50e142f26231e645623cdcafe8bfceddecf30201dcf"
+        expect:
+          serial: "Z10TEST0000001"
+      - name: "live_data"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x14
+        destination: 0x3e
+        command: 0x04
+        parameter: 0xb0
+        payload_hex: "000000000100000057002909d20440e2010041015802c9ff93172efb2909d204"
+        frame_hex: "5aa520142f2683445566778999aabb9bddc7f6d21562d145552776d09b63445fcac0042918f03753a2"
+        expect:
+          error_code: 0
+          alarm_code: 0
+          esc_status: 1
+          battery_percent: 87
+          speed_kmh: 23.45
+          average_speed_kmh: 12.34
+          total_distance_m: 123456
+          trip_distance_m: 3210
+          operating_time_s: 600
+          temperature_c: -5.5
+          voltage_v: 60.35
+          current_a: -12.34
+          duplicate_speed_kmh: 23.45
+          duplicate_average_speed_kmh: 12.34
+      - name: "bms1_identity"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x11
+        destination: 0x3e
+        command: 0x04
+        parameter: 0x10
+        payload_hex: "424d533154455354303030303031230128232e2200000c002200000000000000a630"
+        frame_hex: "5aa522112f262306183546dcdcf9effceddecf302001326c7648558899a6bbeeddeeff00112233e265258d"
+        expect:
+          serial: "BMS1TEST000001"
+          version: "1.2.3"
+          factory_capacity_mah: 9000
+          actual_capacity_mah: 8750
+          full_cycles: 12
+          charge_count: 34
+          manufacture_date: "06.05.2024"
+      - name: "bms2_identity"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x12
+        destination: 0x3e
+        command: 0x04
+        parameter: 0x10
+        payload_hex: "424d53325445535430303030303234028c23ca2100000d002300000000000000a630"
+        frame_hex: "5aa522122f262306183545dcdcf9effceddecf30231631c876ac568899a7bbefddeeff00112233e2654b8e"
+        expect:
+          serial: "BMS2TEST000002"
+          version: "2.3.4"
+          factory_capacity_mah: 9100
+          actual_capacity_mah: 8650
+          full_cycles: 13
+          charge_count: 35
+          manufacture_date: "06.05.2024"
+      - name: "bms1_status"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x11
+        destination: 0x3e
+        command: 0x04
+        parameter: 0x30
+        payload_hex: "0200d71158002efb6317192d341200000000000000005d00"
+        frame_hex: "5aa518112f26034655b166d0998440afcaf7d234032233445566778899f7bb5a26"
+        expect:
+          status: 0x0002
+          remaining_capacity_mah: 4567
+          remaining_percent: 88
+          current_a: -12.34
+          voltage_v: 59.87
+          temperature_1_c: 5
+          temperature_2_c: 25
+          balance_map: 0x1234
+          health_percent: 93
+      - name: "bms2_status"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x12
+        destination: 0x3e
+        command: 0x04
+        parameter: 0x30
+        payload_hex: "0300e11052002909f4161e28340000000000000000005b00"
+        frame_hex: "5aa518122f260347558767da9983b238cbf0d734112233445566778899f1bbc021"
+        expect:
+          status: 0x0003
+          remaining_capacity_mah: 4321
+          remaining_percent: 82
+          current_a: 23.45
+          voltage_v: 58.76
+          temperature_1_c: 10
+          temperature_2_c: 20
+          balance_map: 0x0034
+          health_percent: 91
+      - name: "bms1_cells_14"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x11
+        destination: 0x3e
+        command: 0x04
+        parameter: 0x40
+        payload_hex: "a10fa20fa30fa40fa50fa60fa70fa80fa90faa0fab0fac0fad0fae0f00000000"
+        frame_hex: "5aa520112f2673e55ac4782b960eb469d248f0a71e8a3ced5acc78239606b461d240f00011223315a0"
+        expect:
+          cells_v: [4.001, 4.002, 4.003, 4.004, 4.005, 4.006, 4.007, 4.008, 4.009, 4.01, 4.011, 4.012, 4.013, 4.014, 0, 0]
+          cell_count: 14
+      - name: "bms2_cells_16"
+        session_key_hex: "00112233445566778899aabbccddeeff"
+        source: 0x12
+        destination: 0x3e
+        command: 0x04
+        parameter: 0x40
+        payload_hex: "051006100710081009100a100b100c100d100e100f1010101110121013101410"
+        frame_hex: "5aa520122f2673414560678f89a2abc5cde4ef0b012e23494568678789baabddcdfcef13013623c7a8"
+        expect:
+          cells_v: [4.101, 4.102, 4.103, 4.104, 4.105, 4.106, 4.107, 4.108, 4.109, 4.11, 4.111, 4.112, 4.113, 4.114, 4.115, 4.116]
+          cell_count: 16
+
+evidence:
+  open_source_review: >
+    Ninebot Z framing, address and command constants, repeating-XOR transform,
+    telemetry and BMS layouts were transcribed from WheelLog's open-source
+    NinebotZAdapter.java at 1b3707973e3b4528bd88778f9ebdf7a79817cf3f. The
+    reported NUS trio comes from Constants.kt and Ninebot Z entries in
+    bluetooth_services.json, not from an advertisement capture. The decoder's
+    key-installation branch accepts parameter 0x00; the sole upstream key
+    sample instead carries parameter 0x01 and is unhandled. Synthetic vectors
+    here prove only the codec with invented identifiers, never negotiation.
+    All are reported and untested against hardware by this project.
+  open_questions: >
+    The real key-response selector, key installation and connection-state
+    sequence remain pending capture. Parameter 0x00 is only a decoder branch;
+    parameter 0x01 is observed but unhandled. The advertised-name identity is
+    not established. Operating-time seconds and BMS capacity units come from
+    the decoder's semantics, not a new capture.
+
+remaining_unknowns:
+  - "Ninebot Z advertised name and whether all units require the session-key exchange; the NUS trio is reported transport, not identity."
+  - "The real Ninebot Z key response and installation: parameter 0x00 is only the decoder-accepted branch, while the sole upstream sample is parameter 0x01 and unhandled."
+  - "Ninebot Z operating-time units and BMS capacity units on hardware; all protocol details remain reported/untested."
 
 entities:
   - platform: "sensor"

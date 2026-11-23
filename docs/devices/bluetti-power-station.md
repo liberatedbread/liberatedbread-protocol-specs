@@ -27,7 +27,12 @@ the status block returned live telemetry (SOC 50 %, AC output on under a
 | Model verified | EP500 (2 kW inverter / 5.1 kWh LiFePO4) |
 | BT module | OUI `00:15:83` (IVT Corporation stack vendor); advertises 16-bit service `0xFF00` |
 | Radio | BLE 4.x GATT, public address |
-| Advertised name | `<MODEL><serial>`, e.g. `EP5002142000061564` |
+| Advertised name | `<MODEL><serial>`, e.g. `EP500<serial>` |
+
+Auto-discovery requires that complete model+serial name; `0xFF00` is shared
+with JBD and is never identity evidence. Manually select a renamed unit and
+confirm model and serial with read-only register reads before any output write.
+All constant AC/DC on/off commands are advanced because they switch real loads.
 
 ## Initial Setup
 

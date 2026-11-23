@@ -22,9 +22,10 @@ device:
     DNS (tested 2026-07-31), so robots can no longer pull official OTAs; the
     anki.bot support portal remains online and still sells Vector AI
     subscriptions ($11.99/mo or $99.99/yr per robot, verified 2026-08-04 via
-    anki.bot and support.anki.bot article 344). Latest official firmware is
-    2.0.1.6076 (Vector 2.0 + Gen 1, 2022-09-26); 1.8.1.6051 was the last
-    Gen-1 production build. The dominant community path is wire-pod
+    anki.bot and support.anki.bot article 344). The latest locally verified
+    official production image is 2.0.1.6079: its signed OTA manifest and
+    extracted OS version agree. This proves that image, not the complete
+    official server history. 1.8.1.6051 was the last Gen-1 production build. The dominant community path is wire-pod
     (kercre123/wire-pod, MIT, 778 stars at verification 2026-08-04), a full
     local voice server built on DDL's open-sourced vector-cloud that restores
     voice commands on production Vector 1.0/2.0 robots with no DDL
@@ -446,6 +447,24 @@ helpful_urls:
     kind: "manual"
     description: >
       Surviving copy of the quick start guide. Anki is defunct and Digital Dream Labs' hosting is unreliable.
+services:
+  - uuid: "0000fee3-0000-1000-8000-00805f9b34fb"
+    name: "Vector RTS Onboarding Service"
+    notes: >
+      Firmware-corroborated BLE onboarding service in both 1.6.0.3331d and
+      2.0.1.6079. RTS uses CLAD serialization and the encrypted handshake
+      documented in device.setup; this service declaration adds the parent
+      UUID that was previously missing.
+    characteristics:
+      - uuid: "30619f2d-0f54-41bd-a65a-7588d8c85b45"
+        name: "RTS Write"
+        properties: ["write"]
+        role: "command"
+      - uuid: "7d2a4bda-d29b-4152-b725-2491478c5cd7"
+        name: "RTS Read/Notify"
+        properties: ["read", "notify"]
+        role: "notify"
+
 http_endpoints:
   - method: "POST"
     path: "/v1/protocol_version"
@@ -478,19 +497,27 @@ http_endpoints:
   - method: "POST"
     path: "/v1/battery_state"
     name: "BatteryState"
-    description: "Return battery voltage, charge level, and charging status."
+    description: "Return separate battery voltage, enumerated charge level, and charging-state booleans."
     response_body:
       content_type: "application/json"
       fields:
         - name: "battery_volts"
           type: "number"
-          description: "Battery voltage."
+          unit: "V"
+          description: "Battery voltage as an independent float; not derivable from battery_level."
         - name: "battery_level"
-          type: "integer"
-          description: "Battery level enum."
+          type: "integer | string"
+          description: >
+            Enum 0=unknown, 1=low, 2=nominal, 3=full — NOT percent. The
+            gateway's JSON serializer may emit the numeric value or the
+            corresponding BATTERY_LEVEL_UNKNOWN / BATTERY_LEVEL_LOW /
+            BATTERY_LEVEL_NOMINAL / BATTERY_LEVEL_FULL name; accept both.
         - name: "is_charging"
           type: "boolean"
-          description: "Whether Vector is on charger and charging."
+          description: "Independent charging Boolean."
+        - name: "is_on_charger_platform"
+          type: "boolean"
+          description: "Independent charger-platform-presence Boolean; not interchangeable with is_charging."
   - method: "POST"
     path: "/v1/version_state"
     name: "VersionState"
@@ -697,12 +724,32 @@ features:
 
 entities:
   - platform: "sensor"
-    name: "Battery"
-    device_class: "battery"
-    unit: "%"
+    name: "Battery Level"
+    icon: "mdi:battery"
     state_topic: "/v1/battery_state"
     state_mapping:
       value: "battery_level"
+      options:
+        "0": "unknown"
+        "1": "low"
+        "2": "nominal"
+        "3": "full"
+        "BATTERY_LEVEL_UNKNOWN": "unknown"
+        "BATTERY_LEVEL_LOW": "low"
+        "BATTERY_LEVEL_NOMINAL": "nominal"
+        "BATTERY_LEVEL_FULL": "full"
+    notes: >
+      Enumerated charge state, NOT percent: 0=unknown, 1=low, 2=nominal,
+      3=full. Numeric protobuf values and BATTERY_LEVEL_* JSON names are both
+      accepted because the gateway can serialize either form.
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_topic: "/v1/battery_state"
+    state_mapping:
+      value: "battery_volts"
+    notes: "Independent float voltage; do not derive it from the battery_level enum."
   - platform: "sensor"
     name: "Version"
     state_topic: "/v1/version_state"

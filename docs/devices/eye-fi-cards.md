@@ -48,8 +48,10 @@ those bytes and emit lowercase hex. Do not hash ASCII hex text. The card MAC is
 | Reviewed Mobi receiver | Same, with 32 ASCII zeroes as the key | Same, with the same placeholder |
 
 The Mobi placeholder decodes to 16 zero bytes; it is legacy behavior, not a
-recommended secret. Mobi Pro infrastructure mode can use its real upload key,
-exported from an already-configured mounted card through token `0xfd`.
+recommended secret. Mobi Pro infrastructure mode can use its real existing
+upload key. Direct lowercase `o 0xfd` recovery is reported only for Mobi Pro
+5.3008 (and X2 5.2010/5.2011 for X2 profiles), never as a generic SetToken or
+offline-activation operation.
 
 StartSession alone does not authenticate the card. Verify the second credential
 in constant time, bind state to card/session/server nonce/item, use single-use
@@ -105,7 +107,9 @@ Return success only after complete safe storage.
 
 For an already-configured card, back it up and read its existing receiver and
 network configuration. X2 and Mobi Pro infrastructure profiles need the owner
-upload key. A historical `O 0x06` mounted-card record may allow listener
+upload key. Read the exact firmware first and use only the qualified direct or
+dump route below; on 5.0020 or an unlisted build, stop rather than attempting a
+generic SetToken. A historical `O 0x06` mounted-card record may allow listener
 provisioning, but it is not first-party or hardware-verified; the spec does not
 automate it.
 
@@ -119,7 +123,7 @@ Changing routers/receivers may require mounted-card reconfiguration, not a
 factory reset. No reset procedure or offline reactivation path is established;
 do not erase a working card to test the retired cloud flow.
 
-## Mounted-card configuration
+## Mounted-card configuration and key recovery
 
 The public configuration utility uses four 16384-byte zero-padded files under
 `EyeFi/`, not one XML file:
@@ -131,18 +135,40 @@ The public configuration utility uses four 16384-byte zero-padded files under
 | `rspm` | Card response buffer |
 | `rspc` | Response sequence/status |
 
-An information request is ASCII `o` plus a one-byte subcommand. A one-byte write
-is ASCII `O`, subcommand, length `01`, value. Increment the previous response
-sequence (seed `0x1234` if zero), write `reqc`, poll `rspc` up to 50 times at
-300 ms intervals and accept only a fresh matching response. The reference Linux
-utility treats sequence values as native u32/little-endian; do not generalize
-that without checking the card representation.
+An information request is ASCII `o` plus a one-byte subcommand. The one-byte
+write shape is ASCII `O`, subcommand, length `01`, value, but that does not
+prove a generic key-writing SetToken operation. For each transaction, read
+`RSPC`; if it is zero **or `0xffffffff`**, use `0x1234` as the next `REQC`.
+Otherwise increment the previous response as u32. Never wrap `0xffffffff` to
+zero: firmware treats sequence zero as no request. Poll `rspc` up to 50 times
+at 300 ms intervals and accept only a fresh matching nonzero response. The
+reference Linux utility treats sequence values as native u32/little-endian;
+do not generalize that representation without checking.
 
 Read tokens include MAC `01`, firmware `02`, upload API `04`, transfer mode
-`11`, direct-mode SSID/passphrase `22`/`23`, timers `24`/`25`, and owner-only
-upload key `fd`. Network changes, AP start and reboot are unverified writes;
-back up and obtain owner consent. The utility also has a compiler-reported
-mount-path lifetime warning.
+`11`, direct-mode SSID/passphrase `22`/`23`, and timers `24`/`25`. Read the
+firmware before attempting `0xfd`; existing-key recovery is not generic:
+
+| Firmware / card | Lowercase `o 0xfd` | Recovery boundary |
+|---|---|---|
+| X2 5.0018 / 5.0019 | Empty | Ordinary reboot saves board data; recover the existing key from the dump |
+| X2 5.2010 / 5.2011 | Returns existing key | Direct read is the preferred route |
+| Mobi Pro 5.3008 | Returns existing key | Direct read works; no dump was obtainable in the reported tests |
+| 4.5166 | Not established | Existing-dump extraction and `?` trigger are static-analysis-derived only; no live 4.x test |
+| 5.0020 | No key/read | Uppercase `O 0xfd` is rejected; no generic SetToken, dump or offline activation |
+
+These are upstream **reported** results, not this project’s hardware
+verification. Do not infer behavior on Pro X2, plain Mobi or unlisted builds.
+
+Formatting can remove the `EyeFi/` mailbox. Recreating the directory and four
+zero-filled control files restores the request channel so direct/dump
+operations can recover an **existing** key. It does not create or assign a key,
+activate a reset card, recover erased photos or replace activation services.
+
+Network changes, AP start, reboot and command sweeps remain unverified except
+for the exact upstream reports above. Back up and obtain owner consent. The
+original utility also has a compiler-reported mount-path lifetime warning.
+See [RamSet/eyefi-recovery](https://github.com/RamSet/eyefi-recovery).
 
 ## Security and firmware boundaries
 

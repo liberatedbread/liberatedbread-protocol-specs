@@ -54,7 +54,7 @@ device:
     reverse_engineered: false
     source_code: "https://github.com/CANDY-HOUSE/API_document"
     upstream_docs:
-      - url: "https://github.com/CANDY-HOUSE/API_document/blob/master/SesameOS3/bluetooth.md"
+      - url: "https://github.com/CANDY-HOUSE/API_document/blob/master/docs/en/SesameOS3/bluetooth.md"
         title: "CANDY HOUSE — SesameOS3 Bluetooth protocol"
         covers: "The advertisement layout, GATT UUIDs, segment framing, item codes and the ECDH/AES-CCM crypto."
       - url: "https://docs.candyhouse.co/"
@@ -210,44 +210,98 @@ services:
     name: "SESAME service (0xFD81)"
     notes: >
       Commands are AES-CCM ciphertext written as 20-byte segments to
-      16860002-...; responses/publishes arrive on 16860003-.... See the item
-      codes and crypto in device.notes.
+      16860002-...; responses/publishes arrive on 16860003-.... The generic
+      command/entity model has no CCM/session/segment transform, so this
+      service deliberately exposes no executable characteristic commands or
+      entities. Application requests live in protocol_details.
     characteristics:
       - uuid: "16860002-a5ae-9856-b6d3-dbb4c676993e"
         name: "Command write"
-        properties: ["write"]
+        properties: ["write_without_response"]
         notes: >
           Segmented commands (0x01/0x02/0x03 plaintext, 0x04/0x05 ciphertext).
-          Item 82 Lock, 83 Unlock, 4 History, 104 Reset.
-        commands:
-          lock:
-            description: "Lock the device (item code 82), as an AES-CCM ciphertext segment."
-            encoding: "bytes"
-            verification: "reported"
-            value: [0x52]
-          unlock:
-            description: "Unlock the device (item code 83), as an AES-CCM ciphertext segment."
-            encoding: "bytes"
-            verification: "reported"
-            value: [0x53]
+          The official protocol specifies BLE write without response. Item 82
+          Lock, 83 Unlock, 4 History, 104 Reset. Do not write the application
+          request bytes directly: they must first pass through the security
+          and segment layers in protocol_details.
       - uuid: "16860003-a5ae-9856-b6d3-dbb4c676993e"
         name: "Response / publish notify"
         properties: ["notify"]
-        notes: "Op type 0x07 Response, 0x08 Publish; mechanical status (item 81) is published here."
+        notes: >
+          Op type 0x07 Response, 0x08 Publish; mechanical status (item 81) is
+          published here. Its seven-byte payload is battery u16, target s16,
+          position s16 and flags. Target 0x8000 (-32768) means unavailable,
+          not an angle; battery voltage is raw*2 mV. In the flag byte, bit 1
+          is lock range, bit 2 unlock range and bit 5 low battery.
 
-entities:
-  - platform: "switch"
-    name: "Lock"
-    icon: "mdi:lock"
-    command_characteristic: "16860002-a5ae-9856-b6d3-dbb4c676993e"
-    commands:
-      turn_on: "lock"
-      turn_off: "unlock"
-    notes: "on = locked (item 82), off = unlocked (item 83)."
+protocol_details:
+  consumer_limitations:
+    executable_commands: false
+    entity_bindings: false
+    reason: >
+      The schema's characteristic value/template model and the generic mobile
+      client have no transform for a login token, AES-CCM counter/IV state, or
+      20-byte segment framing. Exposing the application requests as raw writes
+      would bypass both required wrappers. They are documentation for a
+      session-aware implementation, not generic executable commands or entity
+      bindings.
+
+  application_layer:
+    requests:
+      lock:
+        item_code: 82
+        application_frame_hex: "52 00"
+        fields:
+          - {offset: 0, length: 1, name: "item_code", value: 82}
+          - {offset: 1, length: 1, name: "history_tag_length", value: 0}
+        alternatives: >
+          A non-empty text tag is [82][length][UTF-8 bytes]; a UUID tag is
+          [82][0][type][16-byte UUID]. These are alternatives to the empty-tag
+          frame, not extra GATT headers. Do not send a bare 0x52 item code.
+      unlock:
+        item_code: 83
+        application_frame_hex: "53 00"
+        fields:
+          - {offset: 0, length: 1, name: "item_code", value: 83}
+          - {offset: 1, length: 1, name: "history_tag_length", value: 0}
+        alternatives: >
+          Text and UUID history tags use the same alternate forms as lock.
+          Do not send a bare 0x53 item code.
+      read_history_peek:
+        item_code: 4
+        application_frame_hex: "04 01"
+        fields:
+          - {offset: 0, length: 1, name: "item_code", value: 4}
+          - {offset: 1, length: 1, name: "peek", value: 1}
+        notes: >
+          Non-destructive peek at the oldest history record. Deletion is a
+          separate operation using the returned four-byte record ID; do not
+          infer or emit a delete request from this peek.
+
+  security_and_segment_layers:
+    session: >
+      Register and log in first. The session token is the 16-byte
+      AES-CMAC(device_secret, random_code). AES-CCM uses that token as its key
+      and a 13-byte IV = counter(8) + nouse(1) + random_code(4), with a
+      four-byte authentication tag. Login enforces the documented time check.
+    on_wire: >
+      Encrypt the entire application request, append its four-byte CCM tag,
+      then split ciphertext+tag into at most 20-byte GATT writes. A single
+      encrypted segment starts with 0x05; a continuation starts with 0x01,
+      middle segments with 0x00, and the final segment with 0x04. The segment
+      header is outside the ciphertext. The application bytes 52 00, 53 00 and
+      04 01 are therefore never complete on-wire requests.
+    ciphertext_vectors: >
+      Not asserted. The official documents define the algorithm and separate
+      application requests but do not publish a complete known-answer tuple of
+      login token, random code, counter and plaintext for lock, unlock or
+      history peek. No ciphertext is fabricated from missing session state.
+      Use a deterministic session fixture from an independent implementation
+      before adding one, and label it synthetic rather than a capture.
 
 helpful_urls:
   - title: "CANDY HOUSE — SesameOS3 Bluetooth protocol"
-    url: "https://github.com/CANDY-HOUSE/API_document/blob/master/SesameOS3/bluetooth.md"
+    url: "https://github.com/CANDY-HOUSE/API_document/blob/master/docs/en/SesameOS3/bluetooth.md"
     description: "The official published protocol: advertisement, GATT UUIDs, segment framing, item codes, ECDH/AES-CCM crypto."
   - title: "homy-newfs8/libsesame3bt-core"
     url: "https://github.com/homy-newfs8/libsesame3bt-core"

@@ -46,6 +46,8 @@ spec's `device.setup` block; the patterns are explained in
 | [LED space Wi-Fi LED Screen](led-space.md) | Wi-Fi (device AP) + BLE variant | Complete | None needed (device hosts its AP) | LOY SPACE / popled.cn |
 | [SP105E Magic LED Controller](sp105e-magic-led.md) | BLE | Spec Available | None needed | Sperll-era OEM (BTF-LIGHTING, ALITOVE, …) |
 | [BanlanX SP6xxE LED Controllers](banlanx-sp6xxe.md) | BLE | Spec Available | None needed | Sperll (BanlanX app) |
+| [Casambi Evolution BLE networks (protocols 10–11)](casambi-evolution-ble.md) | BLE (ECDH/AES-CTR/CMAC mesh session) | Identify-only (untested) | Complete warm cache or authorized cloud provisioning (medium) | Casambi Technologies Oy |
+| [Casambi Classic BLE networks (protocols 5–9)](casambi-classic-ble.md) | BLE (plaintext + CMAC full session) | Identify-only (untested) | Complete warm cache or authorized cloud provisioning (medium) | Casambi Technologies Oy |
 | [SP108E LED Shop WiFi Controller](led-shop-sp108e.md) | WiFi (device AP; TCP 8189) | Spec Available | Join device SoftAP (low) | Sperll-era OEM |
 | [duoCo StripX / Lotus Lantern Pixel Strips](wl-smartled-pixel-strips.md) | BLE | Spec Available | None needed | fstart/easylink OEM (MELK/ELK) |
 | [LotusLamp X (MELK/ELK/ELBU)](lotuslamp-x.md) | BLE | Spec Available | None needed | Shenzhen ELK |
@@ -86,11 +88,17 @@ spec's `device.setup` block; the patterns are explained in
 | [Denon AVR-S720W](denon-avr-s720w.md) | WiFi (HTTP `/goform/` + ASCII on 23 + UPnP) | Spec Available | On-receiver menu / Ethernet (medium) | Denon |
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
+| [HomeWizard P1 Meter](homewizard-p1-meter.md) | WiFi (HTTP v1 / HTTPS v2) | Spec Available (untested) | App + v1 toggle or v2 button token (medium) | HomeWizard |
+| [HomeWizard Energy Socket](homewizard-energy-socket.md) | WiFi (HTTP v1, GET-only) | Spec Available (untested) | App + Local API toggle (medium) | HomeWizard |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
 | [iRobot Roomba (Wi-Fi models)](irobot-roomba.md) | WiFi (MQTT over TLS 8883) | Complete | Button-press or account credential extraction (medium) | iRobot / Picea Robotics |
 | [LIFX Z](lifx-z.md) | WiFi | Complete | SoftAP, uncaptured (low) | LIFX |
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
 | [TP-Link Kasa Smart Plug](tplink-kasa.md) | WiFi (JSON over TCP 9999) | Complete | SoftAP, uncaptured (low) | TP-Link |
+| [TP-Link Tapo / KLAP-era plugs](tplink-tapo-klap.md) | WiFi (TDP + encrypted HTTP) | Identify-only (untested) | Bound account credential (medium) | TP-Link |
+| [Meross plugs, switches and MSG100](meross-wifi-appliances.md) | WiFi (signed/encrypted `/config`) | Identify-only (untested) | Stock or owner-provisioned key (medium) | Meross |
+| [Sonoff / eWeLink LAN relays](sonoff-ewelink-lan.md) | WiFi (mDNS + `/zeroconf/*`) | Identify-only (untested) | Stock devicekey or documented DIY (medium) | ITEAD / Sonoff |
+| [Somfy TaHoma Developer Mode](somfy-tahoma-developer-mode.md) | LAN (bearer HTTPS 8443) | Identify-only (untested) | App Developer Mode + owner token (medium) | Somfy |
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Uncaptured (low) | Rachio |
 | [Snapmaker U1 3D Printer](snapmaker-u1.md) | WiFi | Complete | None needed (Moonraker) | Snapmaker |
 | [PurpleAir Air Quality Sensor](purpleair-sensor.md) | WiFi | Complete | None needed | PurpleAir |
@@ -129,11 +137,13 @@ spec's `device.setup` block; the patterns are explained in
 | [TIRO LED Helmet Display](led-helmet-display.md) | BLE | Spec Available | None needed | TIRO / Heaton |
 | [Yeelight Cube Lamp](yeelight-cube-lamp.md) | WiFi (LAN TCP 55443) + Matter | Spec Available | App / Matter commissioning (medium) | Yeelight (Yeelink) |
 | [Tuya Wi-Fi Gas Sensor (rqbj family)](tuya-wifi-gas-sensor.md) | WiFi (Tuya LAN TCP 6668) | Spec Available | Tuya pairing + local-key extraction (medium) | Tuya OEM |
-| [June Oven](june-oven.md) | WiFi (cloud-only, no local surface) | Research | Cloud account — shutdown 2026-09-22 (low) | June Life / Weber |
+| [June Oven (stock firmware)](june-oven.md) | WiFi (stock: cloud-only) | Research | Cloud account — shutdown 2026-09-22 (low) | June Life / Weber |
+| [June Oven — Project July (second gen)](june-oven-project-july.md) | WiFi (documented local HTTPS/HTTP + signed WebSocket) | Identify only (untested; signed cook backlog) | July 0.9.1 USB/APX installer + local PIN (medium) | June Life / Project July |
 | [Brava Oven](brava-oven.md) | WiFi (cloud-only, no local surface) | Research | Cloud account — vendor defunct, cloud zombie (low) | Brava / Middleby |
 | [iPixel Color LED Panels](ipixel-color-led-panel.md) | BLE | Spec Available | None needed | TIRO / Heaton (JTPD-03-011, HCZ-001/002 SKUs) |
 | [Triones / HappyLighting LED Strips](qh-happylighting-led-strips.md) | BLE | Spec Available | None needed | Qianghe (QHM) |
 | [Tuya Bluetooth Soil Tester](tuya-bt-soil-tester.md) | BLE (encrypted GATT) | Spec Available | Tuya pairing + local key (medium) | Tuya OEM (HaiHao SGS01) |
+| [Adaprox Fingerbot / Fingerbot Plus](adaprox-fingerbot.md) | BLE (Tuya v3 encrypted GATT) | Identify-only (untested) | Vendor binding + local key; attended actuation only (medium) | Adaprox |
 | [Zigbee Soil Tester (TS0601 family)](zigbee-soil-tester.md) | Zigbee | Spec Available | Any Zigbee coordinator — Z2M native (low) | Tuya OEM (GIEX/HOBEIAN/COOLO) |
 | [Vevor VT256 Thermal Imager](vevor-vt256-thermal-imager.md) | WiFi (device AP; RTSP + TCP 8080) | Spec Available | Join device AP (low) | Vevor / Hti-Xintai HT-W01 |
 | [Flowtoys Props (Connect bridge)](flowtoys-props.md) | BLE + WiFi-OSC bridge → nRF24 RF | Spec Available | None needed (bridge) | Flowtoys (open-source bridge firmware) |
@@ -194,7 +204,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Reolink IP Camera](reolink-camera.md) | WiFi (RTSP/CGI + Baichuan 9000) | Spec Available | Enable RTSP/ONVIF (low) | Reolink |
 | [Amcrest / Dahua IP Camera](amcrest-dahua-camera.md) | WiFi (RTSP + CGI) | Spec Available | Set admin password (low) | Dahua / Amcrest |
 | [Hikvision IP Camera (ISAPI)](hikvision-isapi-camera.md) | WiFi (RTSP + ISAPI) | Spec Available | Activate + password (low) | Hangzhou Hikvision |
-| [Wyze Cam (docker-wyze-bridge)](wyze-bridge-camera.md) | WiFi (RTSP via bridge) | Spec Available | Wyze API key, then local (low) | Wyze Labs |
+| [Wyze Cam (docker-wyze-bridge)](wyze-bridge-camera.md) | WiFi (RTSP/HLS via bridge) | Spec Available | Wyze account/API + bridge host (untested) | Wyze Labs |
+| [Wyze Bulb Color / Light Strip (encrypted LAN)](wyze-mesh-light-lan.md) | WiFi (encrypted HTTP 88) | Spec Available | Vendor BLE/cloud setup + enr (untested) | Wyze Labs |
+| [Wyze Cam (legacy official RTSP)](wyze-legacy-rtsp.md) | WiFi (RTSP, exact legacy firmware) | Spec Available | App enable; optional advanced microSD flash (untested) | Wyze Labs |
 | [Bambu Lab 3D Printer (LAN)](bambu-lab-lan.md) | WiFi (MQTT 8883 + FTPS + RTSPS) | Spec Available | Enable LAN mode + access code (low) | Bambu Lab |
 | [PrusaLink (MK4 / XL / Mini)](prusalink-local-api.md) | WiFi (HTTP /api/v1) | Spec Available | Enable PrusaLink; API key (low) | Prusa Research |
 | [AM43 / A-OK Blind Motor](am43-blind-motor.md) | BLE | Spec Available | None needed (limits set at the motor) | A-OK / Zemismart |
@@ -235,6 +247,8 @@ spec's `device.setup` block; the patterns are explained in
 | [AC Infinity UIS Controller (BLE)](acinfinity-uis-controller.md) | BLE | Spec Available (untested) | ble_direct (medium) | AC Infinity Inc. |
 | [Anker soundcore Earbuds, Headphones and Speakers](anker-soundcore.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Anker Innovations Limited |
 | [Anova Precision Cooker (original)](anova-precision-cooker.md) | BLE | Spec Available (untested) | ble_direct (medium) | Anova Applied Electronics |
+| [Anova Precision Cooker Mini](anova-precision-cooker-mini.md) | BLE | Spec Available (untested) | ble_direct (medium) | Anova Applied Electronics |
+| [Anova Precision Cooker Nano](anova-precision-cooker-nano.md) | BLE | Spec Available (untested) | ble_direct (medium) | Anova Applied Electronics |
 | [Beddit Sleep Tracker (Bluetooth Classic generation)](beddit-2-sleep-tracker.md) | Bluetooth Classic | Spec Available (untested) | none (low) | Beddit (Apple) |
 | [Beddit Sleep Monitor 3 / 3.5](beddit-sleep-monitor.md) | BLE | Spec Available (untested) | ble_direct (low) | Beddit (Apple) |
 | [Big Ass Fans i6 / es6 / Haiku (firmware 3.x)](big-ass-fans-i6.md) | WiFi | Spec Available (untested) | ble_provisioning (low) | Big Ass Fans (Delta T LLC) |
@@ -274,6 +288,40 @@ spec's `device.setup` block; the patterns are explained in
 | [Teenage Engineering OP-Z](teenage-engineering-op-z.md) | BLE-MIDI + USB | Spec Available (untested) | Manual BLE-MIDI selection (low) | teenage engineering |
 | [Sensirion BLE Gadgets](sensirion-ble-gadgets.md) | BLE (passive + GATT logger) | Spec Available (untested) | Model-specific (low) | Sensirion |
 | [Sensirion SHT31 Smart Humigadget](sensirion-sht31-smart-gadget.md) | BLE | Spec Available (untested) | ble_direct (medium) | Sensirion |
+| [Spotify Car Thing with Bridgething](spotify-car-thing-bridgething.md) | Bluetooth Classic RFCOMM + iAP2/WebSocket | Identify-only (untested) | Custom firmware + Bluetooth pairing (medium) | Spotify / Bridgething |
+| [Nabaztag/tag with ServerlessNabaztag](nabaztag-tag-serverless.md) | WiFi HTTP | Spec Available (untested) | Custom firmware + head-button SoftAP (medium) | Violet / Mindscape / ServerlessNabaztag |
+| [PicoBrew PicoStill](picobrew-picostill.md) | WiFi HTTP (read-only) | Identify-only (untested) | Already networked; no client onboarding (medium) | PicoBrew |
+| [Blackmagic Cinema Cameras with Bluetooth](blackmagic-cinema-cameras.md) | BLE GATT | Spec Available (untested) | Six-digit camera-screen bonding (medium) | Blackmagic Design |
+| [Combustion Predictive Thermometer](combustion-predictive-thermometer.md) | BLE (passive + GATT) | Spec Available (untested) | None needed (medium) | Combustion Inc. |
+| [Hunter NODE-BT](hunter-node-bt.md) | BLE GATT | Spec Available (untested; upstream two-station core) | Owner-PIN application login (high) | Hunter Industries |
+| [Easee Charge Max](easee-charge-max.md) | BLE (ATT bond + EC-JPAKE/AES-GCM) | Spec Available (untested) | OS bond + label PIN/serial; active BLE proxy (high) | Easee AS |
+| [ANT Smart BMS](ant-smart-bms.md) | BLE GATT (two generations) | Spec Available (untested) | None on open units; optional app secret (high) | Shenzhen ANT (Zhuofeng) |
+| [Pine64 PineTime with InfiniTime 1.16.0](pinetime-infinitime.md) | BLE (bidirectional CTS/ANS) | Spec Available (untested) | None needed; exact firmware check (medium) | Pine Store Limited |
+| [NeuroSky MindWave Mobile (original)](neurosky-mindwave.md) | Bluetooth Classic RFCOMM/SPP | Spec Available (untested) | bt_classic_pairing (medium) | NeuroSky, Inc. |
+| [MyKronoz ZeTime](mykronoz-zetime.md) | BLE | Identify-only (untested) | Dedicated session handler required | MyKronoz |
+| [Espruino Bangle.js 1 and 2](banglejs-watches.md) | BLE Nordic UART | Identify-only (untested) | Manual selection + read-only ver gate, then dedicated multi-write handler | Espruino / Pur3 Ltd |
+| [YUNMAI Mini / SE / X / Mini 2S](yunmai-scales.md) | BLE GATT or passive broadcast | Spec Available (untested; sanitized capture) | Configuration commands; dedicated measurement handler | YUNMAI |
+| [ALLPOWERS R600 (hardware 0.3, read-only)](allpowers-r600.md) | BLE | Identify-only (untested) | Dedicated handler required; current-session revision check | ALLPOWERS |
+| [RENPHO R-Q002 N exercise bike](renpho-r-q002-n.md) | BLE FTMS + Cycling Power / conditional CSC | Identify-only (untested; public capture) | Dedicated FTMS/CSC handler required | RENPHO / Joicom |
+| [Remootio 2 / 3 (WebSocket API v3)](remootio-garage-door.md) | WiFi WebSocket 8080 + BLE setup | Identify-only (untested) | Dedicated encrypted-session handler + owner API keys required | Remootio / Assemblabs |
+| [Ozobot Evo (native RPC)](ozobot-evo.md) | BLE | Identify-only (untested) | Manual Evo verification + post-connect gate + dedicated native-RPC handler required | Ozobot / Ozo Edu |
+| [Felicita Arc](felicita-arc.md) | BLE | Identify-only (untested) | Dedicated Arc handler and first-frame validation required | Felicita Coffee |
+| [ThermoWorks BlueDOT](thermoworks-bluedot.md) | BLE | Identify-only (untested) | Dedicated BlueDOT handler and status-gated readings required | ThermoWorks |
+| [Sportstech F15 / F31](sportstech-f15-f31.md) | BLE | Identify-only (untested; public capture) | Dedicated frame handler required | Sportstech |
+| [Brother My Stitch Monitor embroidery machines](brother-embroidery-lan.md) | WiFi (SNMPv1 + HTTPS) | Spec Available (untested; read-only monitoring) | On-device Wi-Fi + user-approved TLS pin (medium) | Brother |
+| [Cricut legacy USB cutters](cricut-legacy-usb.md) | USB serial (query-only) | Spec Available (untested) | Manual model/port selection (medium) | Cricut / Provo Craft |
+| [Oclean BLE Smart Toothbrushes](oclean-toothbrushes.md) | BLE | Identify-only (untested) | Dedicated DIS-first model-routed handler required | Oclean |
+| [BlueMaestro Tempo Disc Environmental Sensors](bluemaestro-tempo-disc.md) | BLE (passive) | Identify-only (untested) | Dedicated measurement handler required | Blue Maestro |
+| [SensorBlue ThermoBeacon Hygrometers](sensorblue-thermobeacon.md) | BLE (passive) | Identify-only (untested) | Manual compound verification + dedicated measurement handler | SensorBlue / SEVEN-LIKE |
+| [SOMA Smart Shades 2 / Tilt 2 / Smart Shades 3](soma-smart-shades.md) | BLE | Identify-only (untested) | Dedicated V2 generation + byte-1 Tilt-bit selection handler required | Wazombi Labs |
+| [Flic 2 and Flic Duo](flic-2-duo.md) | BLE | Identify-only (untested) | Dedicated signed-session/reliable-event handler required | Shortcut Labs |
+| [VanMoof S3 / X3 (legacy 6acc55)](vanmoof-s3-x3.md) | BLE (encrypted GATT) | Identify-only (untested) | Existing owner key + dedicated encrypted/attended-control handler | VanMoof |
+| [Withings Body Smart WBS13 / Body Comp WBS12](withings-body-smart-comp-ble.md) | BLE (WPP) | Identify-only (untested) | Existing kl + six-digit bond + dedicated WPP handler | Withings |
+| [Withings Body / Nokia Body WBS06](withings-body-wbs06-classic.md) | Bluetooth Classic (incoming RFCOMM) | Identify-only (untested) | Existing kl + Just Works bond + local BlueZ listener | Withings |
+| [LeakSmart Zigbee Water Valve](leaksmart-valve-zigbee.md) | Zigbee HA 1.2 | Spec Available (untested) | Replacement coordinator + five-press join (medium) | Waxman Consumer Products Group |
+| [Wyze Lock Bolt v1 (WLCKB1)](wyze-lock-bolt.md) | BLE (encrypted L1/L2) | Identify-only (untested) | Manual v1 selection + exported credentials + dedicated legacy handler | Wyze Labs |
+| [Danalock V3 (DMI BLE)](danalock-v3-ble.md) | BLE (DMI/RPD/TLS/AFI) | Identify-only (untested; BTZE author evidence only) | Cached unexpired token + dedicated validated-session handler | Danalock / Salto |
+| [FC SmartHome / Fingerchip BLE Locks](fc-smarthome-lock.md) | BLE (encrypted FC/FD) | Identify-only (untested) | Owner device record + dedicated session handler; read-only first | Fingerchip / Fingercrystal |
 
 ## Not everything here was liberated
 
