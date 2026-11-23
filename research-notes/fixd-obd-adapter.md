@@ -14,9 +14,10 @@ FIXD compatibility.
 ## Evidence
 
 Static analysis of FIXD OBD2 Scanner `com.fixdapp.two` version 26.22
-(versionCode 2026102222), reviewed on 2026-11-10. The app maps the hardware
-profiles below to transport identities. Profile identifiers and display names
-are app metadata, **not observed BLE local names or Bluetooth Classic inquiry
+(versionCode 2026102222), reviewed on 2026-11-10. The app maps seven hardware
+profiles to transport identities. The app's internal profile identifiers are
+not reproduced here; the neutral labels A-G below stand in for them, in the
+app's own order. Display names are app metadata, **not observed BLE local names or Bluetooth Classic inquiry
 names**. FFF0 is shared with unrelated devices and is not scan-time identity.
 
 ## Reported BLE identities
@@ -29,21 +30,21 @@ These six profiles map to the following UUID roles:
 - Characteristic labeled write by the app:
   `0000fff2-0000-1000-8000-00805f9b34fb`
 
-| App hardware profile | Display name | Reported transport identity |
+| Profile | Display name | Reported transport identity |
 |---|---|---|
-| `FIXD2` | FIXD2 | BLE FFF0/FFF1/FFF2 |
-| `SETOSMART` | FIXD | BLE FFF0/FFF1/FFF2 |
-| `VIECAR` | FIXD | BLE FFF0/FFF1/FFF2 |
-| `VIECAR_V2` | FIXD | BLE FFF0/FFF1/FFF2 |
-| `APPRAISAL_PRO` | Appraisal PRO | BLE FFF0/FFF1/FFF2 |
-| `VIECAR_AUTHENTICATED` | Auto Assist | BLE FFF0/FFF1/FFF2 |
+| A | FIXD2 | BLE FFF0/FFF1/FFF2 |
+| B | FIXD | BLE FFF0/FFF1/FFF2 |
+| C | FIXD | BLE FFF0/FFF1/FFF2 |
+| D | FIXD | BLE FFF0/FFF1/FFF2 |
+| E | Appraisal PRO | BLE FFF0/FFF1/FFF2 |
+| F | Auto Assist | BLE FFF0/FFF1/FFF2 |
 
 The read/write labels do not establish GATT properties. In particular, FFF1
 might be polled, notified or both; initialization and FFF2 behavior are unknown.
 
 ## Reported legacy identity
 
-`OLD_KICKSTARTER`, displayed as `OBDII`, has no BLE triple in the app profile.
+Profile G, the legacy Kickstarter-era adapter displayed as `OBDII`, has no BLE triple in the app profile.
 The app separately uses standard Serial Port Profile UUID
 `00001101-0000-1000-8000-00805f9b34fb` for this legacy profile. This is not
 evidence that other FIXD sensors support SPP. Pairing, socket security and the
