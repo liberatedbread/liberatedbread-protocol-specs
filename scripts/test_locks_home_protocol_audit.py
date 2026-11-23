@@ -459,6 +459,7 @@ def test_chamberlain_wired_generation_scope_keeps_no_pairing_requirement():
 LOCKS_WITH_SAFETY_ADVISORY = {
     "danalock-v3-ble": (),
     "fc-smarthome-lock": (),
+    "safetech-smart-padlock": ("unlock",),
     "sesame-candyhouse-ble": (),
     "wyze-lock-bolt": (),
     "yale-august-ble": (),
