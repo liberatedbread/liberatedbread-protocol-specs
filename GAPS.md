@@ -120,6 +120,15 @@ the Internet Archive and Reddit were unreachable from the research sandbox,
 web search was rate-limited part-way through the news sweep, and GitHub issue
 threads were read through a summarising tool rather than verbatim.
 
+**Orphaned is not the bar.** A device whose vendor is still running is often
+the better target: the app still pairs, the cloud still answers, and a capture
+taken now is one nobody can take after the switch-off. The Aria 2 is the
+lesson: nothing about its wire protocol was ever written down, and after
+2026-11-28 the pairing exchange can no longer be observed at all. So "the
+vendor is still active" is never a reason to park a row here; it is the
+reason for
+[Capture while the service still runs](#capture-while-the-service-still-runs).
+
 ### Fitbit Aria family: what is still open
 
 The original Aria (FB201) and the Aria Air (FB203) have specs and the Aria 2
@@ -182,16 +191,42 @@ each row.
 | **Bluetooth SIG Weight Scale profile, generic** | No vendor is leaving. | The public Weight Scale and Body Composition services, read by openScale for two named scales (A&D UC-352BLE, Samsung GP-BELAD001BP0). | Worth one generic reference spec. Polar Balance compatibility is a 2016 statement of intent with no demonstrated third-party read; do not list it. |
 | **Omron body-composition monitors** | Vendor active; the claimed app migration has no loadable source. | openScale reads stored records after a key unlock (GPL-3.0). | Probably a per-model record layout for `omron-connect.yaml` rather than a new protocol; the record-layout code was not located. |
 
+### Capture while the service still runs
+
+Devices whose vendor service is up today. For each, the thing worth having is
+a capture or an export that stops being obtainable when the service does.
+Ordered by how short the window looks. Scrub every capture before it leaves
+the owner's machine: MAC, serial, tokens, network name, account ids.
+
+| Device | Window | What to get now | What it settles |
+|--------|--------|-----------------|-----------------|
+| **Fitbit Aria 2** (FB202) | Days: pairing ends 2026-11-28, and whether the in-app Wi-Fi change survives is unknown. | An Android Bluetooth HCI snoop log of a Wi-Fi network change on a still-paired scale; a read-only BLE scan; the router's DNS log and a flow capture of one weigh-in. Do not unpair or reset to get any of it. | Whether third-party Wi-Fi provisioning is possible at all, the upload hostname, and whether TLS interception is even worth trying. Turns the research note into an identify-only spec. |
+| **Fitbit Aria** (FB201), still paired | Unknown: Google promises no end date for the scale-facing endpoints. | A passive LAN capture of the scale talking to the real server. It is plain HTTP, so a mirror port or the router's capture is enough; nothing needs redirecting. Keep the full reply bytes. | Things no local server can answer: the real server's middle tail word (two write-ups disagree), what three to eight user records look like, name padding, the daily check-in cadence, and the update branch if one is ever offered. |
+| **Fitbit Aria Air** (FB203) | Open-ended, but tied to one vendor app. | An HCI snoop log of the vendor app pairing a scale, and of a second phone or a reinstall connecting to an already-paired scale. | Where the 16-byte key comes from and whether the app ever re-sends it, which decides whether an owner can obtain their key without a reset. |
+| **iHealth HS5 / HS5S, AM3 / AM3S, BP3** | Short and undated: the Legacy app "is being phased out". | With the legacy app still installed: an HCI snoop log of Wi-Fi setup, a capture of a same-network weigh-in (the SDK documentation hints at UDP) and of an offline upload. | The whole wire format; today nothing is public. |
+| **Withings Wireless Scale (WS-30), Smart Body Analyzer (WS-50), Smart Kid Scale, and the other end-of-support products** | Withings promises no notice before a cloud shutdown. | Whether stock firmware validates the server certificate (a self-signed interception test), and one full upload exchange against the live service. | Whether a DNS override can ever work without flashing patched firmware. This is the one unpublished fact that decides the route. |
+| **Withings Body+** (WBS05) and siblings | As long as Withings' legacy API keeps issuing the association secret. | Export the association secret and the user list for your own scale now. | Without the secret the documented BLE read cannot authenticate; with it the scale is readable locally for good. |
+| **Garmin Index** (original) | Unknown: last firmware 2021-11-29, changing the upload server "for continued support". | DNS log, TLS behaviour and a flow capture of a weigh-in; an ANT+ and BLE scan during setup. | Everything: there is no public work on any of its three radios. |
+| **Eufy P2 / P2 Pro / P3, Wi-Fi side** | Open-ended; the line is off eufy's US store. | DNS log and TLS behaviour of the Wi-Fi upload; a BLE capture that pins down which bytes carry impedance. | The Wi-Fi route has no public work; the impedance bytes are disputed between sources. |
+| **vTuner-dependent receivers** | Paywalled, with no end date announced. | A plain-HTTP capture of a receiver's directory session against the real service, one per brand. | A prose protocol to check the two community servers against, instead of deriving it from their code alone. |
+| **La Crosse GW1000U** | Vendor service appears alive. | The registration exchange with the vendor (both community write-ups say to register there first), captured. | The key and ping-interval reply that a stand-in server would have to produce. |
+| **Hunter HunterSMART fans** | The Google Home and Alexa link ends 2027-01-01. | A LAN scan and DNS log of a fan before and after Hunter's Matter update. | Whether the fans have any LAN surface of their own besides HomeKit and Matter; nothing is known. |
+| **Airzone Cloud Webserver** | Open-ended; the paywall is already in force. | A port scan of the webserver for the vendor's documented LAN API. | A disputed fact: Airzone says "Webserver" units have the local API, one owner found the port closed on a Cloud Webserver. |
+| **Growatt ShineWiFi / ShineLAN** | Cloud live. | Nothing urgent: the datalogger's server address is an owner setting, and `grott` already documents the records. | Listed so it is not mistaken for a dead end. The public code has no licence (facts only), and register writes reach a grid-tied inverter: read-only until someone owns the safety story. |
+| **Toniebox (first generation)** | Vendor active. | Nothing urgent: TeddyCloud's own project documents the endpoints. | The route needs the box opened and its flash rewritten (the box checks the server against a certificate authority in flash), so there is no capture-only shortcut. |
+
 ### Parked, with the reason
 
-- **Under Armour / HTC UA Scale**: dead since 2020-03-31, no public protocol work. Nothing to write.
-- **Garmin Index (original)**: last firmware 2021-11-29; still served, no public work. Watch.
-- **Wahoo Balance**: neither the vendor status page nor the only protocol source would load.
+Parked means there is no known route **and** nothing left to capture, or
+nothing proprietary to document. A live vendor is not a parking reason; see
+the table above.
+
+- **Under Armour / HTC UA Scale**: dead since 2020-03-31, no public protocol work, and no service left to capture against. An owner's BLE scan is the only first step.
 - **Roost Wi-Fi leak detector**: switched off in mid-2026 on about thirty days' notice; device-initiated TLS to a dead host, certificate handling unknown, no public work.
+- **Wahoo Balance**: neither the vendor status page nor the only protocol source would load, so there is nothing checked to write down yet.
 - **Testo Saveris 2**: one secondary source for the cloud migration; commercial gear, no local route known.
-- **Brilliant panels**: a paywall (from 2026-12-03) on a cloud-to-cloud link; the affected devices keep their own routes.
-- **La Crosse GW1000U**: vendor service appears alive; protocol sources carry no licence. Revisit on an end-of-service notice.
-- **Toniebox, Growatt dataloggers, reMarkable, Mycroft, Chumby**: active vendor or an open stack, and the community route is already documented by its own project or is a replacement firmware image rather than a protocol.
+- **Brilliant panels**: a paywall (from 2026-12-03) on a cloud-to-cloud link; the affected devices keep their own routes, and there is no device protocol in it to capture.
+- **reMarkable, Mycroft, Chumby**: an open stack or a route its own project already documents in full, or a replacement firmware image rather than a protocol.
 
 ### Things this sweep found wrong in the tree
 
