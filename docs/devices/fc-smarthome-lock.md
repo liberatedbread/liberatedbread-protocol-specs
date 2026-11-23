@@ -153,7 +153,7 @@ Category `0x02`, command `0x08`, sequence 1. The 39-byte request payload is:
 | 0 | 32 | `deviceBindUserId` as ASCII, truncated/padded with NUL |
 | 32 | 1 | Year − 2000 |
 | 33–37 | 5 | Month, day, hour, minute, second |
-| 38 | 1 | Signed timezone hours, positive for UTC+N; negative values use two's complement |
+| 38 | 1 | Signed timezone hours, positive for UTC+N; negative values use two's complement (the app's convention; unverified for UTC−N, where the public integration sends the absolute offset instead) |
 
 Accepted result codes are `0` and `0xF1`. Response fields are:
 
