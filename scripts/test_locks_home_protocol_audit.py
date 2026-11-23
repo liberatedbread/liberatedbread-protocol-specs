@@ -457,6 +457,18 @@ def test_chamberlain_wired_generation_scope_keeps_no_pairing_requirement():
     assert "No learn-button press is needed" in setup_steps[-1]["action"]
 
 
+def test_chamberlain_door_toggle_is_advanced_with_a_safety_advisory():
+    spec = SPECS["chamberlain-garage-opener-secplus"]
+    advisory = spec["device"]["safety_advisory"]
+    assert advisory["severity"] == "warning"
+    assert "door_command" in advisory["summary"]
+    assert "SAFETY:" not in spec["device"]["notes"]
+    (toggle,) = [m for m in spec["bus"]["messages"] if m["name"].startswith("door_command")]
+    assert toggle["advanced"] is True
+    reason = toggle["advanced_reason"]
+    assert "crush" in reason and "door in view" in reason
+
+
 def test_kevo_gen2_doc_matches_existing_ten_second_procedure():
     spec = yaml.safe_load(
         (ROOT / "device-specs" / "devices" / "kwikset-kevo.yaml").read_text(
