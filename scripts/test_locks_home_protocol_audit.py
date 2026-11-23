@@ -365,6 +365,11 @@ def test_switchbot_discovery_and_model_specific_layouts():
     assert commands["find_device"]["value"] == [0x57, 0x01, 0x03]
     assert "push-stop" in commands["find_device"]["description"]
     assert "0x04 to back" in commands["find_device"]["description"]
+    assert commands["find_device"]["advanced"] is True
+    assert "not a locator" in commands["find_device"]["advanced_reason"].lower()
+    assert "locate" not in commands["find_device"]
+    for press in ("bot_press", "bot_turn_on", "bot_turn_off"):
+        assert "advanced" not in commands[press]
 
 
 def test_ttlock_battery_service_parent():
