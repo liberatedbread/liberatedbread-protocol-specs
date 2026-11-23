@@ -216,6 +216,19 @@ def test_catalogue_follows_the_pairing_conventions(specs, rule):
     assert not failures, "\n".join(failures)
 
 
+@pytest.mark.parametrize("device_id", ["furbo-dog-camera", "wyze-bridge-camera"])
+def test_a_cloud_issued_p2p_key_is_an_app_layer_pairing(specs, device_id):
+    """The pairing.md row for a per-device key handed out by the vendor cloud.
+
+    These cameras open no local session without a credential only the vendor
+    cloud issues. "Nothing pairs" describes the radio, not the gate.
+    """
+    pairing = specs[device_id]["device"]["pairing"]
+    assert pairing["required"] is True
+    assert pairing["security_mode"] == "app_layer"
+    assert pairing["pin"]["source"] == "vendor_app"
+
+
 PAGE_ROW = re.compile(r"^\| Pairing required \| (?P<answer>Yes|No|Unknown)\b", re.MULTILINE)
 
 

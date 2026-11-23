@@ -2803,6 +2803,20 @@ def test_an_artifact_says_what_kind_of_artifact_it_is(closed_world_spec):
     )
 
 
+def test_an_artifact_sha256_is_a_sha256_digest(specs):
+    """`sha256` is a 64-hex digest of the artifact. A 40-hex Git commit
+    pinned there reads as a truncated digest that no file will ever match;
+    record a reviewed revision under `commit` instead."""
+    wrong = sorted(
+        (device_id, artifact.get("artifact"))
+        for device_id, spec in specs.items()
+        for artifact in (spec.get("evidence") or {}).get("artifacts") or []
+        if "sha256" in artifact
+        and not re.fullmatch(r"[0-9a-f]{64}", str(artifact["sha256"]))
+    )
+    assert not wrong, f"evidence artifacts whose sha256 is not a SHA-256 digest: {wrong}"
+
+
 def test_provenance_is_spelled_evidence_everywhere(specs):
     """Catalogue side, naming the spec rather than the key."""
     stray = {

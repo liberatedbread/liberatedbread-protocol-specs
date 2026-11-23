@@ -27,11 +27,13 @@ captured owner traffic.
 
 ## Setup, discovery and pairing
 
-Press the middle button to turn Wave on. The official API scanner looks for the
-case-sensitive substring `Wave` in the advertised local name. That is only a
-heuristic: confirm the intended peripheral and its service after connection,
-especially when similarly named devices are present. Whether each service UUID
-appears in advertisements has not been established.
+Press the middle button to turn Wave on, then pick it by hand: the spec declares
+manual selection only. The official API scanners look for the case-sensitive
+substring `Wave` in the advertised local name (one JS example checks for a name
+equal to `Wave`), which is too generic to auto-select this device, and no captured
+advertisement shows a more distinctive name. Confirm the intended peripheral and
+its service after connection. Whether each service UUID appears in advertisements
+has not been established.
 
 | Property | Value |
 |----------|-------|

@@ -226,3 +226,16 @@ def test_mini_start_cannot_be_a_no_argument_climate_action(spec, characteristics
 def test_mini_pairing_requirement_does_not_prove_bonding(spec):
     assert spec["device"]["pairing"]["required"] is True
     assert spec["device"]["pairing"]["bonding"] == "unknown"
+
+
+def test_unit_change_is_advanced_and_not_for_a_running_cook(spec):
+    found = [
+        characteristic["commands"]["set_temperature_unit"]
+        for service in spec["services"]
+        for characteristic in service["characteristics"]
+        if "set_temperature_unit" in (characteristic.get("commands") or {})
+    ]
+    assert len(found) == 1
+    command = found[0]
+    assert command["advanced"] is True
+    assert "not cooking" in command["advanced_reason"]

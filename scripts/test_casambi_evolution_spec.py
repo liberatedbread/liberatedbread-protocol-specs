@@ -233,16 +233,16 @@ def open_packet(key: bytes, base_nonce: bytes, frame: bytes, last_counter: int) 
 
 def parse_node_info(data: bytes) -> dict:
     if len(data) != 23 or data[0] != 1:
-        raise ValueError("NodeInfo must be exactly 23 bytes and type 1")
+        raise ValueError("node-information packet must be exactly 23 bytes and type 1")
     version = data[1] & 0x1F
     mtu = data[2]
     unit_id, flags = struct.unpack_from(">HH", data, 3)
     if version not in (10, 11):
         raise ValueError("unsupported Evolution network protocol")
     if not 1 <= mtu <= 517:
-        raise ValueError("NodeInfo MTU out of range")
+        raise ValueError("node-information packet MTU out of range")
     if unit_id > 255:
-        raise ValueError("NodeInfo unit id out of range")
+        raise ValueError("node-information packet unit id out of range")
     return {
         "raw_version": data[1],
         "protocol": version,
@@ -601,3 +601,28 @@ def test_no_dual_automatic_generation_selection():
         assert "never select both" in discovery["none"]
         assert document["protocol_details"]["scope"]["automatic_selection"] is False
         assert document["protocol_details"]["advertisements"]["generic_matcher"] is False
+
+
+# Vendor-app internal names this spec used to carry, kept as (length,
+# SHA-256 of the lowercased name) so the guard does not reintroduce them.
+SCRUBBED_APP_LABELS = (
+    (8, "962209de09c51e1bf430f92edd80b57190b70dbce6c981c7f6d0e6d34dd6744e"),
+)
+
+
+def test_vendor_app_internal_names_stay_scrubbed():
+    import hashlib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    text = "".join(
+        (root / path).read_text(encoding="utf-8").lower()
+        for path in ("device-specs/devices/casambi-evolution-ble.yaml", "docs/devices/casambi-evolution-ble.md")
+    ).encode("utf-8")
+    hits = [
+        digest
+        for length, digest in SCRUBBED_APP_LABELS
+        for start in range(len(text) - length + 1)
+        if hashlib.sha256(text[start : start + length]).hexdigest() == digest
+    ]
+    assert hits == []

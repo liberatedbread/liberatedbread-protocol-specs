@@ -261,8 +261,14 @@ def test_tilt2_open_command_stays_position_50_without_a_generic_v2_binding():
 
 def test_v2_name_is_exact_and_tilt_is_discriminated_by_payload():
     identification = SPEC["device"]["identification"]
-    assert identification["local_names"] == ["S"]
+    # A one-letter exact name collides with unrelated devices: it is a
+    # post-filter after the manufacturer payload, never a matcher.
+    assert "local_names" not in identification
     assert "local_name_prefix" not in identification
+    assert "post-filter" in identification["notes"]
+    for method in SPEC["device"]["discovery"]["methods"]:
+        assert "local_name" not in method["ble"]
+    assert SPEC["device"]["safety_advisory"]["severity"] == "caution"
     for variant in SPEC["device"]["variants"]:
         assert "local_name_prefix" not in variant.get("identification", {})
 

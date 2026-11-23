@@ -154,3 +154,36 @@ def test_trisa_r2_offset_accounts_for_timestamp_and_r1():
     ):
         offset = 5 + (4 if flags & 1 else 0) + (4 if flags & 2 else 0)
         assert offset == expected_offset
+
+
+FFE0 = "0000ffe0-0000-1000-8000-00805f9b34fb"
+
+
+def test_generic_ffe0_is_never_a_matcher_and_names_mirror_openscale():
+    import re
+
+    device = SPEC["device"]
+    assert FFE0 not in device["identification"].get("service_uuids", [])
+    methods = device["discovery"]["methods"]
+    for method in methods:
+        assert FFE0 not in method["ble"].get("service_uuids", [])
+    assert FFE0 in {service["uuid"] for service in SPEC["services"]}
+
+    beurer, medisana, trisa = (re.compile(m["ble"]["local_name"]["value"]) for m in methods)
+    for name in ("BEURER BF700", "BF700", "bf-800", "RT-Libra-W", "SANITAS SBF70", "SBF75", "AICDSCALE1"):
+        assert beurer.search(name), name
+    for name in ("HMSoft", "MLT-BT05", "BF500", "SBF72", "Libra"):
+        assert not beurer.search(name), name
+    for name in ("013197ABCD", "0202B6", "0203b1"):
+        assert medisana.search(name), name
+    assert not medisana.search("X0203B")
+    for name in ("01257B1234", "11257B"):
+        assert trisa.search(name), name
+    assert not trisa.search("21257B")
+
+
+def test_medisana_bs430_epoch_is_unix_not_2010():
+    notes = SPEC["device"]["notes"]
+    assert "BS430" in notes and "Unix seconds" in notes and "0203B" in notes
+    fields = {f["name"]: f for f in RECORDS["medisana_bs444"]["fields"]}
+    assert "Unix seconds" in fields["seconds_since_2010"]["notes"]

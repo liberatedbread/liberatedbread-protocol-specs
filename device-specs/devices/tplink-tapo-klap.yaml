@@ -240,12 +240,12 @@ protocol_details:
         auth_hash: 'SHA256(SHA1(username) || SHA1(password)); inner digests are raw 20 bytes.'
         device_proof: 'SHA256(local_seed || remote_seed || auth_hash).'
         client_proof: 'SHA256(remote_seed || local_seed || auth_hash).'
-      selection: "mgt_encrypt_schm.new_klap >= 1 selects v2; both versions use SHA256 seed proofs and the same session KDF."
+      selection: "Select by login version, as python-kasa does (kasa/device_factory.py): every SMART.* KLAP device uses v2, and an IOT.KLAP device uses v2 when the discovery login version is >= 2 (mgt_encrypt_schm.lv, or the highest value in encrypt_type when lv is absent). mgt_encrypt_schm.new_klap is an observed discovery field, not the key python-kasa selects on. Both versions use SHA256 seed proofs and the same session KDF."
     handshake:
       - "POST /app/handshake1 with a fresh 16-byte local seed. Require exactly 48 response bytes: 16-byte remote seed || 32-byte device proof; compare in constant time."
       - "POST /app/handshake2 with the 32-byte client proof and the handshake1 cookie. Require HTTP 200."
       - "key = SHA256('lsk' || local || remote || auth_hash)[0:16]. sig = SHA256('ldk' || local || remote || auth_hash)[0:28]."
-      - "full_iv = SHA256('iv' || local || remote || auth_hash). iv_prefix = full_iv[0:12]. Initial sequence is full_iv[12:16] big-endian, masked to 31 bits in the reviewed app."
+      - "full_iv = SHA256('iv' || local || remote || auth_hash). iv_prefix = full_iv[0:12]. Initial sequence differs between the two sources (see sequence_signedness): the reviewed app takes full_iv[12:16] big-endian masked to 31 bits; python-kasa takes full_iv[28:32] (the last four bytes) as a signed big-endian int32."
     request_algorithm:
       - "Increment sequence once. Use seq_bytes = unsigned big-endian uint32(sequence), and keep URL, IV and signature values identical."
       - "iv = iv_prefix || seq_bytes. AES-128-CBC encrypt PKCS7(JSON UTF-8) with key/iv."
@@ -254,7 +254,7 @@ protocol_details:
     recovery:
       http_403: "Invalidate cookie/seeds/session, perform both handshakes with a new local seed, then retry the application request once. Never blindly retry a moving relay write without first reconciling device_on."
       concurrency: "Serialize requests. Device tolerance for out-of-order sequence values is unknown."
-      sequence_signedness: "The app masks initial sequence to 31 bits; some public code uses signed int32. This spec's non-negative vector avoids ambiguity; a high-bit live session remains an open question."
+      sequence_signedness: "Two derivations exist, and they differ in which bytes are read, not only in signedness. Reviewed app: full_iv[12:16] big-endian, masked to 31 bits (non-negative). python-kasa (kasa/transports/klaptransport.py, the iv derivation): full_iv[28:32] as a signed int32, then sent as a signed big-endian int32 in the IV and signature and as a signed decimal in the URL. Neither has been verified against hardware by this project; python-kasa's is the one in wide field use. The test vectors follow the app variant, and their initial_sequence values are not ambiguity-free: the v2 raw value full_iv[12:16] is 3661523688, high bit set, so the 31-bit mask changes it to 1514040040. python_kasa_initial_sequence records what python-kasa would derive from the same seeds."
     test_vectors:
       username: "owner@example.invalid"
       password: "example-password-not-for-hardware"
@@ -269,6 +269,7 @@ protocol_details:
         sig_hex: "1c82d289ab3b5b0a0f52c02ccc45187764c22507aa7967f7d3eb9325"
         iv_prefix_hex: "5c2886784b1d52d2180b13ad"
         initial_sequence: 1625198108
+        python_kasa_initial_sequence: -815825519
         request_sequence: 1625198109
         request_iv_hex: "5c2886784b1d52d2180b13ad60de8e1d"
         request_body_hex: "9900b9dffcc5e305120d9463c57e2924df463d323b76f442974a4a44d1f41749eb331445fc8ccf6764c5f668274c50945ab15a183b21fb2d4aacdb6d7fe588dd"
@@ -280,6 +281,7 @@ protocol_details:
         sig_hex: "4cfc8d72e67d376fda52bd617c9a8f80386812c3324364a6a1246158"
         iv_prefix_hex: "51dedb759510baef360bddbe"
         initial_sequence: 1514040040
+        python_kasa_initial_sequence: -1287595942
         request_sequence: 1514040041
         request_iv_hex: "51dedb759510baef360bddbe5a3e6ae9"
         request_body_hex: "f657e5c15eedba9e4e71d96341f1934c5c0cd6c015083400ea876d6a686c49b1affef8d9123a1ab486ab151cec3b762e8a85ae628c223dc4186da6cc0da969d0"
@@ -510,7 +512,7 @@ helpful_urls:
     description: "Vendor guide for P110/P110M/P115 plug features; explains energy capabilities without specifying LAN units."
 
 remaining_unknowns:
-  - "Whether a live high-bit KLAP initial sequence requires signed or unsigned encoding; this spec keeps the reviewed app's 31-bit initial mask and one identical seq everywhere."
+  - "Which initial-sequence derivation a device requires, or whether it accepts any: the reviewed app's masked full_iv[12:16] or python-kasa's signed full_iv[28:32]. This spec's vectors keep the app's 31-bit mask and one identical seq everywhere."
   - "The exact response signature sequence rule on every firmware; reject a bad signature rather than decrypting unauthenticated ciphertext."
   - "TPAP extra_crypt, passcode composition, DAC verification and CCM AAD; the appendix is deliberately non-executable."
   - "Energy reply fields, per-model units and scaling; energy remains advertised only."

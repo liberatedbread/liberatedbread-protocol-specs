@@ -237,7 +237,13 @@ def test_legacy_unlock_and_lock_known_answers_without_actuation():
 def test_encrypted_status_marker_padding_timestamp_and_sentinel():
     vectors = DETAILS["status_test_vectors"]
     key = vectors["state_key_ascii"].encode("ascii")
-    assert vectors["device_uuid"].encode("ascii")[-16:] == key
+    assert vectors["device_uuid"][-16:].lower().encode("ascii") == key
+    # The key is the lowercased suffix: an uppercase cloud UUID must not be
+    # used as-is, and the spec has to say so.
+    upper_suffix = vectors["device_uuid"][-16:].upper().encode("ascii")
+    assert upper_suffix != key and upper_suffix.lower() == key
+    status_key = DETAILS["status_characteristics"]["encrypted_block"]["key"]
+    assert "device_uuid[-16:].lower()" in status_key
     for vector in vectors["vectors"]:
         ciphertext = _hex(vector["ciphertext_hex"])
         plaintext = _aes_ecb(key, ciphertext, decrypt=True)

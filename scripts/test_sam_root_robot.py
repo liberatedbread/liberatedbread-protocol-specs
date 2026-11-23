@@ -238,6 +238,11 @@ def test_discovery_and_protocol_scope_exclude_other_robots(spec):
     }
     assert patterns == {"525430", "525431"}
     for method in methods:
-        assert method["ble"]["service_uuids"] == [ROOT_IDENTIFIER]
+        # The identifier service is shared with Create 3 / Ci3; consumers OR
+        # scan matchers, so it must not ride along as one.
+        assert "service_uuids" not in method["ble"]
         assert method["ble"]["manufacturer_data"]["company_id"] == 0x0600
+    assert ROOT_IDENTIFIER not in spec["device"]["identification"].get(
+        "service_uuids", []
+    )
     assert spec["device"]["testing"]["status"] == "untested"

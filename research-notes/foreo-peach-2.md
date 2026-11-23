@@ -14,7 +14,7 @@ Two app-derived findings motivate the spec:
   response does not feed those bytes. A replacement client should be able to activate a
   locked unit without network access.
 - **App-side Pro paywall.** Normal Pro selection requires an active subscription in the
-  stock app; a separate `testing == 1` flag bypasses that UI branch. Once permitted,
+  stock app; a separate vendor test-device flag bypasses that UI branch. Once permitted,
   the app writes `0AD006`. Security access on 0A10 is connection setup, not a Pro
   unlock token. **Update 2026-11-14:** the firmware accepts that write directly, with no
   account (see the replay section below).
@@ -77,7 +77,7 @@ The capture confirms:
 - 0A20 began 01, so no activation write occurred.
 - The stock app read a 14-byte ASCII serial from 0A02. The value is deliberately not
   reproduced here.
-- New-dialect intensity 3/5, Basic mode, automatic fan and several seven-byte cooling
+- New-dialect T-Sonic level 3/5, Basic mode, automatic fan and several seven-byte cooling
   profiles were accepted. Queries used the documented FFF1 write-then-read model.
 - No SMP exchange or MTU request occurred.
 
@@ -112,7 +112,7 @@ following. The comparison bundle's SHA-256 is
   exception does not prove registration unnecessary.
 - Security access is connection setup, not Pro activation. After the ATT Write
   Response, the app waits 500 ms and validates no challenge response before continuing.
-- Normal Pro selection requires an active subscription; `testing == 1` is a separate
+- Normal Pro selection requires an active subscription; a vendor test-device flag is a separate
   vendor-test exception. Once allowed, Pro writes `0AD006`. The capture contains seven
   Basic writes and no Pro write, so direct firmware acceptance outside the entitlement
   path remains unknown.
@@ -216,7 +216,7 @@ transcribes and checks these vectors.
 ## Paywall and cloud
 
 Normal Pro selection requires both the subscription flag and an active subscription
-state. A separate `testing == 1` flag bypasses the inactive-subscription UI branch. Once
+state. A separate vendor test-device flag bypasses the inactive-subscription UI branch. Once
 allowed, the app writes `0AD006`; Basic is `0AD001`. Static analysis says a non-Duo
 device reporting mode >= 6 with an inactive subscription is switched back to Basic.
 The capture contains seven Basic writes and no Pro write. The 2026-11-14 replay then

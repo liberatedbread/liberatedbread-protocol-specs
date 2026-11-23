@@ -285,3 +285,20 @@ def test_activation_exclusions_reset_and_rejoin_boundaries():
     variants = SPEC["device"]["variants"]
     assert any("Excluded" in variant["model"] for variant in variants)
     assert SPEC["remaining_unknowns"]
+
+
+def test_movement_hazard_covers_every_deviceurl_not_only_shades():
+    advisory = SPEC["device"]["safety_advisory"]
+    assert advisory["severity"] == "warning"
+    for kind in ("garage door", "gate", "lock"):
+        assert kind in advisory["summary"] + advisory["detail"]
+    apply = next(
+        endpoint
+        for endpoint in SPEC["http_endpoints"]
+        if endpoint["path"].endswith("/exec/apply")
+    )
+    assert apply["advanced"] is True
+    assert "garage door" in apply["advanced_reason"]
+    for name in ("cover_open", "cover_close"):
+        assert "garage door" in SPEC["commands"][name]["advanced_reason"]
+    assert not SPEC["commands"]["cover_stop"].get("advanced")

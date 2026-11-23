@@ -115,7 +115,9 @@ address them by UUID rather than inventing one.
 ### Encrypted state, door and battery blocks
 
 Each value is exactly one AES-128-ECB block, with no padding. The key is the
-ASCII bytes of `device_uuid[-16:]`, **not** the BLE token.
+ASCII bytes of `device_uuid[-16:].lower()` (the last 16 characters of the
+cloud device UUID, lowercased; the public key extractor lowercases them), **not**
+the BLE token.
 
 | Plaintext offset | Size | Meaning |
 |------------------|------|---------|

@@ -76,16 +76,18 @@ Payload fields after splitting on `:` are:
 | 1 | Switching capabilities | u16 bit field; capability, not actuation permission |
 | 2 / 3 / 4 | Inside / outside / water temperature | u16 in 0.1 K steps; Celsius = raw × 0.1 − 273.15 |
 | 5 / 6 | Starter / leisure battery voltage | u16 × 0.1 V |
-| 7 | Leisure battery current | u16 × 0.01 A |
+| 7 | Leisure battery current | u16 × 0.01 A; signedness unverified |
 | 8 | Leisure battery state of charge | u8 × 0.5 percent |
 | 9–13 | Mains, EisEx, gas reserve, 12 V, pump | Bit 0 is on; preserve other bits |
 | 14 / 15 | Fresh / waste water | Raw; unit unresolved |
 | 16 | Ambient light, newer format only | Raw; unit unresolved |
 
 Older replies stop at index 15; newer replies add ambient light at index 16.
-For every numeric/switch field, low byte `FD` means invalid, `FE` no value,
-`FF` device unavailable; `FB`/`FC` are reserved. Check these **before** scaling
-so a sentinel never becomes a plausible reading.
+For u8 fields only, `FD` means invalid, `FE` no value, `FF` device unavailable;
+`FB`/`FC` are reserved. Check these **before** scaling so a sentinel never
+becomes a plausible reading. The u16 sentinel encoding is unknown (the only
+source is the closed vendor app): do not test a u16's low byte, which would
+throw away valid readings such as `0BFD` (33.75 °C).
 
 ## Message vocabulary and cloud
 

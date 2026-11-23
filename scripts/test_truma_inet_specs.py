@@ -125,9 +125,46 @@ def test_legacy_vehicle_status_layout_scales_and_sentinels():
     assert inside["unit"] == "temperature_c"
     assert starter["unit"] == "voltage_v"
     assert soc["unit"] == "%"
-    assert "FD" in payload_format["parse_rules"][2]
     assert "unit" not in fields[14]
     assert "unit" not in fields[16]
+
+
+def decode_vehicle_status_field(field: dict, token: str) -> int | None:
+    """Apply the spec's sentinel rule, scoped by the field's declared type."""
+    raw = int(token, 16)
+    if field["type"] == "uint8" and raw in (0xFD, 0xFE, 0xFF):
+        return None
+    return raw
+
+
+def test_vehicle_status_sentinels_apply_to_uint8_fields_only():
+    payload_format = BOX_SPEC["payload_formats"]["VehicleStatus"]
+    fields = payload_format["fields"]
+    rules = payload_format["parse_rules"]
+    sentinel_rules = [rule for rule in rules if "FD" in rule and "FE" in rule]
+    assert len(sentinel_rules) == 1
+    assert sentinel_rules[0].startswith("For uint8 fields only")
+    assert any("uint16 sentinel encoding is unknown" in rule for rule in rules)
+
+    inside = fields[2]
+    assert inside["type"] == "uint16"
+    # 0x0BFD is 33.75 C, not a sentinel, even though its low byte is FD.
+    raw = decode_vehicle_status_field(inside, "0BFD")
+    assert raw is not None
+    assert round(raw * inside["scale"] + inside["value_offset"], 2) == 33.75
+    assert decode_vehicle_status_field(fields[8], "FD") is None
+    assert decode_vehicle_status_field(fields[8], "FF") is None
+
+    assert "unverified" in fields[7]["description"].lower()
+
+
+def test_box_is_not_matched_on_nordic_uart_alone():
+    device = BOX_SPEC["device"]
+    nus = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    assert nus not in device["identification"].get("service_uuids", [])
+    discovery = device["discovery"]
+    assert "methods" not in discovery
+    assert "manual" in discovery["none"].lower()
 
 
 def cbor_text(value: str) -> bytes:

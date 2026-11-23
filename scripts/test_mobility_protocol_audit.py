@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -302,40 +303,95 @@ def test_vesc_crc16_parameters_and_exact_frame():
     assert "no final XOR" in text
 
 
+# Vendor-app internal names that earlier revisions of the Bosch and UREVO
+# specs carried. Listing them in plain text here would put them back in the
+# repository, so each is kept as (length, SHA-256 of the lowercased name) and
+# the check hashes every window of that length in the lowercased text. That
+# is the old substring test, made case-insensitive.
+BOSCH_SCRUBBED_LABELS = (
+    (22, "b316be698d2a3fd265d70ef10ea034b0f160f7a84b6ee652b0be2c298935a156"),
+    (13, "2347df742e942ba24191dc5d8245f22d36567dd12a962893ac3ce04d3c05f351"),
+    (25, "87f264b38fa90f361ecba34433772aadef35eb876375c17d01c7dd7fb45f0777"),
+    (15, "ce5efa8b07605ca5d993fce05c616af14a4e29b6cca65451bf3bc917100588e3"),
+    (17, "6cd4a2dc142fb611a7445637cbc6bed7b8ba63610389e877dbcae0acb148e8a7"),
+    (21, "8b235e8ed8a855cc1869e0ae362fd88f339e38e977fe95839a7ec8c7055077a3"),
+)
+UREVO_SCRUBBED_LABELS = (
+    (7, "7a7085afb3ba5e910f9697d3ea7603203900aab61a720d6946254af72da05416"),
+    (21, "199d41d9680fc62a674eb0c3f078c8e0bb15cb9c2db09b08440341c2e85ba315"),
+    (27, "93c6ec75716939cbaa6bd70c59224de83f0b369680d6d46219834dca90453d45"),
+    (8, "dea93d9a2a829c89a45af4b51899ebf3c5ca7f292325c1f5b03a4b704ad49d4e"),
+    (16, "5586a1678ed1b1748e496285458014b49d6b43d4455477aba04b60592cb3a238"),
+    (11, "b10bc6e12c6149c6ff7cb6aec3c50c789718213ac00e2a012ff4826a95818a55"),
+    (15, "989a17aa67cd994e8d17e7acaa3e6411a922196785877aaee1129dfde4000f51"),
+    (10, "c7005c16be4915268f4fefe68f4d803c43432f01374cf670ee1625ef270ebbd9"),
+    (11, "503abd1a53e2bc8fc8c4620f49657ef7d7b9152125c184f9979570bb5763bf9e"),
+    (11, "c26baa01e0d9065e442488d45c57e5b8e3314e546ab8c12505f649bbfe944629"),
+    (9, "3f65b7c72bce006884851ff020d091e826050d471ec22e59a3a2e3b4d91384b3"),
+    (23, "d70aa0a7066a83514acb1f3af8574329db210e0f8e6c48f87c7e2dcee9916649"),
+    (12, "f51135792051a9aafe634d2aee6a703b940f6eaffe5e5b9dafc304e68a2faade"),
+    # Further app class, accessor and enum labels scrubbed from the UREVO
+    # research notes.
+    (12, "5f010abb00ee2d42ce56d22f5468e0a74da3102e4ec8975db24c37a004c5190f"),
+    (12, "83e23d4fc529538deb25c7d13601cb89f669a2faf0fa4470cb65f64d506f085e"),
+    (13, "c0ad557ccf9d18de0c3b2381c059e2891f6b2ec083608f6f9f51682f391cdb47"),
+    (12, "fe8b24168ae4114d058e4bd9406db61964f8be5ee4a28a44de7b45c72516e713"),
+    (11, "23fe6292098d953e2394360f50d5f9cd6080d821dfc4b21ecb93fbe24007c09e"),
+    (14, "b98f873a0ac5c52cc101bb957ca05668eda9288a50c0660e015fd6a942725985"),
+    (16, "8301fce300f3cb2dcef3cceaa4ff78bd63e05cef738ddf0cdbe1e2e0f2ec2c97"),
+    (29, "896b6a3810e37f1b91bf74469c02882704f4de925ba8eaf29bb5504d90928299"),
+    (8, "9036c9b8365c4751e689e760bdec860df0316a2906de7e8947b9da75cb3b7d2f"),
+    (11, "e9e7389c2405ea2cacbf26fdf6598f8598e41635247a1e9aee98773210a02964"),
+    (9, "0bc4e1afbb2affc80f74c38ff4bc9aa9bc1aae59ce952109bb156d3721420e6f"),
+    (10, "0d6a1dc80d4909cd30a3f67b52de902d2e4d57c9062c380e2ee97c491aa26254"),
+    (21, "8c438384998364ea0549608f667f6a56f49758ef7de50b1d9414a35c7cfb6b2b"),
+    (29, "4e8537f5c90ac4d7c8ee37da7297c44725da44a8644e4972148f362f07b67490"),
+)
+
+
+def scrubbed_label_hits(text: str, labels) -> list[tuple[int, str]]:
+    lowered = text.lower().encode("utf-8")
+    wanted = {}
+    for length, digest in labels:
+        wanted.setdefault(length, set()).add(digest)
+    hits = []
+    for length, digests in wanted.items():
+        for start in range(len(lowered) - length + 1):
+            digest = hashlib.sha256(lowered[start : start + length]).hexdigest()
+            if digest in digests:
+                hits.append((start, digest))
+    return hits
+
+
+def test_scrubbed_label_scanner_finds_a_planted_name():
+    # Exercise the scanner with a synthetic label rather than a real one, so
+    # the check itself names nothing it is meant to keep out.
+    planted = "ExampleParserClass"
+    label = (len(planted), hashlib.sha256(planted.lower().encode()).hexdigest())
+    assert scrubbed_label_hits("a " + planted + " b", (label,)) == [(2, label[1])]
+    assert len(scrubbed_label_hits(planted.upper(), (label,))) == 1
+    assert scrubbed_label_hits("Example Parser Class", (label,)) == []
+    for labels in (BOSCH_SCRUBBED_LABELS, UREVO_SCRUBBED_LABELS):
+        assert len({digest for _, digest in labels}) == len(labels)
+        for length, digest in labels:
+            assert len(digest) == 64 and length > 0
+
+
 def test_bosch_and_urevo_vendor_internal_labels_are_scrubbed():
     bosch = spec("bosch-ebike-cx-gen4")
-    for label in (
-        "SimpleTransportMessage",
-        "SimpleMessage",
-        "DisablerServiceBuiRequest",
-        "postLockService",
-        "postUnlockService",
-        "encryptedPreSharedKey",
-    ):
-        assert label not in bosch
+    assert scrubbed_label_hits(bosch, BOSCH_SCRUBBED_LABELS) == []
     assert "message-envelope domain" in bosch
     assert "transport fragments" in bosch
 
     urevo = spec("urevo-walking-pad") + doc("urevo-walking-pad")
-    for label in (
-        "BlueDIS",
-        "readSupportSpeedRange",
-        "readSupportInclinationRange",
-        "BluePack",
-        "EquipmentFactory",
-        "WSEquipment",
-        "ResponseFactory",
-        "BlueNumExt",
-        "UREquipment",
-        "onParseData",
-        "libapp.so",
-        "package:urevo_bluetooth",
-        "DeviceConfig",
-    ):
-        assert label not in urevo
+    assert scrubbed_label_hits(urevo, UREVO_SCRUBBED_LABELS) == []
     assert "device-information reader" in urevo
     assert "Frame-A grammar" in urevo
-
+    for suffix in ("yaml", "md"):
+        note = (ROOT / "research-notes" / f"urevo-walking-pad.{suffix}").read_text(
+            encoding="utf-8"
+        )
+        assert scrubbed_label_hits(note, UREVO_SCRUBBED_LABELS) == [], suffix
 
 
 def test_wheellog_other_brand_scales_and_shared_transport():
@@ -380,3 +436,45 @@ def test_wheellog_other_brand_scales_and_shared_transport():
     assert "Deliberate manual selection" in text
     assert "FFE0/FFE1 alone" in text
     assert "Gotway" in doc("euc-wheellog-ble")
+
+
+# Rideable vehicles and bare motor controllers whose open BLE channel can
+# change how the vehicle drives. Each must carry a device.safety_advisory
+# (not only a SAFETY paragraph in notes, which no client renders).
+RIDEABLE_WITH_OPEN_CONTROL = (
+    "euc-wheellog-ble",
+    "ninebot-segway-ble",
+    "vesc-ble-uart",
+    "xiaomi-m365-ble",
+)
+
+
+def test_rideable_open_control_specs_carry_a_safety_advisory():
+    import yaml
+
+    for name in RIDEABLE_WITH_OPEN_CONTROL:
+        device = yaml.safe_load(spec(name))["device"]
+        advisory = device.get("safety_advisory")
+        assert advisory, f"{name}: missing device.safety_advisory"
+        assert advisory["severity"] in ("warning", "danger"), name
+        assert advisory.get("acknowledge_required") is True, name
+        assert "stationary" in advisory["detail"], name
+
+
+def test_m365_register_writes_are_advanced():
+    """A T=0x03 register write changes the scooter mid-ride; reads stay plain."""
+    import yaml
+
+    data = yaml.safe_load(spec("xiaomi-m365-ble"))
+    commands = data["services"][0]["characteristics"][0]["commands"]
+    writes = {k: v for k, v in commands.items() if v["value"][4] == 0x03}
+    assert "cruise_on" in writes
+    for name, command in commands.items():
+        if name in writes:
+            assert command.get("advanced") is True, name
+            assert command.get("advanced_reason"), name
+        else:
+            assert not command.get("advanced"), name
+        frame = bytes(command["value"])
+        checksum = (sum(frame[2:-2]) ^ 0xFFFF) & 0xFFFF
+        assert frame[-2:] == checksum.to_bytes(2, "little"), name

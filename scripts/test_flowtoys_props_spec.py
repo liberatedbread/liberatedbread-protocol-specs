@@ -101,3 +101,17 @@ def test_fwimg_rejects_non_object_meta_and_missing_entries():
         pass
     else:
         raise AssertionError("missing meta must be rejected")
+
+
+def test_usb_update_commands_explain_why_they_are_advanced():
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[1] / "device-specs" / "devices" / "flowtoys-props.yaml"
+    spec = yaml.safe_load(path.read_text(encoding="utf-8"))
+    commands = spec["protocol_details"]["usb_firmware_update"]["commands"]
+    assert set(commands) == {"update", "data", "app_reset_bootloader", "app_reset_application"}
+    for name, command in commands.items():
+        assert command.get("advanced") is True, name
+        assert (command.get("advanced_reason") or "").strip(), name

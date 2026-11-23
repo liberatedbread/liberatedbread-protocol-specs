@@ -24,7 +24,7 @@ Two other interfaces are deliberately not mixed into this document:
 
 **Classic does not encrypt its command or state payloads.** Visitor frames add a
 four-byte AES-CMAC and manager frames a sixteen-byte CMAC. That provides
-integrity, not confidentiality. Evolution's NodeInfo, P-256 ECDH, AES-CTR and
+integrity, not confidentiality. Evolution's node-information packet, P-256 ECDH, AES-CTR and
 type-7 invocations do not belong on this API.
 
 ## Hardware and discovery
@@ -187,7 +187,7 @@ Core operation types are:
 | Unit | 7 | 8 | 9 | 24 | 25 |
 | Group | 26 | 27 | 28 | 29 | 30 |
 
-The app enum names scene temperature 2 and scene color 3, but the pinned outgoing
+The vendor app defines scene temperature 2 and scene color 3, but the pinned outgoing
 operation map rejects both `SetTemperature` and `SetColor` for scene targets.
 They are retained only as app-only/unverified type names, not implementable
 commands in this profile. Scene level 1 is the ordinary scene operation.
@@ -202,8 +202,9 @@ commands in this profile. Scene level 1 is the ordinary scene operation.
 
 The spec's 16 relevant public golden vectors cover all 16 network/unit/group/
 scene combinations implemented by the full-session operation map. Other types
-are declared with boundaries in the YAML: manager DeleteNode 10, SetFirmwareVersion
-11, SetRadioMode 12 and Reset 53; Extended Upgrade 16; timers 15; parameters,
+are declared with boundaries in the YAML: the manager operations that remove a
+unit 10, write a firmware version record 11, change radio mode 12 and reset the
+network 53; Classic-to-Evolution conversion 16; timers 15; parameters,
 sensors, calibration, incoming button/presence events and vendor-specific records.
 Destructive/model-specific operations are advanced and are not generic controls.
 

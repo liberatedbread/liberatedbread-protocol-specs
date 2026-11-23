@@ -178,9 +178,9 @@ def test_upload_key_recovery_is_limited_to_exact_reported_firmware():
     current = matrix["5.0020"]
     assert current["direct_o_0xfd"] == "lowercase o 0xfd returns no upload key/read"
     assert current["write_O_0xfd"] == "uppercase O 0xfd is rejected"
-    assert current["generic_set_token"] is False
+    assert current["generic_key_write"] is False
     assert "not established" in current["offline_activation"]
-    assert "SetToken" in current["offline_activation"]
+    assert "key write" in current["offline_activation"]
     assert current["dump_recovery"] == "not established"
 
 
@@ -195,7 +195,7 @@ def test_structured_note_firmware_and_mailbox_boundaries_match_spec():
     assert "static_analysis_only" in matrix["firmware_4_5166"]["dump_recovery"]
     assert matrix["firmware_5_0020"]["direct_o_0xfd"] == "no_lowercase_key_read"
     assert matrix["firmware_5_0020"]["write_O_0xfd"] == "uppercase_rejected"
-    assert matrix["firmware_5_0020"]["generic_set_token"] is False
+    assert matrix["firmware_5_0020"]["generic_key_write"] is False
     assert matrix["firmware_5_0020"]["offline_activation"] == "not_established"
 
     mailbox = configuration["mailbox_recreation"]
@@ -212,7 +212,7 @@ def test_structured_note_firmware_and_mailbox_boundaries_match_spec():
     for relative in ("research-notes/eye-fi-cards.md", "docs/devices/eye-fi-cards.md"):
         page = (ROOT / relative).read_text(encoding="utf-8")
         assert "5.0020" in page
-        assert "SetToken" in page
+        assert "generic key write" in page
         assert "0xffffffff" in page
         assert "0x1234" in page
         assert "existing" in page

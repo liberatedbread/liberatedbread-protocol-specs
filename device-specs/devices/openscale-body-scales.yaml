@@ -39,11 +39,16 @@ device:
     00008a21-... (indicate), body-composition 00008a22-... (indicate), command
     00008a81-... (write). Weight packet (0x8a21): byte0 flags (bits for unit
     kg/lb/st), bytes1-2 weight little-endian /100 for the demonstrated kg
-    example only (lb/st divisors unresolved), bytes5-8 timestamp as seconds
-    since 2010-01-01 LE, byte13 user-ID (1-8, 0xFF unset). Body-comp packet
+    example only (lb/st divisors unresolved), bytes5-8 timestamp LE32,
+    byte13 user-ID (1-8, 0xFF unset). Body-comp packet
     (0x8a22): bytes6-7 kCal LE, bytes8-9 fat% /10 (mask 0xF0), 10-11 water%,
     12-13 muscle%, 14-15 bone mass. TRIGGER: write 02 7b 7b f6 0d to the command
-    characteristic.
+    characteristic. EPOCH: the BS444/BS440 count seconds since 2010-01-01,
+    but openScale's Medisana handler treats the BS430 (names starting 0203B)
+    as Unix seconds, for both the weight timestamp and its 02 <LE32> time-set
+    write. For a name it cannot place, openScale starts with Unix time and
+    switches to 2010 when only the 2010 reading lands near the current time,
+    then remembers the choice per scale.
 
     TRISA Body Analyze 4.0: Weight Scale Service 0x7802 (distinct from Medisana's
     0x78b2); chars 0x8a20 (feature),
@@ -70,23 +75,58 @@ device:
 
   identification:
     service_uuids:
-      - "0000ffe0-0000-1000-8000-00805f9b34fb"   # Beurer / Sanitas
-      - "000078b2-0000-1000-8000-00805f9b34fb"   # Medisana BS444
+      - "000078b2-0000-1000-8000-00805f9b34fb"   # Medisana BS44x/BS430
       - "00007802-0000-1000-8000-00805f9b34fb"   # Trisa Body Analyze 4.0
+    local_name_prefixes: ["013197", "013198", "0202B6", "0203B", "01257B", "11257B"]
+    notes: >
+      0xFFE0 is deliberately not identity: it is the generic HM-10-style
+      serial service on countless unrelated peripherals. Beurer/Sanitas/
+      SilverCrest are matched by name instead, as openScale's Beurer/Sanitas
+      handler does (case-insensitive substrings bf-700, bf700, bf-800,
+      bf800, bf710, libra-b, libra-w, sbf70, sbf75, aicdscale1), and their
+      0xFFE0/0xFFE1 layout is checked after connecting. Medisana is matched
+      by the 0x78b2 service or the name prefixes 013197/013198/0202B6
+      (BS444/BS440) and 0203B (BS430); Trisa by the name prefixes
+      01257B/11257B. Those prefixes are openScale's, compared
+      case-insensitively for Medisana.
 
   discovery:
     methods:
       - type: "ble_scan"
+        name: "Beurer / Sanitas / SilverCrest by name"
         ble:
+          local_name:
+            match: "regex"
+            value: "[Bb][Ff](?:-?[78]00|710)|[Ll][Ii][Bb][Rr][Aa]-[BbWw]|[Ss][Bb][Ff]7[05]|[Aa][Ii][Cc][Dd][Ss][Cc][Aa][Ll][Ee]1"
+        notes: >
+          Name-only, mirroring openScale's Beurer/Sanitas handler (it
+          lowercases the name and tests substrings). 0xFFE0 is not a matcher:
+          it is shared with many unrelated serial-bridge peripherals. Confirm
+          the 0xFFE0/0xFFE1 layout and an e7/f7 frame after connecting.
+      - type: "ble_scan"
+        name: "Medisana BS44x / BS430"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^(?:013197|013198|0202[Bb]6|0203[Bb])"
           service_uuids:
-            - "0000ffe0-0000-1000-8000-00805f9b34fb"
             - "000078b2-0000-1000-8000-00805f9b34fb"
+        notes: >
+          openScale matches Medisana on these name prefixes or on the 0x78b2
+          service alone. The prefix also picks the timestamp epoch (see the
+          Medisana notes): 0203B* (BS430) uses Unix seconds, the others
+          seconds since 2010-01-01.
+      - type: "ble_scan"
+        name: "Trisa Body Analyze 4.0"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^[01]1257B"
+          service_uuids:
             - "00007802-0000-1000-8000-00805f9b34fb"
         notes: >
-          Beurer/Sanitas advertise the 0xFFE0 service; Medisana BS444 advertises
-          the 0x78b2 weight service; Trisa Body Analyze 4.0 advertises 0x7802.
-          Local names vary; openScale
-          matches per model.
+          openScale matches Trisa on the 01257B / 11257B name prefixes only;
+          0x7802 is also listed because it is this scale's own weight service.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -188,14 +228,16 @@ services:
       UUIDs (feature 0x8a20, measurement 0x8a21 indicate, command 0x8a81 write,
       upload 0x8a82 indicate; challenge-response) but under its own weight service
       0x7802, NOT 0x78b2 — resolve the characteristics by UUID. Timestamps use
-      epoch 2010.
+      epoch 2010, except the Medisana BS430 (names 0203B*), which openScale
+      treats as Unix seconds.
     characteristics:
       - uuid: "00008a21-0000-1000-8000-00805f9b34fb"
         name: "Weight measurement (indicate)"
         properties: ["indicate"]
         notes: >
           Medisana: byte0 flags (unit), bytes1-2 weight LE /100 for the kg
-          example only, bytes5-8 seconds since 2010 LE, byte13 user-ID. Do
+          example only, bytes5-8 seconds since 2010 LE (Unix seconds on the
+          BS430, names 0203B*), byte13 user-ID. Do
           not generalize that divisor to lb/st. Trisa: weight = 24-bit LE
           mantissa x 10^(signed 8-bit exponent). Full reassembled layouts are
           under protocol_details.reassembled_records.
@@ -243,7 +285,7 @@ protocol_details:
       fields:
         - {offset: 0, length: 1, name: "flags", type: "uint8", notes: "Bits 5-6 select display unit; only the kg scaling below is established."}
         - {offset: 1, length: 2, name: "weight_kg", type: "uint16", endianness: "little", scale: 0.01, unit: "kg", notes: "Valid only for the kg example; lb/st divisors remain unresolved."}
-        - {offset: 5, length: 4, name: "seconds_since_2010", type: "uint32", endianness: "little", unit: "s"}
+        - {offset: 5, length: 4, name: "seconds_since_2010", type: "uint32", endianness: "little", unit: "s", notes: "BS444/BS440. The BS430 (names starting 0203B) sends Unix seconds here per openScale's Medisana handler; see device.notes."}
         - {offset: 13, length: 1, name: "user_id", type: "uint8", notes: "1-8; 0xff unset."}
     trisa_body_analyze:
       maximum_length_bytes: 20

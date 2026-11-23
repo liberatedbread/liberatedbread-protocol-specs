@@ -161,6 +161,14 @@ def test_fixed_seed_handshake_and_session_vectors(version):
     assert session["sig"].hex() == expected["sig_hex"]
     assert session["prefix"].hex() == expected["iv_prefix_hex"]
     assert session["initial"] == expected["initial_sequence"]
+    full_iv = hashlib.sha256(b"iv" + local + remote + auth).digest()
+    # python-kasa's variant: last four digest bytes, signed int32.
+    assert int.from_bytes(full_iv[28:32], "big", signed=True) == expected[
+        "python_kasa_initial_sequence"
+    ]
+    # The app variant's 31-bit mask is load-bearing for v2, not a no-op.
+    raw = int.from_bytes(full_iv[12:16], "big")
+    assert (raw >= 0x80000000) is (version == "v2")
     body, seq, iv = encrypt_request(session, vectors["plaintext_json"].encode())
     assert seq == expected["request_sequence"]
     assert iv.hex() == expected["request_iv_hex"]
@@ -480,3 +488,15 @@ def test_exact_aes_recovery_codes_and_http_status_both_directions():
     assert "Any non-200 response is a transport failure" in recovery["http_statuses"]["non_200"]
     assert "HTTP 400" in recovery["http_statuses"]["non_200"]
     assert "no RSA handshake/login" in recovery["non_recovery"]
+
+
+def test_klap_version_selection_and_sequence_sources_are_stated():
+    klap = DETAILS["klap"]
+    selection = klap["versions"]["selection"]
+    assert "login version" in selection and ">= 2" in selection
+    assert "SMART.*" in selection and "IOT.KLAP" in selection
+    assert "not the key python-kasa selects on" in selection
+    signedness = klap["recovery"]["sequence_signedness"]
+    assert "full_iv[28:32]" in signedness and "full_iv[12:16]" in signedness
+    assert "avoids ambiguity" not in signedness
+    assert "Neither has been verified against hardware" in signedness

@@ -33,6 +33,23 @@ device:
     JSON fragments ended by NUL. The PIN packet transform is obfuscation, not
     session encryption. Do not treat the Nordic UART UUID as permission to use
     a generic unauthenticated NUS client.
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      Starts open real water valves that keep running after the phone
+      disconnects. An unattended or mistaken run can flood a yard, a
+      basement window well or a neighbour's property.
+    detail: >-
+      A timed or program start runs on the controller, not the phone: it
+      continues after disconnect until its own deadline. Stop-all and that
+      deadline are backstops, not a guarantee; a lost acknowledgement can
+      leave a valve open that the client believes is closed, so read live
+      state rather than retrying, and confirm the station mapping, runtime
+      and stored program before starting. Program starts open every enabled
+      station in turn. Check local watering restrictions. This spec is not
+      affiliated with Hunter, whose installation instructions govern the
+      valves and controller.
+    acknowledge_required: false
   openness:
     status: "undocumented"
     reverse_engineered: true
@@ -101,7 +118,7 @@ device:
             expect: "The candidate has the complete Hunter-specific PIN service, not merely generic NUS."
           - action: "Enable indications on the message response and notifications on the PIN characteristic."
             actor: "client"
-          - action: "Write PIN login request ad 00 00 00 00 00 00 without response."
+          - action: "Write PIN login request ad 00 00 00 00 00 without response."
             actor: "client"
             expect: "A six-byte type-2 challenge arrives within 15 seconds. If either random byte is 00 or ac, reject the ambiguous challenge and restart login instead of proceeding."
             timeout_seconds: 15
@@ -389,13 +406,13 @@ protocol_details:
   pin_authentication:
     transform: "For every byte b, emit b ^ 0xac if b != 0 else 0. This is the vendor's literal transform, not ordinary XOR. Plaintext 00 and ac both emit 00, so applying it twice to ac yields 00 rather than ac; it is not an involution at ac. No alternate vendor decode for ac is established."
     sequence:
-      - "Write type 1 plaintext 01 00 00 00 00 00; wire ad 00 00 00 00 00 00."
+      - "Write type 1 plaintext 01 00 00 00 00 00; wire ad 00 00 00 00 00."
       - "Read type 2. If either random-challenge byte is 00 or ac, reject the packet as ambiguous and restart login for a fresh challenge instead of guessing. Otherwise decode its random uint16 LE challenge."
       - "Before writing type 3, compute response = numeric_pin XOR random. If any response byte is 00 or ac, reject it and restart login for a fresh challenge. Only then write type 3 with the same random and response, transformed again."
       - "Read type 4 and require result 0. Other result meanings are unknown; fail rather than sending application messages."
     security: "Obfuscation, not encryption. The ac collision makes challenge validation mandatory; never treat the transform as a proof that an ambiguous packet authenticated correctly. Do not publish PINs or challenge responses."
     test_vectors:
-      login_request: {plain: "01 00 00 00 00 00", wire: "ad 00 00 00 00 00 00"}
+      login_request: {plain: "01 00 00 00 00 00", wire: "ad 00 00 00 00 00"}
       challenge_0x1234: {plain: "02 00 34 12 00 00", wire: "ae 00 98 be 00 00"}
       response_pin_0_challenge_0x1234: {plain: "03 00 34 12 34 12", wire: "af 00 98 be 98 be"}
       response_pin_1234_challenge_0x1234: {plain: "03 00 34 12 e6 16", wire: "af 00 98 be 4a ba"}

@@ -202,6 +202,46 @@ def test_cartridge_vector_decodes_name_offset_and_revision(vectors):
     }
 
 
+def test_every_message_field_decodes_its_vector_frame_relative(spec, vectors):
+    """Decode each published response using only the spec's own field table.
+
+    Offsets are frame-relative: the length byte is offset 0, so the body
+    starts at 1. A field table written body-relative lands one byte early,
+    e.g. a cartridge name starting inside name_offset.
+    """
+    messages = {message["name"]: message for message in spec["bus"]["messages"]}
+    expected = {
+        "status": {"cartridge_loaded": 1, "mat_loaded": 1},
+        "cartridge_info": {
+            "cartridge_present": 1,
+            "name_offset": 33,
+            "name_region": "Cricut(R) Cake Basics",
+            "cartridge_version": 35,
+        },
+    }
+    for name, want in expected.items():
+        frame = bytes.fromhex(vectors[name]["response_hex"])
+        assert len(frame) == messages[name]["length"]
+        decoded = {}
+        for field in messages[name]["fields"]:
+            start, length = field["offset"], field["length"]
+            assert start + length <= len(frame), field["name"]
+            raw = frame[start : start + length]
+            if field["type"] == "string":
+                decoded[field["name"]] = raw.split(b"\0", 1)[0].decode("ascii")
+            else:
+                decoded[field["name"]] = int.from_bytes(raw, field.get("endianness", "big"))
+        for key, value in want.items():
+            assert decoded[key] == value, (name, key)
+
+    fields = {f["name"]: f for f in messages["cartridge_info"]["fields"]}
+    assert fields["name_region"]["offset"] == fields["name_offset"]["offset"] + 2
+    assert fields["cartridge_version"]["offset"] == (
+        fields["name_region"]["offset"] + 33
+    )
+    assert fields["cartridge_version"]["offset"] == messages["cartridge_info"]["length"] - 1
+
+
 @pytest.mark.parametrize("name", ["model_firmware", "status", "mat_bounds", "cartridge_info"])
 def test_every_truncated_response_is_rejected(vectors, name):
     opcode = {"model_firmware": 0x12, "status": 0x14, "mat_bounds": 0x11, "cartridge_info": 0x18}[name]

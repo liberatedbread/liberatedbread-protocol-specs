@@ -68,6 +68,17 @@ new local seed. Retry an idempotent read once. For a relay write, first
 reconcile `device_on`; a timeout is not proof that the write did not happen.
 Serialize requests because out-of-order sequence tolerance is unknown.
 
+**Choosing v1 or v2.** python-kasa uses v2 for every `SMART.*` KLAP device and
+for an `IOT.KLAP` device whose discovery login version (`lv`) is 2 or more.
+`new_klap` appears in discovery replies but is not what python-kasa selects on.
+
+**Initial sequence.** The two sources disagree on which bytes of the `iv`
+digest seed the sequence. The reviewed app reads bytes 12–15 big-endian and
+masks to 31 bits; python-kasa reads bytes 28–31 as a signed int32. Neither has
+been verified on hardware here. The spec's vectors follow the app and also
+record python-kasa's value for the same seeds; the v2 vector's raw value has
+its high bit set, so it exercises the mask.
+
 ## Older securePassthrough
 
 Older firmware posts JSON to `/app`:

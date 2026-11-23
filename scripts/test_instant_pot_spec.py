@@ -75,3 +75,12 @@ def test_clock_example_is_little_endian_seconds_since_2001():
     seconds = int((datetime(2024, 10, 17, 12, 0, 0) - datetime(2001, 1, 1)).total_seconds())
     assert struct.pack("<I", seconds).hex() == "c033c12c"
     assert "c0 33 c1 2c" in SPEC_PATH.read_text()
+
+
+def test_every_heater_start_is_advanced(commands):
+    # The safety advisory says starts are offered only with the user at the
+    # cooker; advanced is how a consumer is told to confirm that first.
+    for name in ("pressure_cook", "start_program", "keep_warm"):
+        assert commands[name].get("advanced") is True, name
+        assert commands[name].get("advanced_reason"), name
+    assert not commands["cancel"].get("advanced")

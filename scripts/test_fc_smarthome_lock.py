@@ -244,6 +244,15 @@ def test_inner_builders_normal_android_v1_and_handshake_payload():
     assert len(data) == 39
     assert _build_inner(1, 2, 8, data, version=1) == _hex(identity["inner_hex"])
     assert _build_inner(1, 2, 8, data, version=1)[0] == 8 + 39
+    # UTC+2 (byte 2 above) is the only evidenced offset, where the signed and
+    # absolute forms agree; the spec must not present the UTC-N byte as settled.
+    (tz,) = [
+        field
+        for field in DETAILS["verify_identity"]["request"]["fields"]
+        if field["name"] == "timezone_hours"
+    ]
+    assert "abs(offset)" in tz["description"]
+    assert "unverified" in tz["description"]
 
 
 def test_fragmentation_noise_glue_and_bad_frames_fail_closed():

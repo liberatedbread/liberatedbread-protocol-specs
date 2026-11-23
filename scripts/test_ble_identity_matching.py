@@ -228,32 +228,33 @@ def test_ninebot_z_nus_observation_activates_no_incompatible_spec():
 
 
 def test_fixd_profiles_cannot_resolve_to_generic_obd_control_surface():
-    expected_profiles = {
-        "FIXD2",
-        "SETOSMART",
-        "VIECAR",
-        "VIECAR_V2",
-        "APPRAISAL_PRO",
-        "VIECAR_AUTHENTICATED",
-        "OLD_KICKSTARTER",
-    }
     note = (ROOT / "research-notes" / "fixd-obd-adapter.md").read_text(
         encoding="utf-8"
     )
     assert "IDENTIFICATION-ONLY RESEARCH" in note
-    for profile_id in expected_profiles:
-        assert profile_id in note
+    # Seven profiles under neutral labels: six BLE rows and the legacy one.
+    rows = re.findall(r"^\| ([A-G]) \| ([^|]+?) \| BLE FFF0/FFF1/FFF2 \|$", note, re.M)
+    assert [label for label, _ in rows] == list("ABCDEF")
+    assert {name for _, name in rows} == {"FIXD2", "FIXD", "Appraisal PRO", "Auto Assist"}
+    assert "Profile G" in note
+    # The app's internal profile constants (SCREAMING_SNAKE identifiers) are
+    # vendor-app internals and must not come back as backticked labels.
+    internal = [
+        token
+        for token in re.findall(r"`([^`]+)`", note)
+        if re.fullmatch(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*", token)
+        and token not in {"OBDII"}
+    ]
+    assert internal == []
 
     # No executable spec may resolve a FIXD profile. Consequently none can
     # inherit generic ATI setup, ATZ/ATD reset, FFF2 commands or OBD requests.
-    for profile_id in expected_profiles:
-        surfaces = []
-        for stem, spec in specs().items():
-            details = spec.get("protocol_details") or {}
-            fixd = details.get("fixd_profiles") or {}
-            if profile_id in (fixd.get("profiles") or {}):
-                surfaces.append(stem)
-        assert surfaces == []
+    surfaces = [
+        stem
+        for stem, spec in specs().items()
+        if (spec.get("protocol_details") or {}).get("fixd_profiles")
+    ]
+    assert surfaces == []
 
     obd_path = ROOT / "device-specs" / "devices" / "obd2-bluetooth-adapter.yaml"
     assert "FIXD" not in obd_path.read_text(encoding="utf-8")

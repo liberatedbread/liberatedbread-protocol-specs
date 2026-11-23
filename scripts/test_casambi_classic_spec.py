@@ -491,3 +491,32 @@ def test_cloud_provisioning_methods_headers_and_revision():
     }
     assert flow[3]["method"] == "GET"
     assert flow[3]["path"] == "/fixture/<id>"
+
+
+# Vendor-app internal names this spec used to carry, kept as (length,
+# SHA-256 of the lowercased name) so the guard does not reintroduce them.
+SCRUBBED_APP_LABELS = (
+    (10, "9eed9c01c04bc2120bfd64e5c52f472641503fff6ff96eb6245234f00184358a"),
+    (18, "f5b56d016c081ca8817f29276b0749373fa41f956d3de590de499309839d042e"),
+    (12, "76e5386a2ede47115ca882ce9f62964500a69a81c0bb50de41665b3f7af2771f"),
+    (16, "b703a5153dd25cae23e9766b685afe1162de075563fbbcc2a0bfe7aa63009ad5"),
+    (8, "962209de09c51e1bf430f92edd80b57190b70dbce6c981c7f6d0e6d34dd6744e"),
+)
+
+
+def test_vendor_app_internal_names_stay_scrubbed():
+    import hashlib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    text = "".join(
+        (root / path).read_text(encoding="utf-8").lower()
+        for path in ("device-specs/devices/casambi-classic-ble.yaml", "docs/devices/casambi-classic-ble.md")
+    ).encode("utf-8")
+    hits = [
+        digest
+        for length, digest in SCRUBBED_APP_LABELS
+        for start in range(len(text) - length + 1)
+        if hashlib.sha256(text[start : start + length]).hexdigest() == digest
+    ]
+    assert hits == []

@@ -211,3 +211,20 @@ def test_cbc_decode_is_not_authenticated_and_cleanup_is_exact():
     ):
         with pytest.raises(json.JSONDecodeError):
             decode_documented_plaintext(malformed)
+
+
+def test_http_endpoints_that_write_are_advanced_like_their_commands():
+    # Any endpoint a command marked advanced posts to must itself be
+    # advanced, so a client reading http_endpoints cannot bypass the gate.
+    advanced_paths = {
+        command["path"]
+        for command in SPEC["commands"].values()
+        if command.get("advanced") and command.get("path")
+    }
+    assert {"/zeroconf/switch", "/zeroconf/switches", "/zeroconf/startup", "/zeroconf/pulse"} <= advanced_paths
+    for endpoint in SPEC["http_endpoints"]:
+        if endpoint["path"] in advanced_paths or endpoint["path"] == "/ap":
+            assert endpoint.get("advanced") is True, endpoint["name"]
+            assert endpoint.get("advanced_reason"), endpoint["name"]
+    plain = {e["path"] for e in SPEC["http_endpoints"] if not e.get("advanced")}
+    assert plain == {"/zeroconf/getState", "/device"}

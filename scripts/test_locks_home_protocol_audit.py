@@ -153,11 +153,6 @@ def test_yale_application_frames_are_not_executable_bindings():
     assert "Persist each direction's CBC state" in crypto["chaining"]
     assert "A reconnect tears down both contexts" in crypto["reconnect"]
     assert "zero-IV encryptions" not in crypto["key_installation"]
-    assert spec["device"]["identification"]["manufacturer_data"][
-        "additional_company_ids"
-    ] == [302]
-    scan = spec["device"]["discovery"]["methods"][0]["ble"]
-    assert scan["manufacturer_data"]["additional_company_ids"] == [302]
 
 
 def test_yale_secure_handshake_checksum_known_answer():
@@ -370,6 +365,11 @@ def test_switchbot_discovery_and_model_specific_layouts():
     assert commands["find_device"]["value"] == [0x57, 0x01, 0x03]
     assert "push-stop" in commands["find_device"]["description"]
     assert "0x04 to back" in commands["find_device"]["description"]
+    assert commands["find_device"]["advanced"] is True
+    assert "not a locator" in commands["find_device"]["advanced_reason"].lower()
+    assert "locate" not in commands["find_device"]
+    for press in ("bot_press", "bot_turn_on", "bot_turn_off"):
+        assert "advanced" not in commands[press]
 
 
 def test_ttlock_battery_service_parent():
@@ -455,6 +455,73 @@ def test_chamberlain_wired_generation_scope_keeps_no_pairing_requirement():
     setup_steps = spec["device"]["setup"]["methods"][0]["steps"]
     assert all("press the opener's learn button to pair" not in step["action"].lower() for step in setup_steps)
     assert "No learn-button press is needed" in setup_steps[-1]["action"]
+
+
+# Lock specs whose actuation is documented. Each carries a physical-safety
+# banner, and every characteristic command that can open the lock is advanced
+# with a reason: unlocking is the one thing a user must not trip into.
+# biokey-touchlock-fingerprint-lock and kwikset-kevo are not listed yet.
+LOCKS_WITH_SAFETY_ADVISORY = {
+    "danalock-v3-ble": (),
+    "fc-smarthome-lock": (),
+    "nuki-smart-lock": (),
+    "safetech-smart-padlock": ("unlock",),
+    "schlage-smart-locks": ("lock_unlock",),
+    "ttlock-sciener-ble": (),
+    "sesame-candyhouse-ble": (),
+    "wyze-lock-bolt": (),
+    "yale-august-ble": (),
+}
+
+
+def _all_characteristic_commands(spec):
+    result = {}
+    for service in spec.get("services") or []:
+        for characteristic in service.get("characteristics") or []:
+            result.update(characteristic.get("commands") or {})
+    return result
+
+
+@pytest.mark.parametrize("name", sorted(LOCKS_WITH_SAFETY_ADVISORY))
+def test_lock_specs_carry_a_safety_advisory_and_gate_unlock(name):
+    path = ROOT / "device-specs" / "devices" / f"{name}.yaml"
+    spec = SPECS.get(name) or yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert spec["device"]["category"] == "lock"
+    advisory = spec["device"]["safety_advisory"]
+    assert advisory["severity"] in ("warning", "danger")
+    assert advisory["summary"].strip() and advisory["detail"].strip()
+    commands = _all_characteristic_commands(spec)
+    gated = set(LOCKS_WITH_SAFETY_ADVISORY[name])
+    gated |= {command for command in commands if "unlock" in command}
+    for command in gated:
+        assert commands[command].get("advanced") is True, f"{name}.{command}"
+        assert commands[command]["advanced_reason"].strip(), f"{name}.{command}"
+
+
+def test_yale_group_company_id_is_not_a_matcher():
+    spec = SPECS["yale-august-ble"]
+    blocks = [spec["device"]["identification"]["manufacturer_data"]]
+    blocks += [
+        method["ble"]["manufacturer_data"]
+        for method in spec["device"]["discovery"]["methods"]
+        if "manufacturer_data" in method.get("ble", {})
+    ]
+    for block in blocks:
+        assert block["company_id"] == 0x01D1
+        assert 0x012E not in block.get("additional_company_ids", [])
+    assert "0x012E" in blocks[0]["description"]
+
+
+def test_chamberlain_door_toggle_is_advanced_with_a_safety_advisory():
+    spec = SPECS["chamberlain-garage-opener-secplus"]
+    advisory = spec["device"]["safety_advisory"]
+    assert advisory["severity"] == "warning"
+    assert "door_command" in advisory["summary"]
+    assert "SAFETY:" not in spec["device"]["notes"]
+    (toggle,) = [m for m in spec["bus"]["messages"] if m["name"].startswith("door_command")]
+    assert toggle["advanced"] is True
+    reason = toggle["advanced_reason"]
+    assert "crush" in reason and "door in view" in reason
 
 
 def test_kevo_gen2_doc_matches_existing_ten_second_procedure():

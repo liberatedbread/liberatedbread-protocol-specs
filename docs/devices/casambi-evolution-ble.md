@@ -35,7 +35,7 @@ ECDH/CTR packets.
 FE4D and company `0x03C3` are only family-level facts shared with Classic;
 **neither Casambi spec is independently auto-selected from them.** A generic
 matcher cannot apply the generation field, so the user manually selects the
-Casambi family and intended generation. After connecting, NodeInfo must confirm
+Casambi family and intended generation. After connecting, the node-information packet must confirm
 protocol 10 or 11 before any key-exchange write. One scan must never select both
 specs.
 
@@ -46,7 +46,7 @@ are post-selection validation, not a generic discovery matcher. The six-byte
 network id identifies the mesh; it is not a public IEEE OUI.
 
 The legacy `5a ca` marker selects another UUID scheme. `ca 5c` information
-adverts are a separate authenticated-advert mechanism, not NodeInfo or a session
+adverts are a separate authenticated-advert mechanism, not the node-information packet or a session
 replacement.
 
 ## Initial setup and offline boundary
@@ -118,18 +118,18 @@ per model rather than guessed.
 
 | Characteristic | Role |
 |----------------|------|
-| `c9ffde48-ca5a-0001-ab83-8f519b482f77` | NodeInfo, ECDH/auth, encrypted invocations and state notifications |
+| `c9ffde48-ca5a-0001-ab83-8f519b482f77` | node-information packet, ECDH/auth, encrypted invocations and state notifications |
 | `c9ffde48-ca5a-0002-ab83-8f519b482f77` | Time sync, unpair, hardware configuration and diagnostics |
 | `c9ffde48-ca5a-0003-ab83-8f519b482f77` | Advanced OTA transfer and block notifications |
 
 The new UUID scheme has just those three characteristics. Evolution requests ATT
 MTU 158 and normally writes without response, while respecting the negotiated
-MTU and NodeInfo limit. No fixed characteristic command is exposed to the generic
+MTU and the node-information packet's limit. No fixed characteristic command is exposed to the generic
 mobile renderer: encryption, counters, targets and fixture context are mandatory.
 
 ## Evolution session
 
-1. **Read NodeInfo** on 0001. It is exactly 23 bytes for this profile:
+1. **Read the node-information packet** on 0001. It is exactly 23 bytes for this profile:
 
    | Offset | Type | Meaning |
    |---:|---|---|
@@ -152,7 +152,7 @@ mobile renderer: encryption, counters, targets and fixture context are mandatory
    take the 32-byte big-endian ECDH X coordinate, reverse it, SHA-256 it, then
    XOR the digest's two 16-byte halves.
 4. Send type-4 authentication as encrypted packet counter 1:
-   `04 | key_id | SHA-256(network_key || NodeInfo_nonce || transport_key)`.
+   `04 | key_id | SHA-256(network_key || node_info_nonce || transport_key)`.
 5. Verify type-5's role and, for an accepted role, its digest:
    `SHA-256(network_key || client_pubX_LE || client_pubY_LE || transport_key)`.
    Only then send type-7 invocations, starting with counter 2.
@@ -266,7 +266,7 @@ has no network-level rollback.
 
 `scripts/test_casambi_evolution_spec.py` uses PyYAML only to read the spec and
 otherwise transcribes P-256, AES-128, CTR, CMAC, invocation and state algorithms
-with the Python standard library. It checks fresh NodeInfo, both ECDH directions,
+with the Python standard library. It checks a fresh node-information packet, both ECDH directions,
 transport key, auth digest, outgoing/incoming encrypted packets, every declared
 opcode/target, public-fixture state, tampering and malformed inputs. AES and CMAC
 are also anchored to standard primitive vectors. No hardware or cloud operation

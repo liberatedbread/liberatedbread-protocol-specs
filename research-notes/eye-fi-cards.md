@@ -115,7 +115,7 @@ Bonjour service or card-discovery exchange.
 settings file: `reqm`, `reqc`, `rspm`, `rspc`. Records are 16,384-byte
 zero-padded buffers. An information request is ASCII `o` plus a one-byte
 subcommand. The one-byte write shape is ASCII `O`, subcommand, length `01`,
-value, but that shape is **not** evidence of a generic key-writing SetToken
+value, but that shape is **not** evidence of a generic key-writing
 operation.
 
 Sequence handling has a reset trap. Read `RSPC`; when it is `0x00000000` or
@@ -141,11 +141,11 @@ project:
 | X2 5.2011 | Returns existing key | Same boundary as 5.2010 |
 | Mobi Pro 5.3008 | Returns existing key | No dump obtained in the reported command/reboot/slot tests |
 | 4.5166 | Not established | Existing-dump extraction and `?` trigger are static-analysis-derived only; no live 4.x card tested |
-| 5.0020 | No key/read | Uppercase `O 0xfd` is rejected; no generic SetToken, dump or offline-activation route is established |
+| 5.0020 | No key/read | Uppercase `O 0xfd` is rejected; no generic key write, dump or offline-activation route is established |
 
 Do not generalize these results to Pro X2, plain Mobi or any unlisted build.
 In particular, 5.0020 rejects the uppercase write and offers no lowercase key
-read, so neither the generic write shape nor a guessed SetToken invocation is
+read, so neither the generic write shape nor a guessed key-writing invocation is
 an offline activation answer.
 
 Formatting can remove `EyeFi/` and its control files. Recreating the mailbox

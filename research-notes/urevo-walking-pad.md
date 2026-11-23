@@ -28,14 +28,14 @@ physical remote. Vendor is active and launching new models (CyberPad,
   recovered from the APK's Dart AOT snapshot — see urevo-walking-pad.yaml.
   The app routes pads to one of THREE protocol classes per model:
   standard FTMS (service 0x1826); an "FT" proprietary class (service
-  0xFFF0, write 0xFFF2 / notify 0xFFF1, BluePackA frames with command
+  0xFFF0, write 0xFFF2 / notify 0xFFF1, Frame-A frames with command
   class 0x44); and UREVO's own "UR" class (matched by name prefix
-  URTM*/SYWP*, BluePackA frames with command class 0x53 — start/stop/
-  pause/resume/set-speed/config queries recovered — plus a BluePackB
+  URTM*/SYWP*, Frame-A frames with command class 0x53 — start/stop/
+  pause/resume/set-speed/config queries recovered — plus a Frame B
   5A A5 frame family, body not yet mapped). IMPORTANT: 0xFFF0 belongs to
   the FT class only. The UR class has NO GATT service/characteristic UUID
   constants anywhere in the binary (verified 2026-08-12 by full
-  string-table enumeration of libapp.so); the app binds its endpoints by
+  string-table enumeration of the compiled Dart library); the app binds its endpoints by
   GATT enumeration and/or per-model cloud config, so the UR UUIDs must be
   captured from hardware (HCI snoop) — do not guess them. No pairing/auth
   on any control path.
@@ -46,7 +46,7 @@ physical remote. Vendor is active and launching new models (CyberPad,
   (APKPure XAPK)
 - **XAPK SHA-256**: `c446b0200ffb27e7bed720293dab5ad4bbe79d9008635673b363239821a4ab63`
 - Flutter app (correction: the earlier triage said "not Flutter" — wrong;
-  UI/logic are Dart AOT in `config.armeabi_v7a.apk`'s `libapp.so`,
+  UI/logic are Dart AOT in `config.armeabi_v7a.apk`'s compiled Dart library,
   Dart 3.4.3; the 7 DEX in the base APK are just the host + plugins, BLE
   via flutter_reactive_ble). Decompiled 2026-08-10 with a custom snapshot
   parser + capstone (workspace/static/urevo-walking-pad/analysis/).
@@ -57,7 +57,7 @@ physical remote. Vendor is active and launching new models (CyberPad,
 - UR-class GATT endpoints: unknown — no UUID constants in the binary
   (0xFFF0 is the FT class's service, not the UR class's). Needs a
   hardware capture (HCI snoop) of a URTM*/SYWP* pad; do not guess.
-- FTMS vs custom: BOTH, per model (URTreadmill_* vs FTTreadmill_* classes,
+- FTMS vs custom: BOTH, per model (UR vs FTMS treadmill class families,
   same numeric model codes). Resolved.
 - Pairing token / handshake: none on the control path. Resolved.
 - Stats sync: app-side + cloud; local control never touches the cloud.

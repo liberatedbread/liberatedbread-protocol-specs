@@ -50,7 +50,7 @@ those bytes and emit lowercase hex. Do not hash ASCII hex text. The card MAC is
 The Mobi placeholder decodes to 16 zero bytes; it is legacy behavior, not a
 recommended secret. Mobi Pro infrastructure mode can use its real existing
 upload key. Direct lowercase `o 0xfd` recovery is reported only for Mobi Pro
-5.3008 (and X2 5.2010/5.2011 for X2 profiles), never as a generic SetToken or
+5.3008 (and X2 5.2010/5.2011 for X2 profiles), never as a generic key-writing or
 offline-activation operation.
 
 StartSession alone does not authenticate the card. Verify the second credential
@@ -109,7 +109,7 @@ For an already-configured card, back it up and read its existing receiver and
 network configuration. X2 and Mobi Pro infrastructure profiles need the owner
 upload key. Read the exact firmware first and use only the qualified direct or
 dump route below; on 5.0020 or an unlisted build, stop rather than attempting a
-generic SetToken. A historical `O 0x06` mounted-card record may allow listener
+generic key write. A historical `O 0x06` mounted-card record may allow listener
 provisioning, but it is not first-party or hardware-verified; the spec does not
 automate it.
 
@@ -137,7 +137,7 @@ The public configuration utility uses four 16384-byte zero-padded files under
 
 An information request is ASCII `o` plus a one-byte subcommand. The one-byte
 write shape is ASCII `O`, subcommand, length `01`, value, but that does not
-prove a generic key-writing SetToken operation. For each transaction, read
+prove a generic key-writing operation. For each transaction, read
 `RSPC`; if it is zero **or `0xffffffff`**, use `0x1234` as the next `REQC`.
 Otherwise increment the previous response as u32. Never wrap `0xffffffff` to
 zero: firmware treats sequence zero as no request. Poll `rspc` up to 50 times
@@ -155,7 +155,7 @@ firmware before attempting `0xfd`; existing-key recovery is not generic:
 | X2 5.2010 / 5.2011 | Returns existing key | Direct read is the preferred route |
 | Mobi Pro 5.3008 | Returns existing key | Direct read works; no dump was obtainable in the reported tests |
 | 4.5166 | Not established | Existing-dump extraction and `?` trigger are static-analysis-derived only; no live 4.x test |
-| 5.0020 | No key/read | Uppercase `O 0xfd` is rejected; no generic SetToken, dump or offline activation |
+| 5.0020 | No key/read | Uppercase `O 0xfd` is rejected; no generic key write, dump or offline activation |
 
 These are upstream **reported** results, not this project’s hardware
 verification. Do not infer behavior on Pro X2, plain Mobi or unlisted builds.
