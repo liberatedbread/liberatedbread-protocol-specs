@@ -748,3 +748,12 @@ def test_admin_url_is_real_local_page_with_explicit_plaintext_fallback(july):
     assert "installer-backed CA trust" in admin["trust"]
     assert "authenticates neither" in admin["trust"]
     assert admin["verification"] == "reported"
+
+
+def test_heating_hazard_is_a_safety_advisory_not_a_notes_paragraph(july):
+    device = july["device"]
+    advisory = device["safety_advisory"]
+    assert advisory["severity"] == "warning"
+    assert "heating element" in advisory["summary"]
+    assert "10020" in advisory["detail"] and "Stop" in advisory["detail"]
+    assert "start a real heating element" not in device["notes"]
