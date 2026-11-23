@@ -462,6 +462,7 @@ LOCKS_WITH_SAFETY_ADVISORY = {
     "nuki-smart-lock": (),
     "safetech-smart-padlock": ("unlock",),
     "schlage-smart-locks": ("lock_unlock",),
+    "ttlock-sciener-ble": (),
     "sesame-candyhouse-ble": (),
     "wyze-lock-bolt": (),
     "yale-august-ble": (),
