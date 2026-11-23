@@ -362,3 +362,9 @@ def test_model_scope_and_unverified_boundaries(spec):
     unknowns = "\n".join(spec["remaining_unknowns"])
     for subject in ("ASYNC", "Pairing", "temperature range", "Timer", "MessageError"):
         assert subject.lower() in unknowns.lower()
+
+
+def test_unit_change_is_advanced_and_not_for_a_running_cook(commands):
+    command = commands["set_temperature_unit"]
+    assert command["advanced"] is True
+    assert "not cooking" in command["advanced_reason"]
