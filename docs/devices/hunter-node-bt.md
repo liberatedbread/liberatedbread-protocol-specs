@@ -70,7 +70,7 @@ value. Expected packet type/result fields are validated separately.
 The login sequence is:
 
 1. Write type 1 plaintext `01 00 00 00 00 00`, which becomes
-   `ad 00 00 00 00 00 00`.
+   `ad 00 00 00 00 00`.
 2. Receive type 2 with a random challenge; reject an ambiguous challenge as
    described above.
 3. Write type 3 with the same challenge and `pin XOR random` in the PIN field,

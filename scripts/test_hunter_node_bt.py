@@ -277,3 +277,40 @@ def test_guarded_type3_encoder_accepts_unambiguous_response():
         encode_login_response(0x0202, 0x0302)
     with pytest.raises(ValueError, match="ambiguous PIN challenge"):
         encode_login_response(0, 0xAC00)
+
+
+def test_spec_pin_vectors_are_six_byte_transforms_of_their_plaintext():
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    spec = yaml.safe_load((root / "device-specs/devices/hunter-node-bt.yaml").read_text(encoding="utf-8"))
+    vectors = spec["protocol_details"]["pin_authentication"]["test_vectors"]
+    checked = 0
+    for name, vector in vectors.items():
+        plain = vector.get("plain", vector.get("plaintext"))
+        if plain is None or len(bytes.fromhex(plain)) == 1:
+            continue  # the single-byte ac collision example
+        plain_bytes = bytes.fromhex(plain)
+        wire = bytes.fromhex(vector["wire"])
+        assert len(plain_bytes) == 6, name
+        assert len(wire) == 6, name
+        assert wire == transform(plain_bytes), name
+        checked += 1
+    assert checked == 6
+    docs = (root / "docs/devices/hunter-node-bt.md").read_text(encoding="utf-8")
+    assert "ad 00 00 00 00 00 00" not in docs + str(spec)
+
+
+def test_valve_control_carries_a_safety_advisory():
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    spec = yaml.safe_load((root / "device-specs/devices/hunter-node-bt.yaml").read_text(encoding="utf-8"))
+    advisory = spec["device"]["safety_advisory"]
+    assert advisory["severity"] == "warning"
+    assert "disconnect" in advisory["detail"] and "backstops" in advisory["detail"]
+    assert not spec["commands"]["stop_all"].get("advanced")
