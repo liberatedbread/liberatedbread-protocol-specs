@@ -380,3 +380,21 @@ def test_wheellog_other_brand_scales_and_shared_transport():
     assert "Deliberate manual selection" in text
     assert "FFE0/FFE1 alone" in text
     assert "Gotway" in doc("euc-wheellog-ble")
+
+
+# Rideable vehicles and bare motor controllers whose open BLE channel can
+# change how the vehicle drives. Each must carry a device.safety_advisory
+# (not only a SAFETY paragraph in notes, which no client renders).
+RIDEABLE_WITH_OPEN_CONTROL = ("euc-wheellog-ble",)
+
+
+def test_rideable_open_control_specs_carry_a_safety_advisory():
+    import yaml
+
+    for name in RIDEABLE_WITH_OPEN_CONTROL:
+        device = yaml.safe_load(spec(name))["device"]
+        advisory = device.get("safety_advisory")
+        assert advisory, f"{name}: missing device.safety_advisory"
+        assert advisory["severity"] in ("warning", "danger"), name
+        assert advisory.get("acknowledge_required") is True, name
+        assert "stationary" in advisory["detail"], name
