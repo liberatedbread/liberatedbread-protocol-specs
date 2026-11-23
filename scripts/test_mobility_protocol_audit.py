@@ -389,6 +389,7 @@ RIDEABLE_WITH_OPEN_CONTROL = (
     "euc-wheellog-ble",
     "ninebot-segway-ble",
     "vesc-ble-uart",
+    "xiaomi-m365-ble",
 )
 
 
@@ -402,3 +403,22 @@ def test_rideable_open_control_specs_carry_a_safety_advisory():
         assert advisory["severity"] in ("warning", "danger"), name
         assert advisory.get("acknowledge_required") is True, name
         assert "stationary" in advisory["detail"], name
+
+
+def test_m365_register_writes_are_advanced():
+    """A T=0x03 register write changes the scooter mid-ride; reads stay plain."""
+    import yaml
+
+    data = yaml.safe_load(spec("xiaomi-m365-ble"))
+    commands = data["services"][0]["characteristics"][0]["commands"]
+    writes = {k: v for k, v in commands.items() if v["value"][4] == 0x03}
+    assert "cruise_on" in writes
+    for name, command in commands.items():
+        if name in writes:
+            assert command.get("advanced") is True, name
+            assert command.get("advanced_reason"), name
+        else:
+            assert not command.get("advanced"), name
+        frame = bytes(command["value"])
+        checksum = (sum(frame[2:-2]) ^ 0xFFFF) & 0xFFFF
+        assert frame[-2:] == checksum.to_bytes(2, "little"), name
