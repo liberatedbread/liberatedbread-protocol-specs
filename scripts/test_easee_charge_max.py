@@ -450,3 +450,16 @@ def test_command_acceptance_is_not_transport_success():
     assert accepted.get("code") == 1
     assert refused.get("code") != 1
     assert refused["Comment"] == "command 41 not supported"
+
+
+def test_enabling_the_charger_is_advanced_and_disabling_is_not():
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[1] / "device-specs" / "devices" / "easee-charge-max.yaml"
+    commands = yaml.safe_load(path.read_text(encoding="utf-8"))["commands"]
+    assert commands["set_charger_enabled"]["advanced"] is True
+    assert "current" in commands["set_charger_enabled"]["advanced_reason"]
+    assert commands["set_dynamic_charger_current"]["advanced"] is True
+    assert not commands["set_charger_disabled"].get("advanced")
