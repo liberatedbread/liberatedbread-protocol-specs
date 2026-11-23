@@ -106,7 +106,8 @@ flattened into this file.
 ## November 23: devices going away, worth investigating
 
 Recorded 2026-11-23 from the sweep that followed Google's Fitbit Aria cutoff
-(no pairing or re-pairing of Aria and Aria 2 from 2026-11-28). Three searches
+(no pairing or re-pairing of Aria and Aria 2; see the note on the date below).
+Three searches
 ran in parallel (smart scales; news of shutdowns between September 2026 and
 mid-2027; Wi-Fi devices that call home and can be served from the LAN), and a
 second, skeptical pass then re-loaded a primary source for every row. Where
@@ -123,11 +124,19 @@ threads were read through a summarising tool rather than verbatim.
 **Orphaned is not the bar.** A device whose vendor is still running is often
 the better target: the app still pairs, the cloud still answers, and a capture
 taken now is one nobody can take after the switch-off. The Aria 2 is the
-lesson: nothing about its wire protocol was ever written down, and after
-2026-11-28 the pairing exchange can no longer be observed at all. So "the
-vendor is still active" is never a reason to park a row here; it is the
-reason for
+lesson: nothing about its wire protocol was ever written down, and by the
+time anyone looked the vendor said pairing had already ended, so the pairing
+exchange may never be observable again. So "the vendor is still active" is
+never a reason to park a row here; it is the reason for
 [Capture while the service still runs](#capture-while-the-service-still-runs).
+
+**The cutoff date moved while this was being written.** Google's help page
+for the scales read "Starting November 28, 2026, with the release of app
+version 5.12" when fetched at 05:11 UTC on 2026-11-23, and "Starting
+November 9, 2026" when fetched again at 23:40 UTC the same day; nothing else
+in the sentence changed. Read it as: pairing and re-pairing of the Aria and
+Aria 2 have already ended, and every "before the 28th" plan is void. Paired
+scales "will continue to sync" by the same page, which names no end date.
 
 ### Fitbit Aria family: what is still open
 
@@ -137,22 +146,86 @@ ones worth an owner's hour, cheapest first:
 
 | Device | Open question | Experiment that settles it |
 |--------|---------------|----------------------------|
-| Aria (FB201) | Does a freshly set-up scale complete register, validate and its first empty upload against a purely local server on every firmware? Reported on 35 and 37, setup request accepted on 39, one unexplained failure on 38; no log of the exchange has been published. | Run the local setup with a logging server; keep the full request and reply bytes for all three calls, scrubbed. |
+| Aria (FB201) | Does a freshly set-up scale complete register, validate and its first empty upload against a purely local server on every firmware? Reported on 35 and 37, setup request accepted on 39, one unexplained failure on 38. Twenty public 2016 captures (firmware 37) show that sequence against the vendor; no log of it against a local server has been published. | Run the local setup with a logging server; keep the full request and reply bytes for all three calls, scrubbed. Setup mode is a one-way door (see below): only on a scale that is already unpaired or must change network. |
+| Aria (FB201) | Does a battery re-insert on firmware 38 and 39 keep the stored Wi-Fi key, and does reaching `SETUP ACTIVE` erase the stored network at once? One log cannot tell a wiped key from a weak signal. This decides how dangerous a battery change is. | On a spare or already-unpaired scale: pull a battery, do not press, and see whether it rejoins. |
 | Aria (FB201) | What does the scale do when `/scale/validate` answers 404 or `F`? Two 2026 servers have no such route. | Answer each way once and note the display and the next request. |
 | Aria (FB201) | Zero users, or three to eight users, in a reply from a local server: accepted, and what does the display show? Evidence stops at two. | Reply with 0, 3 and 8 user records in turn. |
 | Aria (FB201) | Where the 16-byte `auth_code` comes from, and whether it changes when setup is re-run with a new token. | Compare the upload header before and after a second setup. |
 | Aria (FB201) | Record order in a multi-record upload (two write-ups disagree), impedance unit, and whether guest readings carry impedance. | Weigh several times offline, then log one upload. |
-| Aria (FB201) | Will Google's scale-facing endpoints keep answering for already-paired scales after 2026-11-28? Google names no end date. | Passive: watch whether a paired scale still shows the check mark. |
+| Aria (FB201) | How long will Google's scale-facing endpoints keep answering for already-paired scales? Google names no end date. | Passive: watch whether a paired scale still shows the check mark. |
 | Aria 2 (FB202) | Everything on the wire: advertised name and services, upload hostname, TLS and certificate handling. Nothing is public. | Read-only BLE scan; router DNS log and flow capture of one weigh-in. None of it touches the pairing. |
-| Aria 2 (FB202) | Does the in-app Wi-Fi change still work on app 5.12 and later, and does it need anything from Google's servers? | Android HCI snoop log while changing the network on a still-paired scale. Time-critical. |
+| Aria 2 (FB202) | Does the in-app Wi-Fi change still work on app 5.12 and later, and does it need anything from Google's servers? | Android HCI snoop log while changing the network on a still-paired scale. Do it now: the control may already be gone. |
+| Aria 2 (FB202) | Is the pairing block enforced in the app, on the server, or both? | Try pairing a scale that is already unpaired with an app build older than 5.12. A failed attempt costs nothing; never unpair a working scale to test it. |
+| Aria 2 (FB202) | Does it reuse Fitbit's tracker-era Bluetooth service? The academic work on trackers never mentions a scale. | Read-only BLE scan for the tracker service `adabfb00-6e7d-4601-bda2-bffaa68956ba`. |
 | Aria 2 (FB202) | Does a paired scale rejoin a new router that reuses the old network name and passphrase? Expected, untested. | Clone the network on a spare access point. |
 | Aria Air (FB203) | Can a client write its own key after a reset, with no vendor app? One unreplicated report. | Reset a scale that is not needed day to day, write a key, weigh. |
 | Aria Air (FB203) | Scaling in kg mode: 0.01 or 0.005 per unit? The one public integration and the one report disagree. | Weigh a known mass in lb, st and kg and compare plaintext bytes. |
 
-Further local routes for all three models (the firmware-update channel and
-side-loading, serial and debug access, hardware taps) were still being
-researched when this section was written; their results are appended below
-once checked.
+### Fitbit Aria family: every other local route, checked
+
+A second research pass asked what else an owner can do: connect directly,
+use a debug port, side-load firmware, or fall back to hardware. Each route
+was then re-checked by a skeptic against its primary source, with the brick
+risk re-rated. "Nobody" means no public report of anyone doing it on this
+model. Routes marked **do not** are recorded so nobody rediscovers them the
+hard way.
+
+**Original Aria (FB201).** It has no Bluetooth at all, and on the home
+network it is a client only: awake for seconds, with no listening port ever
+observed.
+
+| Route | Evidence | Needs | Risk and what it costs |
+|-------|----------|-------|------------------------|
+| DNS override plus a LAN server | Demonstrated on firmware 35, 37 and 39 by five or more independent deployments. | A resolver you control for the one name and a small always-on server. | None. **Needs no setup mode**, so it is the only route that leaves the stored network and token alone and stays reversible. The reply sets the display unit and user table. Hand the special resolver to the scale only (a per-device DHCP option) rather than to the whole house. |
+| The same, relaying to the vendor | Demonstrated (a 2024 write-up and a 2024 container). | As above, plus the vendor's current address. | None. Logs locally while a still-paired scale keeps syncing. Other household members' guest readings ride in the same request. |
+| Destination NAT of port 80, or a dedicated access point or travel router that does its own DNS | Inferred from the plain-HTTP design; pieces demonstrated separately, the bundle by nobody. | A gateway you control. A dedicated access point can also keep the 802.11b rates new routers drop. | None. Covers the "I cannot change DNS on this network" case, which is nearly the only case firmware would otherwise be wanted for. |
+| New router with the old network name and passphrase | Inferred (a firmware 39 log shows a scan by stored name); nobody has published doing it. | Same name, security mode and passphrase; 802.11b rates on. | None, and nothing is lost if it fails. Try this before setup mode. |
+| An ESP32 that is access point, DNS and server in one | Author-reported on firmware 37, one user, no session log. | Build it yourself; then the setup request below. | None to the scale, but it sets pounds unless the source is edited, recognises everyone as one user, and needs setup mode. |
+| Direct connection in setup mode: one HTTP request to the scale's own open access point | Demonstrated on 35 and 37; request accepted on 39; one unexplained failure on 38. Nobody reports doing it from a phone. | A laptop joined to the `Aria XXXXXX` network. | **One-way door.** Reaching setup mode on a configured scale takes a deliberate press that discards the stored network, and the request replaces the token. The vendor link cannot be recreated. Have the DNS override and server answering first. The passphrase crosses an open network in clear. |
+| Serial console on the internal UART1 header | Demonstrated on firmware 39 by two people: 115200 8N1; prints weight, impedance, body fat and the user table at each weigh-in. | Case open; wires soldered to unpopulated holes; the logic level is published nowhere, so measure first. | Diagnostics only: **no command sets Wi-Fi or the server**, so it cannot redirect the scale. The partial help list also names writes to identity, factory and calibration data that nobody has documented running. The glass is a body-contact electrode on a battery-isolated product: anything wired to the board must be battery powered or isolated while someone stands on it. |
+| Listen-only logger on the console's transmit line | Nobody has built it; the log content is shown on firmware 39 only. | Case open, two wires, a parser for one firmware's format. | None if it only listens. Fully local readings even if every network route fails. |
+| Firmware update triggered by the server's reply | The channel is real: plain HTTP, fetched from whatever answers for the name. A header-only probe on 2026-11-23 found the vendor's image endpoint still answering for versions 35, 38 and 39 (33 gone). | Nothing an owner should supply. | **Do not.** Nobody has ever sent the update flag to a real scale from a local server. A bad image on a sealed scale has no demonstrated way back. This is why a local server must always answer "no update". |
+| Side-loading a modified image over that channel | Nobody. A 2015 security team tried, reported the update process well protected, and published no follow-up. No public parser, no located integrity field, no located hostname string. | Reverse engineering that has not been done. | **Not available.** And mostly unnecessary: the redirect routes above already do what a patched image would. |
+| The Wi-Fi module's boot-ROM download mode, or JTAG | Chip capability from the module's datasheet; the board carries a labelled switch and pads. Never used on an Aria. | Case open; a valid image, which does not exist in a form that flow can program; no read-back is documented. | **Do not** on a scale you want: the documented flow begins with a full erase and there is no public image to restore. |
+| Replace the electronics with a load-cell amplifier | Generic technique; nobody on an Aria. Wire colours unpublished. | Case open, soldering, calibration weights. | Last resort for a dead board. Loses the display, user recognition and body fat. |
+| Nothing: use it as a plain scale | Vendor-documented. | Nothing. | It weighs and shows `NO SYNC`. No history. |
+
+Two facts the same pass added to the protocol record: the scale's DHCP host
+name is `GainSpan` plus six hex digits (one unit, firmware 37, 2016
+captures), a usable hint for finding it on a LAN; and in those captures the
+vendor's own reply ended in tail words 0, 0, 0, where every working local
+server sends 0, 3, 0. Both forms have been accepted by scales; which the
+firmware actually checks is open.
+
+**Aria 2 (FB202).** Bluetooth is its provisioning channel only: by the
+vendor's own description weigh-ins travel over Wi-Fi to the cloud, so a
+phone connecting to a paired scale should not expect to read a weight. It
+has no setup access point and no web page.
+
+| Route | Evidence | Needs | Risk and what it costs |
+|-------|----------|-------|------------------------|
+| New router with the old network name and passphrase | Ordinary Wi-Fi behaviour; untested on this model. | A matching network. | None. The first thing to try at a router change. |
+| Capture the in-app Wi-Fi change | Method inferred; the control is vendor-documented, and whether it still works is unknown. | Android HCI snoop log, router DNS and flow log. | None; read-only. The single dataset that says whether anyone can ever re-provision this scale without Google. |
+| Re-provision over Bluetooth with your own client | Nobody; no public GATT table. | The unknown exchange, and possibly a secret only the vendor's servers issue. | Unknown, and a botched write can no longer be repaired by re-pairing. Research direction only. |
+| DNS override plus a LAN server | Works on the original Aria; explicitly untested here, and the two FB201 projects say this model is unsupported. | Hostname, TLS behaviour and the whole upload protocol: all unknown. | None for a passive look. Blocked on the protocol, not on risk. |
+| Debug pads | The FCC internal photograph shows an ST ARM microcontroller, a separate Macronix flash chip and an unlabelled test-pad cluster. The radio chip is unidentified. Nobody has connected to anything. | Case open, fine wiring, a debug probe. | Unknown. Production microcontrollers of this family usually have read-out protection; **do not force it off**: that mass-erases, and no image exists to restore. A clip-on read of the flash chip is non-destructive; what it holds is unknown. |
+| Firmware over Bluetooth, as academics did on Fitbit trackers | Shown only on trackers, only in their unencrypted mode. A 2017 device would need a per-device key no owner can obtain. | That key, the image format, a tool chain. None public. | **Not available.** |
+| Firmware over Wi-Fi | Nobody; no update address for this model is documented anywhere. | Nothing exists to try. | **Not available.** |
+| Replace or piggyback the load cells | Four conventional cells are visible in the FCC photograph; the retrofit is generic and undemonstrated here. | Case open, soldering, calibration. | Cutting in is one-way and ends the Fitbit function. Tapping the cells without cutting keeps the board alive but is bench work nobody has shown. |
+
+**Aria Air (FB203).** Bluetooth only: there is no server to redirect. The
+safest move for an owner whose scale works is to leave the pairing alone.
+
+| Route | Evidence | Needs | Risk and what it costs |
+|-------|----------|-------|------------------------|
+| Capture the key the vendor app writes at setup | Demonstrated by one party (hardware H01, firmware A16, October 2026), with a published parser. Not reproduced. | Android HCI snoop log of an in-app setup. | The published procedure **starts by removing the scale from the account and resetting it**, then depends on the vendor app completing a fresh setup, which has a public history of failing. Failure state: unpaired, with an app that will not re-pair. |
+| Write your own key after a reset | One report (October 2026, one unit, firmware not stated), relayed from an AI assistant's analysis by its poster. Not reproduced. | A reset, then one GATT write. | Ends the vendor pairing. Whether a second write is accepted once a key is set is untested, which is both a possible shortcut and a possible hazard. |
+| Read without the key | Identification demonstrated by two parties; a step-on flag by one. | Any BLE scanner. | None. Never yields the weight. |
+| Read the display with a phone camera | Demonstrated by one party: an Apache-2.0 Android app whose author tested it only on this scale; kilograms only. | A phone, and a manual step per weigh-in. | None. No pairing involved. |
+| Firmware over the air | The scale exposes an update service under Nordic's legacy DFU identifier on a Telink chip; nothing about it is public. The stock Telink update service that the custom-firmware tools need is absent from the one published listing. | Nothing an owner should supply. | **Do not write to that service.** Recovery: none known. |
+| The chip's single-wire debug port | Pads labelled for it are visible in the FCC photograph, on the face of the module that is soldered against the main board. No public programmer lists this chip as tested. | Lifting the module or identifying an edge pin nobody has mapped. | Unknown. Not a route today. |
+| The link between the weighing controller and the radio module | Inferred from the two-chip layout; nobody has probed it. | Case open (a one-piece glass top, no published way in). | If the weight crosses that link before encryption, a listen-only tap would read it without the key. Open question, not a route. |
+| Reuse the four load cells | Generic technique; nobody on this model. | Case open, soldering, calibration. Unsolder rather than cut, and record the wiring. | Ends the Fitbit function; starts uncalibrated. |
 
 ### Ready for a spec
 
@@ -200,9 +273,9 @@ the owner's machine: MAC, serial, tokens, network name, account ids.
 
 | Device | Window | What to get now | What it settles |
 |--------|--------|-----------------|-----------------|
-| **Fitbit Aria 2** (FB202) | Days: pairing ends 2026-11-28, and whether the in-app Wi-Fi change survives is unknown. | An Android Bluetooth HCI snoop log of a Wi-Fi network change on a still-paired scale; a read-only BLE scan; the router's DNS log and a flow capture of one weigh-in. Do not unpair or reset to get any of it. | Whether third-party Wi-Fi provisioning is possible at all, the upload hostname, and whether TLS interception is even worth trying. Turns the research note into an identify-only spec. |
-| **Fitbit Aria** (FB201), still paired | Unknown: Google promises no end date for the scale-facing endpoints. | A passive LAN capture of the scale talking to the real server. It is plain HTTP, so a mirror port or the router's capture is enough; nothing needs redirecting. Keep the full reply bytes. | Things no local server can answer: the real server's middle tail word (two write-ups disagree), what three to eight user records look like, name padding, the daily check-in cadence, and the update branch if one is ever offered. |
-| **Fitbit Aria Air** (FB203) | Open-ended, but tied to one vendor app. | An HCI snoop log of the vendor app pairing a scale, and of a second phone or a reinstall connecting to an already-paired scale. | Where the 16-byte key comes from and whether the app ever re-sends it, which decides whether an owner can obtain their key without a reset. |
+| **Fitbit Aria 2** (FB202) | Possibly already shut: Google now dates the end of pairing to 2026-11-09, and whether the in-app Wi-Fi change survives is unknown. | An Android Bluetooth HCI snoop log of a Wi-Fi network change on a still-paired scale; a read-only BLE scan; the router's DNS log and a flow capture of one weigh-in. Do not unpair or reset to get any of it. | Whether third-party Wi-Fi provisioning is possible at all, the upload hostname, and whether TLS interception is even worth trying. Turns the research note into an identify-only spec. |
+| **Fitbit Aria** (FB201), still paired | Unknown: Google promises no end date for the scale-facing endpoints. | A passive LAN capture of the scale talking to the real server. It is plain HTTP, so a mirror port or the router's capture is enough; nothing needs redirecting. Keep the full reply bytes. | Things no local server can answer: the real server's tail words today (2016 captures show 0, 0, 0; one write-up says the middle one is 3), what three to eight user records look like, name padding, the daily check-in cadence, and the update branch if one is ever offered. |
+| **Fitbit Aria Air** (FB203) | Open-ended, but tied to one vendor app. | An HCI snoop log of a second phone or a reinstall connecting to an already-paired scale, plus one weigh-in. If you ever set the scale up afresh for any other reason, log that too. | Whether the app ever re-sends the 16-byte key, or fetches it from the account, which decides whether an owner can obtain their key without a reset. Do not reset a working scale just to capture it. |
 | **iHealth HS5 / HS5S, AM3 / AM3S, BP3** | Short and undated: the Legacy app "is being phased out". | With the legacy app still installed: an HCI snoop log of Wi-Fi setup, a capture of a same-network weigh-in (the SDK documentation hints at UDP) and of an offline upload. | The whole wire format; today nothing is public. |
 | **Withings Wireless Scale (WS-30), Smart Body Analyzer (WS-50), Smart Kid Scale, and the other end-of-support products** | Withings promises no notice before a cloud shutdown. | Whether stock firmware validates the server certificate (a self-signed interception test), and one full upload exchange against the live service. | Whether a DNS override can ever work without flashing patched firmware. This is the one unpublished fact that decides the route. |
 | **Withings Body+** (WBS05) and siblings | As long as Withings' legacy API keeps issuing the association secret. | Export the association secret and the user list for your own scale now. | Without the secret the documented BLE read cannot authenticate; with it the scale is readable locally for good. |
