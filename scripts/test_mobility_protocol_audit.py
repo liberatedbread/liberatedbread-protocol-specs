@@ -330,6 +330,22 @@ UREVO_SCRUBBED_LABELS = (
     (9, "3f65b7c72bce006884851ff020d091e826050d471ec22e59a3a2e3b4d91384b3"),
     (23, "d70aa0a7066a83514acb1f3af8574329db210e0f8e6c48f87c7e2dcee9916649"),
     (12, "f51135792051a9aafe634d2aee6a703b940f6eaffe5e5b9dafc304e68a2faade"),
+    # Further app class, accessor and enum labels scrubbed from the UREVO
+    # research notes.
+    (12, "5f010abb00ee2d42ce56d22f5468e0a74da3102e4ec8975db24c37a004c5190f"),
+    (12, "83e23d4fc529538deb25c7d13601cb89f669a2faf0fa4470cb65f64d506f085e"),
+    (13, "c0ad557ccf9d18de0c3b2381c059e2891f6b2ec083608f6f9f51682f391cdb47"),
+    (12, "fe8b24168ae4114d058e4bd9406db61964f8be5ee4a28a44de7b45c72516e713"),
+    (11, "23fe6292098d953e2394360f50d5f9cd6080d821dfc4b21ecb93fbe24007c09e"),
+    (14, "b98f873a0ac5c52cc101bb957ca05668eda9288a50c0660e015fd6a942725985"),
+    (16, "8301fce300f3cb2dcef3cceaa4ff78bd63e05cef738ddf0cdbe1e2e0f2ec2c97"),
+    (29, "896b6a3810e37f1b91bf74469c02882704f4de925ba8eaf29bb5504d90928299"),
+    (8, "9036c9b8365c4751e689e760bdec860df0316a2906de7e8947b9da75cb3b7d2f"),
+    (11, "e9e7389c2405ea2cacbf26fdf6598f8598e41635247a1e9aee98773210a02964"),
+    (9, "0bc4e1afbb2affc80f74c38ff4bc9aa9bc1aae59ce952109bb156d3721420e6f"),
+    (10, "0d6a1dc80d4909cd30a3f67b52de902d2e4d57c9062c380e2ee97c491aa26254"),
+    (21, "8c438384998364ea0549608f667f6a56f49758ef7de50b1d9414a35c7cfb6b2b"),
+    (29, "4e8537f5c90ac4d7c8ee37da7297c44725da44a8644e4972148f362f07b67490"),
 )
 
 
@@ -371,6 +387,11 @@ def test_bosch_and_urevo_vendor_internal_labels_are_scrubbed():
     assert scrubbed_label_hits(urevo, UREVO_SCRUBBED_LABELS) == []
     assert "device-information reader" in urevo
     assert "Frame-A grammar" in urevo
+    for suffix in ("yaml", "md"):
+        note = (ROOT / "research-notes" / f"urevo-walking-pad.{suffix}").read_text(
+            encoding="utf-8"
+        )
+        assert scrubbed_label_hits(note, UREVO_SCRUBBED_LABELS) == [], suffix
 
 
 def test_wheellog_other_brand_scales_and_shared_transport():
