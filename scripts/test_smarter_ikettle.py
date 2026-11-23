@@ -34,3 +34,13 @@ def test_ack_result_values_and_layout():
         frame = bytes([0x03, result, 0x7E])
         assert len(frame) == ack["full_frame_bytes"] == 3
         assert ack["results"][frame[ack["result_offset"]]] == meaning
+
+
+def test_remote_boil_is_advanced_and_stop_is_not():
+    commands = SPEC["commands"]
+    assert commands["boil"]["advanced"] is True
+    assert commands["boil"]["advanced_reason"].strip()
+    assert not commands["stop"].get("advanced")
+    advisory = SPEC["device"]["safety_advisory"]
+    assert advisory["severity"] == "warning"
+    assert "off-base" in advisory["summary"]
