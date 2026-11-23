@@ -549,3 +549,13 @@ def test_base_multi_item_reverse_reconciliation_with_skipped_hold_and_timeout():
     assert row["acknowledgement_event_count"] == counts[-1] == row["event_count"]
     assert row["acknowledgement_event_count"] != qualifying_counts[-1]
     assert len(DETAILS["reliable_events"]["reverse_reconciliation"]["rules"]) == 5
+
+
+def test_identification_has_no_bare_f2_prefix_and_regex_needs_full_grammar():
+    identification = SPEC["device"]["identification"]
+    assert "local_name_prefixes" not in identification
+    assert "local_name_prefix" not in identification
+    needle = SPEC["device"]["discovery"]["methods"][0]["ble"]["local_name"]["value"]
+    assert re.fullmatch(needle, "F207dkIG")
+    for name in ("F2", "F2-Remote", "F2 Lamp", "F207dkI"):
+        assert not re.fullmatch(needle, name), name
