@@ -385,7 +385,11 @@ def test_wheellog_other_brand_scales_and_shared_transport():
 # Rideable vehicles and bare motor controllers whose open BLE channel can
 # change how the vehicle drives. Each must carry a device.safety_advisory
 # (not only a SAFETY paragraph in notes, which no client renders).
-RIDEABLE_WITH_OPEN_CONTROL = ("euc-wheellog-ble", "ninebot-segway-ble")
+RIDEABLE_WITH_OPEN_CONTROL = (
+    "euc-wheellog-ble",
+    "ninebot-segway-ble",
+    "vesc-ble-uart",
+)
 
 
 def test_rideable_open_control_specs_carry_a_safety_advisory():
