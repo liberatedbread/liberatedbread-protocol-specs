@@ -12,6 +12,168 @@ Like the survey, each entry is a snapshot. Grep `device-specs/devices/`,
 Claims marked *unverified* rest on a search snippet or a page that would not
 load, and need checking before they go into a spec.
 
+## 2026-11-24 (Fitbit Aria cutoff)
+
+An out-of-cycle pass, made because Google ended vendor pairing for two Fitbit
+scales. Google's English help pages
+([using a scale](https://support.google.com/googlehealth/answer/14236805),
+[setting up a device](https://support.google.com/googlehealth/answer/14236818))
+now read: "Starting November 9, 2026, with the release of app version 5.12,
+you can no longer pair or re-pair Aria and Aria 2 scales." By that statement
+pairing and re-pairing have already ended, and an unpaired scale cannot be
+paired again. Two lines on the same pages are unchanged: "Aria Air is not
+impacted by this change", and scales paired before the date that remain
+paired "will continue to sync", with no end date named.
+
+The date in that sentence was edited while this pass was running. It is
+recorded here as an observation, not as a second deadline: the English pages
+read "Starting November 28, 2026" in every fetch from 05:11 UTC (the first
+page) to 06:57 UTC on 2026-11-23, and "Starting November 9, 2026" from at
+least 23:07 UTC the same day, with nothing else in the sentence changed and
+no announcement found. At 00:57 UTC on
+2026-11-24 the German, French and Japanese editions still said 28 November. A
+[press report of 2026-11-20](https://gadgetsandwearables.com/2026/11/20/fitbit-aria-support-cutoff-early/)
+quotes the 28th and says some owners could already no longer pair, and
+Google's own
+[post announcing app 5.12](https://support.google.com/googlehealth/blog/475060763)
+is dated 2026-11-06. Which date Google's systems enforce is not stated
+anywhere, so nothing in the catalogue plans around the later one. Re-read the
+page before quoting either.
+
+For the original Aria the door was already visibly shut. On 2026-11-23 and
+2026-11-24 the web address its manual gives for setup redirected to a static
+notice titled "Aria is no longer supported", last modified on 2026-11-09. That
+web flow is the setup path the manual and Google's help give for the model,
+so the vendor's own way of putting one on a network is gone. That is what
+makes its local route worth writing down now, and what makes the Aria 2,
+which has none, the cautionary case.
+
+No scale, account, vendor app or firmware image was used, and this project
+made no capture; the one capture set consulted, a public 2016 set for the
+original Aria, was read for facts and is cited, never committed. Every
+fact is reported by someone else or read off a public document, nothing was
+run on hardware, and every example is synthetic (documentation-range MAC,
+placeholder addresses).
+
+### Added this pass
+
+| Spec | Transport and exact scope | Deliberate omissions / follow-up |
+|---|---|---|
+| [Fitbit Aria Wi-Fi Smart Scale (FB201)](../devices/fitbit-aria-wifi-scale.md) | The original Aria only (four AA cells, Wi-Fi only, no Bluetooth). The scale is a plain-HTTP client, so the spec documents the server an owner runs behind a DNS redirect of `www.fitbit.com`: register, validate, and the protocol-version-3 binary upload and its reply as offset tables with units, CRC-16/XMODEM and length formulas, plus the routes in order of what they cost. Evidence: the upload exchange is reported by third parties on firmware 35, 37 and 39; the setup-mode request is shown on 35, author-reported on 37, returned 200 with no join shown on 39, and has one unexplained failure report on 38. Identify-only, untested. `scripts/test_fitbit_aria_wifi_scale_spec.py`, 95 tests that rebuild the synthetic vectors from the spec's own tables. | No firmware route. The update signal is refusal-only (a server never sends it and never serves the image path); no modified image has ever been built or flashed, and no recovery from a bad one is shown. The console's state-changing commands, the Wi-Fi module's wired download mode, JTAG and the internal bus are named as not-routes with no procedure. A pass-through relay is described with its limits but not specified byte for byte. 35 remaining unknowns, each with its cheapest experiment. |
+| [Fitbit Aria Air (FB203)](../devices/fitbit-aria-air.md) | The Bluetooth-only scale (three AAA cells). Exact-name identity, the GATT layout, the 19-byte nonce, tag and ciphertext indication, the AES-128-CCM parameters and the 3-byte plaintext. Evidence: two independent parties for the name, service, characteristic, indication and length; one implementation and one later comment for the cipher parameters and plaintext, their independence not established. The kilogram scale factor is an unresolved conflict and the spec does not pick a side. Identify-only, untested. `scripts/test_fitbit_aria_air_spec.py`, 78 tests using two independent AES-CCM implementations. | Both reported routes to the 16-byte key begin with a factory reset that ends the vendor pairing; both are `verified: false`, advanced, and never described as free. The firmware-update service is do-not-write, with no recovery known. No procedure is given for the chip's debug port, the radio module's serial pads or a load-cell retrofit. 27 remaining unknowns. |
+| Fitbit Aria 2 (FB202): [`research-notes/fitbit-aria-2.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/research-notes/fitbit-aria-2.md) and `.yaml` | A research note, deliberately not a spec: no Bluetooth name or service, hostname or MAC prefix of the scale is public, so there is nothing to match on. It records the vendor's statements, the FCC record and what its internal photograph shows, eleven proposed local routes as rated after a sceptical second pass (none run on an Aria 2 by anyone), owner guidance, and thirteen ordered experiments. No test file, device page or index row. | No identifier, transport or byte is claimed. Re-provisioning over Bluetooth from an own client is a research direction with no bytes given; firmware over Bluetooth and over Wi-Fi are recorded as not available; read-out protection is never to be forced off. One observed identifier from an owner session promotes the note to an identify-only spec. |
+
+Left out across the family, on purpose: every firmware route (recorded as a
+danger or as not available, never as an option), every bench procedure that
+could erase a chip, and any step that would lead an owner to unpair, reset or
+enter setup mode without the cost stated at that step. The owner-facing order
+of advice is in the [keeping-alive guide](../keeping-devices-alive.md#fitbit-aria-scales).
+
+### Status changes and new finds
+
+The cutoff prompted a sweep for similar devices: smart scales, shutdowns
+announced between September 2026 and mid-2027, and Wi-Fi devices that call
+home and can be served from the LAN. A second, sceptical pass then re-loaded
+a primary source for every row; where it could not, the row says
+*unverified*. Three limits apply to the whole table: the Internet Archive and
+Reddit were unreachable, web search was rate-limited part-way through, and
+GitHub issue threads were read through a summarising tool. The full work
+list, with the experiment or capture that moves each row, is the
+[November 23 section of GAPS.md](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/GAPS.md#november-23-devices-going-away-worth-investigating);
+this table is the dated record and does not repeat it.
+
+| Device | Standing | Vendor status, as checked | Local route, and what limits it |
+|---|---|---|---|
+| **QardioBase / QardioBase 2** | Spec-ready | Qardio's cloud has been off since 2025-04-29, as sourced in `qardio-arm.yaml`; the day-level dates could not be re-loaded on 2026-11-23. | Phone-direct BLE from one source, [openScale's handler](https://github.com/oliexdev/openScale/blob/master/android_app/app/src/main/java/com/health/openscale/core/bluetooth/scales/QardioBaseHandler.kt) (GPL-3.0), observed on a QardioBase 2. Evidence for the first model is thinner. |
+| **Runtastic Libra** | Spec-ready, as an extension of `openscale-body-scales.yaml` | adidas withdrew the app and disabled login and sync, announced 2020-09-21 ([The Register](https://www.theregister.com/2020/09/22/adidas_libra_scale/)). | Listed by openScale as the Beurer BF700/800 dialect ([protocol page](https://github.com/oliexdev/openScale/wiki/Beurer-Sanitas)). No Libra-specific hardware report was found. |
+| **Withings Body+** (WBS05) | Spec-ready, read-only subset; export the secret now | Accounts created on or after 2026-10-13 need a subscription for automatic third-party sync ([MacRumors, 2026-10-15](https://macrumors.com/2026/10/15/withings-plus-apple-health-syncing)). | BLE read of stored measurements after a challenge-response with the account's association secret ([openwithings](https://github.com/totruok/openwithings), MIT; one unit, one firmware). Not cloud-free: the secret comes from Withings' legacy API. |
+| **Eufy smart scales** | Spec-ready; capture the Wi-Fi side now | A retail exit, not a shutdown: [eufy's post of 2026-03-27](https://us.eufy.com/blogs/home/eufy-smart-scale-discontinued) says the line left its US store in March 2026. The app still syncs. | Phone-direct BLE in three frame shapes ([eufylife-ble-client](https://github.com/bdr99/eufylife-ble-client), MIT, and a Home Assistant core integration). Sources disagree on the P2 impedance bytes; the Wi-Fi side has no public work. |
+| **Flipr AnalysR 3 / Start Max** | Spec-ready; a note instead if the frame cannot be pinned down per hardware version | Maker liquidated by judgment of 2025-09-25; Home Assistant removed its cloud integration in [2026.11](https://www.home-assistant.io/blog/2026/11/04/release-202611/). The first search pass had called the local route unknown. | BLE read of a 13-byte frame, from a single GPL-3.0 implementation (`Adrien40/ha-flipr-local`) whose author says frames differ between hardware versions. |
+| **Bose SoundTouch, the cloud half** | Spec-ready, as an extension of `bose-soundtouch.yaml` | Bose ended cloud support on 2026-05-06 ([Bose](https://www.bose.com/soundtouch-end-of-life)). | A LAN server replaces the endpoints the speaker calls ([ueberboese-api](https://github.com/julius-d/ueberboese-api), [soundcork](https://github.com/deborahgu/soundcork), both MIT), and the speaker is re-pointed over its service console. A DNS-only override fails; the console is firmware-gated and *unverified* on the SoundTouch 30 and 520. |
+| **AcuRite Internet Bridge / smartHUB** | Spec-ready for the smartHUB, once its research note is rewritten | End of service 2019-02-28 ([AcuRite, 2018-02-24](https://www.acurite.com/blogs/default-blog/extending-end-of-service-and-support-for-acurite-smarthub)). | DNS override of two upload hostnames to a plain-HTTP listener; the reply format differs by bridge firmware ([weewx-interceptor](https://github.com/matthewwall/weewx-interceptor), GPL-3.0; [Acuparse](https://github.com/acuparse/acuparse), AGPL-3.0). |
+| **iHealth HS5 / HS5S, AM3 / AM3S, BP3** | Note first; capture while the legacy app still works | iHealth's help centre says the Legacy app is being phased out (article written 2026-08-17, no end date). The Android listing was last updated 2023-08-10; the iOS listing appears delisted, from one lookup that was not repeated from a second network. | No public wire format at all. The closest twin to the Aria 2, and the most time-sensitive row here. |
+| **iHealth HS3 and HS2S** | Note first | The same frozen app; only the frozen Android listing is verified. | openScale has a receive-only HS3 parser and an HS2S handler its own authors mark untested on hardware (GPL-3.0). |
+| **Withings WS-30, WS-50, Smart Kid Scale** | Note first; capture now | Listed as end-of-support in Withings' [policy dated 2026-04-23](https://media.withings.com/web/legal/legal-pdf/end-of-support-policy/eu-en-end-of-support-policy-20260423.pdf); still working, and the policy promises no notice before a cloud shutdown. | [YourOwnWeigh](https://github.com/tomanthony/YourOwnWeigh) (MIT) serves the upload endpoints, but needs patched firmware. Whether stock firmware validates the server certificate is unpublished, and decides the route. |
+| **Koogeek S1** | Note first | *Unverified*: no dated notice was found and the vendor site does not connect. | BLE frames in one [adapter](https://github.com/KristianP26/ble-scale-sync/blob/main/src/scales/koogeek-s1.ts) (GPL-3.0); one hardware reporter, and the adapter itself calls connecting unreliable. |
+| **vTuner-dependent AV receivers** | Note first, and the closest to promotion; capture now | A paywall, not a shutdown: a yearly fee on vTuner's brand portals, and Yamaha lists 61 models that cannot move to its replacement directory. | DNS override to a plain-HTTP server, with two independent servers ([YCast](https://github.com/milaq/YCast), GPL-3.0; YTuner, MIT). The protocol exists only as code. |
+| **Oregon Scientific LW301 / LW302** | Note first | Upload server gone since 2018, on community sources only. | DNS override of one hostname (weewx-interceptor). About half the payload fields are unknown. |
+| **Koubachi Wi-Fi plant sensor** | Note first | Service ended 2019-10-23. | The vendor published the protocol ([api-docs](https://github.com/koubachi-sensor/api-docs), no licence file) and a community server exists ([koubachi-pyserver](https://github.com/koalatux/koubachi-pyserver), MIT). Blocked on a per-device factory key; no way to extract it is known. |
+| **Hello Sense** | Note first, as a documented negative | Shutdown announced 2017-06-12 (secondary source); the day the servers stopped is not established. | No DNS-only route: the device checks the server against a certificate authority in its own flash and signs uploads with a per-device key. |
+| **Little Printer and BERG Cloud Bridge** | Note first | Closure announced 2014-09-09; the actual switch-off date is *unverified*. | WebSocket JSON in two repositories without a licence. Re-pointing a stock Bridge now means a serial console. |
+| **Karotz** | Note first | Vendor servers stopped 2015-02-18 (secondary source). | A replacement OS and a community API on the rabbit; no reference for the API's calls was located, so the protocol claim is *unverified*. |
+| **Airzone zoning and Aidoo controllers** | Note first; capture now | Remote control went behind a EUR 48 per year plan in October 2026; the exact day and the country list rest on secondary sources. Airzone's page exempts Aidoo units bought before the plan from the remote-control part. Local control stays free. | Airzone publishes its LAN API: link, do not spec. The separate RS-485 bus map ([Open Airzone Gateway](https://raw.githubusercontent.com/letherman255/Open-Airzone-Gateway/main/docs/protocol.md), MIT) rests on one installation. |
+| **Hunter HunterSMART ceiling fans** | Note first, as a short advisory; capture now | From 2027-01-01 Hunter ends its cloud link to Google Home and Alexa (Hunter's post of 2026-11-05); its own app and the remote keep working. | HomeKit and, after Hunter's update, Matter. Both are public protocols, so there is nothing proprietary to document. Hunter does not say that HomeKit keeps working after the change. |
+| **Bluetooth SIG Weight Scale profile** | Note first, as one generic reference spec | No vendor is leaving. | The public services, read by openScale for two named scales. A Polar Balance read by a third party has not been shown. |
+| **Omron body-composition monitors** | Note first, as an extension of `omron-connect.yaml` | Vendor active; the claimed app migration is *unverified* (the cited page does not load). | openScale reads stored records after a key unlock (GPL-3.0); its record-layout code was not located in this pass. |
+| **Fitbit Aria 2, Aria (still paired), Aria Air** | Capture while it still runs | As above. | What to capture, for whom, and what never to do to get it: the GAPS.md section, the [Aria 2 note](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/research-notes/fitbit-aria-2.md) and the two device pages. Nothing there needs a working scale to be unpaired or reset. |
+| **Garmin Index** (original) | Capture while it still runs | Last firmware 2021-11-29; "discontinued" rests on one user's guess. | No public work on any of its three radios; that negative was not re-searched. |
+| **La Crosse GW1000U** | Capture while it still runs | The vendor service appears alive, with no end notice found. | A prose write-up exists, without a licence; the registration exchange with the vendor is the part worth capturing. |
+| **Growatt ShineWiFi / ShineLAN, Toniebox (first generation)** | Listed so they are not mistaken for dead ends; nothing urgent | Both vendors active. | Growatt's server address is an owner setting and `grott` documents the records (no licence; read-only, because register writes reach a grid-tied inverter). The Toniebox route needs its flash rewritten, and TeddyCloud's own project documents it. |
+
+Parked, with nothing left to capture or nothing proprietary to document: the
+Under Armour / HTC UA Scale (dead since 2020-03-31, no public work), the Roost
+leak detector, Wahoo Balance (status and protocol both *unverified*: neither
+source would load), Testo Saveris 2 (*unverified*, one secondary source),
+Brilliant panels (a paywall from 2026-12-03 on a cloud-to-cloud link),
+reMarkable, Mycroft and Chumby. Three news items were dropped as outside the
+catalogue: the Samsung Sound app moves into SmartThings from March 2027
+([Samsung](https://www.samsung.com/uk/support/newsalert/129976/)), with
+nothing orphaned; Amazon announced that pre-2013 Kindles lose the Kindle
+Store from 2026-05-20
+([PCMag, 2026-04-07](https://www.pcmag.com/news/got-a-kindle-from-before-2013-amazon-is-pulling-support)),
+which leaves no network protocol to document; and the TAG Heuer Connected
+item is
+an unconfirmed production report
+([Gadgets & Wearables, 2026-10-15](https://gadgetsandwearables.com/2026/10/15/tag-heuer-connected-smartwatch-production-ends/)).
+
+### Corrections found in the tree
+
+The sweep's overlap checks turned up stale statements. They are logged here
+and the notes themselves are left as they are until someone rewrites them
+with the sources in hand:
+
+- `research-notes/qardio-arm.md` and its YAML say the QardioBase protocol has
+  not been worked out by the community and that openScale has no QardioBase
+  support. It has a handler now.
+- `research-notes/ihealth-classic-bt.md` says no credible community work
+  exists on the byte-level protocol. openScale has a receive-only parser for
+  the HS3 weight stream.
+- `research-notes/acurite-access-atlas.*` and
+  `research-notes/oregon-scientific-anywhere-weather.*` are rated
+  `rejected_dud` because DNS interception was once out of scope, and
+  `research-notes/lacrosse-view-stations.*` carries the same rule. The
+  catalogue has since specced that route more than once (the JuiceBox, and
+  now the Aria). The sceptical pass also found the AcuRite note wrong on the
+  facts: Acuparse documents a local setting for the Access's upload server.
+- `research-notes/bose-soundtouch.md`, its YAML and the spec say presets and
+  in-app services are lost after 2026-05-06. With an owner-run server they
+  are reported to be recoverable.
+- `device-specs/devices/omron-connect.yaml` says the HBF body-composition
+  layouts are not yet ported to an open driver. openScale now has a handler
+  for those models.
+- Earlier entries on this page are stale for the Withings Body+. The
+  2026-10-18 entry says it is reached over Bluetooth Classic, not BLE, and
+  that no code is published; the 2026-10-25 entry says the code is still
+  unpublished. Both are right about the write-up they cite. A separate MIT
+  project, openwithings, has since published a working BLE GATT
+  implementation.
+- The survey's Aria row said removed scales could not be re-added, "reported
+  2023-05-29, no exact cutoff". It is rewritten in this pass with Google's
+  current statement.
+- The schema has no field for requests a device sends to a server its owner
+  runs. Eye-Fi, PicoBrew and now the Aria keep the server's routes under
+  `protocol_details` with a direction string, and the open sweep PR logs the
+  same gap for Coway. It is proposed as
+  [P18](../contributing/spec-evolution.md#p18).
+
+The [missing-device survey](missing-devices.md) now marks the Aria row
+covered and parks the Aria 2. The [keeping-alive guide](../keeping-devices-alive.md)
+gains quick-reference rows and a Fitbit Aria section, and
+[Blocking Vendor Updates and the Cloud](../blocking-vendor-updates.md) gains
+the case of a name that is redirected to an owner's server, never blocked,
+with a regression test in `scripts/test_generate_blocklists.py` that no
+generated list carries a rule for it.
+
 ## 2026-11-18 (November 17 transport follow-up)
 
 A bounded follow-up adds three reported/untested, identify-only protocol specs

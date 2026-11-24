@@ -52,6 +52,9 @@ flashing, broker config), `High` = real engineering (emulate a cloud service),
 | Kwikset Kevo | BLE (+ dead cloud) | Local BLE lock/unlock survives; eKeys/time-sync are cloud-mediated and partly lost | Low + Blocked parts | [doc](devices/kwikset-kevo.md), §5 |
 | SmartThings Hub v2 | Ethernet (Edge drivers local) | Drivers run locally, but claiming a hub needs the cloud | Blocked (claim) | [doc](devices/smartthings-hub-v2.md), §5 |
 | Withings Body Smart WBS13 / Body Comp WBS12 / Body WBS06 | BLE (WBS13/WBS12); incoming Classic RFCOMM (WBS06) | Existing-association-key local reads are now specced; initial kl export and model-specific pairing remain prerequisites | Medium; untested here | [BLE scales](devices/withings-body-smart-comp-ble.md), [WBS06 Classic](devices/withings-body-wbs06-classic.md), §5 |
+| Fitbit Aria Wi-Fi Smart Scale (FB201, four AA cells) | Wi-Fi (plain-HTTP upload client) | Still syncing and you want to keep that: do nothing. Otherwise DNS-redirect `www.fitbit.com` (never block it) to a LAN server, with nothing done at the scale. Setup mode is a one-way door | Medium; untested here | [doc](devices/fitbit-aria-wifi-scale.md), §2 |
+| Fitbit Aria 2 (FB202, three AA cells) | Wi-Fi to the vendor cloud; Bluetooth for setup only | No local route known. Do not unpair or factory-reset: pairing has ended, so neither can be undone | Blocked | [research note](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/research-notes/fitbit-aria-2.md), §2, §5 |
+| Fitbit Aria Air (FB203, three AAA cells) | BLE (AES-128-CCM, key-gated) | Not part of the Aria cutoff: leave it paired. Local reads need the scale's key, and both reported ways to get it begin with a factory reset that ends the pairing | High; untested here | [doc](devices/fitbit-aria-air.md), §2, §4 |
 
 ---
 
@@ -194,6 +197,163 @@ surface, not finished solutions.**
   them; unlocked (OSKR/dev) robots can skip to WireOS (§3). See
   [devices/vector-robot.md](devices/vector-robot.md).
 
+### Fitbit Aria scales
+
+Three different products share the name, and only one of them belongs in
+this section. The first two paragraphs apply whichever you own.
+
+**What Google ended, and when.** By Google's current English help pages
+([using a scale](https://support.google.com/googlehealth/answer/14236805),
+[setting one up](https://support.google.com/googlehealth/answer/14236818)),
+pairing and re-pairing of the Aria and the Aria 2 ended on **2026-11-09**,
+with app version 5.12: "If you choose to unpair your scale after this date,
+you will not be able to pair it again." That date has passed, so for those
+two models treat unpairing and resetting as permanent. Two lines on those
+pages are unchanged:
+scales paired before the date that remain paired "will continue to sync",
+with no end date named, and "Aria Air is not impacted by this change". One
+observation about the source, which is not a second deadline: the English
+notice read "November 28, 2026" when first fetched at 05:11 UTC on
+2026-11-23 and "November 9, 2026" from at least 23:07 UTC that day, and the
+German, French and Japanese editions still said 28 November at 00:57 UTC on
+2026-11-24. Do not plan around the later date.
+
+**Which Aria do you have?** Turn the scale over and count the batteries.
+
+| Batteries | Model | Radio | Where it stands |
+|---|---|---|---|
+| Four AA | Aria (FB201), the original | Wi-Fi only | A local route is reported: a server of your own. [Device page](devices/fitbit-aria-wifi-scale.md) |
+| Three AA, and "Aria 2" printed on the back | Aria 2 (FB202) | Wi-Fi; Bluetooth for setup only | No local route known. [Research note](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/research-notes/fitbit-aria-2.md) |
+| Three AAA | Aria Air (FB203) | Bluetooth only | Not part of the change. [Device page](devices/fitbit-aria-air.md) |
+
+Nothing below transfers from one model to another.
+
+**Original Aria (four AA).** This is the one that belongs here, and it
+differs from the preamble of this section in two ways. The scale uploads
+over **plain HTTP**: there is no TLS to terminate, no certificate and no
+pinning, and it does not check who answers `www.fitbit.com`. And servers for
+it **do exist**: several public ones, listed on the
+[device page](devices/fitbit-aria-wifi-scale.md#existing-public-servers)
+with what each reports. None was written or run by this project, so
+everything here is *reported* by other people and **unverified** by us. The
+advice, in the order the page gives it:
+
+1. **It still syncs to your Fitbit / Google account and you want to keep
+   that: do nothing.** Do not unpair it, do not remove yourself from it, do
+   not re-run setup, and do not press or step on it while it shows
+   `TAP TO CHANGE`. **Do not add the redirect** of step 2 on the network the
+   scale uses: the scale talks to one server only, so with the redirect in
+   place nothing reaches Fitbit. Keep your Wi-Fi name and passphrase, and
+   export your history now. If you also want a local copy of new readings, a
+   pass-through relay is the only evidenced way, and a relay changes the
+   scale's firmware exposure: read the page's relay section before building
+   one.
+2. **It is on your Wi-Fi and you want it local, or it has stopped syncing:
+   a DNS redirect and a LAN server.** Run a server on the home network and
+   make your DNS answer the one name `www.fitbit.com` with that server's
+   address. Redirect the name, never block it; do it for the scale alone
+   where your network allows, on the resolver the scale receives by DHCP.
+   Nothing is done at the scale: no setup mode, no battery pull. What it
+   costs: from the next weigh-in the scale talks to your server only,
+   readings your server accepts never reach Fitbit, and its first accepted
+   reply replaces the scale's users, display unit and clock. The server must
+   never signal a firmware update. Keep the redirect for good; the reason is
+   in [Blocking Vendor Updates and the Cloud](blocking-vendor-updates.md#fitbit-aria-redirect-dont-block).
+3. **The router changed: bring the old network back first.** Give the new
+   router, or a small dedicated access point, the same network name,
+   passphrase and security mode as the old one, with 802.11b still allowed
+   on 2.4 GHz. This is an untested inference. It costs nothing, and nothing
+   is lost if it fails.
+4. **Only as the last resort: setup mode.** This is for a scale with no
+   usable network at all. One request to the scale's own open setup network
+   hands it new Wi-Fi details, and it is a **one-way door**: assume the scale
+   forgets its stored network the moment its display reads `SETUP ACTIVE`;
+   the request replaces the token Fitbit gave it; and Fitbit will not pair
+   the scale again, so a scale that still synced to your account stops for
+   good. It is reported working on firmware 35, said by one author to work on
+   37, unproven on 39, and has one unexplained failure report on 38. Have the
+   redirect and the server answering before you start.
+
+**Aria 2 (three AA): no local route is known.** Bluetooth is its setup
+channel only. By Google's description its weigh-ins travel over Wi-Fi to
+Google, so a phone should not expect to read a weight from it, and it has no
+setup network or web page of its own. Nobody has published how it talks, so
+the catalogue has a [research note](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/research-notes/fitbit-aria-2.md)
+(`research-notes/fitbit-aria-2.md`) and no spec. In the note's order:
+
+- **Do not unpair it.** In the app the button is "Disconnect device". By
+  Google's notice a scale unpaired now cannot be paired again.
+- **Do not factory-reset it.** The reset clears the scale's users and Wi-Fi
+  networks, and the scale then asks to be set up, which is the step that has
+  ended: a reset cannot be undone by any documented means. Google's own
+  advice for a scale that logs you as a guest still ends in a factory reset,
+  and its sync advice for other Fitbit devices says to remove "other Fitbit
+  devices" from the account. Stop after the battery step, and leave the
+  Aria 2 out of that advice. When you change batteries, keep your fingers off
+  the small button above the battery slots: holding it while the batteries
+  go in is the reset.
+- **Safe to try.** At a router change, give the new router the same network
+  name, security mode and passphrase before anything else, and keep the old
+  router until the scale shows its check mark. That is ordinary Wi-Fi
+  behaviour, untested on this model. Treat the in-app Wi-Fi change as already
+  gone unless you have seen it offered, and even then use it only if the
+  network has to change anyway: nobody has published a run of it since app
+  5.12, and a change that is refused or interrupted may leave the scale
+  without a network for good. Export your history while the scale
+  still syncs (Google Takeout, the Google Health API, Health Connect); all
+  three read Google's copy, and none is a local route. Even a stranded scale
+  still weighs: the manual says setup is not needed to weigh yourself.
+- **Already unpaired or reset?** Trying setup again costs no pairing, because
+  none is left. One thing may be at stake: a scale that was unpaired but
+  never reset may still hold its people and its network, and whether a failed
+  setup clears them is not documented. Do not expect it to work, and never
+  unpair a working scale to find out.
+- **Do not try the original Aria's redirect on it.** Nobody has shown that it
+  speaks that protocol, or which names it looks up.
+- **How to help.** Three things leave the pairing alone. Look, without
+  tapping through, at whether the app still offers "Wi-Fi Network" or "Pair
+  Scale to Different Network" for the scale, and note the app version and
+  the date. Run a passive Bluetooth scan (scan only: skip the optional
+  connect on a scale you depend on). Log the router's DNS and capture one
+  normal weigh-in. Either of the last two alone would turn the note into an
+  identify-only spec. The note's experiments say how, what to scrub before
+  sharing, and which steps are for a spare scale only.
+
+**Aria Air (three AAA): not part of the change. Leave a working pairing
+alone.** Google's notice says "Aria Air is not impacted by this change";
+that is a statement about one change, not a promise about the future. The
+scale is Bluetooth-only, so there is no server to redirect and nothing in the
+original Aria's steps applies. In the page's order:
+
+- **If it works, do nothing.** It still syncs with the vendor app, and it
+  shows your weight on its own display with no app at all. A new phone means
+  signing in to the same account there. It is not a reason to reset the scale
+  or to remove it from the account.
+- **If it stops syncing,** start with the first steps of the vendor's sync
+  troubleshooting: app open nearby, restart the app, Bluetooth and the phone.
+  Never reset the scale because a local client received nothing.
+- **What the spec gives you:** how to recognise the scale, its GATT layout,
+  the 19-byte encrypted message with its AES-128-CCM parameters, and
+  synthetic vectors to test a decoder against. **What it does not give you:**
+  the 16-byte key. The key is normally known only to the vendor app, and both
+  reported ways to get one **begin by factory-resetting the scale**. The
+  first, capturing the vendor app's setup write from your own phone's
+  Bluetooth log (reported by one party), also removes the scale from your
+  account before the reset. The second, writing a key of your own after the
+  reset, is one report reproduced by nobody. Either way the pairing you have
+  ends. Getting one back depends on the vendor app completing a fresh setup,
+  and if it does not you hold an unpaired scale and an app that will not
+  re-pair it. The kilogram scale factor is an unresolved conflict, and the
+  scale's firmware-update service must never be written to: no recovery is
+  known.
+- **A free alternative** is on the device page: an Android app that reads
+  the display through the phone camera, with no Bluetooth link to the scale
+  and no key. This project has not run or reviewed it.
+
+See [devices/fitbit-aria-wifi-scale.md](devices/fitbit-aria-wifi-scale.md),
+[devices/fitbit-aria-air.md](devices/fitbit-aria-air.md) and the
+[Aria 2 research note](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/research-notes/fitbit-aria-2.md).
+
 ## 3. Replacement firmware / hardware — replace the brain
 
 When the device itself is fine but its firmware is the problem, reflash it.
@@ -273,6 +433,13 @@ mask/glasses, Divoom Pixoo, ELK-BLEDOM strips, SmartDawn, xkchrome, and the
 motorcycle/bicycle LEDs). For the interactive ones, the per-device pages under
 Devices → BLE Devices document pairing and reset.
 
+One BLE-only device does not belong on that list: the **Fitbit Aria Air**.
+Its link is local, but every reading is encrypted under a key that normally
+only the vendor app holds, and both reported ways to obtain that key begin
+with a factory reset that ends the vendor pairing. If yours works, leave it
+paired. See [Fitbit Aria scales](#fitbit-aria-scales) in §2 and
+[devices/fitbit-aria-air.md](devices/fitbit-aria-air.md).
+
 Honest caveat: BLE is short-range. "Cloud-free" still means you need a proxy,
 gateway, or phone within radio reach — plan ESPHome proxies for fixed sensors.
 
@@ -316,6 +483,15 @@ buying again.
   pairing, and all remain untested by this project. Fresh association/roster
   provisioning, other Withings models, destructive/settings writes and
   replacement-firmware services remain outside these paths.
+- **Fitbit Aria 2** — no local route is known, and by Google's current
+  English help pages pairing and re-pairing ended on 2026-11-09. Bluetooth is
+  its setup channel only and nothing about how it talks is public, so there
+  is a [research note](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/research-notes/fitbit-aria-2.md)
+  and no spec. **Do not unpair it and do not factory-reset it:** by Google's
+  notice an unpaired scale cannot be paired again, so neither can be undone
+  by any documented means. What is safe to try, and how an owner can help
+  change this entry, is under [Fitbit Aria scales](#fitbit-aria-scales) in
+  §2.
 - **Frigidaire / Electrolux OCP devices** — listed in §2, but until an OCP
   emulator exists they effectively belong here too.
 
@@ -329,7 +505,8 @@ buying again.
    WAN access at the router — but block *internet*, not the LAN, and keep DNS
    redirection rules documented for the devices in §2. The per-device DNS
    blocklists generated from the specs, and which names must *not* be blocked
-   (a clock, most often), are in
+   (a clock, most often; for the original Fitbit Aria, the one name you
+   redirect to your own server instead), are in
    [Blocking Vendor Updates and the Cloud](blocking-vendor-updates.md).
 4. **Archive the app.** Keep an offline copy of the vendor APK/IPA and its
    version number; it is often the only place OTA images and setup flows live

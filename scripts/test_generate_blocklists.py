@@ -605,6 +605,55 @@ def test_a_spec_whose_hosts_are_all_the_apps_publishes_no_list(site):
     assert not any(p.startswith("devices/irobot-roomba/") for p in site)
 
 
+def test_the_aria_upload_name_is_never_a_rule_and_the_header_says_redirect(site, real_entries):
+    """The original Aria is a client of whatever answers www.fitbit.com, and an
+    owner's LAN server is meant to be that answer. A rule for the name, or for
+    fitbit.com with its subdomains, would sinkhole the one route that keeps the
+    scale working, so the spec marks it `breaks` and the header carries the
+    instruction instead."""
+    for path, text in site.items():
+        if path.endswith(".json"):
+            continue
+        comment = {"adguard": "!", "rpz": ";"}.get(path.rsplit(".", 2)[-2], "#")
+        for line in _rules(text, comment):
+            assert "fitbit.com" not in line, f"{path}: {line!r} acts on the Aria's upload name"
+    aria = [e for e in real_entries if e.device == "fitbit-aria-wifi-scale"]
+    assert [e.impact for e in aria if e.host == "www.fitbit.com"] == ["breaks"]
+    for profile in gb.PROFILES:
+        sel = gb.select(aria, profile)
+        assert sel.block == [] and sel.time == []
+        assert [e.host for e in sel.excluded] == ["www.fitbit.com"]
+        # Nothing to block is not nothing to say: both scopes publish the
+        # instruction, the device's own list as a header with no rules.
+        assert _rules(site[f"devices/fitbit-aria-wifi-scale/{profile}.pihole.txt"]) == []
+        for scope in ("", "devices/fitbit-aria-wifi-scale/"):
+            header = " ".join(ln.lstrip("# ") for ln in site[f"{scope}{profile}.hosts.txt"].splitlines())
+            assert "Left out, because blocking them breaks the device or its clock:" in header
+            assert "www.fitbit.com (fitbit-aria-wifi-scale): REDIRECT this name to your own LAN server" in header
+
+
+def test_no_other_spec_or_option_can_put_the_aria_upload_name_on_a_list(real_entries):
+    """In a combined list another spec may call fitbit.com safe to block, and
+    an owner may ask for a sinkhole address. Neither reaches the Aria's name:
+    the parent rule is vetoed because it would answer for it, and --sinkhole
+    rewrites blocked names only."""
+    neighbour = E("fitbit.com", device="dev-b", device_name="Device B", match="subdomains",
+                  roles=("telemetry", "firmware_check"))
+    for profile in gb.PROFILES:
+        sel = gb.select([*real_entries, neighbour], profile)
+        assert not any(r.host.endswith("fitbit.com") for r in sel.block)
+        assert [(e.host, guard.host, guard.device) for e, guard in sel.vetoed if e.device == "dev-b"] == [
+            ("fitbit.com", "www.fitbit.com", "fitbit-aria-wifi-scale")
+        ]
+        opts = gb.Options(sinkhole="192.168.1.52", time_server="192.168.1.53")
+        for _, render in gb.FORMATS.values():
+            text = render(sel, opts)
+            assert not any("fitbit.com" in ln for ln in _rules(text, text[0])), render.__name__
+        # The header wraps long bullets, so compare against the unwrapped text.
+        header = " ".join(ln.lstrip("# ") for ln in gb.render_hosts(sel, opts).splitlines())
+        assert "fitbit.com and subdomains (dev-b) would cover www.fitbit.com (fitbit-aria-wifi-scale)." in header
+
+
 def test_the_index_accounts_for_every_file_and_the_coverage_gap(site):
     index = json.loads(site["index.json"])
     listed = {p for paths in index["files"].values() for p in paths}

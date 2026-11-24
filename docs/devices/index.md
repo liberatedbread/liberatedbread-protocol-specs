@@ -322,6 +322,8 @@ spec's `device.setup` block; the patterns are explained in
 | [Wyze Lock Bolt v1 (WLCKB1)](wyze-lock-bolt.md) | BLE (encrypted L1/L2) | Identify-only (untested) | Manual v1 selection + exported credentials + dedicated legacy handler | Wyze Labs |
 | [Danalock V3 (DMI BLE)](danalock-v3-ble.md) | BLE (DMI/RPD/TLS/AFI) | Identify-only (untested; BTZE author evidence only) | Cached unexpired token + dedicated validated-session handler | Danalock / Salto |
 | [FC SmartHome / Fingerchip BLE Locks](fc-smarthome-lock.md) | BLE (encrypted FC/FD) | Identify-only (untested) | Owner device record + dedicated session handler; read-only first | Fingerchip / Fingercrystal |
+| [Fitbit Aria Wi-Fi Smart Scale (FB201)](fitbit-aria-wifi-scale.md) | WiFi (scale-initiated plain HTTP to an owner-run server) | Identify-only (untested) | Already on Wi-Fi: none at the scale; DNS redirect + LAN server (not while vendor sync is wanted). New Wi-Fi: one request in setup mode, a one-way door that ends vendor sync (medium) | Fitbit (Google); vendor pairing ended 2026-11-09 by Google's English help pages |
+| [Fitbit Aria Air (FB203)](fitbit-aria-air.md) | BLE GATT (AES-128-CCM encrypted weigh-ins) | Identify-only (untested) | Leave a working pairing alone; local reads need the scale's 16-byte key, and both reported routes to it start with a factory reset that ends the pairing (low) | Fitbit (Google), active |
 
 ## Not everything here was liberated
 

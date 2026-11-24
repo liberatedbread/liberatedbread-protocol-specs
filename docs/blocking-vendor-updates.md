@@ -121,7 +121,7 @@ protocol. A device that connects over TLS gets a refused or failed connection
 — the same outcome as a sinkhole, plus noise in the logs of whatever happens
 to listen on that port.
 
-There are two cases where pointing names at a local machine does something:
+There are three cases where pointing names at a local machine does something:
 
 - **Time.** Point NTP names at an NTP server on your LAN — most routers run
   one (OpenWrt, RouterOS, OPNsense and pfSense all can), as does `chrony` on
@@ -137,6 +137,12 @@ There are two cases where pointing names at a local machine does something:
   (older units used 50443); a bare TCP listener such as `socat` should
   behave like the web server in that report, but has not been tested here.
   Unbinding the device before you block it (below) is the better fix.
+- **A device whose protocol something on your LAN really speaks.** The
+  original Fitbit Aria scale sends its readings over plain HTTP to one vendor
+  name and accepts whatever answers, so a small server of your own can be
+  that answer. It is the one vendor name here that you answer with your own
+  server instead of blocking, and no option of the generator writes that
+  redirect. See [Fitbit Aria: redirect, don't block](#fitbit-aria-redirect-dont-block).
 
 ## TP-Link Kasa, worked through
 
@@ -204,6 +210,50 @@ break the password route and leave the robot untouched. The robot's own
 connection is to an AWS IoT endpoint no public source names. Firewall it by
 address, which needs no hostname — the
 [Roomba worked example](https://liberatedbread.com/firewall/) walks through it.
+
+## Fitbit Aria: redirect, don't block
+
+The original [Fitbit Aria (FB201)](devices/fitbit-aria-wifi-scale.md) is a
+client of whatever answers `www.fitbit.com`: every weigh-in goes there over
+plain HTTP, and the scale's clock, display unit and user list come back in
+the reply. Block the name and the scale shows `NO SYNC`. Resolve it to a LAN
+server that speaks the scale's upload protocol and the scale is reported to
+work without its vendor.
+
+So the spec records the name with `when_blocked.impact: breaks`, and the
+generator does with it what it does with every such name. No list, in any
+profile or format, carries a rule for it. In a combined list it also vetoes
+another spec's rule for the same name, or for a parent such as `fitbit.com`
+taken with its subdomains. The scale's `cloud` and `updates` lists are
+published with no rules, and the instruction is in their header, under "Left
+out, because blocking them breaks the device or its clock": REDIRECT this
+name to your own LAN server; never sinkhole or block it.
+
+The lists do not write the redirect. They cannot know your server's address,
+and `--sinkhole` only changes the answer for names a list blocks, which this
+one never is. Add the one record yourself: `www.fitbit.com` only (not
+`fitbit.com`, not a wildcard), on the resolver the scale receives by DHCP,
+and for the scale alone where your network allows it. The
+[device page](devices/fitbit-aria-wifi-scale.md#route-1-the-server-and-the-dns-redirect-scale-already-on-wi-fi)
+has the forms and the test to run. It is reported by other owners and
+untested by this project. Three things from that page belong here:
+
+- **Do not add the redirect while you want the scale to keep syncing to
+  Fitbit.** The scale talks to one server only: with the redirect in place
+  nothing reaches Fitbit, and your server's reply replaces the scale's users,
+  unit and clock.
+- **There is no separate update host to block.** The update signal rides the
+  reply to an upload, and the image would be fetched over plain HTTP from the
+  same name. The `updates` list has no rule for this scale; the protection is
+  a server that never sends the signal and never serves `/scale/firmware/`.
+- **Keep the redirect for good** once the scale is local, for the reason in
+  the next section: whoever answers the public name receives the uploads and
+  can send that signal.
+
+Nothing is listed for the other two Arias. No hostname of any kind is known
+for the Aria 2, and the Aria Air has no network connection at all. If an
+Aria 2 shares the house, scope the redirect to the original Aria: whether
+the Aria 2 depends on the same name is unknown.
 
 ## After the vendor is gone
 

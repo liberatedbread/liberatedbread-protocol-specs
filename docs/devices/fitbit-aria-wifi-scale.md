@@ -815,7 +815,7 @@ mains-powered equipment.
 
 ## Tools Used
 
-- [ ] No hardware, account, capture or firmware image was used by this project
+- [ ] No hardware, account or firmware image was used by this project, and it made no capture of its own
 - [x] Public write-ups and open-source servers, read as text (facts only; several are AGPL/GPL)
 - [x] A public 2016 capture set, read with this project's own parser; cited, never committed
 - [x] FCC filing XRAFB201A and the vendor manual, read on 2026-11-23

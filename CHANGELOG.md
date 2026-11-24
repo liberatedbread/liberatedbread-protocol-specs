@@ -71,6 +71,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Fitbit Aria family after Google ended pairing: two specs and a research
+  note.** By Google's current English help pages, pairing and re-pairing of
+  the Aria and Aria 2 ended on 2026-11-09 with app 5.12; the same pages said
+  2026-11-28 until an unannounced edit on 2026-11-23, recorded as an
+  observation with fetch times. The original Aria (FB201) gains the server an
+  owner runs behind a DNS redirect of `www.fitbit.com`: register, validate and
+  the version-3 binary upload and reply as offset tables with units,
+  CRC-16/XMODEM and length formulas. Its routes are ordered by what they cost:
+  do nothing to keep vendor sync, redirect plus LAN server with no setup mode,
+  the old network name and passphrase after a router change, and setup-AP
+  provisioning last, marked a one-way door; firmware update is refusal-only.
+  The Aria Air (FB203) gains exact-name identity, its GATT layout and the
+  19-byte AES-128-CCM indication, with the kilogram scale factor left as an
+  unresolved conflict; both reported routes to its 16-byte key begin with a
+  factory reset that ends the vendor pairing, and its update service is
+  do-not-write. The Aria 2 (FB202) stays a research note: no local route is
+  known, eleven proposals are rated, and no identifier is claimed. All are
+  reported/untested and the two specs identify-only; nothing was run on
+  hardware. 173 independent offline tests rebuild the synthetic vectors and
+  pin the safety wording.
+- **November 23 going-away sweep: leads, owner guidance and one schema
+  proposal.** `GAPS.md` holds the work list from the sweep that followed the
+  Aria cutoff (spec-ready, note-first and capture-while-it-runs tables, each
+  status re-checked against a primary source or marked unverified), and the
+  sweep log records the date edit and the stale notes the sweep found in the
+  tree. The keeping-alive guide gains a Fitbit Aria section, and the blocking
+  guide its first name that is redirected to an owner's server instead of
+  blocked: the Aria's upload name is recorded as `breaks`, so no generated
+  list carries a rule for it, and a regression test holds every format to
+  that. Spec-evolution P18 proposes a declared home for requests a device
+  sends to a server its owner runs.
 - **November 17 LAN appliances: four research-backed protocol specs.** TP-Link
   Tapo/KLAP gains parallel TDP discovery, fixed-seed v1/v2 handshakes and CBC
   sessions, securePassthrough RSA/AES, bounded 403 recovery and a non-executable

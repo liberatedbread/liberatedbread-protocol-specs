@@ -900,6 +900,102 @@ rather than leaving to a footnote.
 **Effort.** Schema and docs: done. Consumer: an Android/Linux RFCOMM transport
 in the mobile app, which is the second half of this change.
 
+### P18 — A home for requests the device sends to a server its owner runs { #p18 }
+
+**Problem.** Every network surface the schema declares is read as a surface
+*on the device*: `http_endpoints`, `websocket`, `mqtt_topics` and network
+`commands` are things a consumer connects to the device's address and
+executes. Some devices have no such surface. They are clients: they call a
+server by name, and the way to keep one working is for its owner to run that
+server. The schema has nowhere to say so. `http_endpoints` has no direction
+key, so the server's routes cannot go there without a consumer pointing them
+at the device. An entity's `state_command` has nothing to resolve to when the
+reading is pushed by the device. And a `cloud.egress` item is closed, so the
+one name that has to be *redirected* instead of blocked can only say so in
+the prose of `when_blocked.effect`.
+
+**Evidence.** Three merged specs and one open PR carry the same contract,
+each under a `protocol_details` key of its own, where no consumer can read it
+by key:
+
+| Spec | Where the owner-run server's contract lives today | What marks the direction |
+|---|---|---|
+| `eye-fi-cards` | `protocol_details.receiver`: the listen port, the SOAP paths, an ordered `sequence[]` of the card's requests with their request and response fields, and `reject[]` | `direction: "card_initiates_upload_to_host"`; no `http_endpoints` at all; `identify_only` |
+| `picobrew-picostill` | `protocol_details.replacement_server_routes`: `routes[]` of `{method, path, role}` | A prose `direction`, `executable: false`, `declared_as_appliance_local_control: false`, `safe_binding: false` on every route, and two per-spec tests that pin those flags and hold `http_endpoints` to the one route the still itself serves |
+| `fitbit-aria-wifi-scale` | `protocol_details.upload_server`: `listen`, `dns_override`, three `routes[]` (the upload's request and reply name `payload_formats` keys), and the reply a server must never send | `direction: "scale_initiates_http_to_owner_server"`, `executable: false`, `declared_as_device_local_control: false`. The redirect instruction is prose in `cloud.egress[].when_blocked.effect`, and `impact: breaks` is what keeps the name off every generated blocklist |
+| `coway-air-purifier-local` (open sweep PR) | `protocol_details.server_roles` for the HTTP and HTTPS listeners; top-level `mqtt_topics` and `commands` written from the broker's side | A "DIRECTION MATTERS" paragraph in `device.notes`, and a `remaining_unknowns` line saying the `mqtt` block models a device that *is* the broker |
+
+`enel-x-juicebox` took the other way out: it declares the server's reply to
+the charger's status datagram as a `commands` entry with `transport: udp`,
+which only a consumer that is the charger's server can send. So the cost of
+having no field is a `direction` string spelled differently in every spec,
+three negative flags that exist only to stop a consumer misreading the block,
+and a regression test per spec.
+
+It is a safety matter as well as a tidiness one. The Aria's upload name must
+be redirected to the owner's server; a generated blocklist that sinkholed it
+would cut the scale off from the one thing that replaces its vendor. Today
+that rests on one word in the spec (`breaks`) and on a regression test in
+`scripts/test_generate_blocklists.py`, not on anything a validator checks.
+
+**Proposal.** One optional top-level block. Being in it *is* the direction:
+nothing under `owner_server` is on the device, and no consumer sends any of
+it to the device's address.
+
+```yaml
+owner_server:                    # what the OWNER runs; the device is the client
+  summary: "Receives the scale's uploads; its reply sets the clock, unit and users."
+  reached_by:                    # how the device comes to call it; any of
+    - type: "dns_override"       # dns_override | destination_nat | device_setting | setup_message
+      name: "www.fitbit.com"     # dns_override only: a cloud.egress host of this spec
+  listeners:
+    - transport: "http"          # the device.transport vocabulary
+      port: 80
+      requests:                  # sent BY THE DEVICE, answered by the server
+        - name: "upload"
+          method: "POST"
+          path: "/scale/upload"
+          sent_when: "About 20 seconds after a weigh-in."
+          request_format: "AriaUploadRequestHeader"   # a payload_formats key
+          reply:
+            status: 200
+            format: "AriaUploadReplyHeader"           # a payload_formats key
+          verification: "reported"
+  must_never:                    # replies a stand-in server must not give
+    - id: "signal_firmware_update"
+      description: "Never put 1 in any tail word of the upload reply."
+```
+
+Three rules come with the shape. A `requests` item reuses the
+`http_endpoints` item keys wherever they mean the same thing (`name`,
+`method`, `path`, `description`), so one renderer shows both. A
+`dns_override` name must be a `cloud.egress` host of the same spec whose
+`when_blocked.impact` is `breaks`, which turns the blocklist guarantee from a
+convention into a validation error. And `owner_server` counts as an access
+surface, so a spec no longer needs a `cloud` block or the `identify_only`
+flag to stand in for one.
+
+Left out of the minimal shape on purpose: the redirect *target* (the owner's
+address is theirs, not a fact about the product), relay modes, and MQTT. A
+device that is the client of an owner-run broker wants the same block with
+`transport: mqtts` and a `topics` list naming `mqtt_topics` entries; that is
+the second step, once the HTTP shape has been proved on the three specs that
+already need it.
+
+**Compatibility.** Additive, though not free to ignore: the schema root is
+closed, so the key has to be declared before any spec can carry it. A
+consumer that never reads it behaves as it does today, because these specs
+are `identify_only` or expose no surface on the device. The three merged
+specs keep validating as they are; migrating them moves `routes` and
+`sequence` out of `protocol_details` and deletes the negative flags. The
+generated index could then say "needs a server on the owner's network" as a
+fact a client can show.
+
+**Effort.** Small schema. The judgement is in the `reached_by` vocabulary and
+in the egress cross-check. The consumer work is one new presentation ("this
+device needs a server on your network") and no new transport: nothing in the
+block is executed by a phone.
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -1007,6 +1103,7 @@ this page classifiable.
 | [P15](#p15) | A second address for the same invocation | Medium | Very low | **Landed** |
 | [P16](#p16) | Scope a surface to the discovery method that proves it | Medium | Very low | With consumer — the IPP printer spec needs it today |
 | [P17](#p17) | A home for Bluetooth Classic | High | Low | **Landed** |
+| [P18](#p18) | A home for requests the device sends to an owner-run server | High | Low | With consumer — three specs work around it today |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |
