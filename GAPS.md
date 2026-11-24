@@ -134,9 +134,11 @@ never a reason to park a row here; it is the reason for
 for the scales read "Starting November 28, 2026, with the release of app
 version 5.12" when fetched at 05:11 UTC on 2026-11-23, and "Starting
 November 9, 2026" when fetched again at 23:40 UTC the same day; nothing else
-in the sentence changed. Read it as: pairing and re-pairing of the Aria and
-Aria 2 have already ended, and every "before the 28th" plan is void. Paired
-scales "will continue to sync" by the same page, which names no end date.
+in the sentence changed. That is the English page: at 00:57 UTC on 2026-11-24
+the German, French and Japanese editions still said 28 November. Read it as:
+pairing and re-pairing of the Aria and Aria 2 have already ended, and every
+"before the 28th" plan is void. Paired scales "will continue to sync" by the
+same page, which names no end date.
 
 ### Fitbit Aria family: what is still open
 
