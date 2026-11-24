@@ -3671,6 +3671,8 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
     "192.168.100.1": frozenset({"opengarage"}),
     # iRobot Create 3 over USB-C RNDIS Ethernet.
     "192.168.186.2": frozenset({"irobot-create3"}),
+    # Fitbit Aria (FB201) setup access point.
+    "192.168.240.1": frozenset({"fitbit-aria-wifi-scale"}),
     # HF-LPB100 module SoftAP (Mi-Light bridge and kin).
     "10.10.100.254": frozenset({
         "limitlessled-milight-bridge", "govee-home-apk-v7.5.30",

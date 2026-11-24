@@ -1,0 +1,2687 @@
+# Fitbit Aria Air (FB203) — Bluetooth LE scale with AES-128-CCM weigh-in messages
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Read this first: nothing in this file was run on hardware by this project.
+# Every byte-level fact is `verification: reported`. Two things are NOT settled
+# and are recorded as such rather than guessed: what the weight bytes mean when
+# the scale is set to kilograms (conflict C1 in protocol_details.weight_decoding)
+# and whether a client other than the vendor app can give a reset scale its key
+# (the second setup method: `verified: false`, `advanced: true`, resting on one
+# report nobody has reproduced; its standing is structured in
+# protocol_details.key_routes and protocol_details.key_lifecycle).
+#
+# Owner safety, before anything else: a scale that works with the vendor app
+# today is best left paired. BOTH routes to a key under device.setup begin by
+# removing the scale from the vendor account and factory-resetting it, which
+# ends that pairing; getting it back depends on the vendor app completing a
+# fresh setup.
+
+device:
+  name: "Fitbit Aria Air (FB203)"
+  manufacturer: "Fitbit (Google)"
+  manufacturer_status: "active"
+  model: "FB203"
+  aliases: ["Fitbit Aria Air", "Aria Air"]
+  distributors:
+    - name: "Fitbit"
+      role: "brand"
+    - name: "Google LLC"
+      role: "manufacturer"
+      url: "https://store.google.com/us/product/fitbit_aria_air?hl=en-US"
+      notes: >
+        Named as the manufacturer in the vendor's UK statement of compliance
+        for this model, and the seller: the scale was listed on the Google
+        Store when checked on 2026-11-23.
+    - name: "Zhongshan Transtek Electronics Co., Ltd"
+      role: "oem"
+      notes: >
+        Named as the factory in the FCC test report for XRAFB203; the boards
+        in the FCC internal photos carry the Transtek name. Whether the
+        factory also wrote the firmware is not established.
+  companion_apps:
+    - name: "Google Health (the renamed Fitbit app)"
+      role: "primary"
+      platform: "cross_platform"
+      notes: >
+        The only vendor-supported client. The vendor's instructions have it
+        open on a nearby phone during every weigh-in, and it needs a Google
+        Account. It is also the only way to give the scale a key that more
+        than one party has observed.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/BigWebstas/ha-fitbit-aria-air/tree/d43708a1eb6acee368bde5a06b34208c9ece88f8"
+    notes: >
+      The vendor publishes no protocol. The protocol facts here are restated
+      from one public implementation with a written protocol description
+      (BigWebstas/ha-fitbit-aria-air, pinned above; five commits, first
+      2026-10-23) and from openScale issue 1105 (a capture posted 2025-01-12
+      and later comments). The implementation carries NO licence file, so it
+      is all rights reserved by default. What this spec takes from it is
+      facts: identifiers, byte layouts, cipher parameters, timings and
+      observed behaviour, restated in this project's own words; its code is
+      not used here. Its author says the findings came from Bluetooth
+      captures of the vendor app and from reading that app's message parser,
+      which is why every byte-level fact here is `reported` and none is
+      `confirmed`.
+  testing:
+    status: untested
+    notes: >
+      This project drove no scale, opened no vendor account, used no vendor
+      app and holds no capture, key or address of any unit. Sources: the
+      public implementation named in openness (its author reports decoded
+      weights matching the display of one unit, firmware A16, hardware H01);
+      an independent Bluetooth capture in openScale issue 1105 (January 2025)
+      that agrees on the advertised name, the service, the characteristic,
+      the indication and the 19-byte length; and the research pass's own
+      check that nine ciphertext samples published in that issue show the
+      nonce structure the implementation describes. The test vectors in
+      protocol_details.test_vectors are synthetic. scripts/test_fitbit_aria_air_spec.py
+      proves the declared layout and cipher parameters are self-consistent;
+      it proves nothing about a real scale.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "scale"
+  category_hierarchy: ["measurement", "health", "other"]
+  type: "weight-scale"
+  integration: "identify_only"
+  notes: >
+    Bluetooth LE only, weight only: no Wi-Fi radio, no bioimpedance, no body
+    fat. The vendor computes BMI in its app. Powered by 3 AAA cells; capacity
+    180 kg (397 lb), display division 100 g.
+
+    VENDOR STATUS: this model is NOT part of the change that ended pairing
+    and re-pairing of the Aria (FB201) and Aria 2 (FB202). By the vendor's
+    English notice as read on 2026-11-24, that change took effect on 9
+    November 2026 with app version 5.12, so for those two scales it has
+    already happened. The same notice says "Aria Air is not impacted by this
+    change", and the Aria Air was still on sale when checked on 2026-11-24.
+    The notice has been seen to change: it read 28 November 2026 when
+    fetched at 05:11 UTC on 2026-11-23, and 9 November 2026 by 23:07 UTC the
+    same day and in every later fetch. Both wordings, the fetch times and
+    the other-language editions that still gave 28 November are recorded as
+    an observation in protocol_details.vendor_status. A vendor statement on
+    a page that changed within a day is cited with its fetch time and is
+    not a promise about the future. The Aria Air is in this catalogue
+    because its only supported path runs through the vendor app, and because
+    the key that decrypts its weigh-ins is normally known only to that app.
+
+    LEAVE A WORKING PAIRING ALONE: a scale that syncs with the vendor app
+    today is not part of that change, and it shows the weight on its own
+    display with no app at all. Both ways of obtaining a key described under
+    device.setup BEGIN by removing the scale from the vendor account and
+    factory-resetting it. That ends the present pairing, and getting one
+    back depends on the vendor app completing a fresh setup. Nothing in this
+    spec is a reason to unpair or reset a scale that works; what a careful
+    owner can do at no cost is in protocol_details.key_routes.
+
+    WHAT IS HERE: how to recognise the scale, its GATT layout, how to
+    subscribe, the 19-byte encrypted weigh-in message (declared as the
+    characteristic's format), the AES-128-CCM parameters
+    (protocol_details.message_cipher), the 3-byte plaintext
+    (payload_formats.WeighInPlaintext), the key lifecycle
+    (protocol_details.key_lifecycle), synthetic test vectors, and the
+    experiments that would close the open questions
+    (protocol_details.owner_experiments).
+
+    NOT A STANDARD WEIGHT SCALE: the scale advertises the Bluetooth SIG
+    Weight Scale service 0000181d-0000-1000-8000-00805f9b34fb but does NOT
+    implement the standard Weight Measurement characteristic
+    00002a9d-0000-1000-8000-00805f9b34fb. A generic Weight Scale client
+    that matches on the service finds no measurement to subscribe to. The
+    readings travel on the vendor characteristic
+    67b0ab2c-8323-427a-b1c9-70324bb5e228 inside that service.
+
+    NOT THE TRANSTEK FAMILY: the FCC report names a factory that carries the
+    Transtek name, and openScale puts that same name on its Trisa and 1BODY
+    handlers (its Medisana handler has no such label but uses the same range
+    of characteristic numbers). None of those handlers' services,
+    characteristics or challenge exchanges is reported on the Aria Air, so
+    do not try that protocol on it. Whether the shared name means one
+    company, let alone one plant, is not established (Q13 in
+    remaining_unknowns).
+
+    NO WI-FI, SO NOTHING TO REDIRECT: the radio is Bluetooth LE only and the
+    scale has no route to any server; the phone does the uploading. The
+    DNS-redirect approach that keeps an original Aria talking to an owner's
+    server has nothing to act on here. The useful local goal is narrower:
+    reading one's own weigh-ins over Bluetooth.
+
+    IDENTIFY-ONLY, and what would earn `supported`: a consumer cannot show a
+    weight from this spec without (1) the scale's current 16-byte key, which
+    the owner may not have; (2) an AES-128-CCM handler, which the schema's
+    characteristic `encryption` vocabulary cannot even name; (3) a
+    subscription that works on its host stack, which is not established for
+    Linux's own GATT client, for Apple hosts or for Bluetooth proxies; and
+    (4) a settled kilogram scaling.
+    `supported` is earned when a consumer ships that handler with a secret
+    store for the key, and this project has replayed a weigh-in on hardware
+    in pounds and in kilograms. See protocol_details.entity_coverage.
+  identification:
+    local_names: ["Aria Air"]
+    mac_prefixes:
+      - prefix: "A4:C1:38"
+        confidence: "low"
+        notes: >
+          Seen as the address prefix in the capture in openScale issue 1105
+          (the poster redacted the rest). The block is registered to Telink
+          Semiconductor, whose radios ship in a great many unrelated
+          products (this catalogue's Govee thermometer among them), so it
+          ranks a candidate and never identifies one. One unit, one capture.
+    notes: >
+      Match on the exact advertised name "Aria Air", reported by two
+      independent sources. Two signals are deliberately NOT listed as
+      identification axes. The Weight Scale service
+      0000181d-0000-1000-8000-00805f9b34fb is in the advertisement, but it is
+      a Bluetooth SIG standard UUID that unrelated scales advertise and that
+      xiaomi-mi-scale.yaml already claims; listing it here would make this
+      spec claim every standard scale in range. Manufacturer data under
+      company identifier 0x018e (decimal 398) is also sent, but that
+      identifier is assigned to Google LLC and is not specific to this
+      product, and the one source that describes the record places it, with
+      a hedge, in the scan response, where only an active scan would receive
+      it. Its layout is declared in
+      payload_formats.ManufacturerData and its use as a wake signal in
+      protocol_details.advertisement. After connecting, confirm with
+      protocol_details.identity_confirmation. Whether an owner can rename
+      the scale is not known; no source shows a way.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "Aria Air"
+        notes: >
+          Two parties report the name; one of them describes the packets,
+          and puts the name in the primary advertisement, so a passive scan
+          should be enough to find the scale. Per that one source the scale
+          keeps advertising while asleep and goes quiet for as long as a
+          client is connected. Seeing the advertisement does not mean a
+          connection will succeed: that needs the scale to be awake, and the
+          scale serves one client at a time. The step-on flag (second
+          payload byte of the manufacturer data, 1 while someone is on the
+          platform) is reported by the same single source, which places the
+          record in the scan response and hedges that claim. If it is right,
+          only an ACTIVE scan receives the flag, and a scanner that
+          active-scans in short bursts can miss the change
+          (protocol_details.advertisement). Expect short range: a 2020
+          regulatory change lowered the transmit power in software, and the
+          public implementation remarks that the signal is weak.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      READ FIRST: a scale that already works with the vendor app needs
+      nothing from this block, and the safest thing to do with it is
+      nothing. Both methods below begin by removing the scale from the
+      vendor account and factory-resetting it. That ends the working pairing
+      and the key behind it. Getting a pairing back depends on the vendor
+      app completing a fresh setup, and in-app setup of this model has a
+      public history of failing (the first method's description gives the
+      basis and its limits). The methods are for an owner who accepts that
+      cost, or whose scale is already unpaired or about to be reset anyway.
+
+      Why setup is required at all: a client can read a weigh-in only with
+      the 16-byte key that was written to the scale at setup, because every
+      reported weigh-in is encrypted under that key. What a scale with no
+      key sends is not reported by any source, so assume it is unusable to
+      every client, the vendor app included, until a key has been written.
+
+      Confidence is low because nothing was replayed by this project and
+      because the route that needs nothing from the vendor rests on one
+      report nobody has reproduced. On its own the vendor-app route would
+      rate medium: one party reports doing it on hardware and publishes a
+      log parser for it, and a second person independently saw the 16-byte
+      write. The only case that needs no reset is an owner who already holds
+      a Bluetooth log from a previous setup and has not set the scale up
+      again since. After a reset the next setup produces a new key
+      (reported), so a key learned before the reset has to be assumed stale.
+    methods:
+      - type: "cloud_account"
+        name: "Vendor app sets the key; capture it from your own phone's Bluetooth log"
+        role: "primary"
+        verified: false
+        advanced: true
+        advanced_reason: >
+          The published procedure starts by removing the scale from the
+          vendor account and factory-resetting it, so the working pairing
+          and its key are gone before anything is gained, and the rest
+          depends on the vendor app completing a fresh setup. If that setup
+          fails, the scale is left unpaired with an app that will not
+          re-pair it.
+        basis: >
+          README, docs/PROTOCOL.md and tools/extract_key.py of
+          BigWebstas/ha-fitbit-aria-air at
+          d43708a1eb6acee368bde5a06b34208c9ece88f8. One party, one scale:
+          the repository's author reports taking the key from the Bluetooth
+          HCI snoop log of an Android phone, recorded while the vendor app
+          was setting the scale up (hardware H01, firmware A16, the vendor
+          app as it was in October 2026), authenticating every captured
+          message with it, and publishes a parser for such logs. A second
+          person saw a 16-byte write during a setup that followed a factory
+          reset (openScale issue 1105, comment of 2025-04-15) and guessed,
+          without confirming, that it was a key being set up. Nobody else
+          has reported the route end to end, and nobody has reported it
+          against the vendor app released as version 5.12. The published
+          procedure takes the log off the phone inside an Android bug
+          report made with the adb tool from a computer. Not run by this
+          project.
+        description: >
+          WHAT IT COSTS, BEFORE WHAT IT GIVES. The published procedure
+          STARTS by removing the scale from the vendor account and
+          factory-resetting it. The present pairing and the key behind it
+          are lost at that point. Everything after depends on the vendor app
+          completing a fresh setup, and in-app setup of this model has a
+          public history of failing: a Fitbit Community thread titled
+          "'Something went wrong' during Aria Air setup" ran past twenty
+          pages (seen only as search-result titles; the thread now redirects
+          to the vendor's community front page). If the fresh setup does not
+          complete, the scale is left UNPAIRED WITH AN APP THAT WILL NOT
+          RE-PAIR IT. The scale's firmware is not at risk in that state; the
+          ways out are to retry the in-app setup or to try the second
+          method. The vendor's statement that this model is not impacted by
+          the Aria / Aria 2 change is not a promise that in-app setup will
+          complete. An owner whose scale works today should weigh that
+          before starting.
+
+          What it gives: the 16-byte key the vendor app writes at setup,
+          copied by the owner out of their own phone's Bluetooth log, so
+          that a local client holds the same key as the app. The same key
+          serves both, but the scale serves one client at a time, so each
+          weigh-in goes to whichever client is connected; nobody has
+          reported what the app shows after a local client has taken a
+          reading. Published for an Android phone only. The one case that
+          needs no reset is an owner who already holds a Bluetooth log from a
+          previous setup and has not set the scale up again since: that
+          owner starts at the second stage.
+        stages:
+          - type: "cloud_account"
+            name: "Remove, reset, then vendor-app setup while the phone logs Bluetooth"
+            verified: false
+            description: >
+              After a reset the vendor app reads the provision status, finds
+              00 and sends 16 bytes to the provision characteristic; those
+              bytes become the key. They cross the air unencrypted, so the
+              phone's own Bluetooth log holds them. The log also holds
+              everything else the phone did over Bluetooth while it was
+              recording: treat the whole file as a secret.
+            cloud:
+              provider: "Google Health app (formerly the Fitbit app), signed in with a Google Account"
+              local_alternative: >
+                The second method below: reset the scale and write a key of
+                your own. One report, not reproduced by anyone, says it
+                works; nothing else is known. It ends the vendor pairing
+                too.
+            steps:
+              - action: >
+                  STOP AND DECIDE. The steps below remove the scale from the
+                  vendor account and factory-reset it. The pairing that
+                  works today, and its key, are gone from that moment, and
+                  weigh-ins stop reaching the vendor app until a fresh
+                  in-app setup succeeds. If that setup fails, the scale is
+                  left unpaired with an app that will not re-pair it. Go on
+                  only if that is acceptable.
+                actor: "user"
+                expect: "A deliberate decision. Doing nothing keeps a working scale working."
+              - action: >
+                  On the owner's Android phone turn on Developer options,
+                  enable the Bluetooth HCI snoop log in its full (not
+                  filtered) form, then switch Bluetooth off and on.
+                actor: "user"
+                expect: "Bluetooth traffic is now recorded on the phone."
+              - action: >
+                  DRY RUN, BEFORE ANYTHING IS REMOVED. With the log on and
+                  the vendor app open, do one normal weigh-in. Then take the
+                  log off the phone exactly as the last step of this stage
+                  describes, keeping it just as private, but leave the snoop
+                  log switched on. Nothing on the scale changes, and the
+                  weigh-in syncs as usual. This step is this project's
+                  addition; the published procedure has no rehearsal.
+                actor: "user"
+                expect: "A copy of the phone's Bluetooth log on the owner's computer."
+              - action: >
+                  Check that the exported log holds the scale's traffic from
+                  that weigh-in: at least one ATT Handle Value Indication
+                  (opcode 0x1d) whose value is 19 bytes long. GO ON ONLY
+                  WHEN THAT WORKS. If the log cannot be taken off the phone,
+                  or holds no such indication, stop here: the pairing is
+                  still intact and nothing has been lost.
+                actor: "client"
+                expect: >
+                  At least one 19-byte indication. That shows the phone
+                  records Bluetooth traffic and the log can be exported. It
+                  does not show that the vendor app will write the key in
+                  clear at the coming setup (Q17), nor that the setup will
+                  complete.
+              - action: >
+                  Remove the scale from the vendor app. This ends the
+                  present pairing.
+                actor: "user"
+                expect: "The scale is no longer listed in the app."
+              - action: >
+                  Factory-reset the scale with the procedure in
+                  setup.factory_reset. This discards the scale's current
+                  setup; nothing reads it until it is set up again.
+                actor: "user"
+                expect: "The display shows clr; the provision status is 00 again."
+              - action: "Add the scale in the vendor app and complete its setup."
+                actor: "user"
+                expect: >
+                  The app writes a fresh 16-byte key and the provision status
+                  becomes 01. If the app reports an error and does not
+                  finish, the scale is unpaired: see this method's
+                  troubleshooting before doing anything else.
+              - action: >
+                  Take the Bluetooth log off the phone and keep it private:
+                  it holds the key and all of the phone's other Bluetooth
+                  traffic from the recording period. Never share or upload
+                  the file. The published procedure takes the log out inside
+                  an Android bug report, made with the adb tool from a
+                  computer, and gives the log's place inside the report
+                  archive as FS/data/misc/bluetooth/logs/btsnoop_hci.log
+                  (the source's statement; not checked on any phone by this
+                  project). The bug report holds far more than the Bluetooth
+                  log: keep the whole archive private too. Switch the snoop
+                  log off again afterwards.
+                actor: "user"
+                expect: >
+                  The log file, on the owner's computer, from a recording
+                  that covers the whole in-app setup.
+          - type: "ble_direct"
+            name: "Extract the key from the log and read weigh-ins"
+            verified: false
+            description: >
+              Find the key in the log, store it as a secret, then read
+              weigh-ins as the root initialization block and the
+              characteristic format describe. Keep the vendor app
+              disconnected while another client reads: the scale serves one
+              client at a time. No tool is prescribed here; the log search
+              is stated as the ATT facts a parser has to look for.
+            ble:
+              pairing_required: false
+            steps:
+              - action: >
+                  In the log, find the ATT characteristic declaration whose
+                  UUID is 26f33a01-52a8-414b-99a2-1db75c99c032 and note its
+                  value handle. Then find the phone-to-scale ATT write to
+                  that handle (Write Request, opcode 0x12, or Write Command,
+                  opcode 0x52) whose value is exactly 16 bytes. Those 16
+                  bytes are the key. If the log holds several, the latest
+                  setup is the one in force.
+                actor: "client"
+                expect: "One 16-byte value. Treat it like a password."
+              - action: "Store the key in a secret store, never in a repository, a log or a screenshot."
+                actor: "user"
+              - action: >
+                  Close the vendor app, step on the scale, connect, subscribe
+                  and decrypt one weigh-in. Compare it with the display.
+                actor: "client"
+                request:
+                  protocol: "ble_gatt"
+                  service: "0000181d-0000-1000-8000-00805f9b34fb"
+                  action: "subscribe to 67b0ab2c-8323-427a-b1c9-70324bb5e228"
+                expect: >
+                  A 19-byte message whose tag verifies under the key. A tag
+                  failure means these 16 bytes are not the key the scale now
+                  holds: either they were copied wrongly, or the scale has
+                  been set up again since the log was taken.
+        troubleshooting:
+          - symptom: "The dry run finds no 19-byte indication in the log, or the log cannot be taken off the phone."
+            causes:
+              - "Stop there. Nothing has been lost, because nothing has been removed or reset: do not go on to the removal until a dry run works."
+              - "The snoop log was in its filtered form, or Bluetooth was not restarted after enabling it."
+              - "The bug report did not include the Bluetooth log, or the phone keeps the log somewhere else. The one published procedure names one location, and this project has checked none."
+          - symptom: "The vendor app reports an error and does not finish the fresh setup."
+            causes:
+              - "In-app setup of this model has a public history of failing. The scale stays unpaired until a setup succeeds: retry in the app. A client can read the provision status to see whether the app got as far as writing a key (01) or not (00)."
+              - "If the app never completes, the only other reported way to give the scale a key is the second method, which rests on one report nobody has reproduced."
+          - symptom: "The log holds no 16-byte write to the provision characteristic."
+            causes:
+              - "The snoop log was in its filtered form, or Bluetooth was not restarted after enabling it."
+              - "The vendor app no longer writes the key this way. The one report of this route predates app version 5.12, and nobody has reported it against that release."
+          - symptom: "The vendor app shows no weigh-in while a local client is reading."
+            causes:
+              - "Expected: the scale serves one client at a time. Disconnect the local client and weigh again with the app open."
+          - symptom: "The local client subscribes and nothing arrives at all."
+            causes:
+              - "Not a key problem, and not a reason to reset: a wrong key shows as messages whose tag fails. Look at the descriptor value the host stack wrote (protocol_details.subscription) and at whether the scale was awake."
+      - type: "ble_provisioning"
+        name: "Reset the scale and write your own key (one unreplicated report)"
+        role: "alternative"
+        verified: false
+        advanced: true
+        advanced_reason: >
+          It rests on one report that nobody has reproduced, about one unit
+          whose firmware the report does not state. It starts with a factory
+          reset, which ends the vendor pairing: the vendor app is left
+          holding a key the scale no longer uses, and going back means
+          another reset plus a fresh in-app setup, which works only for as
+          long as the vendor still sets this model up. If the key that was
+          written is lost or was mistyped, no client can read the scale
+          until it is reset again. Nothing suggests the write can damage the
+          firmware (it has the shape of the write the vendor app makes), but
+          one unit is thin ground for saying so.
+        basis: >
+          One comment in openScale issue 1105, dated 2026-10-26. Its poster
+          introduces it as findings an AI assistant produced, and it does
+          not say who or what handled the scale. It reports: status 00 after
+          a factory reset; 16 locally generated random bytes written with an
+          ordinary GATT write with response; status 01 afterwards; twelve
+          weigh-ins authenticating under that key and matching the display;
+          the key surviving a battery change; no vendor account involved.
+          One unit; firmware and hardware revision not stated; no tool
+          named; no repository or capture linked; the only code in the
+          comment is a four-line fragment that decodes a message, with
+          nothing for the key write (two targeted reads on 2026-11-24 report
+          the fragment; an earlier read reported no code at all); and, by
+          the comment's own account, the method rests on analysis of the
+          vendor's Android app.
+          One reply the same day offers to try; nobody has posted a
+          reproduction. The public implementation agrees that the value the
+          vendor app writes is the key, but it writes nothing to that
+          characteristic itself and does not claim this route. Both research
+          passes read the comment through a summarising tool, so no wording
+          here is verbatim. Not run by this project.
+        description: >
+          WHAT IT COSTS, BEFORE WHAT IT GIVES. This route ENDS THE VENDOR
+          PAIRING: after the reset and the write the scale uses a key the
+          vendor app does not hold, so the app can be expected to stop
+          showing weigh-ins, and going back means another reset and a fresh
+          in-app setup. RECORD THE KEY BEFORE
+          WRITING IT: it cannot be read back, and a scale keyed with a value
+          nobody holds is unreadable until it is reset again. If weigh-ins
+          do not decrypt afterwards, reset again. The route is untested on
+          any firmware its source could name.
+
+          What it would give, if the report holds: a key the owner chose,
+          with nothing needed from the vendor. Treat it as an experiment,
+          not a procedure (it is experiment E1 in
+          protocol_details.owner_experiments), and report the result
+          together with the firmware string from Device Information. No
+          tool recipe is given because none is published: the steps below
+          are the GATT operations the report describes.
+        ble:
+          service_uuid: "26f33a00-52a8-414b-99a2-1db75c99c032"
+          write_characteristic: "26f33a01-52a8-414b-99a2-1db75c99c032"
+          read_characteristic: "26f33a01-52a8-414b-99a2-1db75c99c032"
+          pairing_required: false
+        steps:
+          - action: >
+              STOP AND DECIDE. The next step factory-resets the scale, which
+              ends the pairing with the vendor app: the app stops showing
+              weigh-ins, and the way back is another reset plus a fresh
+              in-app setup that may not complete. Go on only if that is
+              acceptable.
+            actor: "user"
+            expect: "A deliberate decision. Doing nothing keeps a working scale working."
+          - action: >
+              Factory-reset the scale with the procedure in
+              setup.factory_reset. This discards the scale's current setup.
+            actor: "user"
+            expect: "The display shows clr."
+          - action: >
+              Generate 16 bytes from a cryptographically secure random source
+              and store them in a secret store BEFORE writing them.
+            actor: "client"
+            expect: "The key exists in exactly one safe place."
+          - action: "Step on the scale to wake it; it refuses connections while asleep."
+            actor: "user"
+          - action: "Connect, retrying until the scale accepts."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "connect"
+            expect: >
+              Several refused or dropped attempts in the first seconds are
+              normal. Whether a freshly reset scale wakes the same way is not
+              known.
+          - action: "Read the provision status."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "26f33a00-52a8-414b-99a2-1db75c99c032"
+              action: "read 26f33a01-52a8-414b-99a2-1db75c99c032"
+            expect: >
+              One byte, 00. If it reads 01, STOP: the reset did not take, and
+              the outcome of a write in that state is unknown.
+          - action: "Write the 16-byte key, with response."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "26f33a00-52a8-414b-99a2-1db75c99c032"
+              action: "write (with response) 26f33a01-52a8-414b-99a2-1db75c99c032"
+              arguments:
+                - name: "key"
+                  type: "bytes[16]"
+                  required: true
+                  description: >
+                    The 16 key bytes exactly as they will be used as the
+                    AES-128 key. No header, length byte or checksum is
+                    reported.
+            expect: "The write is acknowledged."
+          - action: "Read the provision status again."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "26f33a00-52a8-414b-99a2-1db75c99c032"
+              action: "read 26f33a01-52a8-414b-99a2-1db75c99c032"
+            expect: "One byte, 01."
+          - action: >
+              Subscribe to the weigh-in characteristic, weigh, decrypt with
+              the key just written, and compare with the display.
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "0000181d-0000-1000-8000-00805f9b34fb"
+              action: "subscribe to 67b0ab2c-8323-427a-b1c9-70324bb5e228"
+            expect: "The tag verifies and the weight matches the display."
+        troubleshooting:
+          - symptom: "The status still reads 00 after the write."
+            causes:
+              - "The report this method rests on may not hold for this firmware. The scale has no key: set it up in the vendor app instead."
+              - "The write was sent without response and was dropped; the report used a write with response."
+          - symptom: "The status reads 01 but no message authenticates."
+            causes:
+              - "The scale holds a key that is not the one stored: the bytes written and the bytes kept differ. Reset the scale again (a reset is reported to return the status to 00, whatever was written), then repeat or set it up in the vendor app."
+              - "The report may not hold for this firmware. Reset again and set the scale up in the vendor app."
+          - symptom: "The status reads 01 and nothing arrives at all."
+            causes:
+              - "Not a key problem, and not a reason to reset: a wrong key shows as messages whose tag fails. Look at the descriptor value the host stack wrote (protocol_details.subscription) and at whether the scale was awake."
+          - symptom: "The vendor app no longer shows weigh-ins."
+            causes:
+              - "Expected: the app holds a different key. To go back, reset the scale and let the app set it up afresh, which depends on the app completing that setup."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        FOR AN OWNER: a reset ends the scale's current setup. The scale has
+        to be set up again before the vendor app or any other client can
+        read it, and the only way to do that which more than one party has
+        observed is the vendor app, whose setup of this model has a public
+        history of failing. Do not reset a scale that works unless that
+        cost is accepted. Reported: the provision status returns to 00, and
+        the next setup produces a new key. Not reported by any source: what
+        the scale sends between the reset and that setup (nothing, messages
+        under the old key, or something else). Until someone looks
+        (experiment E1), assume that no client, the vendor app included, can
+        read a weigh-in from a reset scale until a key has been written to
+        it.
+      description: >
+        Medium confidence: both editions of the vendor manual give the same
+        procedure and a public implementation reports the effect on the
+        provision status; nobody on this project ran it. The manual files
+        the procedure under restarting the scale and says the scale "is
+        reset" at the end. A reset is the start of both setup methods, so do
+        not use it as casual troubleshooting: afterwards the scale has to be
+        set up again. The vendor's erase article says the Aria Air holds no
+        personal data, so there is nothing else for a reset to erase;
+        whether the display unit survives is not stated. Partway through
+        the hold the display flashes otA. Neither the manual nor any other
+        public source says what that state is, what the scale does on the
+        air while it shows, or what releasing the button there leaves
+        behind, so this spec does not say either. Do not start the hold
+        unless a reset is intended (a short tap of the same button only
+        changes the display unit); when resetting, keep holding through otA
+        until clr, and write to nothing while otA shows.
+      procedures:
+        - name: "Back button: hold through otA until clr"
+          verified: false
+          basis: >
+            Aria Air User Manual, versions 1.1 and 1.8, section "Restart Aria
+            Air", read on 2026-11-23: a 5-second hold of the back button
+            brings up a flashing otA, and 5 more seconds of holding bring up
+            clr. A public implementation gives a single hold of roughly 5
+            seconds ending with CLR on the display; the manual is followed
+            here. Not run by this project.
+          description: >
+            CONSEQUENCE: this ends the scale's current setup. Afterwards the
+            vendor app and every other client lose the scale until it is set
+            up again (see effect above). The manual words the two stages as
+            two 5-second holds and does not say whether the button is
+            released between them. This procedure reads it as one continuous
+            hold of about 10 seconds. If clr does not appear, repeat
+            following the manual's wording literally: hold 5 seconds, then
+            hold again for 5 seconds.
+          hold_seconds: 10
+          power_state: "on"
+          indicator: "The display shows clr."
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: >
+                Be sure a reset is wanted: it ends the pairing with the
+                vendor app, and the scale has to be set up again before
+                anything can read it. Then turn the scale over and find the
+                single button on its underside. It is the button that,
+                tapped, cycles the display unit between pounds, stones and
+                kilograms.
+              actor: "user"
+            - action: "Press the button and keep it held for 5 seconds."
+              actor: "user"
+              expect: "The display flashes otA. Keep holding."
+            - action: "Keep holding for about another 5 seconds."
+              actor: "user"
+              expect: "The display shows clr."
+            - action: "Release the button."
+              actor: "user"
+              expect: >
+                The scale is reset. Its provision status reads 00 on the next
+                connection, and it needs a key before it is useful again.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        CHANGING PHONE IS NOT A REASON TO RESET, and neither case below needs
+        a reset. There is no network to rejoin: the scale holds no Wi-Fi or
+        account credentials, so a new router or a house move changes nothing
+        for it.
+
+        VENDOR APP ON A NEW PHONE (every owner who uses the vendor app and
+        was never shown a key): sign in to the same account on the new phone
+        and weigh in with the app open there; the steps below say how. The
+        vendor's sync troubleshooting for the Aria Air describes signing in
+        on another phone or tablet and syncing from that one, with no setup
+        step mentioned, and tells owners who sync from two devices to keep
+        the second one away during a weigh-in (read 2026-11-24). Do not
+        remove the scale from the account and do not reset it. Not tested by
+        this project; how the key reaches the new phone is not established
+        (Q11, experiment E7).
+
+        LOCAL CLIENT ON A NEW HOST (phone, computer or Bluetooth proxy): it
+        needs only the key, carried over by the owner, and no reset. An
+        owner who does not hold the key cannot read it back from the scale,
+        and there is no reported way to obtain it without a reset. A reset
+        ends the vendor pairing, and nothing reads the scale until it has
+        been set up again (see setup.factory_reset.effect), so for that
+        owner the choice that costs nothing is to go on using the vendor
+        app.
+      steps:
+        - action: >
+            Vendor app on a new phone: install the vendor app on the new
+            phone and sign in to the SAME account. Do not remove the scale
+            from the account, do not add it as a new device and do not reset
+            it: removing or resetting ends the pairing.
+          actor: "user"
+          expect: "The app on the new phone shows the owner's account. Nothing on the scale has changed."
+        - action: >
+            Keep the old phone or tablet away from the scale, or switch its
+            Bluetooth off: the scale serves one client at a time.
+          actor: "user"
+        - action: "With the vendor app open on the new phone, step on the scale."
+          actor: "user"
+          expect: >
+            The weigh-in syncs to the account. This is the vendor's own
+            troubleshooting step, not something this project has tested. If
+            it does not sync, go back to the vendor's troubleshooting; do
+            not reset the scale and do not remove it from the account
+            because of it, since either one ends the pairing.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "One 16-byte AES-128 key, written at provisioning; the scale's only reported secret"
+      issued_to_client:
+        - "The same 16-byte key: written by the client that performs provisioning (in the vendor flow, the app; where the app gets it is not established), and not readable from the scale by any other client"
+      notes: >
+        The key is written to the scale in clear over an unencrypted link, so
+        anyone capturing that moment has it, and whoever has it and is in
+        radio range can decrypt every weigh-in until the next reset. One
+        unreplicated report says it survives a battery change. Never commit
+        a real key, a scale address or the Device Information serial number,
+        which embeds the address. The examples in this file use an invented
+        key.
+  pairing:
+    required: true
+    confidence: "medium"
+    # No link-layer pairing at all. The gate is one application-layer key.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        Not a PIN: a 16-byte AES-128 key. In the vendor's flow the app writes
+        it to the scale at setup and nothing shows it to the owner. Whether
+        the app generates it or receives it from the vendor's servers is not
+        established; one comment says the servers hold a copy. If the second
+        setup method holds, the source becomes the owner's own client.
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Close the vendor app on every nearby phone, or switch that phone's
+        Bluetooth off, then step on the scale again. While a client is
+        connected the scale is absent from scans, so a scale that has
+        vanished from a scan is usually connected to something else.
+      notes: >
+        One client at a time, per the public implementation. There is no
+        bond to evict; what is exclusive is the key. The scale holds exactly
+        one, so every client that reads it must hold that same key, and
+        clients take turns on the connection: a weigh-in goes to whichever
+        client is connected at that moment. Nobody has reported what the
+        vendor app shows for a weigh-in that a local client received.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing has to be pressed to connect or subscribe: the scale's name
+        is always on the air, and a connection succeeds whenever the scale
+        is awake, that is, for as long as a person is on the platform.
+        Changing the key is a different matter and starts with the factory
+        reset.
+    unpair:
+      supported: "unknown"
+      clears: "The key, and with it every client's ability to decrypt."
+      notes: >
+        The only reported way to clear the key is the factory reset in
+        setup.factory_reset, which ends the vendor pairing and leaves the
+        scale needing a fresh setup. Whether the scale accepts a new key
+        while its status already reads 01 is unknown, so no route short of a
+        reset is claimed and none is ruled out.
+    notes: >
+      The Bluetooth link is open: no pairing, no bond, and an unbonded
+      client can connect, read the provision status and subscribe. What it
+      receives is ciphertext. The real authorisation is possession of the
+      scale's 16-byte key, used with AES-128-CCM on every message
+      (protocol_details.message_cipher). In the vendor's flow only the
+      vendor app knows that key. If the vendor app ever stopped setting this
+      model up, an owner without a key would depend on the own-key route,
+      which rests on one report nobody has reproduced. That is NOT a reason
+      to go and capture the key from a scale that works: the capture route
+      itself starts by removing the scale from the account and resetting
+      it, and then depends on the app completing a fresh setup. The time to
+      record a key at no extra cost is a setup that is happening anyway (a
+      new scale, or one already unpaired): turn the phone's Bluetooth log on
+      first. Medium confidence: a public implementation documents the open
+      link and the key gate, and an independent capture agrees on the
+      encrypted indications; this project has not connected to a scale.
+  host_compatibility:
+    - stack: "bluez"
+      status: "unknown"
+      verification: "reported"
+      basis: >
+        Source review of BigWebstas/ha-fitbit-aria-air at
+        d43708a1eb6acee368bde5a06b34208c9ece88f8: its Home Assistant
+        integration subscribes through the host's notification API and then
+        attempts an explicit descriptor write whose failure it ignores; its
+        standalone Linux reader bypasses the stack's GATT client and writes
+        the descriptor over a raw ATT channel. Its README describes the
+        integration itself as lightly tested in real use.
+      notes: >
+        The open point is the Client Characteristic Configuration value. The
+        characteristic declares indicate only, so a stack that picks the
+        value itself writes 02 00; the vendor app writes 01 00, and the
+        source's write-up says a client that writes 02 00 may receive
+        nothing. BlueZ chooses the value and refuses a direct descriptor
+        write, so whether its own GATT client can open the stream is not
+        established. A raw ATT write of 01 00 is what the source's own Linux
+        tool uses. BLUETOOTH PROXIES: the source lists an ESPHome Bluetooth
+        proxy as a supported host, reports that proxies often miss the wake
+        flag (which is why it offers a connection attempt every 15 seconds
+        as an option) and says an ESPHome proxy has three connection slots,
+        which other devices compete for. It shows no session through a
+        proxy, and it does not show which descriptor value reaches the scale
+        through one. See protocol_details.subscription and experiment E3.
+    - stack: "corebluetooth"
+      status: "unknown"
+      verification: "hypothesis"
+      basis: >
+        Inference, not a test. Apple's CoreBluetooth documentation, read on
+        2026-11-24, says an app cannot write the Client Characteristic
+        Configuration descriptor directly and must ask the stack to enable
+        notifications or indications instead, so on Apple hosts the stack
+        picks the descriptor value, as BlueZ does. The same documentation
+        says that for a characteristic allowing both notifications and
+        indications the stack enables notifications only. The vendor's setup
+        article sends owners to the App Store as well as the Play Store for
+        the app that sets this scale up. No source has examined an Apple
+        host with this scale: the public implementation's captures are of
+        the Android app, and the January 2025 capture does not say which
+        phone it came from.
+      notes: >
+        The recommended explicit write of 01 00 cannot be made by an app on
+        iOS, iPadOS or macOS, so those hosts are an unknown of the same kind
+        as BlueZ. The vendor's iPhone app is nevertheless offered for this
+        model, which is a lead on conflict C5: if that app subscribes
+        through the same system call, then either the value the Apple stack
+        picks for an indicate-only characteristic (presumably 02 00) does
+        open the stream, or the characteristic declares more than the one
+        public listing shows. Nobody has looked. See
+        protocol_details.subscription and experiment E3.
+
+initialization:
+  - characteristic: "26f33a01-52a8-414b-99a2-1db75c99c032"
+    read: true
+    when: "connect"
+    notes: >
+      One byte: 00 = not provisioned, 01 = provisioned. Read it before
+      subscribing, the order reported for the vendor app's setup session. A
+      client that finds 00 knows the scale has been reset: what the scale
+      sends in that state is not reported (assume nothing readable), and the
+      next setup produces a new key, so treat any stored key as stale. NEVER
+      follow this read with a write when the value is 01.
+  - characteristic: "67b0ab2c-8323-427a-b1c9-70324bb5e228"
+    subscribe: true
+    when: "connect"
+    notes: >
+      Opens the weigh-in stream. The value written to the descriptor
+      matters and is only partly understood: the vendor app writes 01 00
+      (the notification bit) although the characteristic declares indicate
+      only, and the scale then sends indications. A stack that writes 02 00
+      may receive nothing. Write 01 00 explicitly where the host allows it;
+      BlueZ's own GATT client and Apple's CoreBluetooth pick the value
+      themselves (device.host_compatibility). Confirm every indication.
+      Details and what is unknown are in protocol_details.subscription.
+
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access"
+    notes: >
+      Present in the one public GATT listing, with Device Name, Appearance
+      and Peripheral Preferred Connection Parameters. No characteristic is
+      declared here because that listing gives neither their properties nor
+      their values, and a client needs none of them.
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      Read after connecting to confirm the product. The public listing names
+      these characteristics and their values but not their UUIDs; the UUIDs
+      below are the Bluetooth SIG assignments for those names. The same
+      listing notes a stray Glucose Feature characteristic inside this
+      service; nothing is known about it and it is not declared.
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+        notes: "Reported value: Fitbit."
+        verification: "reported"
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+        notes: "Reported value: FB203. The post-connect identity check."
+        verification: "reported"
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+        notes: >
+          Reported form: F-31-<address>, that is, a fixed prefix followed by
+          the scale's own Bluetooth address. It identifies one unit: never
+          log or publish it.
+        verification: "reported"
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+        notes: "Reported value: H01, the only hardware revision any source has seen."
+        verification: "reported"
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: "Reported value: A16, the only firmware any source has seen. Nothing here is known to hold on another revision."
+        verification: "reported"
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: "Reported value: A16."
+        verification: "reported"
+
+  - uuid: "0000181d-0000-1000-8000-00805f9b34fb"
+    name: "Weight Scale (shell: carries a vendor characteristic, not the standard measurement)"
+    notes: >
+      The Bluetooth SIG Weight Scale service UUID, advertised and present,
+      but NOT a standard implementation: the Weight Measurement
+      characteristic 00002a9d-0000-1000-8000-00805f9b34fb is absent. Do not
+      wait for it. Two independent sources agree that the vendor
+      characteristic below lives in this service.
+    characteristics:
+      - uuid: "67b0ab2c-8323-427a-b1c9-70324bb5e228"
+        name: "Encrypted weigh-in message (vendor)"
+        properties: ["indicate"]
+        role: "notify"
+        verification: "reported"
+        notes: >
+          One 19-byte value per message, delivered as an ATT Handle Value
+          Indication that the client must confirm. The value is NOT a
+          weight: it is a nonce, an authentication tag and 3 bytes of
+          ciphertext, in that order on the wire. Open it with AES-128-CCM as
+          declared in protocol_details.message_cipher, then parse the 3-byte
+          plaintext with payload_formats.WeighInPlaintext. The schema's
+          `encryption` vocabulary has no AES-CCM value, which is why the
+          cipher is declared there and not on this characteristic. A value
+          of any other length, or one whose tag does not verify, is not a
+          reading. Reported timing: the first message follows the
+          subscription by a few seconds and the same reading tends to be
+          sent a second time; the source also saw unexplained messages
+          carrying different values.
+
+          SUBSCRIPTION TRAP (read side; it bites after either setup method,
+          however the key was obtained). The characteristic is reported to
+          declare indicate only, yet the vendor app enables it by writing
+          01 00, the notification value, to the Client Characteristic
+          Configuration descriptor. Host stacks that choose the descriptor
+          value themselves (BlueZ's GATT client and Bleak on top of it,
+          Apple's CoreBluetooth) would be expected to write 02 00 for an
+          indicate-only characteristic, and whether the scale then sends
+          anything is not established. The public implementation's own
+          standalone reader avoids the question by writing the descriptor
+          over a raw ATT channel, and its README calls the integration's
+          real-world testing limited. A connection is also accepted only
+          while a person is on the platform. So a correct key can still
+          be followed by silence. Silence says nothing about the key (a
+          wrong key shows up as messages whose tag fails): look at the
+          subscription first, and never reset a scale because nothing
+          arrived. Structured in protocol_details.subscription and
+          device.host_compatibility.
+        format:
+          - offset: 0
+            length: 8
+            name: "nonce"
+            type: "bytes"
+            notes: >
+              The 8-byte AES-CCM nonce, used exactly as received. Different
+              in every message, including repeats of one weigh-in.
+          - offset: 8
+            length: 8
+            name: "tag"
+            type: "bytes"
+            notes: >
+              The 8-byte AES-CCM authentication tag. It comes BEFORE the
+              ciphertext on the wire; most AEAD libraries expect it after.
+          - offset: 16
+            length: 3
+            name: "ciphertext"
+            type: "bytes"
+            notes: "Three encrypted bytes; the plaintext is payload_formats.WeighInPlaintext."
+      - uuid: "00002a9e-0000-1000-8000-00805f9b34fb"
+        name: "Weight Scale Feature"
+        properties: ["read"]
+        verification: "reported"
+        notes: >
+          The standard feature characteristic. Reported to read 00 00 00 00,
+          that is, no optional feature of the standard service is claimed.
+        format:
+          - offset: 0
+            length: 4
+            name: "features"
+            type: "uint32"
+            endianness: "little"
+            notes: "Reported value 0."
+
+  - uuid: "26f33a00-52a8-414b-99a2-1db75c99c032"
+    name: "Provisioning (vendor)"
+    notes: >
+      Vendor service holding the provision status and taking the key. Only
+      the one characteristic below is reported; whether the service has
+      others is not known.
+    characteristics:
+      - uuid: "26f33a01-52a8-414b-99a2-1db75c99c032"
+        name: "Provision status (read) and key (write)"
+        properties: ["read", "write"]
+        verification: "reported"
+        notes: >
+          READ returns one status byte. WRITE takes the 16-byte AES-128 key,
+          with response; the vendor app writes it when the status reads 00.
+          No command is declared for the write on purpose: it is a one-time
+          provisioning step with a precondition (status 00) and lasting
+          consequences, and it is described under device.setup. NEVER write
+          here when the status reads 01: whether the scale refuses or
+          silently replaces its key is unknown, and a replaced key locks out
+          the vendor app and every other client until the next reset. The
+          key cannot be read back.
+        format:
+          - offset: 0
+            length: 1
+            name: "provision_status"
+            type: "uint8"
+            values:
+              0: "not_provisioned"
+              1: "provisioned"
+            notes: >
+              The public write-up calls the two states not linked and
+              linked. The 2026-10-26 comment in openScale issue 1105 states
+              the same two values; whether it is independent of the write-up
+              is not known. No other value is reported.
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Firmware update (per the one listing; do not write; mechanism not established)"
+    notes: >
+      DO NOT WRITE to anything in this service. RECOVERY: NONE KNOWN. No
+      firmware image for this scale is public, nothing shows that this
+      service can read one out, and no wired recovery has been demonstrated,
+      so a scale left unusable by a write here has no known way back.
+      Present in the one published GATT listing (one unit, firmware A16),
+      which labels it as the firmware-update service and warns against
+      writing to it; that source does not report a failed write and lists
+      no characteristics under the service, so none is declared here. What
+      is known is the UUID and nothing more: it is the value Nordic's legacy
+      DFU service uses, on a radio that the FCC photographs show to be a
+      Telink part. Which protocol runs behind it, what it accepts, and
+      whether it checks who is writing or what is written are all unknown,
+      and this spec asserts none of Nordic's defaults (characteristics,
+      entry bytes, bootloader name, address change) for this device. For
+      comparison, the stock Telink update service
+      00010203-0405-0607-0809-0a0b0c0d1912 is not present in that one
+      published listing; nobody has checked for it while the display shows
+      otA.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      services: ["00001530-1212-efde-1523-785feabcd123"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          No image, container or integrity scheme for this scale has been
+          examined by any public source, and no image is public. "unknown"
+          here means exactly that: nobody knows whether the channel checks
+          anything.
+      enter:
+        how: "unknown"
+        notes: >
+          No entry procedure is known. The GATT listing carries a service
+          whose UUID is the one Nordic's legacy DFU uses; Nordic's
+          buttonless entry bytes are a stack default and are NOT asserted
+          for this device. Separately, the display flashes otA partway
+          through the reset hold; no public source says what that state is
+          or does, and this spec does not connect it to this service.
+      dfu_mode:
+        notes: >
+          Nothing is known about how the scale appears on the air in an
+          update state: not its name, its address, nor its services.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          None known. No image is public, nothing shows this channel can
+          read one out, and no wired recovery has been demonstrated on this
+          scale. Treat any write to the update service as possibly
+          permanent.
+      verification: "reported"
+      notes: >
+        Recorded so that a generic GATT client keeps the service read-only
+        and so that nobody mistakes the UUID for proof of a Nordic
+        bootloader. Presence of the service: one source, one unit. That the
+        vendor intends some update path is suggested by two statements: the
+        Google Store specification page promises the software and security
+        updates the law requires, and a 2020 letter in the FCC record says
+        output power was lowered "by software". No vendor page
+        read for this spec describes how an Aria Air is updated. This
+        project documents no update procedure and ships no image.
+
+payload_formats:
+  WeighInPlaintext:
+    description: >
+      The 3 bytes obtained by opening one weigh-in message with AES-128-CCM
+      (protocol_details.message_cipher). Reported by one public
+      implementation and one later comment; the layout is byte for
+      byte the mandatory part of the Bluetooth SIG Weight Measurement
+      characteristic, which is the research pass's observation and not a
+      source's claim.
+    fields:
+      - name: "flags"
+        offset: 0
+        length: 1
+        type: "uint8"
+        description: >
+          1 in every message the public implementation captured. One comment
+          reads bit 0 as the unit selector (set = pounds, clear = kilograms)
+          and gives no meaning for the other bits. The value seen with the
+          scale set to kilograms or stones has never been published. Keep
+          the whole byte: an unexpected value is evidence.
+      - name: "weight_raw"
+        offset: 1
+        length: 2
+        type: "uint16"
+        endianness: "little"
+        description: >
+          Unsigned 16-bit little-endian count. NO unit or scale is declared
+          on this field on purpose: the two readings of the evidence agree
+          only for pounds (0.01 lb per count) and conflict for kilograms. The
+          unit and scale per unit mode, both readings of the conflict and
+          the rule a client should follow are structured in
+          protocol_details.weight_decoding.
+    parse_rules:
+      - "Require exactly 3 bytes. Anything else is not a weigh-in."
+      - "Byte 0 is flags; bytes 1-2 are weight_raw, least significant byte first: weight_raw = byte1 + 256 * byte2."
+      - "Do not turn weight_raw into a weight without protocol_details.weight_decoding."
+    example: "01883b"
+  ManufacturerData:
+    description: >
+      The manufacturer-specific advertising record (AD type 0xff) under
+      company identifier 0x018e, as reported for firmware A16: 8 bytes after
+      the two company-identifier bytes. Offsets below count from the first
+      byte after the company identifier. The record appears to be in the
+      scan response, not the primary advertisement.
+    fields:
+      - name: "reserved"
+        offset: 0
+        length: 1
+        type: "uint8"
+        description: "Reported as 0x00. Meaning unknown."
+      - name: "awake"
+        offset: 1
+        length: 1
+        type: "uint8"
+        values:
+          "0": "asleep"
+          "1": "awake"
+        description: >
+          Reads 1 for the seconds a person is on the platform and 0 the rest
+          of the time; the source watched it go to 1 at step-on and return
+          to 0 a few seconds afterwards. A 1 marks the moment a connection
+          will be accepted.
+      - name: "address"
+        offset: 2
+        length: 6
+        type: "bytes"
+        description: >
+          The scale's own Bluetooth address. The byte order is not stated by
+          any source. It identifies one unit: never log or publish it.
+    parse_rules:
+      - "Accept only a record of exactly 8 payload bytes under company identifier 0x018e; anything else is not this layout."
+      - "Use it to decide WHEN to connect, never to decide WHAT the device is: the company identifier is shared across Google products."
+
+protocol_details:
+  vendor_status:
+    as_of: "2026-11-24"
+    manufacturer_status: "active"
+    affected_by_pairing_cutoff: false
+    pairing_cutoff:
+      applies_to: ["Fitbit Aria (FB201)", "Fitbit Aria 2 (FB202)"]
+      # What the vendor's English notice states NOW. For the two models it
+      # applies to, the date is in the past: the change has already happened.
+      in_force: true
+      date: "2026-11-09"
+      date_basis: "The vendor's English notice as read on 2026-11-24 at 01:02 UTC."
+      app_version: "5.12"
+      current_english_wording: "Starting November 9, 2026, with the release of app version 5.12, you can no longer pair or re-pair Aria and Aria 2 scales."
+      paired_scales_statement: "Any scales that were paired prior to this date, and remain paired, will continue to sync."
+      paired_scales_end_date: "none stated"
+      aria_air_statement: "Aria Air is not impacted by this change."
+      aria_air_statement_read_utc: "2026-11-24T01:02Z"
+      aria_air_statement_caveat: >
+        A vendor statement on a page that changed within a day. It says this
+        model is outside the change; it does not promise that in-app setup
+        of an Aria Air will keep working or will complete, which is what
+        both key routes in device.setup depend on.
+      # An observation about the source, kept apart from the facts above.
+      notice_edit_observed:
+        earlier_english_wording: "Starting November 28, 2026, with the release of app version 5.12, you can no longer pair or re-pair Aria and Aria 2 scales."
+        earlier_wording_read_utc: "2026-11-23T05:11Z"
+        current_wording_read_utc:
+          - "2026-11-23T23:07Z"
+          - "2026-11-23T23:40Z"
+          - "2026-11-24T00:57Z"
+          - "2026-11-24T01:02Z"
+          - "2026-11-24T02:26Z"
+        current_wording_read_basis: >
+          The first entry is the save time of a copy of the page kept
+          during the research, not a logged fetch; the later entries are
+          fetches. It is not the earliest evidence of the new wording.
+        current_wording_earliest_saved_copy_utc: "2026-11-23T22:33Z"
+        current_wording_earliest_saved_copy_basis: >
+          File time of another saved copy of the English page, which
+          already carries 9 November 2026 and nowhere 28 November. A file
+          time, not a logged fetch. So the wording changed between 05:11
+          UTC and, at the latest, 23:07 UTC on 2026-11-23, and probably by
+          22:33 UTC.
+        what_changed: >
+          The day of the month only: 28 became 9. The rest of the sentence,
+          the app version, the sentence about scales that stay paired and
+          the sentence about the Aria Air are the same in both texts.
+        earlier_date: "2026-11-28"
+        earlier_date_is_current: false
+        other_language_editions:
+          languages: ["de", "fr", "ja"]
+          date_stated: "2026-11-28"
+          read_utc: ["2026-11-24T00:57Z", "2026-11-24T01:02Z", "2026-11-24T02:26Z"]
+          notes: >
+            The German, French and Japanese editions of the same help
+            article still gave 28 November 2026 at these times, while the
+            English edition gave 9 November. The English edition is the one
+            this spec follows.
+        not_known: >
+          Whether the vendor edited the English text or serves more than
+          one variant of it, why the dates differ, and whether the other
+          editions will follow. For an owner of an Aria or Aria 2 none of
+          that buys time: treat pairing and re-pairing of those two models
+          as already ended.
+      source: "https://support.google.com/googlehealth/answer/14236805"
+      verification: "reported"
+    still_sold:
+      value: true
+      checked: "2026-11-24"
+      source: "https://store.google.com/us/product/fitbit_aria_air?hl=en-US"
+    security_updates: >
+      The vendor's security-update table guarantees updates for this model
+      until at least February 2028, and its UK statement of compliance sets
+      the support period at no less than two years after the scale is last
+      sold by the vendor.
+    vendor_dependency:
+      - "Setup is done only in the vendor app, signed in with a Google Account."
+      - "The vendor's instructions require the app to be open on a nearby phone during every weigh-in."
+      - "In the vendor's flow the key that decrypts the weigh-ins is known only to the vendor app."
+    notes: >
+      Nothing about this model is being withdrawn. The risk this entry
+      addresses is dependency, not a deadline: there is no vendor-supported
+      way to read the scale without the vendor app.
+  hardware:
+    fcc_id: "XRAFB203"
+    ised_id: "8542A-FB203"
+    radio: "Bluetooth LE only, 2402-2480 MHz; no Wi-Fi"
+    power: "3 AAA cells"
+    capacity_kg: 180
+    display_division_g: 100
+    display_units: ["lb", "st", "kg"]
+    load_cells: 4
+    serviceable: false
+    serviceable_basis: "The vendor manual (version 1.8) says the Aria Air is not serviceable. No teardown has been published by anyone."
+    soc_marking: "TLSR8261 F512ET32"
+    module_marking: "TRANSTEK LS8261-512 19-05-10 Rev1"
+    main_board_marking: "TRANSTEK TSH1713-1 19-05-23 Rev1"
+    module_pads_labelled: ["VDD", "GND", "SWS", "RXD", "TXD"]
+    module_pads_location: "the underside of the radio module, the face soldered against the main board"
+    soc_notes: >
+      Read from the 2020 FCC internal-photo exhibit by both research passes
+      and one reviewer; the chip marking was looked at again for this
+      revision. The radio is a Telink TLSR8261 on a small Transtek module
+      mounted on the main board by its edge joints, with a 12.000 MHz
+      crystal. The five labelled pads are on the module's underside, so they
+      cannot be reached while the module is fitted. Nobody has reported
+      connecting to them, and no public programmer lists this chip as
+      tested. The 2019 exhibit is too coarse to read. The Telink address
+      prefix seen in a capture agrees with the marking.
+    other_photo_observations:
+      - "An unmarked chip-on-board controller on the main board (labelled IC2), next to the display's edge contacts and the load-cell pads. Its role is not stated by any source."
+      - "One unpopulated 8-pad footprint beside that controller; function unknown. No memory chip separate from the radio's own is populated on the photographed unit."
+      - "Four corner load cells with three wires each, landing on labelled pad groups along two board edges, in the usual arrangement of four half-bridge cells combined into one bridge."
+      - "Further solder-side pads labelled DOWN, SET, UP and UNIT, and a backlight pair. Their function is not documented anywhere: do not bridge or drive them. One reading of the photograph, not an established fact: UNIT sits in a group of three soldered joints with VDD and GND, and the separate touch-key board is on three wires, so UNIT may be the line of the back button. If it is, bridging it could act as holding the button that starts the reset."
+      - "A separate small touch-key board on three wires."
+    conducted_output:
+      original_grant_mw: 1.3
+      after_2020_change_mw: 0.2
+      notes: >
+        A permissive change granted on 2020-06-23 lowered the output in
+        software, by about 8 dB. Which units carry the change is not
+        stated; the public implementation remarks that the signal is weak.
+    verification: "reported"
+  key_routes:
+    notes: >
+      What an owner can do about this scale, ordered by what it costs them.
+      The first three entries change nothing on the scale and leave the
+      pairing alone. The first two cost nothing at all; the third can cost
+      the weigh-in during which the client is connected, which may never
+      reach the vendor app.
+      The last two are the setup methods under device.setup; BOTH end the
+      present vendor pairing before they give anything back. Evidence
+      levels are those of a second research round whose claims were each
+      re-checked against the primary source by a separate reviewer.
+    routes:
+      - id: "leave_paired"
+        title: "Leave a working pairing alone and keep using the scale"
+        evidence: "vendor documentation"
+        needs: "Nothing."
+        gives: "The weight on the scale's own display, and vendor sync for as long as the vendor keeps it working."
+        pairing_impact: "none"
+        scale_risk: "none"
+        is_setup_method: false
+        basis: >
+          The vendor's notice says the Aria Air is not impacted by the Aria
+          / Aria 2 change (read 2026-11-24 at 01:02 UTC). The same help
+          article says people without an account linked to the scale can go
+          on using it and are shown only their weight. This is the safest
+          action for an owner whose scale works: it gives up nothing.
+      - id: "read_the_display_with_a_camera"
+        title: "Read the display with a phone camera (third-party Android app)"
+        evidence: "demonstrated by one party on an Aria Air (the app's author, kilograms only); not run or reviewed by this project"
+        needs: "An Android phone, and pointing its camera at the display after every weigh-in."
+        gives: "The displayed number written to Android Health Connect, with no radio link to the scale and no key."
+        pairing_impact: "none"
+        scale_risk: "none"
+        is_setup_method: false
+        project: "drinkcat/SmarterScale"
+        project_url: "https://github.com/drinkcat/SmarterScale"
+        licence: "Apache-2.0"
+        tested_by_its_author_on: "A Fitbit Aria Air only, by the README's own statement."
+        limits:
+          - "Kilograms only."
+          - "The position of the decimal point is assumed, not read."
+          - "Installed from the project's own release page, not from an app store."
+          - "One manual step per weigh-in; nothing is recorded if the owner does not do it."
+        basis: >
+          The project's README and LICENSE, read on 2026-11-24. Its author
+          is the person who posted the January 2025 capture in openScale
+          issue 1105.
+      - id: "identify_without_a_key"
+        title: "Connect and read what is in the clear"
+        evidence: "two parties for the name, the service, the characteristic, the indication and the 19-byte length; the January 2025 capture alone for the value handle and the address prefix; the public implementation alone for the Device Information strings and the step-on flag; the status byte is in that implementation's write-up and in the 2026-10-26 comment"
+        needs: "Any Bluetooth LE central; an active scan for the step-on flag, if the one source's placement of it is right."
+        gives: "Identification, the firmware string, whether the scale has a key, and the step-on flag. Never the weight."
+        pairing_impact: "none to the pairing, but not free of cost: the scale accepts a connection only during a weigh-in and serves one client at a time, so a weigh-in made while a local client holds the connection may never reach the vendor app (readings are not known to be stored)"
+        scale_risk: "none: reads only"
+        is_setup_method: false
+        must_not: "Write to the provision characteristic or to anything under service 00001530-1212-efde-1523-785feabcd123."
+        connect_only: "when the owner asks, and disconnect as soon as the reads are done: a client without the key gives the owner nothing for the weigh-in it takes away from the vendor app"
+      - id: "capture_key_from_bluetooth_log"
+        title: "Vendor app sets the key; capture it from your own phone's Bluetooth log"
+        evidence: "demonstrated on hardware by one party; the clear 16-byte setup write was seen independently by a second person in April 2025; not reproduced end to end by anyone else"
+        demonstrated_by: "The author of the one public implementation."
+        hardware_revision: "H01"
+        firmware_revision: "A16"
+        vendor_app_as_of: "2026-10"
+        vendor_app_5_12_tested: false
+        needs: "An Android phone with its full Bluetooth HCI snoop log on; a way to take an Android bug report off that phone (the source uses the adb tool from a computer); removing the scale from the account, a factory reset and a fresh in-app setup."
+        log_export:
+          how: "inside an Android bug report (the source makes it with the adb tool from a computer)"
+          log_path_in_report: "FS/data/misc/bluetooth/logs/btsnoop_hci.log"
+          basis: "README of the public implementation at the pinned commit. Not checked on any phone by this project."
+          rehearse_before_removal: true
+          rehearsal: "With the log on, one normal weigh-in, export, and a check for a 19-byte indication in the log, all before the scale is removed from the account. This project's addition; see the method's steps."
+        gives: "Local decryption with the same key the vendor app holds."
+        starts_with: ["remove the scale from the vendor account", "factory reset"]
+        depends_on: "The vendor app completing a fresh setup, which has a public history of failing for this model (search-result titles of a long Fitbit Community thread; the thread itself now redirects)."
+        pairing_impact: "Ends the present pairing and its key; a new pairing with a new key exists only if the fresh setup completes."
+        failure_state: "Unpaired, with an app that will not re-pair."
+        scale_risk: "recoverable: the firmware is not at risk; the pairing is"
+        is_setup_method: true
+        verified: false
+        warnings:
+          - "The present pairing and key are lost at the first step."
+          - "It depends on the vendor app completing a fresh setup."
+          - "The scale serves one client at a time."
+          - "The log holds the key and all the phone's other Bluetooth traffic: do not share it."
+      - id: "own_key_after_reset"
+        title: "Reset the scale and write your own key (one unreplicated report)"
+        evidence: "one report, relayed by its poster from an AI assistant's analysis; one unit; firmware not stated; not reproduced by anyone"
+        reports: 1
+        scales_tested: 1
+        firmware_stated: false
+        reproduced: false
+        needs: "A factory reset; a client that can catch the scale awake, write 16 bytes with response, then subscribe and decrypt. The report names no tool."
+        gives: "A key the owner holds, with nothing needed from the vendor, if the report holds."
+        starts_with: ["factory reset"]
+        pairing_impact: "Ends the vendor pairing. Going back means another reset plus a fresh in-app setup."
+        failure_state: "A scale keyed with a value nobody holds, unreadable until it is reset again."
+        scale_risk: "recoverable"
+        is_setup_method: true
+        verified: false
+        warnings:
+          - "It ends the current vendor pairing."
+          - "Record the key before writing it."
+          - "If weigh-ins do not decrypt, reset again."
+          - "Untested on any firmware its source could name."
+    no_public_basis:
+      - id: "existing_key_without_a_reset"
+        statement: >
+          Recovering the key a scale already has, from the owner's account
+          or phone, with no reset: nobody has shown where the key is kept or
+          how it reaches a phone. It would be the only route that neither
+          resets the scale nor touches the pairing, which is why it is
+          listed; it is an open question (Q11, experiment E7), not an
+          option.
+      - id: "setup_write_from_the_air"
+        statement: >
+          Capturing the setup write with a Bluetooth sniffer, or from an
+          iPhone's own Bluetooth log, instead of an Android log: expected to
+          work because the link is unencrypted and unbonded, demonstrated by
+          nobody on this scale, and it has the same starting cost as the
+          first setup method (remove, reset, set up again).
+  hardware_research:
+    status: >
+      Research notes and open questions only. Nothing in this block is a
+      route, a setup method or a recommendation, and nobody has reported
+      doing any of it on an Aria Air. No wiring, programming or flashing
+      procedure is given, on purpose.
+    before_opening_the_case: >
+      Opening the scale is undocumented: the FCC external photographs show
+      a one-piece glass top with no visible fasteners, the vendor manual
+      says the scale is not serviceable, and nobody has published a
+      teardown. An owner who opens one may break it. Never connect
+      mains-powered equipment (a programmer, a logic analyser, or an adapter
+      fed from a mains-powered computer) to the electronics of a scale that
+      a person is standing on or touching: load it with a dead weight and
+      use battery-powered or isolated equipment.
+    notes:
+      - id: "H1"
+        topic: "Wired access to the radio chip"
+        evidence: "FCC photograph for the parts and the pads; nothing else is established"
+        statement: >
+          The radio is a Telink TLSR8261 on a Transtek module whose
+          underside carries pads labelled VDD, GND, SWS, RXD and TXD. Nobody
+          has reported connecting to them. No public programmer lists this
+          chip as tested, and no dump of one is public.
+        risk: >
+          Unknown. Reaching the labelled pads means either working out
+          which unlabelled edge joint carries the same signal or lifting the
+          module, either of which can destroy the board. Any erase or write
+          made without a verified dump of that same unit is unrecoverable:
+          no image for this scale is public, and the chip's flash holds data
+          specific to the unit, including its key.
+      - id: "H2"
+        topic: "A possible link between the scale's controller and the radio module"
+        evidence: "inference from the two-chip board in the FCC photographs; nobody has probed it"
+        statement: >
+          The main board carries a separate unmarked controller beside the
+          display contacts and the load-cell pads. If the weight is measured
+          there and handed to the radio module, it would cross the board
+          before the radio encrypts it. Whether such a link exists, what
+          kind it is, and what it carries are all unknown; the module's
+          labelled RXD and TXD pads are only a candidate.
+        risk: >
+          Unknown. A receive-only tap is electrically passive; an adapter
+          that transmits, or one that works at 5 V, is not. Getting at the
+          lines has the same obstacles as H1 (an undocumented case, and
+          signals that are reachable only on unlabelled edge joints or by
+          lifting the module), any of which can destroy the board. Mains
+          warning as in before_opening_the_case.
+        open_question: "Q19"
+      - id: "H3"
+        topic: "Load-cell retrofit, when nothing else is left"
+        evidence: "FCC photograph for the cells; generic practice for the technique; undocumented on this model"
+        statement: >
+          The scale has four conventional three-wire load cells wired as one
+          bridge. Replacing the original board with a load-cell amplifier
+          and a controller of the owner's own is a generic technique that
+          nobody has documented on this model.
+        consequence: >
+          It ends the Fitbit function for as long as the original board is
+          disconnected. It starts uncalibrated: the factory calibration
+          stays with the original board, so accuracy has to be established
+          again against known weights. It needs the glass-topped case
+          opened, for which no instructions exist. It can be undone only if
+          the original board is kept undamaged and every wire's pad was
+          recorded before it was unsoldered. Whatever is fitted must be
+          battery-powered or safely isolated from the mains, because a
+          person stands on this device.
+  advertisement:
+    verification: "reported"
+    basis: >
+      The public implementation's write-up (one unit, firmware A16); the
+      name is confirmed independently by the capture in openScale issue
+      1105. No raw advertisement bytes have been published by anyone.
+    local_name: "Aria Air"
+    advertises_while_asleep: true
+    advertises_while_connected: false
+    flags_byte: 5
+    primary_advertisement:
+      - "Flags (value 0x05)"
+      - "Incomplete list of 16-bit service UUIDs containing 0x181d"
+      - "Local name"
+    manufacturer_data:
+      company_id: 398
+      company_id_hex: "0x018e"
+      company_id_assignee: "Google LLC (Bluetooth SIG company identifier list, read 2026-11-23)"
+      payload_bytes: 8
+      layout: "ManufacturerData"
+      location: "scan response"
+      location_verification: "reported"
+      location_hedged_by_source: true
+      requires_active_scan: true
+      requires_active_scan_basis: >
+        Follows from the reported location and from nothing else. The one
+        source hedges that location, and no raw advertisement or
+        scan-response bytes are public.
+    address:
+      type: "public"
+      type_basis: "The public implementation's Linux reader connects with the LE public address type."
+      prefix_seen: "A4:C1:38"
+    identity_signals:
+      local_name: true
+      manufacturer_data: false
+      service_0x181d: false
+    wake_signal:
+      field: "awake"
+      awake_value: 1
+      use: >
+        Connect when it reads 1. A scanner that never receives scan
+        responses, or receives them only during brief active-scan bursts,
+        will not see the change; fall back to connection attempts at a
+        fixed interval (protocol_details.connection has the spacing the
+        public implementation uses).
+    unknown:
+      - "The exact advertisement and scan-response bytes, awake and asleep."
+      - "The advertising interval."
+      - "The byte order of the address inside the manufacturer data."
+  identity_confirmation:
+    when: "after connecting, before trusting any message"
+    checks:
+      - characteristic: "00002a24-0000-1000-8000-00805f9b34fb"
+        expect_utf8: "FB203"
+      - characteristic: "67b0ab2c-8323-427a-b1c9-70324bb5e228"
+        expect: "present inside service 0000181d-0000-1000-8000-00805f9b34fb"
+      - characteristic: "00002a9d-0000-1000-8000-00805f9b34fb"
+        expect: "absent"
+    verification: "reported"
+  connection:
+    verification: "reported"
+    accepts_connection: "only while awake, that is, while someone is standing on the platform"
+    asleep_behaviour: "A connection made while asleep is dropped within about a second."
+    after_step_on: "Expect several refused attempts in the first seconds."
+    link_layer_security: "none; an unbonded connection is accepted"
+    simultaneous_clients: 1
+    host_policy_timings:
+      notes: >
+        Values the public implementation chose for itself, NOT measured
+        limits of the scale. They come from two different programs, so each
+        group names its context. Do not carry the attended reader's retry
+        cadence into an always-on client: it would poll a sleeping scale
+        more than twice a second without end.
+      attended_reader:
+        context: >
+          The source's standalone Linux tool, started by a person who then
+          steps on the scale. It retries the connection until one succeeds
+          and stops trying after a bounded window.
+        connect_retry_interval_s: 0.4
+        connect_attempt_timeout_s: 2.5
+        keeps_trying_for_s: 180
+      unattended_integration:
+        context: >
+          The source's always-on Home Assistant integration. By default it
+          connects only when the advertisement shows the scale awake; the
+          timer fallback is an option that is off by default, and the
+          source notes it keeps one of the host's connection slots busy.
+        give_up_connecting_after_s: 30
+        give_up_without_data_after_s: 30
+        disconnect_after_last_reading_s: 20
+        session_cap_s: 120
+        pause_between_sessions_s: 3
+        timer_fallback_interval_s: 15
+        timer_fallback_default: "disabled"
+  subscription:
+    verification: "reported"
+    characteristic: "67b0ab2c-8323-427a-b1c9-70324bb5e228"
+    declared_property: "indicate"
+    descriptor: "00002902-0000-1000-8000-00805f9b34fb"
+    vendor_app_descriptor_value_hex: "0100"
+    vendor_app_descriptor_value_meaning: "little-endian 0x0001, the notification bit"
+    delivery: "indication (ATT Handle Value Indication, opcode 0x1d), confirmed by the client with opcode 0x1e"
+    delivery_basis: >
+      The capture in openScale issue 1105 shows opcode 0x1d; the public
+      implementation's write-up says the scale answers the 01 00 write with
+      indications.
+    standards_value_hex: "0200"
+    standards_value_outcome: "unknown"
+    standards_value_notes: >
+      0x0002 is the value a standards-following client writes for a
+      characteristic that declares indicate only. The public write-up says
+      such a client "may" receive nothing; a comment in the same author's
+      code states it more firmly. Neither shows the test. Unresolved.
+    standards_value_lead: >
+      A lead, not a finding: the vendor offers its app for iPhone, and an
+      app on an Apple host cannot write this descriptor itself; the stack
+      picks the value (device.host_compatibility). If the vendor's iPhone
+      app subscribes that way and works, then 02 00 opens the stream on at
+      least some firmware, or the characteristic also declares notify. No
+      source has examined it.
+    recommended: >
+      Write 01 00 explicitly with a write request wherever the host lets an
+      application write the descriptor. Hosts that pick the value
+      themselves (BlueZ's own GATT client, Apple's CoreBluetooth) cannot
+      follow this, and what they achieve is unknown. Accept both
+      indications and notifications on arrival, and confirm indications.
+    handles_seen:
+      notes: >
+        Attribute handles are firmware-specific. Resolve by UUID; these are
+        recorded only to help someone reading a capture.
+      weigh_in_value: "0x0019 (the January 2025 capture only; the public implementation gives no handle number)"
+      weigh_in_descriptor: "0x001a (inferred: the source puts the descriptor at the handle that follows the value)"
+      provision_value: "0x001d (a comment of 2025-04-15 reports a 16-byte write to this handle during setup after a reset; inferred to be this characteristic, because the comment names the handle and not the UUID)"
+    unverified_hosts:
+      - "BlueZ through its own GATT client, including Bleak"
+      - "Apple hosts through CoreBluetooth (iOS, iPadOS, macOS)"
+      - "ESPHome and other Bluetooth proxies: offered by the public implementation, no session shown"
+  message_cipher:
+    verification: "reported"
+    basis: >
+      Stated by the public implementation, whose author reports that every
+      captured message authenticated under the 16 bytes that the vendor app
+      had written, and stated again in the 2026-10-26 comment in openScale
+      issue 1105, which appeared three days after the implementation and
+      does not mention it; whether the two are independent is not known.
+      Both lean on reading the vendor app's parser.
+      The 19-byte length is independently visible in the January 2025
+      capture. Not run by this project.
+    # Where the cipher sits, as data: which characteristic's value it
+    # opens, which of that value's format fields are the nonce, the tag and
+    # the ciphertext, and which payload format the opened bytes follow.
+    characteristic: "67b0ab2c-8323-427a-b1c9-70324bb5e228"
+    nonce_field: "nonce"
+    tag_field: "tag"
+    ciphertext_field: "ciphertext"
+    plaintext_format: "WeighInPlaintext"
+    algorithm: "AES-128-CCM"
+    key_bytes: 16
+    nonce_bytes: 8
+    tag_bytes: 8
+    associated_data_bytes: 0
+    associated_data: "none"
+    plaintext_bytes: 3
+    message_bytes: 19
+    wire_order: ["nonce", "tag", "ciphertext"]
+    library_order: ["ciphertext", "tag"]
+    library_order_note: >
+      Most AEAD interfaces take the nonce separately and expect the tag
+      appended to the ciphertext. Reorder before calling them:
+      open(key, nonce = message[0:8], data = message[16:19] + message[8:16],
+      associated data = none).
+    nonce_source: "taken from the message; the client never builds one"
+    reject:
+      - "A message that is not exactly 19 bytes."
+      - "A message whose tag does not verify. It means a wrong key, a scale set up again since the key was learned, or corruption. It is never a reading."
+    ccm_parameters_derived:
+      note: >
+        Not observed on the device: these follow from RFC 3610 once the
+        nonce is 8 bytes, the tag 8 bytes and there is no associated data.
+        Given for hosts that have AES block encryption but no CCM mode.
+      length_field_bytes: 7
+      b0_flags_byte: 30               # 0x1e = 8 * ((tag_bytes - 2) / 2) + (length_field_bytes - 1)
+      counter_block_flags_byte: 6     # 0x06 = length_field_bytes - 1
+      counter_byte_order: "big"
+      b0_layout: "flags(1) | nonce(8) | plaintext length(7, big-endian)"
+      counter_block_layout: "flags(1) | nonce(8) | counter(7, big-endian); counter 0 masks the tag, counter 1 encrypts the plaintext"
+    nonce_structure_observed:
+      needed_by_decoder: false
+      mirrored_pairs: "bytes 4-5 repeat bytes 1-2 in reverse order (byte 4 = byte 2, byte 5 = byte 1)"
+      clock_byte: "byte 3 is described as a running count of seconds"
+      independent_check: >
+        The research pass found the mirrored pairs in all nine ciphertext
+        samples posted in openScale issue 1105 in January 2025, twenty-one
+        months before the public implementation described them. That
+        supports the 8-byte nonce split and suggests the framing did not
+        change in between. The samples were read through a summarising
+        tool, not verbatim.
+      not_random: >
+        The nonce is therefore not 8 independent random bytes. Whether it
+        can repeat within one key's lifetime is unknown.
+  key_lifecycle:
+    verification: "reported"
+    key: "16 bytes, used directly as the AES-128 key"
+    provision_status:
+      characteristic: "26f33a01-52a8-414b-99a2-1db75c99c032"
+      values:
+        "0": "not_provisioned"
+        "1": "provisioned"
+    states:
+      - state: "not_provisioned"
+        status_byte: 0
+        entered_by: "the factory reset; presumably also a new scale out of the box, which no source has read"
+        client_can: "connect and read the status; what the scale sends on the weigh-in characteristic in this state is not reported, so assume nothing can be decrypted"
+      - state: "provisioned"
+        status_byte: 1
+        entered_by: "a 16-byte write to the provision characteristic while the status reads 00"
+        client_can: "decrypt weigh-ins, if and only if it holds the key that was written"
+    origin_in_vendor_flow: >
+      The vendor app writes the key at setup. Whether the app generates it
+      or is handed it by the vendor's servers is not established.
+    # Three claims rest on the one comment of 2026-10-26 in openScale issue
+    # 1105. Two are things that comment says were observed (graded
+    # `reported`, each with the same caveats as data); one is an assertion
+    # the comment gives no basis for (graded `hypothesis`).
+    vendor_server_copy:
+      claim: "For a scale that is already set up, the vendor app obtains the key from the vendor's servers."
+      verification: "hypothesis"
+      basis: >
+        One clause in the 2026-10-26 comment in openScale issue 1105; how
+        the comment knows is not given. Consistent with it, and no more
+        than that: the vendor's sync troubleshooting for the Aria Air
+        suggests signing in on another phone or tablet, then syncing
+        there, with no setup step mentioned (read 2026-11-24). That a
+        second phone can sync without a new setup fits a key the account
+        holds; it is this project's inference, and nobody has shown where
+        the key is kept or how it reaches a phone.
+    own_key_provisioning:
+      claim: "After a factory reset the scale accepts a 16-byte key written by any client, and weigh-ins then decrypt with that key."
+      verification: "reported"
+      reports: 1
+      scales_tested: 1
+      firmware_stated: false
+      replicated: false
+      relayed_from_ai_assistant: true
+      tool_or_repository_published: false
+      code_in_comment: "a four-line fragment that decodes a message; nothing for the key write"
+      basis: >
+        The 2026-10-26 comment and nothing else: twelve weigh-ins on one
+        unit of unstated firmware, in findings the poster introduces as an
+        AI assistant's. `reported` here means one source says it saw this,
+        not that anyone has repeated it; the setup method that uses it is
+        `verified: false` and `advanced`. See that method's basis for what
+        the comment does and does not say.
+    unprovisioned_stream:
+      outcome: "unknown"
+      notes: >
+        No source says what the weigh-in characteristic carries while the
+        status reads 00: nothing, messages still sealed with the previous
+        key, or something else. The sources go from a reset straight to the
+        key write. Experiment E1 has a step for it.
+    survives_battery_removal:
+      claim: "The key survives removing and refitting the batteries."
+      verification: "reported"
+      reports: 1
+      scales_tested: 1
+      firmware_stated: false
+      replicated: false
+      relayed_from_ai_assistant: true
+      basis: >
+        The same 2026-10-26 comment in openScale issue 1105 and nothing
+        else: one unit, which had been given a key by the route that
+        comment describes. It carries the same grade and the same caveats
+        as that comment's own-key claim.
+    cleared_by: "the factory reset in device.setup.factory_reset"
+    readable_back: false
+    # A change of phone, as data. Neither case needs a reset or a removal
+    # from the account; device.setup.rejoin has the steps.
+    new_phone:
+      reset_needed: false
+      removal_from_account_needed: false
+      vendor_app:
+        how: "Sign in to the same account on the new phone and weigh in with the app open there."
+        key_handled_by: "the vendor app and account; the owner never sees a key"
+        key_transfer: "not established (Q11, experiment E7)"
+        verification: "reported"
+        basis: >
+          Vendor documentation, not a test: the vendor's sync
+          troubleshooting for the Aria Air has owners sign in on another
+          phone or tablet and sync from that one, mentions no setup step,
+          and tells owners who sync from two devices to keep the second one
+          away during a weigh-in (read 2026-11-24 at 02:26 UTC). Not tested
+          by this project.
+      local_client:
+        how: "Carry the key over to the new host. Nothing on the scale changes."
+        without_the_key: >
+          There is no reported way to obtain the key without a reset, and a
+          reset ends the vendor pairing (device.setup.factory_reset.effect).
+          Changing phone is not a reason to reset: an owner without the key
+          loses nothing by staying with the vendor app.
+    exposure: >
+      The key is written in clear over an unencrypted link, so it is in any
+      capture of that moment, including the owner's own phone log. Anyone
+      holding it within radio range can decrypt the scale's weigh-ins until
+      the next reset. That includes anyone in radio range while a setup
+      is happening: a sniffer following that connection would be expected
+      to see the same 16 bytes (inferred from the unencrypted link; nobody
+      has shown it on this scale). Anyone with access to the back button
+      can reset the scale and, if own-key provisioning holds, give it a key
+      of their own.
+    write_when_provisioned:
+      outcome: "unknown"
+      why_it_matters: >
+        If the scale accepts a key while its status reads 01, anyone in
+        radio range of an awake scale can replace the key and lock the
+        owner's clients out until a reset. If it refuses, the reset button
+        is the only way in. Nobody has reported trying.
+    client_rules:
+      - rule: "Never write to the provision characteristic when it reads 01."
+        reason: "The outcome is unknown; an accepted write replaces the key and locks out the vendor app and every other client until a reset. Only an owner deliberately running experiment E1 does this."
+      - rule: "Never write to the provision characteristic of a scale you do not own."
+        reason: "It may take the scale away from its owner."
+      - rule: "Never write a key you have not already stored somewhere safe."
+        reason: "The key cannot be read back; losing it means another reset."
+      - rule: "Never write to any attribute of service 00001530-1212-efde-1523-785feabcd123."
+        reason: "It is listed as the firmware-update service, its protocol is unknown and no recovery is known."
+      - rule: "Never treat a message whose tag fails as a reading, and never retry it with a guessed key."
+        reason: "A tag failure is the scale telling you the key is not the one it holds."
+      - rule: "Never log, publish or commit a key, the scale's address or the Device Information serial number."
+        reason: "The first decrypts someone's body weight; the other two identify one unit."
+      - rule: "Never lead a user into a factory reset, or into removing the scale from the vendor account, without first showing what it costs."
+        reason: "Either one ends the working pairing, and getting a pairing back depends on the vendor app completing a fresh setup."
+      - rule: "Never suggest a reset because no message arrived."
+        reason: "Silence is a subscription or wake problem (protocol_details.subscription); a wrong key shows as messages whose tag fails."
+      - rule: "Never stay connected once the weigh-in has been read."
+        reason: "The scale serves one client at a time, so a client that lingers keeps the vendor app and every other client out."
+      - rule: "Never connect without the key unless the owner asked for that connection, and disconnect as soon as the reads are done."
+        reason: "The scale accepts a connection only during a weigh-in and serves one client at a time. A client that holds no key and connects on its own takes that weigh-in away from the vendor app and gives the owner nothing for it; readings are not known to be stored."
+  weight_decoding:
+    verification: "reported"
+    resolved: false
+    payload_format: "WeighInPlaintext"
+    raw_field: "weight_raw"
+    flags_field: "flags"
+    summary: >
+      The 16-bit count is not in dispute; what it means is agreed for
+      pounds only. Two readings of the evidence agree for a scale that
+      displays pounds and sends flags bit 0 set, and disagree by a factor
+      of two for a scale set to kilograms. Neither source says it captured
+      a scale set to kilograms: the public implementation does not state
+      which unit its scale displayed, and the later comment does not say
+      kilograms was among its weigh-ins. Nobody has addressed stones. This
+      spec records both readings and does not choose.
+    unit_modes:
+      lb:
+        status: "reported"
+        unit: "lb"
+        scale: 0.01
+        flags_bit0: 1
+        flags_bit0_role: "a check on the owner's stated unit, never a way to infer it; see decision_table"
+        notes: >
+          Both readings give weight_raw x 0.01 lb when the display shows
+          pounds and flags bit 0 is set. The flags value 1 is the only one
+          ever published, by a source that does not say which unit its scale
+          displayed; that its captures were in pounds is the research pass's
+          inference, not the source's statement. Pounds with bit 0 clear is
+          a case the two readings decode differently and nobody has
+          reported.
+      kg:
+        status: "conflict"
+        conflict: "C1"
+        observed_on_hardware: "unknown"
+        observed_on_hardware_notes: >
+          The only published flags value comes from a scale whose display unit
+          is not stated; the research pass infers pounds. If that scale was
+          in fact set to kilograms, then kilogram mode HAS been observed,
+          with flags 1 and hundredths of a kilogram, and the bit-0 rule of
+          the second reading would be contradicted, not merely unconfirmed.
+        candidates:
+          - reading: "hundredths_of_displayed_unit"
+            unit: "kg"
+            scale: 0.01
+          - reading: "sig_weight_measurement_flags"
+            unit: "kg"
+            scale: 0.005
+      st:
+        status: "unknown"
+        notes: "No source addresses a scale set to stones: neither the flags value nor the scale factor."
+    readings:
+      - id: "hundredths_of_displayed_unit"
+        source: "The public implementation: its write-up and decoder."
+        unit_selected_by: "owner_setting"
+        rule: >
+          value = weight_raw x 0.01, in whichever unit the scale's display
+          shows. The flags byte is called a unit flag whose mapping was not
+          established; it read 1 in every capture. The client asks the owner
+          for the unit (kilograms or pounds).
+        scales:
+          lb: 0.01
+          kg: 0.01
+        hardware_basis: "Decoded values matched the display of the author's unit; the display unit is not stated."
+      - id: "sig_weight_measurement_flags"
+        source: "The 2026-10-26 comment in openScale issue 1105."
+        unit_selected_by: "flags_bit0"
+        rule: >
+          Bit 0 of flags set: value = weight_raw x 0.01 lb. Bit 0 clear:
+          value = weight_raw x 0.005 kg. This is the Bluetooth SIG Weight
+          Measurement convention.
+        flags_bit0_units:
+          "0": "kg"
+          "1": "lb"
+        scales:
+          lb: 0.01
+          kg: 0.005
+        hardware_basis: "Twelve weigh-ins matched the display of the commenter's unit; the comment does not say the kilogram case was among them."
+    conflict:
+      id: "C1"
+      question: "With the scale set to kilograms, what is the flags byte and what is the scale factor?"
+      positions:
+        - reading: "hundredths_of_displayed_unit"
+          kilograms_per_count: 0.01
+        - reading: "sig_weight_measurement_flags"
+          kilograms_per_count: 0.005
+      consequence: >
+        The two differ by exactly a factor of two. If the second reading is
+        right, a client built on the first reports double the true weight
+        for every owner who weighs in kilograms.
+      resolved: false
+      resolved_by: "Experiment E2: one weigh-in of a fixed load in each unit mode with a known key."
+    client_rule:
+      - "Ask the owner which unit is showing on the scale's display. Do not infer it from the flags byte."
+      - "Display in pounds and flags bit 0 set: publish weight_raw x 0.01 lb. Both readings agree."
+      - "Display in pounds and flags bit 0 clear: do not publish; the readings disagree (0.01 lb under one, 0.005 kg under the other). Keep the raw bytes and report them."
+      - "Display in kilograms: compute both candidates (weight_raw x 0.005 kg and weight_raw x 0.01 kg) and have the owner confirm ONCE which one equals the display. They differ by a factor of two, so one weigh-in decides. Store the confirmed factor with the scale, its firmware revision and the flags value seen at that weigh-in."
+      - "Display in kilograms and neither candidate equals the display: do not publish; keep the raw bytes and report them. Nobody has shown that the unit on the wire follows the unit on the display."
+      - "Display in stones, or any flags value other than 0 or 1: do not publish; keep the raw bytes and report them."
+      - "Any unit: if a later message carries a flags value different from the one stored when the owner stated or confirmed the unit, stop publishing and ask the owner again. The unit button is the same back button that resets the scale, so the unit can change under a client."
+      - "Publish nothing from a message whose tag did not verify."
+    decision_table:
+      notes: >
+        client_rule as data, so that a client need not parse sentences.
+        Apply the guards first, in order; then take the one row that matches
+        display_unit and flags_bit0. Every combination of the three display
+        units and the two bit values has exactly one row. A row may say
+        publish only where both readings above give the same unit and
+        scale; scripts/test_fitbit_aria_air_spec.py checks that against the
+        readings.
+      inputs:
+        display_unit: "What the OWNER states the display shows: lb, kg or st. Never inferred from a message."
+        flags: "The decrypted flags byte, whole. flags_bit0 is its least significant bit."
+        stored_flags: "The flags value the client stored when the owner last stated or confirmed the unit; absent before that."
+      actions:
+        publish: "Publish weight_raw x scale, in unit."
+        owner_confirm: "Compute every candidate and have the owner say which one equals the display. Publish with that candidate from then on and store it with the flags value seen and the firmware revision. If the owner says none does, take if_none_match."
+        refuse: "Publish nothing. Keep the 3 plaintext bytes and report them: the case is evidence nobody has published."
+        stop_and_reconfirm: "Stop publishing, drop the stored confirmation and ask the owner for the display unit again."
+        drop: "Not a reading. Publish nothing; there is no plaintext to keep."
+      guards:
+        - id: "tag_failed"
+          when: "The message is not 19 bytes or its tag did not verify."
+          action: "drop"
+        - id: "unknown_flags"
+          when: "flags is neither 0 nor 1, that is, some bit above bit 0 is set."
+          action: "refuse"
+        - id: "flags_changed"
+          when: "stored_flags is present and flags differs from it."
+          action: "stop_and_reconfirm"
+      rows:
+        - display_unit: "lb"
+          flags_bit0: 1
+          action: "publish"
+          unit: "lb"
+          scale: 0.01
+          why: "Both readings give 0.01 lb per count."
+        - display_unit: "lb"
+          flags_bit0: 0
+          action: "refuse"
+          why: "The readings disagree: 0.01 lb per count under one, 0.005 kg per count under the other. Never reported from hardware."
+        - display_unit: "kg"
+          flags_bit0: 0
+          action: "owner_confirm"
+          candidates:
+            - {unit: "kg", scale: 0.005}
+            - {unit: "kg", scale: 0.01}
+          if_none_match: "refuse"
+          why: "Conflict C1: 0.005 kg per count under one reading, 0.01 kg under the other. The display is the referee."
+        - display_unit: "kg"
+          flags_bit0: 1
+          action: "owner_confirm"
+          candidates:
+            - {unit: "kg", scale: 0.005}
+            - {unit: "kg", scale: 0.01}
+          if_none_match: "refuse"
+          why: "One reading gives 0.01 kg per count. The other says a set bit 0 means pounds on the wire; if that is so, neither kilogram candidate equals the display and the message is refused and reported."
+        - display_unit: "st"
+          flags_bit0: 0
+          action: "refuse"
+          why: "No source addresses a scale set to stones."
+        - display_unit: "st"
+          flags_bit0: 1
+          action: "refuse"
+          why: "No source addresses a scale set to stones."
+    extra_messages: >
+      One weigh-in can produce several messages: a repeat of the reading
+      shortly after, and sometimes values that match no real weigh-in. No
+      stability marker is known. A client should deduplicate repeats and
+      treat an implausible jump as unconfirmed.
+  test_vectors:
+    provenance: >
+      Entirely synthetic: an invented key (the ASCII text liberatedbread!!),
+      invented nonces that imitate the reported mirrored-pair structure, and
+      invented weights. Computed for this spec and reproduced by
+      scripts/test_fitbit_aria_air_spec.py with two independent AES-CCM
+      implementations. They are NOT captures and prove nothing about a real
+      scale. No real key, address or weigh-in appears anywhere in this file.
+    key_hex: "6c696265726174656462726561642121"
+    vectors:
+      - name: "flag_set_pounds"
+        nonce_hex: "4d1c972a971c3972"
+        plaintext_hex: "01883b"
+        tag_hex: "7bdfb1d475fdff4e"
+        ciphertext_hex: "45cc28"
+        message_hex: "4d1c972a971c39727bdfb1d475fdff4e45cc28"
+        flags: 1
+        weight_raw: 15240
+        readings_agree: true
+        decoded:
+          - reading: "sig_weight_measurement_flags"
+            unit: "lb"
+            value: 152.4
+          - reading: "hundredths_of_displayed_unit"
+            display_unit: "lb"
+            unit: "lb"
+            value: 152.4
+      - name: "flag_clear_kilogram_conflict"
+        nonce_hex: "b3600e2b0e60c081"
+        plaintext_hex: "00fc35"
+        tag_hex: "42f7e7a58cce8d9d"
+        ciphertext_hex: "457b17"
+        message_hex: "b3600e2b0e60c08142f7e7a58cce8d9d457b17"
+        flags: 0
+        weight_raw: 13820
+        readings_agree: false
+        notes: >
+          A flags value of 0 has never been published from hardware. This
+          vector exists to pin the two candidate decodes, not to assert that
+          a scale set to kilograms sends it.
+        decoded:
+          - reading: "sig_weight_measurement_flags"
+            unit: "kg"
+            value: 69.1
+          - reading: "hundredths_of_displayed_unit"
+            display_unit: "kg"
+            unit: "kg"
+            value: 138.2
+      - name: "same_weigh_in_fresh_nonce"
+        nonce_hex: "07d5423142d5ab56"
+        plaintext_hex: "01883b"
+        tag_hex: "5a0acaab4ad8f537"
+        ciphertext_hex: "6fedaa"
+        message_hex: "07d5423142d5ab565a0acaab4ad8f5376fedaa"
+        flags: 1
+        weight_raw: 15240
+        readings_agree: true
+        notes: >
+          The plaintext of the first vector under a different nonce: the tag
+          and ciphertext share nothing with it. A repeated weigh-in cannot
+          be recognised from the wire bytes, only after decryption.
+        decoded:
+          - reading: "sig_weight_measurement_flags"
+            unit: "lb"
+            value: 152.4
+          - reading: "hundredths_of_displayed_unit"
+            display_unit: "lb"
+            unit: "lb"
+            value: 152.4
+  conflicts:
+    - id: "C1"
+      topic: "Unit and scaling in kilograms"
+      status: "unresolved"
+      detail: "See weight_decoding in this block."
+      experiment: "E2"
+    - id: "C2"
+      topic: "Who can supply the key"
+      status: "unresolved"
+      detail: >
+        The public implementation's only route has the vendor app perform
+        setup. A later comment says any client can write its own key after
+        a reset. The two do not contradict each other, but the second is
+        unreplicated and is the one that matters if the vendor app ever
+        stops setting the scale up.
+      experiment: "E1"
+    - id: "C3"
+      topic: "Reset hold time"
+      status: "manual preferred"
+      detail: >
+        The vendor manual gives 5 seconds to a flashing otA and 5 more to
+        clr. The public implementation gives one hold of roughly 5 seconds,
+        ending when CLR is displayed. This spec follows the manual.
+      experiment: "E10"
+    - id: "C4"
+      topic: "Firmware-update service versus radio vendor"
+      status: "unresolved"
+      detail: >
+        The GATT listing shows the Nordic legacy DFU service UUID; the FCC
+        photos and the address prefix both point to a Telink radio. Either
+        the firmware reuses the UUID, or the listing's label is only the
+        name a tool printed for it. The stock Telink update service is not
+        in that listing. Nothing about either vendor's update protocol is
+        asserted for this scale.
+      experiment: "E6"
+    - id: "C5"
+      topic: "Client Characteristic Configuration value"
+      status: "unresolved"
+      detail: >
+        See subscription in this block. One lead is recorded there: the
+        vendor's iPhone app has to subscribe through a stack that picks the
+        descriptor value itself.
+      experiment: "E3"
+    - id: "C6"
+      topic: "Where the manufacturer data is sent"
+      status: "unresolved"
+      detail: "The one source places it in the scan response and hedges the claim. No raw bytes are published."
+      experiment: "E5"
+    - id: "C7"
+      topic: "Stored readings"
+      status: "unresolved"
+      detail: >
+        Vendor documentation implies the scale keeps none: the app has to be
+        open during the weigh-in, and the vendor's erase article (linked in
+        helpful_urls) says the Aria Air holds no personal data. The public
+        implementation lists it as an open question because a client was
+        subscribed in every capture.
+      experiment: "E4"
+  owner_experiments:
+    notes: >
+      E1 to E9 are ordered by value; E10 comes after them because it costs
+      a reset; E11 and E12 were added by the second research round. Every
+      one is run by an owner on their own scale. E7, E11 and E12 need the
+      vendor app. E1 and E10 RESET THE SCALE, which ends the vendor pairing:
+      the only way to set a reset scale up again that more than one party
+      has observed is the vendor app, and its setup of this model has a
+      public history of failing. No experiment here is a reason to unpair
+      or reset a scale that works; E11 in particular is for a setup that is
+      happening anyway. In all of them: never write to the firmware-update
+      service, and replace the scale's address, the serial number and any
+      key before sharing results. Experiments that need the case opened are
+      not owner experiments and are listed under
+      protocol_details.hardware_research.
+    experiments:
+      - id: "E1"
+        title: "Own-key provisioning"
+        closes: ["Q2", "Q3", "Q4", "Q16", "C2"]
+        needs_vendor_app: false
+        resets_scale: true
+        cost: "A factory reset, which ends the vendor pairing. The vendor app loses the scale until it is reset and set up there again, and that depends on the app completing the setup."
+        steps:
+          - {actor: "user", action: "Factory-reset the scale, then step on to wake it."}
+          - {actor: "client", action: "Connect and read the provision status; expect 00. Record the Device Information firmware and hardware strings."}
+          - {actor: "client", action: "Before writing anything, subscribe to the weigh-in characteristic while the status still reads 00."}
+          - {actor: "user", action: "Weigh once."}
+          - {actor: "client", action: "Record whether anything is indicated at status 00 and, if the scale's previous key is known, whether that key still opens it."}
+          - {actor: "client", action: "Write 16 stored random bytes with response; read the status again; expect 01."}
+          - {actor: "client", action: "Subscribe to the weigh-in characteristic again."}
+          - {actor: "user", action: "Weigh once and note the display."}
+          - {actor: "client", action: "Decrypt the message with the bytes just written and compare the weight with the display."}
+          - {actor: "client", action: "Still at status 01, attempt a second write with a different stored key. Record whether it is refused, and which key decrypts the next weigh-in."}
+          - {actor: "user", action: "Remove the batteries for a minute, refit them and weigh again."}
+          - {actor: "client", action: "Record which key still decrypts."}
+      - id: "E2"
+        title: "Unit sweep"
+        closes: ["Q1", "C1"]
+        needs_vendor_app: false
+        resets_scale: false
+        cost: "None to the scale, with a known key. The weigh-ins used may never reach the vendor app: the local client holds the one connection, and readings are not known to be stored. Tap the unit button briefly; holding it starts the reset."
+        outcome: "One weigh-in per unit settles the flags value and the scale factor for that unit, and with them conflict C1."
+        steps:
+          - {actor: "user", action: "Before touching the unit button, weigh one fixed load in the unit the scale is already set to; note that unit and the display."}
+          - {actor: "client", action: "Record the flags byte in binary and weight_raw for that weigh-in. Flags in the owner's everyday unit is the one value nobody has published together with its unit."}
+          - {actor: "user", action: "Tap the back button to reach each of the other two units in turn and weigh the same load in each; note the display each time."}
+          - {actor: "client", action: "Record the flags byte in binary and weight_raw for the pounds, stones and kilograms weigh-ins."}
+      - id: "E3"
+        title: "Subscription value and host matrix"
+        closes: ["Q5", "C5"]
+        needs_vendor_app: false
+        resets_scale: false
+        cost: "None to the scale. The weigh-ins used may never reach the vendor app: the local client holds the one connection, and readings are not known to be stored."
+        steps:
+          - {actor: "client", action: "Try, one at a time: a raw ATT write of 01 00; a raw ATT write of 02 00; the host stack's own subscribe call on Linux (BlueZ, Bleak); the same on an Apple host (CoreBluetooth); a Bluetooth proxy."}
+          - {actor: "client", action: "For each, record whether anything arrives and whether it arrives as opcode 0x1d (indication) or 0x1b (notification). A host-side HCI trace shows the value the stack really wrote."}
+          - {actor: "client", action: "List the properties the weigh-in characteristic declares, to settle whether it is indicate only."}
+      - id: "E4"
+        title: "Stored readings and extra messages"
+        closes: ["Q6", "Q7", "C7"]
+        needs_vendor_app: false
+        resets_scale: false
+        cost: "None to the scale. The weigh-ins used may never reach the vendor app: the local client holds the one connection, and readings are not known to be stored."
+        steps:
+          - {actor: "user", action: "Weigh with no client connected and wait one minute."}
+          - {actor: "user", action: "Wake the scale with a light press of the platform, without a full weigh-in."}
+          - {actor: "client", action: "Connect and subscribe during that wake; record whether a reading from the earlier weigh-in arrives."}
+          - {actor: "user", action: "Step on slowly once more while filming the display."}
+          - {actor: "client", action: "Stay subscribed through that step-on and log every message with a timestamp; compare the decoded values with the filmed display and nonce byte 3 with wall-clock seconds."}
+      - id: "E5"
+        title: "Advertisement capture"
+        closes: ["Q8", "C6"]
+        needs_vendor_app: false
+        resets_scale: false
+        cost: "None: scanning only, no connection."
+        steps:
+          - {actor: "client", action: "With a sniffer or an active scan, save the raw advertisement and scan-response bytes asleep and awake, and the interval."}
+          - {actor: "client", action: "Note which packet carries the 0x018e record and compare its last 6 bytes with the address to get the byte order."}
+      - id: "E6"
+        title: "Full GATT listing, read-only"
+        closes: ["Q9", "Q10", "C4"]
+        needs_vendor_app: false
+        resets_scale: false
+        cost: "None to the scale: enumerate and read only, no button held, nothing written. The weigh-in during which the listing is made may never reach the vendor app, because the local client holds the one connection."
+        steps:
+          - {actor: "client", action: "List every service, characteristic, property and descriptor, including what sits under the firmware-update service. Enumerate and read only."}
+          - {actor: "client", action: "Read every Device Information string. Repeat on any unit with a different firmware string."}
+      - id: "E7"
+        title: "Does a second signed-in phone need the key written again"
+        closes: ["Q11"]
+        needs_vendor_app: true
+        resets_scale: false
+        cost: >
+          None to the pairing, provided the scale is never removed from the
+          account and the phone that already syncs it is left exactly as it
+          is. Needs a second phone. Signing in on another phone or tablet,
+          then syncing from it, is a step the vendor's own troubleshooting
+          for this scale suggests.
+        outcome: >
+          If the second phone syncs a weigh-in and its log holds no write to
+          the provision characteristic, the key reached that phone some
+          other way (from the account, presumably), and a key cannot be
+          caught on the air without a reset. If the log does hold a 16-byte
+          write, a key can be captured with no reset, and the scale accepted
+          a write while its status read 01.
+        steps:
+          - {actor: "user", action: "Leave the phone that already syncs the scale untouched: do not sign out of it, do not reinstall its app, and do not remove the scale from the account."}
+          - {actor: "user", action: "On a SECOND phone turn on the full Bluetooth log, install the vendor app and sign in to the same account. Do not add the scale as a new device."}
+          - {actor: "user", action: "Switch Bluetooth off on the first phone, then weigh once with the vendor app open on the second phone."}
+          - {actor: "client", action: "Check the second phone's log for a 16-byte write to the provision characteristic, and record whether the weigh-in synced."}
+      - id: "E8"
+        title: "Nonce study"
+        closes: ["Q12"]
+        needs_vendor_app: false
+        resets_scale: false
+        cost: "Time, and the weigh-ins collected may never reach the vendor app while the local client holds the connection. Low priority: it matters for privacy, not for decoding."
+        steps:
+          - {actor: "client", action: "Collect a few hundred messages across battery changes and look for repeated nonces and for the reported structure."}
+      - id: "E9"
+        title: "Radio revision"
+        closes: ["Q10"]
+        needs_vendor_app: false
+        resets_scale: false
+        cost: "None: a scan and, at most, a photograph through the battery bay. The case stays closed."
+        steps:
+          - {actor: "client", action: "Record the address prefix of units made in different years."}
+          - {actor: "user", action: "Optional: photograph the marking on the radio module's chip if it can be seen through the battery bay. Do not open the scale for this: no opening instructions exist, the top is one piece of glass, the vendor says the scale is not serviceable, and it may not survive. See protocol_details.hardware_research."}
+      - id: "E10"
+        title: "What the scale does on the air during the reset hold"
+        closes: ["Q9", "C3"]
+        needs_vendor_app: false
+        resets_scale: true
+        cost: >
+          A factory reset: afterwards the scale has to be given a key again,
+          and the only replicated way to do that is the vendor app. Do it as
+          the reset that begins E1 or the vendor-app key capture, so that it
+          costs no extra reset. What a scale does if the button is released
+          at otA is unknown, so the hold is always completed to clr.
+        steps:
+          - {actor: "client", action: "With no client connected, start a scanner that records every advertisement and scan response from the scale with a timestamp."}
+          - {actor: "user", action: "Carry out the full reset hold from device.setup.factory_reset without releasing at otA, timing when otA appears and when clr appears."}
+          - {actor: "client", action: "Record whether the advertised name, the address or the advertised services change while otA shows and after clr."}
+          - {actor: "client", action: "Optional, and only if the scale accepts a connection while otA shows: list its services and characteristics, noting whether 00010203-0405-0607-0809-0a0b0c0d1912 or 00001530-1212-efde-1523-785feabcd123 is among them. Read only: write nothing at all, not even a subscription descriptor."}
+          - {actor: "client", action: "Connect once after clr and read the provision status; expect 00. Write nothing."}
+      - id: "E11"
+        title: "One logged in-app setup on a current vendor app"
+        closes: ["Q17"]
+        needs_vendor_app: true
+        resets_scale: false
+        cost: >
+          None beyond a setup that was going to happen anyway (a new scale,
+          or one that is already unpaired). Never remove a working scale
+          from the account to run this: that would cost the pairing.
+        outcome: >
+          Settles whether the vendor app released as version 5.12 still
+          writes the key in clear at setup, and records one more data point
+          on whether in-app setup of this model completes.
+        steps:
+          - {actor: "user", action: "Only when a setup is about to happen anyway: before starting it, turn on the phone's full Bluetooth log and note the vendor app's version."}
+          - {actor: "user", action: "Run the in-app setup. Note whether it completes and the exact text of any error."}
+          - {actor: "client", action: "Check the log for a 16-byte write to the provision characteristic, and record the Device Information firmware and hardware strings."}
+      - id: "E12"
+        title: "What the vendor app shows after a local client took a reading"
+        closes: ["Q22"]
+        needs_vendor_app: true
+        resets_scale: false
+        cost: "None, for an owner who already holds the scale's key."
+        steps:
+          - {actor: "client", action: "With the vendor app closed, read and decrypt one weigh-in, then disconnect."}
+          - {actor: "user", action: "Open the vendor app and note whether that weigh-in appears there."}
+          - {actor: "user", action: "With the local client disconnected and the vendor app open, weigh again and note whether this one appears."}
+  negative_findings:
+    - "Not a standard Weight Scale Service device: the Weight Measurement characteristic is absent and the feature characteristic reads zero."
+    - "Not the protocol family openScale implements for Trisa, Medisana and 1BODY scales, although the Aria Air's factory carries the Transtek name that openScale puts on its Trisa and 1BODY handlers (not verified as one company; see Q13): none of those services or characteristics is reported here. That family's password and XOR-challenge exchange has no counterpart on this scale, so no existing handler's provisioning flow carries over."
+    - "No Body Composition service is reported, and none is expected: the vendor says the scale does not use bioimpedance."
+    - "No battery level is reported over Bluetooth by any source; the vendor tells owners to read the battery icon on the display."
+    - "openScale has no handler (issue 1105 was closed in December 2025 for lack of progress); ble-scale-sync, Gadgetbridge, Home Assistant core and ESPHome have none either, as checked by the research pass in November 2026."
+    - "A web search for either vendor UUID found no other product speaking this protocol. Weak evidence: the search did not surface the public implementation either."
+    - "A client that selects scales by service 0000181d-0000-1000-8000-00805f9b34fb alone will claim this scale and then get nothing."
+    - "Nothing to redirect: the scale has no Wi-Fi and no route to a server (the vendor's sync article puts the Aria Air on Bluetooth LE to the phone, and the FCC filing is a 2402-2480 MHz Bluetooth LE one). The DNS-redirect approach used for the original Aria does not apply."
+    - "No weight in the advertisement: the one source that describes the advertisement lists a step-on flag and no reading. None found; nobody has published the raw bytes."
+    - "The stock Telink update service 00010203-0405-0607-0809-0a0b0c0d1912 is not present in the one published GATT listing (one unit, firmware A16, normal operation), so the off-the-shelf Telink over-the-air tools have nothing to talk to there. Not checked while the display shows otA."
+    - "No memory chip separate from the radio's own is populated on the photographed unit, so there is no separate flash chip to read. One unpopulated 8-pad footprint sits beside the main-board controller; an owner looking at another unit should not assume it is empty there too."
+    - "No custom firmware for this scale, for any Transtek board or for any Telink-based bathroom scale was found (repository-name searches in November 2026; code search was not available)."
+    - "No public basis for capturing the key without a reset: nobody reports the vendor app sending the key again to a scale that is already set up."
+    - "No Battery Service is in the one published GATT listing."
+  prohibited_writes:
+    firmware_update: "Every attribute of service 00001530-1212-efde-1523-785feabcd123. Recovery after a bad write: none known."
+    provisioning_when_provisioned: "The provision characteristic while its status reads 01, outside the owner's own experiment E1."
+    anything_else: "No other write is documented. The only writes this spec describes are the subscription descriptor and, during setup, the 16-byte key."
+  entity_coverage:
+    declared_entities: 0
+    reason: >
+      No entity is declared. The one reading, weight, is a field of the
+      decrypted plaintext, not of the characteristic value, so there is no
+      format field for an entity to bind and a generic renderer would show a
+      tile that never fills or, worse, a number made of ciphertext.
+    intended:
+      - platform: "sensor"
+        name: "Weight"
+        device_class: "weight"
+        source_characteristic: "67b0ab2c-8323-427a-b1c9-70324bb5e228"
+        source_field: "weight_raw"
+        usable_when:
+          - "The client holds the scale's current 16-byte key in a secret store."
+          - "The client can open AES-128-CCM with an 8-byte nonce and an 8-byte tag."
+          - "The message is exactly 19 bytes and its tag verifies."
+          - "The owner has stated the scale's display unit, and for kilograms has confirmed the scale factor once against the display."
+          - "The flags byte still has the value it had when the owner stated or confirmed the unit, and protocol_details.weight_decoding has a publishing row for that unit and flags value."
+          - "The host stack's subscription actually opens the stream, which is unproven outside the vendor app and a raw ATT write."
+    not_available:
+      - "Battery level: not reported over Bluetooth by any source."
+      - "Body fat, impedance, BMI: the scale measures weight only."
+      - "Weigh-in time: the message carries none; the client stamps arrival time."
+      - "Stored or missed weigh-ins: not known to exist."
+    earns_supported:
+      - "A consumer ships the cipher handler and a secret store for the key."
+      - "This project replays a weigh-in on hardware in pounds and in kilograms, resolving conflict C1."
+      - "The subscription is shown to work on the consumer's host stacks."
+
+local_access:
+  status: "native"
+  summary: >
+    The stock scale hands each weigh-in over Bluetooth LE to whichever
+    client is connected and subscribed, with no cloud step. What gates it is
+    a 16-byte key: a client that holds the scale's key can read it with no
+    vendor involvement; a client that does not hold it gets ciphertext.
+    Identify-only in this catalogue because the cipher handler and the key
+    handling are not shipped and nothing has been replayed on hardware. An
+    owner who has no key cannot get one without first giving up the present
+    vendor pairing: both documented routes start with a factory reset
+    (protocol_details.key_routes). The scale has no Wi-Fi, so there is no
+    server traffic to redirect.
+  covers:
+    - "Recognising the scale and telling it apart from a standard Weight Scale Service device"
+    - "Live weigh-in weight in pounds when flags bit 0 is set, for a client that holds the key, has the owner's word that the display shows pounds, and is connected during the weigh-in"
+    - "Knowing whether the scale currently has a key (provision status)"
+  not_covered:
+    - "Obtaining a key without first ending the present vendor pairing: no route is known"
+    - "Obtaining the key without the vendor app: one report, reproduced by nobody"
+    - "Weight in kilograms with a settled scale factor, pounds with flags bit 0 clear, and anything in stones"
+    - "Weigh-ins made while no client is connected: not known to be stored"
+    - "BMI, history, trends and multi-user attribution: the vendor app and account do those"
+    - "Battery level and firmware update"
+
+remaining_unknowns:
+  - "Q1. With the scale set to kilograms, and to stones, what is plaintext byte 0 and what is the scale factor? The first step is to record the flags byte in the unit the owner already uses: the one published flags value comes from a scale whose display unit is not stated. (conflict C1; experiment E2)"
+  - "Q2. Does own-key provisioning work as the 2026-10-26 comment says: any 16 bytes, written with response, while the status reads 00? (C2; E1)"
+  - "Q3. Is a write to the provision characteristic refused when the status already reads 01, or does it replace the key? (E1)"
+  - "Q4. Must the scale be awake for the provisioning write, and how does a client catch it awake straight after a reset? (E1)"
+  - "Q5. Which Client Characteristic Configuration value works from BlueZ, from Bleak, from an Apple host and through a Bluetooth proxy? Does 02 00 work? Does the weigh-in characteristic declare indicate only? Do messages always arrive as indications? (C5; E3)"
+  - "Q6. Does the scale keep a reading that was taken with no client subscribed, and for how long? (C7; E4)"
+  - "Q7. Why does one weigh-in produce several messages, some with values that match no weigh-in? Is there a stability marker in the other bits of byte 0? (E4)"
+  - "Q8. The exact advertisement and scan-response bytes awake and asleep, the advertising interval, and the byte order of the address in the manufacturer data. (C6; E5)"
+  - "Q9. What protocol runs behind the firmware-update service UUID on a Telink radio, and which characteristics sit under it? What is the otA display state, what does the scale expose on the air while it shows, and what does releasing the button there leave behind? (C4; E6 lists the service read-only; E10 watches the otA state from outside during a reset that is happening anyway. No safe experiment is known for releasing the button at otA, and none is proposed.)"
+  - "Q10. Whether anything here holds on a firmware revision other than A16 or a hardware revision other than H01, and whether later production changed the radio. (E6, E9)"
+  - "Q11. Does the vendor app ever send the key again to a scale that is already set up, for example from a second phone signed in to the same account? If not, where is the key kept and how does it reach a phone? That decides whether an owner could ever learn the existing key without a reset. (E7: a second phone, the first one left untouched)"
+  - "Q12. Is the nonce built from a counter and a shift pattern, and can it repeat within one key's lifetime? (E8)"
+  - "Q13. Are the factory named in the FCC report and the similarly named FCC grantee one group, and does any other product of theirs speak this protocol?"
+  - "Q14. Was company identifier 0x018e registered to Fitbit before it read Google LLC?"
+  - "Q15. Will the vendor keep setting the Aria Air up in its app? Its notice of the Aria / Aria 2 pairing change, which the English edition dates 9 November 2026, says the Aria Air is not impacted (read 2026-11-24 01:02 UTC). That is a statement about one change on a page seen to change within a day, not a commitment. Cheapest check: re-read the notice before relying on it."
+  - "Q16. What does the scale send on the weigh-in characteristic while its provision status reads 00: nothing, messages still sealed with the previous key, or something else? No source reports it. (E1)"
+  - "Q17. Does the vendor app released as version 5.12 still write the key in clear at setup, and does in-app setup of an Aria Air still complete? The one report of the capture route predates that release. (E11: log one setup that is happening anyway; never unpair a working scale to find out)"
+  - "Q18. How does the case open? No teardown is public, the top is one piece of glass, and the vendor says the scale is not serviceable. (Cheapest: one photographed teardown of a scale that is already broken or surplus; expect it may not survive. See protocol_details.hardware_research.)"
+  - "Q19. What, if anything, crosses the board between the scale's controller and the radio module during a weigh-in, on the module's RXD/TXD lines or elsewhere? No speed or format is known. (Cheapest: after Q18, a receive-only capture on the module's edge joints during one weigh-in made with a dead weight, with battery-powered or isolated equipment, never mains-powered equipment while a person is on the scale. Not an owner experiment.)"
+  - "Q20. Which of the module's edge joints carries the SWS signal, and does the chip's debug port answer at all? (Cheapest: after Q18, an identification-only read. Never an erase or a write: with no verified dump of that unit and no public image, either is unrecoverable. Reaching the signal may mean lifting the module, which can destroy the board. Battery-powered or isolated equipment only, with a dead weight on the platform (the scale is reported to be awake only while it is loaded), never mains-powered equipment while a person is on the scale. Not an owner experiment.)"
+  - "Q21. Is the unpopulated 8-pad footprint beside the main-board controller fitted on other production? (Cheapest: look, after Q18.)"
+  - "Q22. What does the vendor app show for a weigh-in that a local client received, and does sharing the scale between the two cause any trouble? (E12)"
+  - "Whether the key survives a battery change: one unreplicated report says it does. (E1)"
+  - "Which firmware and hardware revision the one own-key report was made on: the comment does not say. (E1 records both strings)"
+  - "What the solder-side pads labelled DOWN, SET, UP and UNIT do. Unexplained; they may reach functions of the scale's controller. Do not bridge them to find out."
+  - "Whether the manual's reset is one continuous 10-second hold or two separate 5-second holds, and whether the display unit survives it. (E10)"
+  - "The wording of the 2026-10-26 comment in openScale issue 1105: the research pass read it only through a summarising tool."
+
+evidence:
+  public_implementation: >
+    BigWebstas/ha-fitbit-aria-air at
+    d43708a1eb6acee368bde5a06b34208c9ece88f8 (a Home Assistant custom
+    integration, two helper tools, a small Android companion app and a
+    protocol write-up; first commit 2026-10-23). It supplied the
+    advertisement, the GATT listing, the provision status, the subscription
+    value, the 19-byte layout, the cipher parameters, the 3-byte plaintext
+    and the nonce observations, from one unit on firmware A16 and hardware
+    H01. Its author says decoded weights matched the display, without
+    saying which unit the display was set to, and describes the integration
+    itself as lightly tested in real use. It has no licence file, so what
+    was taken is facts (identifiers, layouts, parameters, timings, observed
+    behaviour), written up here in this project's own words. The three
+    files of this entry were compared against the repository's text at
+    that commit for shared runs of six or more words, most recently on
+    2026-11-24; what remains shared is UUIDs, the repository's own address,
+    a standard licence tag, two standard library import lines in the test,
+    and one file path: where the source says the Bluetooth log sits inside
+    an Android bug report, a fact that cannot be restated in other words.
+    The test for this spec imports and copies none of its code.
+  independent_capture: >
+    openScale issue 1105 (opened 2025-01-12, closed 2025-12-08, last
+    comment 2026-10-26). The opening post, by a different person and
+    twenty-one months before the implementation, shows the advertised name,
+    the Weight Scale service, the same vendor characteristic UUID,
+    indications on handle 0x0019 with a 19-byte value, a Telink address
+    prefix and nine sample values. A comment of 2025-04-15 reports a
+    16-byte write to handle 0x001d during setup after a reset. A comment of
+    2026-10-26, which its poster introduces as an AI assistant's findings,
+    states the cipher parameters, the bit-0 unit rule and the own-key
+    provisioning result for one unit of unstated firmware; one reply the
+    same day, no reproduction. Both research passes read the issue through
+    a summarising tool (the second asking for short exact quotations);
+    nothing from it is quoted verbatim here.
+  corroboration:
+    two_parties:
+      - "advertised name Aria Air"
+      - "service 0000181d-0000-1000-8000-00805f9b34fb holding characteristic 67b0ab2c-8323-427a-b1c9-70324bb5e228"
+      - "delivery as an indication"
+      - "19-byte value"
+      - "a 16-byte write at setup after a factory reset (one party names the characteristic, the other only the handle)"
+    january_2025_capture_only:
+      - "value handle 0x0019 (the public implementation gives no handle number)"
+      - "address prefix A4:C1:38 (it agrees with the Telink chip marking in the FCC photograph, which is not a second observation of the prefix)"
+    one_party:
+      - "Device Information strings (Fitbit, FB203, H01, A16)"
+      - "manufacturer data layout and the step-on flag"
+      - "advertising while asleep, and silence while connected"
+      - "the full GATT listing, including the firmware-update service"
+      - "key capture from an Android Bluetooth log, end to end"
+    one_party_plus_the_2026_10_26_comment:
+      - "provision status byte 00 / 01"
+      - "AES-128-CCM with an 8-byte nonce, an 8-byte tag and no associated data"
+      - "decoded weights matching the display"
+    the_2026_10_26_comment_only:
+      - "own-key provisioning after a reset"
+      - "the key surviving a battery change"
+      - "the bit-0 unit rule with 0.005 kg per count"
+      - "the key being held by the vendor's servers (asserted without a basis)"
+    vendor_documentation_consistent_with_the_cipher: "The Google Store specification page for the Aria Air lists AES-128 under data encryption (read 2026-11-24)."
+  second_research_round: >
+    A second pass on 2026-11-23 looked at every other local route (reading
+    without a key, the firmware-update service, the radio chip's debug
+    pads, the board itself, a load-cell retrofit) and a separate reviewer
+    re-opened each cited source. Its outcome is in
+    protocol_details.key_routes, protocol_details.hardware_research and the
+    negative findings: two routes to a key, both of which end the present
+    pairing; no firmware route that can be published; and two things that
+    cost an owner nothing. For it the FCC internal and external
+    photographs were re-read, and the READMEs of the public Telink
+    programmer projects were read for their lists of tested chips.
+  researcher_check: >
+    The research pass checked the implementation's claim about mirrored
+    nonce bytes against the nine sample values in the issue and found it in
+    all nine. That is this project's only independent corroboration of the
+    8-byte nonce split, and it rests on transcribed hex.
+  documentation_review: >
+    Vendor: the Aria Air user manual in versions 1.1 and 1.8 (unit button,
+    restart procedure, specifications, the statement that the scale is not
+    serviceable), read on 2026-11-23; the Google Health help pages on using
+    and setting up a Fitbit scale (the Aria / Aria 2 pairing notice and its
+    statement that the Aria Air is not impacted, the requirement to keep
+    the app open nearby, no bioimpedance, the app's availability for iPhone
+    and Android), read on 2026-11-23 and again on 2026-11-24 at 01:02 UTC,
+    by which time the English notice's date read 9 November 2026 where it
+    had read 28 November; the help pages on erasing a Fitbit device (the
+    Aria Air holds no personal data), on fixing sync problems (the Aria Air
+    steps, including signing in on another phone) and on how Fitbit
+    devices sync (Bluetooth LE for the Aria Air, Wi-Fi for the other two),
+    read on 2026-11-24; the Google Store listing and specification page;
+    the security-update table. Apple's CoreBluetooth documentation on
+    descriptor writes and on enabling notifications, read on 2026-11-24,
+    for the one host-stack inference in device.host_compatibility.
+    Regulatory: the FCC record for XRAFB203 (test reports, label, internal
+    photos, the 2020 permissive change). Registries: the Bluetooth SIG
+    company identifier list and the IEEE address-block registry. None of
+    these describes the protocol.
+  not_examined: >
+    No vendor app, firmware image or capture file was downloaded,
+    decompiled or executed by this project. No vendor app internals are
+    named here.
+  open_questions:
+    - "C1: the kilogram scale factor (0.005 or 0.01 kg per count) and the flags value in kilograms and stones."
+    - "C2: whether a client other than the vendor app can provision a reset scale. One unreplicated report."
+    - "C4: which update protocol sits behind the Nordic legacy DFU service UUID on what appears to be a Telink radio."
+    - "C5: whether a descriptor value of 02 00 opens the stream, and what works on Linux hosts, Apple hosts and Bluetooth proxies."
+    - "C6: whether the manufacturer data is in the scan response, and its exact bytes."
+    - "C7: whether any reading is stored when no client is connected."
+    - "What the scale sends while its provision status reads 00."
+    - "Which unit the one published flags value (1) was captured in; the source does not say."
+    - "Everything on any firmware revision except A16."
+    - "Whether own-key provisioning reproduces on a second unit, and on which firmware. Cheapest experiment: E1, on a scale whose owner accepts losing the vendor pairing."
+    - "Whether a write is refused while the status reads 01. Cheapest experiment: the second write in E1."
+    - "Whether the vendor app released as version 5.12 still writes the key in clear at setup, and whether in-app setup still completes. Cheapest experiment: E11, during a setup that is happening anyway."
+    - "Whether a newly signed-in phone needs the key written again, or gets it from the account. Cheapest experiment: E7, with a second phone and the first left untouched."
+    - "What the scale exposes while it shows otA, and what releasing the button there does. Cheapest experiment for the first half: E10, scan only, during a reset that is happening anyway. No safe experiment is known for the second half."
+    - "Which characteristics sit under the firmware-update service. Cheapest experiment: E6, enumerate and read only."
+    - "How the case opens; which module edge joint carries SWS and whether the debug port answers; what crosses the board between the controller and the radio module; whether the 8-pad footprint is ever populated. All need the case open, none is an owner experiment, and each is stated with its risk in protocol_details.hardware_research and Q18 to Q21."
+  artifacts:
+    - type: "public_implementation"
+      artifact: "BigWebstas/ha-fitbit-aria-air, d43708a1eb6acee368bde5a06b34208c9ece88f8 (no licence file)"
+      url: "https://github.com/BigWebstas/ha-fitbit-aria-air/tree/d43708a1eb6acee368bde5a06b34208c9ece88f8"
+      obtained_via: "Read-only fetch of the public repository, 2026-11-23; its text files fetched again on 2026-11-24 for the wording comparison."
+      description: "Source of the protocol facts; one unit, firmware A16. Facts only, in this project's own words."
+    - type: "community_thread"
+      artifact: "openScale issue 1105, Fitbit Aria Air support"
+      url: "https://github.com/oliexdev/openScale/issues/1105"
+      obtained_via: "Summarising fetch tool: on 2026-11-23, four reads in the first research pass and three more in the second asking for short exact quotations; on 2026-11-24, two targeted reads of the comments of 2025-04-15 and 2026-10-26. Not a verbatim page."
+      description: "Independent capture (January 2025) and the comments of 2025-04-15 and 2026-10-26."
+    - type: "vendor_documentation"
+      artifact: "Aria Air User Manual, version 1.8 (24 pages) and version 1.1 (PDF dated 2020-01-03)"
+      url: "https://storage.googleapis.com/support-kms-prod/tstfwA3ivox007uvXqN4xtTKSmowts0Gzuxj"
+      description: "Unit button, the otA / clr restart procedure, capacity, batteries. Both editions agree on the restart."
+    - type: "vendor_documentation"
+      artifact: "Google Health Help: How do I use my Fitbit scale?"
+      url: "https://support.google.com/googlehealth/answer/14236805"
+      obtained_via: "Fetched on 2026-11-23 at 05:11 UTC (the English notice read 28 November 2026) and again from 23:07 UTC that day to 02:26 UTC on 2026-11-24 (it read 9 November 2026; the 23:07 time is the save time of a kept copy, and another kept copy timed 22:33 UTC already read 9 November). German, French and Japanese editions fetched 2026-11-24 at 00:57, 01:02 and 02:26 UTC still read 28 November."
+      description: "The Aria / Aria 2 pairing notice, dated 9 November 2026 in the current English text, and its statement that the Aria Air is not impacted; app must be open nearby; no bioimpedance; people without a linked account can still use the scale and see their weight."
+    - type: "vendor_documentation"
+      artifact: "Google Health Help: How do I erase my Fitbit device?"
+      url: "https://support.google.com/googlehealth/answer/14236515"
+      obtained_via: "Fetched 2026-11-24."
+      description: "The one-line statement that the Aria Air holds no personal data, cited in the factory-reset description and conflict C7."
+    - type: "vendor_documentation"
+      artifact: "Google Health Help: Fix syncing issues with Google Health"
+      url: "https://support.google.com/googlehealth/answer/14236618"
+      obtained_via: "Fetched 2026-11-24."
+      description: "The Aria Air troubleshooting steps, including signing in on another phone or tablet to sync from it; the lead behind the account-held-key inference."
+    - type: "vendor_documentation"
+      artifact: "Google Health Help: How do Fitbit devices sync their data?"
+      url: "https://support.google.com/googlehealth/answer/14237221"
+      obtained_via: "Fetched 2026-11-24."
+      description: "Says the Aria Air syncs over Bluetooth LE to a phone or tablet while the Aria and Aria 2 use Wi-Fi."
+    - type: "vendor_documentation"
+      artifact: "Google Store: Fitbit Aria Air technical specifications"
+      url: "https://store.google.com/us/product/fitbit_aria_air_specs?hl=en-US"
+      obtained_via: "Fetched 2026-11-24."
+      description: "Lists AES-128 under data encryption and promises the software and security updates the law requires."
+    - type: "fcc_filing"
+      artifact: "FCC ID XRAFB203 (grants 2019-09-03 and 2020-06-23)"
+      url: "https://fccid.io/XRAFB203"
+      description: "Radio, power, label, factory name, the 2020 output-power reduction, and the internal and external photographs behind every hardware statement in protocol_details.hardware and protocol_details.hardware_research."
+    - type: "open_source_project"
+      artifact: "drinkcat/SmarterScale (Apache-2.0)"
+      url: "https://github.com/drinkcat/SmarterScale"
+      obtained_via: "README and LICENSE fetched 2026-11-24. Not installed, run or reviewed."
+      description: "Android app that reads a scale's display with the phone camera and writes the number to Health Connect; its author reports testing it on a Fitbit Aria Air only."
+
+helpful_urls:
+  - title: "Fitbit Aria Air User Manual, version 1.8 (vendor-hosted PDF)"
+    url: "https://storage.googleapis.com/support-kms-prod/tstfwA3ivox007uvXqN4xtTKSmowts0Gzuxj"
+    kind: "manual"
+    description: >
+      The current manual for the Aria Air (FB203) only, the copy the
+      vendor's manuals page links to. Covers the unit button, the otA / clr
+      restart used as the factory reset in this spec, batteries and
+      specifications. HTTP 200, application/pdf, checked 2026-11-23.
+  - title: "Fitbit Aria Air User Manual, version 1.1 (vendor-hosted PDF)"
+    url: "https://staticcs.fitbit.com/content/assets/help/manuals/manual_aria_air_en_US.pdf"
+    kind: "manual"
+    description: >
+      The older edition of the Aria Air (FB203) manual, PDF dated
+      2020-01-03, with the same restart procedure. HTTP 200,
+      application/pdf, checked 2026-11-23.
+  - title: "Fitbit Aria Air manual on manua.ls (aggregator copy)"
+    url: "https://www.manua.ls/fitbit/aria-air/manual"
+    kind: "manual"
+    description: >
+      Aggregator-hosted copy of the Aria Air (FB203) manual, kept as a
+      fallback for when the vendor links move. HTTP 200, checked 2026-11-23.
+  - title: "Google Health Help: How do I use my Fitbit scale?"
+    url: "https://support.google.com/googlehealth/answer/14236805"
+    kind: "vendor_support"
+    description: >
+      Covers the Aria, Aria 2 and Aria Air. Carries the notice that, in the
+      English text read on 2026-11-24, pairing and re-pairing of the Aria
+      and Aria 2 ended on 9 November 2026 with app version 5.12, and that
+      the Aria Air is not impacted. The page has been seen to change, so
+      trust it over this line. Also says the app must be open on a nearby
+      phone during an Aria Air weigh-in, that people without a linked
+      account can still use the scale and see their weight, and how to tell
+      the three scales apart by their batteries. HTTP 200, checked
+      2026-11-24.
+  - title: "Google Health Help: Set up your Fitbit device"
+    url: "https://support.google.com/googlehealth/answer/14236818"
+    kind: "vendor_support"
+    description: >
+      The vendor's setup steps for all three Aria scales; for the Aria Air
+      (FB203), setup is in the phone app only. Carries the same pairing
+      notice. HTTP 200, checked 2026-11-24.
+  - title: "Google Health Help: How do I erase my Fitbit device?"
+    url: "https://support.google.com/googlehealth/answer/14236515"
+    kind: "vendor_support"
+    description: >
+      Covers the Aria, Aria 2 and Aria Air among other Fitbit devices. For
+      the Aria Air (FB203) its whole erase instruction is one line saying
+      the scale holds no personal data, which is the source of that
+      statement in this spec. HTTP 200, checked 2026-11-24.
+  - title: "Google Health Help: Fix syncing issues with Google Health"
+    url: "https://support.google.com/googlehealth/answer/14236618"
+    kind: "vendor_support"
+    description: >
+      Sync troubleshooting for Fitbit devices, with a section for the Aria
+      Air (FB203), and the place to start when a paired scale stops
+      syncing. Start with its first steps: app open nearby, force quit and
+      reopen the app, restart Bluetooth, restart the phone. Its later steps
+      reinstall the app and sign in on another phone or tablet: that is
+      the vendor's advice, but where the key is kept is not established
+      (Q11), so this spec cannot say what a reinstall does to it; try the
+      earlier steps first. None of its Aria Air steps removes the scale
+      itself from the account or resets it. HTTP 200, checked 2026-11-24.
+  - title: "ha-fitbit-aria-air protocol notes (pinned)"
+    url: "https://github.com/BigWebstas/ha-fitbit-aria-air/blob/d43708a1eb6acee368bde5a06b34208c9ece88f8/docs/PROTOCOL.md"
+    kind: "protocol_writeup"
+    description: >
+      The public write-up this spec's protocol facts are restated from: one
+      Aria Air on firmware A16. No licence file, so read it, do not copy it.
+  - title: "ha-fitbit-aria-air (pinned)"
+    url: "https://github.com/BigWebstas/ha-fitbit-aria-air/tree/d43708a1eb6acee368bde5a06b34208c9ece88f8"
+    kind: "implementation"
+    description: >
+      Home Assistant custom integration for the Aria Air with a key
+      extractor for an Android Bluetooth log and a standalone Linux reader.
+      It needs the scale's key, and its documented way of getting one
+      starts by removing the scale from the vendor account and resetting
+      it: read device.setup before following it. Its author describes it as
+      lightly tested, and it reports hundredths of the displayed unit in
+      every unit mode, which is one side of conflict C1.
+  - title: "openScale issue 1105: Fitbit Aria Air support"
+    url: "https://github.com/oliexdev/openScale/issues/1105"
+    kind: "forum"
+    description: >
+      The independent January 2025 capture, and the 2026-10-26 comment that
+      reports writing an owner-chosen key after a reset: one unit, firmware
+      not stated, introduced by its poster as an AI assistant's findings,
+      reproduced by nobody. openScale itself has no Aria Air handler.
+  - title: "SmarterScale: read a scale's display with a phone camera"
+    url: "https://github.com/drinkcat/SmarterScale"
+    kind: "implementation"
+    description: >
+      Open-source Android app (Apache-2.0) that reads the digits on a
+      scale's display through the camera and writes the weight to Android
+      Health Connect: no Bluetooth link to the scale, no key, no reset. Its
+      README says it has been tested on a Fitbit Aria Air only, handles
+      kilograms only and assumes where the decimal point is. Installed from
+      the project's own release page, not an app store. Not run or reviewed
+      by this project. README and LICENSE fetched 2026-11-24.
+  - title: "FCC ID XRAFB203 (Fitbit Aria Air)"
+    url: "https://fccid.io/XRAFB203"
+    kind: "teardown"
+    description: >
+      The regulatory record: test reports, label, external photos and
+      internal photos of the boards and radio module. HTTP 200, checked
+      2026-11-24. The photos are evidence for what is inside; they are not
+      instructions for opening the scale, which the vendor says is not
+      serviceable.
+  - title: "RFC 3610: Counter with CBC-MAC (CCM)"
+    url: "https://www.rfc-editor.org/rfc/rfc3610"
+    kind: "standard"
+    description: >
+      The definition of the CCM mode used by the weigh-in messages; the
+      derived block layouts in protocol_details.message_cipher follow it.

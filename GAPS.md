@@ -311,7 +311,7 @@ the table above.
 - The 2026-10 sweep-log entries for Withings Body+ say the community code is unpublished. It is published, under MIT.
 - The schema has no field for requests a device sends to a server the owner runs. Specs that need it (Eye-Fi, PicoBrew, and now the Aria) put the server's routes under `protocol_details` with a direction string, where no consumer can read them by key. The open sweep PR logs the same gap for Coway. It belongs in [docs/contributing/spec-evolution.md](docs/contributing/spec-evolution.md).
 
-## Validation: 331/331 passing (330 device specs + 1 example)
+## Validation: 333/333 passing (332 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after
